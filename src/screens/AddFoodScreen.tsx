@@ -54,8 +54,13 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     const [foodItems, setFoodItems] = useState(convertLocalFoodItems(localFoodItems));
     const [isLoading, setIsLoading] = useState(false);
 
-    const searchFoodsDebounce = useCallback(debounce((text: string) => {
+    const searchFoodsDebounce = useCallback(debounce((text: string, runSearch: boolean) => {
+        if (!runSearch) {
+            return;
+        }
+
         setIsLoading(true);
+
         foodSearchService.searchBrandedFoods(text, (foods: SearchFoodItem[]) => {
             const converted: FoodListItem[] = foods.map((item) => ({
                 type: 'search',
@@ -66,12 +71,13 @@ const AddFoodScreen = ({ navigation, route }: any) => {
             setIsLoading(false);
             setFoodItems(converted);
         });
-    }, 1000, { leading: false }), []);
+    }, 1000, { leading: false, trailing: true }), []);
 
     useEffect(() => {
         if (localFoodItems.length === 0) {
-            searchFoodsDebounce(searchText);
+            searchFoodsDebounce(searchText, true);
         } else {
+            searchFoodsDebounce('', false); // cancels the search debounce when local items are present
             setFoodItems(convertLocalFoodItems(localFoodItems));
         }
     }, [searchText, localFoodItems]);

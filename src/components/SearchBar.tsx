@@ -22,7 +22,9 @@ const SearchBar = (props: Props) => {
 
     const onCancel = () => {
         setSearchText('');
-        Keyboard.dismiss();
+        setTimeout(() => {
+            Keyboard.dismiss();
+        }, 50);
     };
 
     return (

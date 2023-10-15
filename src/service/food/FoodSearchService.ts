@@ -4,6 +4,7 @@ import * as io from 'io-ts';
 import { Errors } from 'io-ts';
 import { isNil } from 'lodash';
 import { FDA_FOOD_API_KEY } from '../../../config';
+import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
 
 export interface SearchFoodItem {
     fdcId: number;
@@ -63,7 +64,7 @@ class FoodSearchService implements IFoodSearchService {
                             fdcId: foodResponse.fdcId,
                             brandName: foodResponse.brandName,
                             brandOwner: foodResponse.brandOwner,
-                            description: foodResponse.description,
+                            description: capitalizeFirstLetterOfEveryWord(foodResponse.description),
                         });
                     }
                 });

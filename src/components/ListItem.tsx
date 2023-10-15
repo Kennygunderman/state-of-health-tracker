@@ -62,8 +62,8 @@ const ListItem = (props: Props) => {
                         ]}
                     >
 
-                        <Text style={{ fontWeight: 'bold', marginLeft: 10 }}>{title}</Text>
-                        <Text style={{ fontWeight: '200', marginLeft: 10 }}>{subtitle}</Text>
+                        <Text style={{ fontWeight: 'bold', marginLeft: 10 }} numberOfLines={1}>{title}</Text>
+                        <Text style={{ fontWeight: '200', marginLeft: 10 }} numberOfLines={2}>{subtitle}</Text>
                         <View style={{
                             position: 'absolute',
                             alignSelf: 'flex-end',
