@@ -9,6 +9,8 @@ interface Props {
     onSearchTextChanged: (text: string) => void;
 }
 
+export const SEARCH_BAR_HEIGHT = 64;
+
 const SearchBar = (props: Props) => {
     const { onSearchTextChanged, placeholder } = props;
 
@@ -28,7 +30,7 @@ const SearchBar = (props: Props) => {
             flexDirection: 'row',
             justifyContent: 'center',
             width: '100%',
-            height: 64,
+            height: SEARCH_BAR_HEIGHT,
             backgroundColor: useStyleTheme().colors.secondary,
         }}
         >
