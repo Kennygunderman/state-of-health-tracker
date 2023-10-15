@@ -13,7 +13,7 @@ export interface SearchFoodItem {
 }
 
 interface IFoodSearchService {
-    searchBrandedFoods: (searchQuery: string, numOfResults: number, onFetched: (foods: SearchFoodItem[]) => void) => void;
+    searchBrandedFoods: (searchQuery: string, onFetched: (foods: SearchFoodItem[]) => void) => void;
 }
 
 const SearchFoodItemResponse = io.partial({
@@ -28,15 +28,14 @@ const SearchFoodResponse = io.partial({
 });
 
 class FoodSearchService implements IFoodSearchService {
-    searchBrandedFoods(searchQuery: string, numOfResults: number, onFetched: (foods: SearchFoodItem[]) => void): void {
-        console.log(searchQuery);
+    searchBrandedFoods(searchQuery: string, onFetched: (foods: SearchFoodItem[]) => void): void {
         const options = {
             method: 'GET',
             url: 'https://api.nal.usda.gov/fdc/v1/foods/search',
             params: {
                 query: searchQuery,
                 dataType: 'Branded',
-                pageSize: numOfResults,
+                pageSize: 30,
                 pageNumber: 1,
                 sortBy: 'dataType.keyword',
                 sortOrder: 'asc',

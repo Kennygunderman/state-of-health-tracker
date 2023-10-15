@@ -56,7 +56,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
 
     const searchFoodsDebounce = useCallback(debounce((text: string) => {
         setIsLoading(true);
-        foodSearchService.searchBrandedFoods(text, 10, (foods: SearchFoodItem[]) => {
+        foodSearchService.searchBrandedFoods(text, (foods: SearchFoodItem[]) => {
             const converted: FoodListItem[] = foods.map((item) => ({
                 type: 'search',
                 id: item.fdcId.toString(),
@@ -69,7 +69,6 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     }, 1000, { leading: false }), []);
 
     useEffect(() => {
-        console.log(searchText, localFoodItems);
         if (localFoodItems.length === 0) {
             searchFoodsDebounce(searchText);
         } else {
@@ -93,7 +92,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     };
 
     const onNewFoodItemPressed = () => {
-        setLoadBatch(15);
+        setLoadBatch(batchIncrement);
         navigation.push(Screens.CREATE_FOOD, { foodName: searchText });
     };
 
@@ -202,7 +201,6 @@ const AddFoodScreen = ({ navigation, route }: any) => {
                     leftRightMargin={Spacing.MEDIUM}
                     title={item.searchFoodItem?.description ?? ''}
                     subtitle={item.searchFoodItem?.brandOwner ?? ''}
-                    onDeletePressed={() => {}}
                 />
             );
         }

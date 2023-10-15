@@ -13,7 +13,7 @@ interface Props {
     readonly chip?: JSX.Element;
     readonly swipeableRef?: (ref: Swipeable) => void;
     readonly onSwipeActivated?: () => void;
-    readonly onDeletePressed: () => void;
+    readonly onDeletePressed?: () => void;
     readonly showLeftBorder?: boolean;
     readonly showRightBorder?: boolean
     readonly onPress?: () => void;
