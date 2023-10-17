@@ -8,6 +8,8 @@ export default interface FoodItem extends Unique {
     servings: number;
     calories: number;
     macros: Macros;
+    ingredients?: string;
+    description?: string;
 }
 
 export interface Macros {
@@ -34,6 +36,13 @@ export function createFood(name: string, servings: number, calories: string, mac
         servings,
         calories: calories === '' ? 0 : isNumber(calories) ? parseInt(calories, 10) : 0,
         macros,
+        id: uuidv4(),
+    };
+}
+
+export function generateId(foodItem: FoodItem): FoodItem {
+    return {
+        ...foodItem,
         id: uuidv4(),
     };
 }

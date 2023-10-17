@@ -11,4 +11,5 @@ export default {
     ACCOUNT: 'Account',
     REGISTER: 'Register',
     LOG_IN: 'Log In',
+    ADD_FOOD_DETAIL_SCREEN: 'Add Food Detail',
 };

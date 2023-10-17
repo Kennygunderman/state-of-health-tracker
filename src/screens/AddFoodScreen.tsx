@@ -207,6 +207,14 @@ const AddFoodScreen = ({ navigation, route }: any) => {
                     leftRightMargin={Spacing.MEDIUM}
                     title={item.searchFoodItem?.description ?? ''}
                     subtitle={item.searchFoodItem?.brandOwner ?? ''}
+                    onPress={() => {
+                        navigation.navigate(Screens.ADD_FOOD_DETAIL_SCREEN, {
+                            path: 'add-remote',
+                            mealId,
+                            mealName,
+                            fdcId: item.searchFoodItem?.fdcId,
+                        });
+                    }}
                 />
             );
         }
