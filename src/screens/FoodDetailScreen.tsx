@@ -1,33 +1,67 @@
 import React, { useEffect, useState } from 'react';
-import { Dimensions, TouchableOpacity, View } from 'react-native';
+import { isNil } from 'lodash';
+import {
+    Dimensions, ScrollView, TouchableOpacity, View,
+} from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import Toast from 'react-native-toast-message';
 import { useDispatch } from 'react-redux';
 import Chip from '../components/Chip';
+import LoadingOverlay from '../components/LoadingOverlay';
 import Picker, { PickerItem } from '../components/Picker';
 import PrimaryButton from '../components/PrimaryButton';
 import FontSize from '../constants/FontSize';
 import Spacing from '../constants/Spacing';
 import {
-
+    ADD_FOOD_BUTTON_TEXT,
     CALORIES_LABEL,
     CARBS_LABEL,
     FAT_LABEL, FRACTION_LABEL,
     G_CARBS_LABEL,
     G_FAT_LABEL,
-    G_PROTEIN_LABEL,
+    G_PROTEIN_LABEL, INGREDIENTS_LABEL,
     PROTEIN_LABEL,
     SELECT_A_FRACTION_PLACEHOLDER_TEXT,
     SERVINGS_LABEL, SERVINGS_TEXT,
     TOAST_MEAL_UPDATED,
     UPDATE_SERVINGS_BUTTON_TEXT,
 } from '../constants/Strings';
-import FoodItem from '../store/food/models/FoodItem';
-import { updateMealFoodItemServings } from '../store/meals/MealsActions';
+import foodSearchService from '../service/food/FoodSearchService';
+import { addFood } from '../store/food/FoodActions';
+import FoodItem, { generateId } from '../store/food/models/FoodItem';
+import { updateMealFood, updateMealFoodItemServings } from '../store/meals/MealsActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 
+export interface FoodDetailRouteParams {
+    path: 'update' | 'add' | 'add-remote';
+    mealId: string;
+    mealName: string;
+    fdcId?: number;
+    foodToUpdate?: FoodItem;
+}
+
 const FoodDetailScreen = ({ navigation, route }: any) => {
-    const { mealName, mealId, foodItem }: { mealName: string, mealId: string, foodItem: FoodItem } = route.params;
+    const {
+        path,
+        mealId,
+        mealName,
+        fdcId,
+        foodToUpdate,
+    }: FoodDetailRouteParams = route.params;
+
+    const [foodItem, setFoodItem] = useState<FoodItem | undefined>(foodToUpdate);
+
+    const [isLoading, setIsLoading] = useState(isNil(foodToUpdate));
+    const [loadFoodFailure, setLoadFoodFailure] = useState(false);
+
+    useEffect(() => {
+        if (!isNil(fdcId)) {
+            foodSearchService.getFoodItem(fdcId, (fetchedFoodItem?: FoodItem) => {
+                setIsLoading(false);
+                setFoodItem(fetchedFoodItem);
+            });
+        }
+    }, []);
 
     const radius = 30;
     const circumference = radius * 2 * Math.PI;
@@ -50,15 +84,15 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         { label: '7/8', value: 0.875 },
     ];
 
-    const [servingsNumber, setServingsNumber] = useState(Math.floor(foodItem.servings));
-    const [servingsFraction, setServingsFraction] = useState(foodItem.servings - servingsNumber);
+    const [servingsNumber, setServingsNumber] = useState(path === 'add-remote' ? 1 : Math.floor(foodItem?.servings ?? 0));
+    const [servingsFraction, setServingsFraction] = useState(path === 'add-remote' ? 1 : (foodItem?.servings ?? 0) - servingsNumber);
 
     const selectedSliceWidth = 15;
     const deselectedSliceWidth = 10;
 
-    const proteinCals = foodItem.macros.protein * 4;
-    const carbCals = foodItem.macros.carbs * 4;
-    const fatCals = foodItem.macros.fat * 9;
+    const proteinCals = (foodItem?.macros.protein ?? 0) * 4;
+    const carbCals = (foodItem?.macros.carbs ?? 0) * 4;
+    const fatCals = (foodItem?.macros.fat ?? 0) * 9;
 
     const totalCalories = proteinCals + carbCals + fatCals;
 
@@ -77,13 +111,13 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
     useEffect(() => {
         switch (selectedSlice) {
             case 'protein':
-                setPercentageText(`${Math.round(proteinCals / (totalCalories * 100))}%`);
+                setPercentageText(`${Math.round((proteinCals / totalCalories) * 100)}%`);
                 break;
             case 'carbs':
-                setPercentageText(`${Math.round(carbCals / (totalCalories * 100))}%`);
+                setPercentageText(`${Math.round((carbCals / totalCalories) * 100)}%`);
                 break;
             case 'fat':
-                setPercentageText(`${Math.round(fatCals / (totalCalories * 100))}%`);
+                setPercentageText(`${Math.round((fatCals / totalCalories) * 100)}%`);
                 break;
             case 'none':
             default:
@@ -91,7 +125,11 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         }
     }, [selectedSlice]);
 
-    const updateFood = () => {
+    const updateServings = () => {
+        if (isNil(foodItem)) {
+            return;
+        }
+
         const servings = servingsNumber + servingsFraction;
         dispatch(updateMealFoodItemServings(mealId, foodItem.id, servings));
         Toast.show({
@@ -102,6 +140,31 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         });
 
         navigation.goBack();
+    };
+
+    const addFoodToMeal = () => {
+        if (isNil(foodItem)) {
+            return;
+        }
+
+        const localFoodItem = generateId(foodItem);
+        dispatch(updateMealFood(mealId, localFoodItem));
+        dispatch(addFood(localFoodItem));
+        Toast.show({
+            type: 'success',
+            text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
+            visibilityTime: 3_000,
+        });
+
+        navigation.pop(2);
+    };
+
+    const handlePrimaryPressed = () => {
+        if (path === 'add' || path === 'add-remote') {
+            addFoodToMeal();
+        } else {
+            updateServings();
+        }
     };
 
     const circleSliceLength = (macro: number) => {
@@ -166,17 +229,44 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         );
     };
 
+    // TODO: handle failure
+    if (loadFoodFailure) {
+        return (
+            <View />
+        );
+    }
+
+    if (isLoading) {
+        return (
+            <LoadingOverlay />
+        );
+    }
+
     return (
-        <>
+        <ScrollView>
             <Text style={{
                 marginTop: Spacing.MEDIUM,
                 marginLeft: Spacing.X_LARGE,
+                marginRight: Spacing.X_LARGE,
                 fontWeight: 'bold',
                 fontSize: FontSize.H1,
             }}
             >
-                {foodItem.name}
+                {foodItem?.name ?? ''}
             </Text>
+            { foodItem?.description
+                && (
+                    <Text style={{
+                        marginTop: Spacing.X_SMALL,
+                        marginBottom: Spacing.X_SMALL,
+                        marginLeft: Spacing.X_LARGE,
+                        fontWeight: '300',
+                        fontSize: FontSize.PARAGRAPH,
+                    }}
+                    >
+                        {`${foodItem.description}`}
+                    </Text>
+                )}
             <Text style={{
                 marginTop: Spacing.XX_SMALL,
                 marginLeft: Spacing.X_LARGE,
@@ -184,9 +274,8 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                 fontSize: FontSize.H2,
             }}
             >
-                {`${foodItem.calories} ${CALORIES_LABEL}`}
+                {`${foodItem?.calories ?? 0} ${CALORIES_LABEL}`}
             </Text>
-
             <View style={{ width: 240, height: 240 }}>
                 <View style={{
                     position: 'absolute',
@@ -238,7 +327,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                             marginRight: Spacing.X_SMALL,
                             marginTop: Spacing.SMALL,
                         }}
-                        label={`${foodItem.macros.protein} ${G_PROTEIN_LABEL}`}
+                        label={`${foodItem?.macros.protein ?? 0} ${G_PROTEIN_LABEL}`}
                     />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -258,7 +347,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                             marginRight: Spacing.X_SMALL,
                             marginTop: Spacing.SMALL,
                         }}
-                        label={`${foodItem.macros.carbs} ${G_CARBS_LABEL}`}
+                        label={`${foodItem?.macros.carbs ?? 0} ${G_CARBS_LABEL}`}
                     />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -278,7 +367,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                             marginRight: Spacing.X_SMALL,
                             marginTop: Spacing.SMALL,
                         }}
-                        label={`${foodItem.macros.fat} ${G_FAT_LABEL}`}
+                        label={`${foodItem?.macros.fat ?? 0} ${G_FAT_LABEL}`}
                     />
                 </TouchableOpacity>
             </View>
@@ -317,10 +406,37 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                     alignSelf: 'center',
                     width: '90%',
                 }}
-                label={UPDATE_SERVINGS_BUTTON_TEXT}
-                onPress={updateFood}
+                label={path === 'add' || path === 'add-remote' ? ADD_FOOD_BUTTON_TEXT : UPDATE_SERVINGS_BUTTON_TEXT}
+                onPress={handlePrimaryPressed}
             />
-        </>
+
+            { foodItem?.ingredients
+                && (
+                    <>
+                        <Text style={{
+                            zIndex: -1,
+                            marginTop: Spacing.MEDIUM,
+                            marginHorizontal: Spacing.MEDIUM,
+                            fontWeight: 'bold',
+                            fontSize: FontSize.PARAGRAPH,
+                        }}
+                        >
+                            {INGREDIENTS_LABEL}
+                        </Text>
+                        <Text style={{
+                            zIndex: -1,
+                            marginTop: Spacing.X_SMALL,
+                            marginBottom: Spacing.X_LARGE,
+                            marginHorizontal: Spacing.MEDIUM,
+                            fontWeight: '300',
+                            fontSize: FontSize.PARAGRAPH,
+                        }}
+                        >
+                            {`${foodItem.ingredients}`}
+                        </Text>
+                    </>
+                )}
+        </ScrollView>
     );
 };
 

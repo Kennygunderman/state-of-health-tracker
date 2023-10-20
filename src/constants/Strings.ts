@@ -57,6 +57,7 @@ export const SERVING_TYPE_LABEL = 'Serving Type';
 export const SERVING_AMOUNT_LABEL = 'Serving Amount';
 export const SELECT_A_FRACTION_PLACEHOLDER_TEXT = 'Select a fraction';
 export const UPDATE_SERVINGS_BUTTON_TEXT = 'Update Servings';
+export const ADD_FOOD_BUTTON_TEXT = 'Add Food';
 export const PROTEIN_LABEL = 'protein';
 export const CARBS_LABEL = 'carbs';
 export const FAT_LABEL = 'fat';

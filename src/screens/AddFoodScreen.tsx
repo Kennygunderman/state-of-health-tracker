@@ -208,7 +208,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
                     title={item.searchFoodItem?.description ?? ''}
                     subtitle={item.searchFoodItem?.brandOwner ?? ''}
                     onPress={() => {
-                        navigation.navigate(Screens.ADD_FOOD_DETAIL_SCREEN, {
+                        navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
                             path: 'add-remote',
                             mealId,
                             mealName,
