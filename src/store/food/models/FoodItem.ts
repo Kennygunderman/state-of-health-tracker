@@ -10,6 +10,7 @@ export default interface FoodItem extends Unique {
     macros: Macros;
     ingredients?: string;
     description?: string;
+    source?: 'remote' | 'local';
 }
 
 export interface Macros {
@@ -30,6 +31,13 @@ export function formatMacros(macros: Macros): string {
     return `protein ${Math.round(macros.protein)}(g), carbs ${Math.round(macros.carbs)}(g), fat ${Math.round(macros.fat)}(g)`;
 }
 
+export function caloriesFromMacros(macros: Macros): number {
+    // 1g of protein = 4 cal
+    // 1g of carbs = 4 cal
+    // 1g of fat = 9 cal
+    return Math.round((macros.protein * 4) + (macros.carbs * 4) + (macros.fat * 9));
+}
+
 export function createFood(name: string, servings: number, calories: string, macros: Macros): FoodItem {
     return {
         name,
@@ -40,9 +48,10 @@ export function createFood(name: string, servings: number, calories: string, mac
     };
 }
 
-export function generateId(foodItem: FoodItem): FoodItem {
+export function convertToLocal(foodItem: FoodItem): FoodItem {
     return {
         ...foodItem,
+        source: 'local',
         id: uuidv4(),
     };
 }

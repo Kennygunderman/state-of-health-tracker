@@ -4,38 +4,29 @@ import * as io from 'io-ts';
 import { Errors } from 'io-ts';
 import { isNil } from 'lodash';
 import { USDA_BASE_URL, USDA_FOOD_API_KEY } from '../../../config';
-import FoodItem from '../../store/food/models/FoodItem';
+import FoodItem, { caloriesFromMacros, Macros } from '../../store/food/models/FoodItem';
 import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
 
-export interface SearchFoodItem {
-    fdcId: number;
-    brandName: string;
-    brandOwner: string;
-    description: string;
-}
-
-export interface BrandedFoodItem {
-    fdcId: number;
-    brandName: string;
-    brandOwner: string;
-    description: string;
-    protein: number;
-    carbs: number;
-    fat: number;
-    ingredients?: string;
-    brandedFoodCategory?: string;
-}
-
 interface IFoodSearchService {
-    searchBrandedFoods: (searchQuery: string, onFetched: (foods: SearchFoodItem[]) => void) => void;
+    searchBrandedFoods: (searchQuery: string, onFetched: (foods: FoodItem[]) => void) => void;
     getFoodItem: (fdcId: number, onFetched: (foodItem?: FoodItem) => void) => void;
 }
+
+const SearchFoodItemNutrient = io.partial({
+    nutrientName: io.string,
+    value: io.number,
+    nutrientNumber: io.string,
+});
 
 const SearchFoodItemResponse = io.partial({
     fdcId: io.number,
     brandName: io.union([io.string, io.null]),
     brandOwner: io.union([io.string, io.null]),
     description: io.union([io.string, io.null]),
+    servingSize: io.union([io.number, io.null]),
+    servingSizeUnit: io.union([io.string, io.null]),
+    householdServingFullText: io.union([io.string, io.null]),
+    foodNutrients: io.union([io.array(SearchFoodItemNutrient), io.null]),
 });
 
 const SearchFoodResponse = io.partial({
@@ -66,7 +57,7 @@ const BrandedFoodResponse = io.partial({
 });
 
 class FoodSearchService implements IFoodSearchService {
-    searchBrandedFoods(searchQuery: string, onFetched: (foods: SearchFoodItem[]) => void): void {
+    searchBrandedFoods(searchQuery: string, onFetched: (foods: FoodItem[]) => void): void {
         const options = {
             method: 'GET',
             url: `${USDA_BASE_URL}/foods/search`,
@@ -86,6 +77,7 @@ class FoodSearchService implements IFoodSearchService {
             .then(({ data }: { data: any }) => {
                 const decode = (decoded: object) => SearchFoodResponse.decode(decoded);
                 const decodedData: Either<Errors, any> = decode(data);
+                console.log(decodedData);
                 if (isLeft(decodedData)) {
                     // decode failed
                     // TODO: report error to crashlytics
@@ -93,17 +85,37 @@ class FoodSearchService implements IFoodSearchService {
                     return;
                 }
 
-                const foodItems: SearchFoodItem[] = [];
+                const foodItems: FoodItem[] = [];
                 decodedData.right.foods.forEach((foodResponse: any) => {
                     if (!isNil(foodResponse.fdcId)
                         && !isNil(foodResponse.brandName)
                         && !isNil(foodResponse.brandOwner)
-                        && !isNil(foodResponse.description)) {
+                        && !isNil(foodResponse.description)
+                        && !isNil(foodResponse.servingSize)
+                        && !isNil(foodResponse.servingSizeUnit)
+                        && !isNil(foodResponse.foodNutrients)
+                    ) {
+                        let servingSize = '';
+                        if (!isNil(foodResponse.householdServingFullText) && foodResponse.householdServingFullText !== '') {
+                            servingSize = `(${capitalizeFirstLetterOfEveryWord(foodResponse.householdServingFullText)})`;
+                        } else if (!isNil(foodResponse.servingSize) && !isNil(foodResponse.servingSizeUnit)) {
+                            servingSize = `(${foodResponse.servingSize} ${foodResponse.servingSizeUnit})`;
+                        }
+
+                        const values = this.getValuesForFoodSearchItem(foodResponse.servingSize, foodResponse.foodNutrients);
+
+                        if (isNil(values)) {
+                            return;
+                        }
+
                         foodItems.push({
-                            fdcId: foodResponse.fdcId,
-                            brandName: foodResponse.brandName,
-                            brandOwner: foodResponse.brandOwner,
-                            description: capitalizeFirstLetterOfEveryWord(foodResponse.description),
+                            id: foodResponse.fdcId,
+                            name: `${capitalizeFirstLetterOfEveryWord(foodResponse.description)} ${servingSize}`,
+                            description: `${capitalizeFirstLetterOfEveryWord(foodResponse.brandName)}, ${foodResponse.brandOwner}`,
+                            servings: 1,
+                            calories: values.calories,
+                            macros: values.macros,
+                            source: 'remote',
                         });
                     }
                 });
@@ -115,6 +127,30 @@ class FoodSearchService implements IFoodSearchService {
                 // TODO: report error to crashlytics
                 onFetched([]);
             });
+    }
+
+    private getValuesForFoodSearchItem(servingSize: number, nutrients: any[]): { calories: number, macros: Macros } | undefined {
+        const protein = nutrients.find((nutrient) => nutrient.nutrientNumber === '203');
+        const carbs = nutrients.find((nutrient) => nutrient.nutrientNumber === '205');
+        const fat = nutrients.find((nutrient) => nutrient.nutrientNumber === '204');
+
+        // USDA calculates values per 100g or 100ml from values per serving.
+        const modifider = servingSize / 100;
+
+        if (isNil(protein) || isNil(carbs) || isNil(fat)) {
+            return undefined;
+        }
+
+        const macros: Macros = {
+            protein: Math.round(modifider * (protein?.value ?? 0)),
+            carbs: Math.round(modifider * (carbs?.value ?? 0)),
+            fat: Math.round(modifider * (fat?.value ?? 0)),
+        };
+
+        return {
+            calories: caloriesFromMacros(macros),
+            macros,
+        };
     }
 
     getFoodItem(fdcId: number, onFetched: (foodItem?: FoodItem) => void) {

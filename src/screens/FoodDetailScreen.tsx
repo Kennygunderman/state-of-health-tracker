@@ -7,7 +7,6 @@ import Svg, { Circle } from 'react-native-svg';
 import Toast from 'react-native-toast-message';
 import { useDispatch } from 'react-redux';
 import Chip from '../components/Chip';
-import LoadingOverlay from '../components/LoadingOverlay';
 import Picker, { PickerItem } from '../components/Picker';
 import PrimaryButton from '../components/PrimaryButton';
 import FontSize from '../constants/FontSize';
@@ -26,18 +25,16 @@ import {
     TOAST_MEAL_UPDATED,
     UPDATE_SERVINGS_BUTTON_TEXT,
 } from '../constants/Strings';
-import foodSearchService from '../service/food/FoodSearchService';
 import { addFood } from '../store/food/FoodActions';
-import FoodItem, { generateId } from '../store/food/models/FoodItem';
+import FoodItem, { convertToLocal } from '../store/food/models/FoodItem';
 import { updateMealFood, updateMealFoodItemServings } from '../store/meals/MealsActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 
 export interface FoodDetailRouteParams {
-    path: 'update' | 'add' | 'add-remote';
+    path: 'update' | 'add';
     mealId: string;
     mealName: string;
-    fdcId?: number;
-    foodToUpdate?: FoodItem;
+    foodItem: FoodItem;
 }
 
 const FoodDetailScreen = ({ navigation, route }: any) => {
@@ -45,23 +42,8 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         path,
         mealId,
         mealName,
-        fdcId,
-        foodToUpdate,
+        foodItem,
     }: FoodDetailRouteParams = route.params;
-
-    const [foodItem, setFoodItem] = useState<FoodItem | undefined>(foodToUpdate);
-
-    const [isLoading, setIsLoading] = useState(isNil(foodToUpdate));
-    const [loadFoodFailure, setLoadFoodFailure] = useState(false);
-
-    useEffect(() => {
-        if (!isNil(fdcId)) {
-            foodSearchService.getFoodItem(fdcId, (fetchedFoodItem?: FoodItem) => {
-                setIsLoading(false);
-                setFoodItem(fetchedFoodItem);
-            });
-        }
-    }, []);
 
     const radius = 30;
     const circumference = radius * 2 * Math.PI;
@@ -84,8 +66,8 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         { label: '7/8', value: 0.875 },
     ];
 
-    const [servingsNumber, setServingsNumber] = useState(path === 'add-remote' ? 1 : Math.floor(foodItem?.servings ?? 0));
-    const [servingsFraction, setServingsFraction] = useState(path === 'add-remote' ? 1 : (foodItem?.servings ?? 0) - servingsNumber);
+    const [servingsNumber, setServingsNumber] = useState(Math.floor(foodItem?.servings ?? 0));
+    const [servingsFraction, setServingsFraction] = useState((foodItem?.servings ?? 0) - servingsNumber);
 
     const selectedSliceWidth = 15;
     const deselectedSliceWidth = 10;
@@ -147,9 +129,14 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
             return;
         }
 
-        const localFoodItem = generateId(foodItem);
-        dispatch(updateMealFood(mealId, localFoodItem));
-        dispatch(addFood(localFoodItem));
+        if (foodItem.source === 'remote') {
+            const localFoodItem = convertToLocal(foodItem);
+            dispatch(updateMealFood(mealId, localFoodItem));
+            dispatch(addFood(localFoodItem));
+        } else {
+            dispatch(updateMealFood(mealId, foodItem));
+        }
+
         Toast.show({
             type: 'success',
             text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
@@ -160,7 +147,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
     };
 
     const handlePrimaryPressed = () => {
-        if (path === 'add' || path === 'add-remote') {
+        if (path === 'add') {
             addFoodToMeal();
         } else {
             updateServings();
@@ -229,19 +216,6 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         );
     };
 
-    // TODO: handle failure
-    if (loadFoodFailure) {
-        return (
-            <View />
-        );
-    }
-
-    if (isLoading) {
-        return (
-            <LoadingOverlay />
-        );
-    }
-
     return (
         <ScrollView>
             <Text style={{
@@ -276,100 +250,103 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
             >
                 {`${foodItem?.calories ?? 0} ${CALORIES_LABEL}`}
             </Text>
-            <View style={{ width: 240, height: 240 }}>
-                <View style={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    right: 0,
-                    left: 0,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: Spacing.LARGE,
-                }}
-                >
-                    <Text style={{
-                        fontSize: FontSize.H1,
-                        fontWeight: '900',
+            <View>
+                <View style={{ width: 240, height: 240 }}>
+                    <View style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        left: 0,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginRight: Spacing.LARGE,
                     }}
                     >
-                        {percentageText}
-                    </Text>
+                        <Text style={{
+                            fontSize: FontSize.H1,
+                            fontWeight: '900',
+                        }}
+                        >
+                            {percentageText}
+                        </Text>
+                    </View>
+                    {circle(0, 0, useStyleTheme().colors.border)}
+                    {circle(circleSliceLength(proteinCals), 0, useStyleTheme().colors.secondaryLighter, proteinWidth)}
+                    {circle(circleSliceLength(carbCals), proteinAngle, useStyleTheme().colors.white, carbWidth)}
+                    {circle(circleSliceLength(fatCals), fatAngle, useStyleTheme().colors.accentColor, fatWidth)}
                 </View>
-                {circle(0, 0, useStyleTheme().colors.border)}
-                {circle(circleSliceLength(proteinCals), 0, useStyleTheme().colors.secondaryLighter, proteinWidth)}
-                {circle(circleSliceLength(carbCals), proteinAngle, useStyleTheme().colors.white, carbWidth)}
-                {circle(circleSliceLength(fatCals), fatAngle, useStyleTheme().colors.accentColor, fatWidth)}
-            </View>
-            <View style={{
-                marginTop: 135,
-                right: 0,
-                width: 220,
-                position: 'absolute',
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-            }}
-            >
-                <TouchableOpacity
-                    activeOpacity={0.5}
-                    onPress={() => {
-                        const width = proteinWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
-                        setProteinWidth(width);
-                        setSelectedSlice(width === selectedSliceWidth ? 'protein' : 'none');
-                        setCarbWidth(deselectedSliceWidth);
-                        setFatWidth(deselectedSliceWidth);
-                    }}
+                <View style={{
+                    marginTop: 48,
+                    right: 0,
+                    width: 220,
+                    padding: Spacing.SMALL,
+                    position: 'absolute',
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                }}
                 >
-                    <Chip
-                        style={{
-                            paddingRight: Spacing.SMALL,
-                            paddingLeft: Spacing.SMALL,
-                            marginRight: Spacing.X_SMALL,
-                            marginTop: Spacing.SMALL,
+                    <TouchableOpacity
+                        activeOpacity={0.5}
+                        onPress={() => {
+                            const width = proteinWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
+                            setProteinWidth(width);
+                            setSelectedSlice(width === selectedSliceWidth ? 'protein' : 'none');
+                            setCarbWidth(deselectedSliceWidth);
+                            setFatWidth(deselectedSliceWidth);
                         }}
-                        label={`${foodItem?.macros.protein ?? 0} ${G_PROTEIN_LABEL}`}
-                    />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    activeOpacity={0.5}
-                    onPress={() => {
-                        const width = carbWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
-                        setCarbWidth(width);
-                        setSelectedSlice(width === selectedSliceWidth ? 'carbs' : 'none');
-                        setProteinWidth(deselectedSliceWidth);
-                        setFatWidth(deselectedSliceWidth);
-                    }}
-                >
-                    <Chip
-                        style={{
-                            paddingRight: Spacing.SMALL,
-                            paddingLeft: Spacing.SMALL,
-                            marginRight: Spacing.X_SMALL,
-                            marginTop: Spacing.SMALL,
+                    >
+                        <Chip
+                            style={{
+                                paddingRight: Spacing.SMALL,
+                                paddingLeft: Spacing.SMALL,
+                                marginRight: Spacing.X_SMALL,
+                                marginTop: Spacing.SMALL,
+                            }}
+                            label={`${foodItem?.macros.protein ?? 0} ${G_PROTEIN_LABEL}`}
+                        />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        activeOpacity={0.5}
+                        onPress={() => {
+                            const width = carbWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
+                            setCarbWidth(width);
+                            setSelectedSlice(width === selectedSliceWidth ? 'carbs' : 'none');
+                            setProteinWidth(deselectedSliceWidth);
+                            setFatWidth(deselectedSliceWidth);
                         }}
-                        label={`${foodItem?.macros.carbs ?? 0} ${G_CARBS_LABEL}`}
-                    />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    activeOpacity={0.5}
-                    onPress={() => {
-                        const width = fatWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
-                        setFatWidth(width);
-                        setSelectedSlice(width === selectedSliceWidth ? 'fat' : 'none');
-                        setCarbWidth(deselectedSliceWidth);
-                        setProteinWidth(deselectedSliceWidth);
-                    }}
-                >
-                    <Chip
-                        style={{
-                            paddingRight: Spacing.SMALL,
-                            paddingLeft: Spacing.SMALL,
-                            marginRight: Spacing.X_SMALL,
-                            marginTop: Spacing.SMALL,
+                    >
+                        <Chip
+                            style={{
+                                paddingRight: Spacing.SMALL,
+                                paddingLeft: Spacing.SMALL,
+                                marginRight: Spacing.X_SMALL,
+                                marginTop: Spacing.SMALL,
+                            }}
+                            label={`${foodItem?.macros.carbs ?? 0} ${G_CARBS_LABEL}`}
+                        />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        activeOpacity={0.5}
+                        onPress={() => {
+                            const width = fatWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth;
+                            setFatWidth(width);
+                            setSelectedSlice(width === selectedSliceWidth ? 'fat' : 'none');
+                            setCarbWidth(deselectedSliceWidth);
+                            setProteinWidth(deselectedSliceWidth);
                         }}
-                        label={`${foodItem?.macros.fat ?? 0} ${G_FAT_LABEL}`}
-                    />
-                </TouchableOpacity>
+                    >
+                        <Chip
+                            style={{
+                                paddingRight: Spacing.SMALL,
+                                paddingLeft: Spacing.SMALL,
+                                marginRight: Spacing.X_SMALL,
+                                marginTop: Spacing.SMALL,
+                            }}
+                            label={`${foodItem?.macros.fat ?? 0} ${G_FAT_LABEL}`}
+                        />
+                    </TouchableOpacity>
+                </View>
             </View>
             {chartKey()}
             <View style={{ right: 0, marginLeft: Spacing.LARGE, marginRight: Spacing.LARGE }}>
@@ -406,7 +383,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                     alignSelf: 'center',
                     width: '90%',
                 }}
-                label={path === 'add' || path === 'add-remote' ? ADD_FOOD_BUTTON_TEXT : UPDATE_SERVINGS_BUTTON_TEXT}
+                label={path === 'add' ? ADD_FOOD_BUTTON_TEXT : UPDATE_SERVINGS_BUTTON_TEXT}
                 onPress={handlePrimaryPressed}
             />
 

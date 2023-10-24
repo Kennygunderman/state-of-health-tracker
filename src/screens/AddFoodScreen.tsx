@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import _, { debounce, isNil } from 'lodash';
+import _, { debounce } from 'lodash';
 import {
     Dimensions,
     FlatList,
@@ -22,20 +22,13 @@ import {
     TOAST_MEAL_UPDATED, SEARCH_FOODS_PLACEHOLDER, NO_FOOD_FOUND_EMPTY_TEXT,
 } from '../constants/Strings';
 import { getFoodSelector } from '../selectors/FoodsSelector';
-import foodSearchService, { SearchFoodItem } from '../service/food/FoodSearchService';
+import foodSearchService from '../service/food/FoodSearchService';
 import { deleteFood } from '../store/food/FoodActions';
 import FoodItem, { formatMacros } from '../store/food/models/FoodItem';
 import LocalStore from '../store/LocalStore';
 import { updateMealFood } from '../store/meals/MealsActions';
-import Unique from '../store/models/Unique';
 import { Text, useStyleTheme } from '../styles/Theme';
 import ListSwipeItemManager from '../utility/ListSwipeItemManager';
-
-interface FoodListItem extends Unique {
-    type: 'local' | 'search';
-    localFoodItem?: FoodItem;
-    searchFoodItem?: SearchFoodItem
-}
 
 const AddFoodScreen = ({ navigation, route }: any) => {
     const { mealName, mealId } = route.params;
@@ -45,13 +38,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     const [loadBatch, setLoadBatch] = useState(1);
     const localFoodItems = useSelector<LocalStore, FoodItem[]>((state: LocalStore) => getFoodSelector(state, loadBatch, searchText));
 
-    const convertLocalFoodItems = (items: FoodItem[]): FoodListItem[] => items.map((item) => ({
-        id: item.id,
-        type: 'local',
-        localFoodItem: item,
-    }));
-
-    const [foodItems, setFoodItems] = useState(convertLocalFoodItems(localFoodItems));
+    const [foodItems, setFoodItems] = useState(localFoodItems);
     const [isLoading, setIsLoading] = useState(false);
 
     const searchFoodsDebounce = useCallback(debounce((text: string, runSearch: boolean) => {
@@ -61,15 +48,9 @@ const AddFoodScreen = ({ navigation, route }: any) => {
 
         setIsLoading(true);
 
-        foodSearchService.searchBrandedFoods(text, (foods: SearchFoodItem[]) => {
-            const converted: FoodListItem[] = foods.map((item) => ({
-                type: 'search',
-                id: item.fdcId.toString(),
-                searchFoodItem: item,
-            }));
-
+        foodSearchService.searchBrandedFoods(text, (foods: FoodItem[]) => {
             setIsLoading(false);
-            setFoodItems(converted);
+            setFoodItems(foods);
         });
     }, 1000, { leading: false, trailing: true }), []);
 
@@ -78,7 +59,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
             searchFoodsDebounce(searchText, true);
         } else {
             searchFoodsDebounce('', false); // cancels the search debounce when local items are present
-            setFoodItems(convertLocalFoodItems(localFoodItems));
+            setFoodItems(localFoodItems);
         }
     }, [searchText, localFoodItems]);
 
@@ -87,14 +68,23 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     const listSwipeItemManager = new ListSwipeItemManager(foodItems);
 
     const onFoodItemPressed = (foodItem: FoodItem) => {
-        dispatch(updateMealFood(mealId, foodItem));
-        navigation.goBack();
+        if (foodItem.source === 'remote') {
+            navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
+                path: 'add',
+                mealId,
+                mealName,
+                foodItem,
+            });
+        } else {
+            dispatch(updateMealFood(mealId, foodItem));
+            navigation.goBack();
 
-        Toast.show({
-            type: 'success',
-            text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
-            visibilityTime: 3_000,
-        });
+            Toast.show({
+                type: 'success',
+                text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
+                visibilityTime: 3_000,
+            });
+        }
     };
 
     const onNewFoodItemPressed = () => {
@@ -177,55 +167,25 @@ const AddFoodScreen = ({ navigation, route }: any) => {
         </View>
     );
 
-    const renderItem = ({ item, index }: ListRenderItemInfo<FoodListItem>) => {
-        let listItem;
-
-        if (item.type === 'local' && !isNil(item.localFoodItem)) {
-            listItem = (
-                <ListItem
-                    leftRightMargin={Spacing.MEDIUM}
-                    swipeableRef={(ref) => listSwipeItemManager.setRef(ref, item, index)}
-                    onSwipeActivated={() => listSwipeItemManager.closeRow(item, index)}
-                    title={item.localFoodItem.name}
-                    onPress={() => {
-                        if (!isNil(item.localFoodItem)) {
-                            onFoodItemPressed(item.localFoodItem);
-                        }
-                    }}
-                    subtitle={formatMacros(item.localFoodItem.macros)}
-                    chip={<CalorieChip calories={item.localFoodItem.calories} />}
-                    onDeletePressed={() => {
-                        if (!isNil(item.localFoodItem)) {
-                            dispatch(deleteFood(item.localFoodItem.id));
-                        }
-                    }}
-                />
-            );
-        } else {
-            listItem = (
-                <ListItem
-                    leftRightMargin={Spacing.MEDIUM}
-                    title={item.searchFoodItem?.description ?? ''}
-                    subtitle={item.searchFoodItem?.brandOwner ?? ''}
-                    onPress={() => {
-                        navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
-                            path: 'add-remote',
-                            mealId,
-                            mealName,
-                            fdcId: item.searchFoodItem?.fdcId,
-                        });
-                    }}
-                />
-            );
-        }
-
-        return (
-            <>
-                {index === 0 && renderFoodItemsHeader()}
-                {listItem}
-            </>
-        );
-    };
+    const renderItem = ({ item, index }: ListRenderItemInfo<FoodItem>) => (
+        <>
+            {index === 0 && renderFoodItemsHeader()}
+            <ListItem
+                leftRightMargin={Spacing.MEDIUM}
+                swipeableRef={(ref) => listSwipeItemManager.setRef(ref, item, index)}
+                onSwipeActivated={() => listSwipeItemManager.closeRow(item, index)}
+                title={item.name}
+                onPress={() => {
+                    onFoodItemPressed(item);
+                }}
+                subtitle={formatMacros(item.macros)}
+                chip={<CalorieChip calories={item.calories} />}
+                onDeletePressed={() => {
+                    dispatch(deleteFood(item.id));
+                }}
+            />
+        </>
+    );
 
     return (
         <>

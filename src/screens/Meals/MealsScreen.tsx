@@ -87,7 +87,7 @@ const MealsScreen = ({ navigation }: any) => {
     };
 
     const onListItemPressed = (meal: Meal, foodItem: FoodItem) => {
-        navigation.push(Screens.FOOD_DETAIL_SCREEN, { mealName: meal.name, mealId: meal.id, foodToUpdate: foodItem });
+        navigation.push(Screens.FOOD_DETAIL_SCREEN, { mealName: meal.name, mealId: meal.id, foodItem });
     };
 
     const renderHeader = () => (
