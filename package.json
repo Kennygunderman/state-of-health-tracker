@@ -21,6 +21,7 @@
     "date-fns": "^2.30.0",
     "expo": "48.0.9",
     "expo-application": "~5.1.1",
+    "expo-haptics": "^12.6.0",
     "expo-status-bar": "1.4.4",
     "firebase": "^10.4.0",
     "fp-ts": "^2.16.1",
