@@ -91,6 +91,7 @@ const ExerciseSetListItem = (props: Props) => {
             completed: isChecked,
         };
 
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         dispatch(updateLatestCompletedSets(exercise, updatedSet, index));
         dispatch(completeSet(currentDate, exercise, set.id, isChecked, weight, reps));
     };
