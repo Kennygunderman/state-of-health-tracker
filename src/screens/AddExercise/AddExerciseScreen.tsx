@@ -9,6 +9,7 @@ import ConfirmModal from '../../components/dialog/ConfirmModal';
 import ListItem from '../../components/ListItem';
 import SearchBar from '../../components/SearchBar';
 import SecondaryButton from '../../components/SecondaryButton';
+import { showToast } from '../../components/toast/util/ShowToast';
 import FontSize from '../../constants/FontSize';
 import Screens from '../../constants/Screens';
 import Spacing from '../../constants/Spacing';
@@ -45,23 +46,12 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const isAlreadyAdded = dailyExercises.find((dailyExercise) => dailyExercise.exercise.name === exercise.name) !== undefined;
 
         if (isAlreadyAdded) {
-            Toast.show({
-                type: 'error',
-                text1: TOAST_EXERCISE_ALREADY_ADDED,
-                text2: exercise.name,
-                visibilityTime: 3_000,
-            });
-
+            showToast('success', TOAST_EXERCISE_ALREADY_ADDED, exercise.name);
             return;
         }
 
         dispatch(addDailyExercise(currentDate, exercise));
-        Toast.show({
-            type: 'success',
-            text1: TOAST_EXERCISE_ADDED,
-            text2: exercise.name,
-            visibilityTime: 3_000,
-        });
+        showToast('success', TOAST_EXERCISE_ADDED, exercise.name);
 
         navigation.goBack();
     };

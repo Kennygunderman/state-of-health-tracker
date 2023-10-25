@@ -15,6 +15,7 @@ import LocalStore from '../../store/LocalStore';
 import { setTargetCalories } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
+import { showToast } from '../toast/util/ShowToast';
 
 const TargetCaloriesModal = (props: BaseInputModalProps) => {
     const { isVisible, onDismissed } = props;
@@ -40,12 +41,7 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
         setShowError(false);
 
         dispatch(setTargetCalories(parseInt(value, 10)));
-        Toast.show({
-            type: 'success',
-            text1: TOAST_TARGET_CALORIES_SET,
-            text2: value,
-            visibilityTime: 3_000,
-        });
+        showToast('success', TOAST_TARGET_CALORIES_SET, value);
     };
 
     return (

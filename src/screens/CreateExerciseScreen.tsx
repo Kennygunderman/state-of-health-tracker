@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions, View } from 'react-native';
-import Toast from 'react-native-toast-message';
 import { useDispatch, useSelector } from 'react-redux';
 import Picker, { PickerItem } from '../components/Picker';
 import PrimaryButton from '../components/PrimaryButton';
 import TextInputWithHeader from '../components/TextInputWithHeader';
+import { showToast } from '../components/toast/util/ShowToast';
 import Spacing from '../constants/Spacing';
 import {
     CREATE_EXERCISE_BODY_PART_PICKER_HEADER, CREATE_EXERCISE_BUTTON_TEXT,
@@ -76,20 +76,11 @@ const CreateExerciseScreen = ({ navigation, route }: any) => {
 
         const exerciseName = createExerciseName(exerciseNameText, exerciseType);
         if (exerciseMap[exerciseName]) {
-            Toast.show({
-                type: 'error',
-                text1: `${exerciseName} ${TOAST_ALREADY_EXISTS}`,
-                visibilityTime: 3_000,
-            });
+            showToast('error', `${exerciseName} ${TOAST_ALREADY_EXISTS}`);
         } else {
             const exercise = createExercise(exerciseName, exerciseType, bodyPart);
             dispatch(addExercise(exercise));
-            Toast.show({
-                type: 'success',
-                text1: TOAST_EXERCISE_CREATED,
-                text2: exerciseName,
-                visibilityTime: 3_000,
-            });
+            showToast('success', TOAST_EXERCISE_CREATED, exerciseName);
             navigation.goBack();
         }
     };

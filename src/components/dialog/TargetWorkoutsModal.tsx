@@ -13,6 +13,7 @@ import LocalStore from '../../store/LocalStore';
 import { setTargetWorkouts } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
+import { showToast } from '../toast/util/ShowToast';
 
 const TargetWorkoutsModal = (props: BaseInputModalProps) => {
     const { isVisible, onDismissed } = props;
@@ -39,12 +40,7 @@ const TargetWorkoutsModal = (props: BaseInputModalProps) => {
         setShowError(false);
 
         dispatch(setTargetWorkouts(intVal));
-        Toast.show({
-            type: 'success',
-            text1: TOAST_TARGET_WORKOUTS_SET,
-            text2: value,
-            visibilityTime: 3_000,
-        });
+        showToast('success', TOAST_TARGET_WORKOUTS_SET, value);
     };
 
     return (
