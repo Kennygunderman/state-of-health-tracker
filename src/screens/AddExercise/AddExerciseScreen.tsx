@@ -46,7 +46,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const isAlreadyAdded = dailyExercises.find((dailyExercise) => dailyExercise.exercise.name === exercise.name) !== undefined;
 
         if (isAlreadyAdded) {
-            showToast('success', TOAST_EXERCISE_ALREADY_ADDED, exercise.name);
+            showToast('error', TOAST_EXERCISE_ALREADY_ADDED, exercise.name);
             return;
         }
 
