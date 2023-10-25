@@ -8,7 +8,7 @@ import FoodItem, { caloriesFromMacros, Macros } from '../../store/food/models/Fo
 import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
 
 interface IFoodSearchService {
-    searchBrandedFoods: (searchQuery: string, onFetched: (foods: FoodItem[]) => void) => void;
+    searchBrandedFoods: (searchQuery: string, numToLoad: number, onFetched: (foods: FoodItem[]) => void) => void;
     getFoodItem: (fdcId: number, onFetched: (foodItem?: FoodItem) => void) => void;
 }
 
@@ -57,14 +57,14 @@ const BrandedFoodResponse = io.partial({
 });
 
 class FoodSearchService implements IFoodSearchService {
-    searchBrandedFoods(searchQuery: string, onFetched: (foods: FoodItem[]) => void): void {
+    searchBrandedFoods(searchQuery: string, numToLoad: number, onFetched: (foods: FoodItem[]) => void): void {
         const options = {
             method: 'GET',
             url: `${USDA_BASE_URL}/foods/search`,
             params: {
                 query: searchQuery,
                 dataType: 'Branded',
-                pageSize: 30,
+                pageSize: numToLoad,
                 pageNumber: 1,
                 sortBy: 'dataType.keyword',
                 sortOrder: 'asc',
