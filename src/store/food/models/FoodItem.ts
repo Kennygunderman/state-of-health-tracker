@@ -52,6 +52,5 @@ export function convertToLocal(foodItem: FoodItem): FoodItem {
     return {
         ...foodItem,
         source: 'local',
-        id: uuidv4(),
     };
 }

@@ -140,6 +140,7 @@ export const ACCOUNT_LOG_OUT_LIST_ITEM = 'Log Out';
 export const LOG_OUT_CONFIRM_MODAL_HEADER = 'Log Out?';
 export const LOG_OUT_CONFIRM_MODAL_BODY = 'Logging out will reset all your tracked progress. As a logged out user, your data will not be synced on the web and will only be stored locally on your device.';
 export const INGREDIENTS_LABEL = 'Ingredients:';
+export const PER_SERVINGS_LABEL = 'Per Serving';
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
     let updatedStr = str;

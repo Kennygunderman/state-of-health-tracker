@@ -18,7 +18,7 @@ import {
     FAT_LABEL, FRACTION_LABEL,
     G_CARBS_LABEL,
     G_FAT_LABEL,
-    G_PROTEIN_LABEL, INGREDIENTS_LABEL,
+    G_PROTEIN_LABEL, INGREDIENTS_LABEL, PER_SERVINGS_LABEL,
     PROTEIN_LABEL,
     SELECT_A_FRACTION_PLACEHOLDER_TEXT,
     SERVINGS_LABEL, SERVINGS_TEXT,
@@ -130,9 +130,10 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
         }
 
         if (foodItem.source === 'remote') {
+            foodItem.servings = servingsNumber + servingsFraction;
             const localFoodItem = convertToLocal(foodItem);
             dispatch(updateMealFood(mealId, localFoodItem));
-            dispatch(addFood(localFoodItem));
+            dispatch(addFood({ ...localFoodItem, servings: 1 }));
         } else {
             dispatch(updateMealFood(mealId, foodItem));
         }
@@ -248,7 +249,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
                 fontSize: FontSize.H2,
             }}
             >
-                {`${foodItem?.calories ?? 0} ${CALORIES_LABEL}`}
+                {`${foodItem?.calories ?? 0} ${CALORIES_LABEL} ${PER_SERVINGS_LABEL}`}
             </Text>
             <View>
                 <View style={{ width: 240, height: 240 }}>
