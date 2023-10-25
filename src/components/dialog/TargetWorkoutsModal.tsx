@@ -60,7 +60,7 @@ const TargetWorkoutsModal = (props: BaseInputModalProps) => {
                 />
             )}
             value={value}
-            visible={isVisible}
+            isVisible={isVisible}
             onCancel={onDismissed}
             buttonText={TARGET_WORKOUTS_MODAL_BUTTON}
             onChangeText={setValue}

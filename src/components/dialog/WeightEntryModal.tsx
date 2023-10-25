@@ -65,7 +65,7 @@ const WeightEntryModal = (props: BaseModalProps) => {
                 />
             )}
             value={value}
-            visible={isVisible}
+            isVisible={isVisible}
             onCancel={onDismissed}
             buttonText={CURRENT_WEIGHT_MODAL_BUTTON}
             onChangeText={setValue}

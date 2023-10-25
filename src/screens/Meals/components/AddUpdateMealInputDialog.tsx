@@ -81,7 +81,7 @@ const AddUpdateMealInputDialog = (props: Props) => {
             subtitle={DIALOG_MEAL_NAME_SUBTITLE}
             icon={<MaterialCommunityIcons style={{ alignSelf: 'center' }} name="pot-steam" size={96} color={useStyleTheme().colors.secondaryLighter} />}
             value={inputMealName}
-            visible={visible}
+            isVisible={visible}
             onCancel={closeDialog}
             buttonText={action === MealAction.ADD ? ADD_MEAL_BUTTON_TEXT : DIALOG_MEAL_UPDATE_BUTTON_TEXT}
             onChangeText={onChangeText}

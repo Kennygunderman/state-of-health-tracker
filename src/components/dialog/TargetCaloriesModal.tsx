@@ -61,7 +61,7 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
                 />
             )}
             value={value ?? targetCalories.toString()}
-            visible={isVisible}
+            isVisible={isVisible}
             onCancel={onDismissed}
             buttonText={TARGET_CALORIE_MODAL_BUTTON}
             onChangeText={setValue}

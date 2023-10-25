@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
+import * as Haptics from 'expo-haptics';
 import { TouchableOpacity, View } from 'react-native';
 import DraggableFlatList, {
     RenderItemParams,
     ScaleDecorator,
 } from 'react-native-draggable-flatlist';
 import Modal from 'react-native-modal';
-import PrimaryButton from './PrimaryButton';
-import BorderRadius from '../constants/BorderRadius';
-import FontSize from '../constants/FontSize';
-import Spacing from '../constants/Spacing';
-import { CANCEL_BUTTON_TEXT, CONFIRM_BUTTON_TEXT, REORG_MODAL_BODY } from '../constants/Strings';
-import Shadow from '../styles/Shadow';
-import { Text, useStyleTheme } from '../styles/Theme';
+import BorderRadius from '../../constants/BorderRadius';
+import FontSize from '../../constants/FontSize';
+import Spacing from '../../constants/Spacing';
+import { CANCEL_BUTTON_TEXT, CONFIRM_BUTTON_TEXT, REORG_MODAL_BODY } from '../../constants/Strings';
+import Shadow from '../../styles/Shadow';
+import { Text, useStyleTheme } from '../../styles/Theme';
+import PrimaryButton from '../PrimaryButton';
 
 interface Props<T> {
     readonly isVisible: boolean;
@@ -27,6 +28,12 @@ const ReorganizeModal = <T extends object>(props: Props<T>) => {
     } = props;
 
     const [listData, setListData] = useState(items);
+
+    useEffect(() => {
+        if (isVisible) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+    }, [isVisible]);
 
     useEffect(() => {
         setListData(items);
