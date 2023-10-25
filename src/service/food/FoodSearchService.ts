@@ -77,7 +77,6 @@ class FoodSearchService implements IFoodSearchService {
             .then(({ data }: { data: any }) => {
                 const decode = (decoded: object) => SearchFoodResponse.decode(decoded);
                 const decodedData: Either<Errors, any> = decode(data);
-                console.log(decodedData);
                 if (isLeft(decodedData)) {
                     // decode failed
                     // TODO: report error to crashlytics
@@ -123,7 +122,6 @@ class FoodSearchService implements IFoodSearchService {
                 onFetched(foodItems);
             })
             .catch((error: any) => {
-                console.error(error);
                 // TODO: report error to crashlytics
                 onFetched([]);
             });
@@ -208,7 +206,6 @@ class FoodSearchService implements IFoodSearchService {
                 }
             })
             .catch((error: any) => {
-                console.error(error);
                 // TODO: report error to crashlytics
                 onFetched(undefined);
             });
