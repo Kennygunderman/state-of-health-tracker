@@ -183,7 +183,8 @@ const App = () => {
                         <Stack.Screen name={Screens.REGISTER} component={RegisterScreen} />
                     </Stack.Group>
 
-                    <Stack.Screen name={Screens.FOOD_DETAIL} component={FoodDetailScreen} />
+                    <Stack.Screen name={Screens.FOOD_DETAIL_SCREEN} component={FoodDetailScreen} />
+
                     <Stack.Screen
                         name={Screens.CREATE_FOOD}
                         options={{ title: NEW_FOOD_ITEM_TEXT }}
