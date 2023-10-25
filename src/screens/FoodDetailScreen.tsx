@@ -9,6 +9,7 @@ import { useDispatch } from 'react-redux';
 import Chip from '../components/Chip';
 import Picker, { PickerItem } from '../components/Picker';
 import PrimaryButton from '../components/PrimaryButton';
+import { showToast } from '../components/toast/util/ShowToast';
 import FontSize from '../constants/FontSize';
 import Spacing from '../constants/Spacing';
 import {
@@ -114,12 +115,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
 
         const servings = servingsNumber + servingsFraction;
         dispatch(updateMealFoodItemServings(mealId, foodItem.id, servings));
-        Toast.show({
-            type: 'success',
-            text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
-            text2: `${foodItem.name}, ${SERVINGS_TEXT} ${servings}`,
-            visibilityTime: 3_000,
-        });
+        showToast('success', `${mealName} ${TOAST_MEAL_UPDATED}`, `${foodItem.name}, ${SERVINGS_TEXT} ${servings}`);
 
         navigation.goBack();
     };
@@ -138,11 +134,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
             dispatch(updateMealFood(mealId, { ...foodItem, servings: servingsToAdd }));
         }
 
-        Toast.show({
-            type: 'success',
-            text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
-            visibilityTime: 3_000,
-        });
+        showToast('success', `${mealName} ${TOAST_MEAL_UPDATED}`);
 
         navigation.pop(2);
     };

@@ -7,6 +7,7 @@ import { useDispatch } from 'react-redux';
 import Picker, { PickerItem } from '../components/Picker';
 import PrimaryButton from '../components/PrimaryButton';
 import TextInputWithHeader from '../components/TextInputWithHeader';
+import { showToast } from '../components/toast/util/ShowToast';
 import Spacing from '../constants/Spacing';
 import {
     CREATE_FOOD_CALORIES_ERROR_TEXT,
@@ -94,13 +95,7 @@ const CreateFoodScreen = ({ navigation, route }: any) => {
             }
             const food = createFood(name, 1, calories, macros);
             dispatch(addFood(food));
-
-            Toast.show({
-                type: 'success',
-                text1: TOAST_FOOD_ITEM_CREATED,
-                text2: name,
-                visibilityTime: 3_000,
-            });
+            showToast('success', TOAST_FOOD_ITEM_CREATED, name);
 
             navigation.goBack();
         }

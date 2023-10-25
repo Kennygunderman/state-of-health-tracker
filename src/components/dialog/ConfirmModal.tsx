@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import * as Haptics from 'expo-haptics';
 import { View } from 'react-native';
 import Modal from 'react-native-modal';
 import BorderRadius from '../../constants/BorderRadius';
@@ -29,6 +30,12 @@ const ConfirmModal = (props: Props) => {
         onConfirmPressed,
         onCancel,
     } = props;
+
+    useEffect(() => {
+        if (isVisible) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+    }, [isVisible]);
 
     return (
         <Modal

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import InputModal from '../../../components/dialog/InputModal';
+import { showToast } from '../../../components/toast/util/ShowToast';
 import {
     ADD_MEAL_BUTTON_TEXT, ADD_MEAL_PLACEHOLDER_TEXT,
     DIALOG_MEAL_NAME_ERROR,
@@ -52,24 +53,14 @@ const AddUpdateMealInputDialog = (props: Props) => {
         if (action === MealAction.ADD) {
             const meal = createMeal(inputMealName, []);
             dispatch(addMeal(meal));
-
-            Toast.show({
-                type: 'success',
-                text1: `${inputMealName} ${TOAST_ADDED}`,
-                visibilityTime: 3_000,
-            });
-
+            showToast('success', `${inputMealName} ${TOAST_ADDED}`);
             closeDialog();
         }
 
         if (action === MealAction.UPDATE_NAME) {
             if (inputMealUpdateId) {
                 dispatch(updateMealName(inputMealUpdateId, inputMealName));
-                Toast.show({
-                    type: 'success',
-                    text1: `${inputMealName} ${TOAST_MEAL_UPDATED}`,
-                    visibilityTime: 3_000,
-                });
+                showToast('success', `${inputMealName} ${TOAST_MEAL_UPDATED}`);
             }
             closeDialog();
         }
@@ -81,7 +72,7 @@ const AddUpdateMealInputDialog = (props: Props) => {
             subtitle={DIALOG_MEAL_NAME_SUBTITLE}
             icon={<MaterialCommunityIcons style={{ alignSelf: 'center' }} name="pot-steam" size={96} color={useStyleTheme().colors.secondaryLighter} />}
             value={inputMealName}
-            visible={visible}
+            isVisible={visible}
             onCancel={closeDialog}
             buttonText={action === MealAction.ADD ? ADD_MEAL_BUTTON_TEXT : DIALOG_MEAL_UPDATE_BUTTON_TEXT}
             onChangeText={onChangeText}

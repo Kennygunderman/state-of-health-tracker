@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { FontAwesome5 } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
 import { useDispatch, useSelector } from 'react-redux';
 import BaseModalProps from './BaseInputModalProps';
 import InputModal from './InputModal';
@@ -17,6 +16,7 @@ import LocalStore from '../../store/LocalStore';
 import { addWeightEntry } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
+import { showToast } from '../toast/util/ShowToast';
 
 const WeightEntryModal = (props: BaseModalProps) => {
     const { isVisible, onDismissed } = props;
@@ -44,12 +44,7 @@ const WeightEntryModal = (props: BaseModalProps) => {
         setShowError(false);
 
         dispatch(addWeightEntry(currentDate, intVal));
-        Toast.show({
-            type: 'success',
-            text1: TOAST_WEIGHT_UPDATED,
-            text2: value,
-            visibilityTime: 3_000,
-        });
+        showToast('success', TOAST_WEIGHT_UPDATED, value);
     };
 
     return (
@@ -65,7 +60,7 @@ const WeightEntryModal = (props: BaseModalProps) => {
                 />
             )}
             value={value}
-            visible={isVisible}
+            isVisible={isVisible}
             onCancel={onDismissed}
             buttonText={CURRENT_WEIGHT_MODAL_BUTTON}
             onChangeText={setValue}

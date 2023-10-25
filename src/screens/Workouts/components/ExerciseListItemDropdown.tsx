@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { TouchableOpacity, View } from 'react-native';
 import Modal from 'react-native-modal';
 import { useDispatch, useSelector } from 'react-redux';
 import ConfirmModal from '../../../components/dialog/ConfirmModal';
-import ReorganizeModal from '../../../components/ReorganizeModal';
+import ReorganizeModal from '../../../components/dialog/ReorganizeModal';
 import Spacing from '../../../constants/Spacing';
 import {
     DELETE_DAILY_EXERCISE_MODAL_BODY,
@@ -67,6 +68,12 @@ const ExerciseListItemDropdown = (props: Props) => {
         dispatch(updateDailyExercise(currentDate, dailyExercises));
         cancel();
     };
+
+    useEffect(() => {
+        if (isVisible) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+    }, [isVisible]);
 
     const dropdownModal = () => (
         <Modal
