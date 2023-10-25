@@ -1,5 +1,6 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { isNil } from 'lodash';
 import { Animated, TouchableOpacity, ViewProps } from 'react-native';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
@@ -37,7 +38,13 @@ const SwipeDeleteListItem = (props: Props) => {
                     });
 
                     return (
-                        <TouchableOpacity style={{ width: '25%', marginRight: deleteIconRightMargin }} onPress={onDeletePressed}>
+                        <TouchableOpacity
+                            style={{ width: '25%', marginRight: deleteIconRightMargin }}
+                            onPress={() => {
+                                onDeletePressed?.();
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                        >
                             <Animated.View style={{
                                 height: '100%', justifyContent: 'center', alignItems: 'flex-end', transform: [{ translateX: translation }],
                             }}
