@@ -171,6 +171,7 @@ const AddFoodScreen = ({ navigation, route }: any) => {
         <>
             {index === 0 && renderFoodItemsHeader()}
             <ListItem
+                isSwipeable={item.source === 'local'}
                 leftRightMargin={Spacing.MEDIUM}
                 swipeableRef={(ref) => listSwipeItemManager.setRef(ref, item, index)}
                 onSwipeActivated={() => listSwipeItemManager.closeRow(item, index)}

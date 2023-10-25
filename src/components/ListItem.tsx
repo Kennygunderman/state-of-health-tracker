@@ -19,6 +19,7 @@ interface Props {
     readonly onPress?: () => void;
     readonly leftRightMargin?: number;
     readonly deleteIconRightMargin?: number;
+    readonly isSwipeable?: boolean;
 }
 
 const ListItem = (props: Props) => {
@@ -34,11 +35,13 @@ const ListItem = (props: Props) => {
         onPress,
         leftRightMargin = 28,
         deleteIconRightMargin = 0,
+        isSwipeable = true,
     } = props;
 
     return (
         <>
             <SwipeDeleteListItem
+                isSwipeable={isSwipeable}
                 deleteIconRightMargin={deleteIconRightMargin}
                 onDeletePressed={onDeletePressed}
                 key={title + subtitle}

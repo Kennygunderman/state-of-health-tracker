@@ -10,17 +10,18 @@ interface Props extends ViewProps {
     readonly onDeletePressed?: () => void;
     readonly swipeableRef?: (ref: Swipeable) => void;
     readonly onSwipeActivated?: () => void;
+    readonly isSwipeable?: boolean;
 }
 
 const SwipeDeleteListItem = (props: Props) => {
     const {
-        children, deleteIconRightMargin = 0, swipeableRef, onSwipeActivated, onDeletePressed,
+        children, deleteIconRightMargin = 0, swipeableRef, onSwipeActivated, onDeletePressed, isSwipeable = true,
     } = props;
 
     return (
         <GestureHandlerRootView>
             <Swipeable
-                enabled={!isNil(onDeletePressed)}
+                enabled={isSwipeable}
                 ref={(ref) => {
                     if (ref) {
                         swipeableRef?.(ref);
