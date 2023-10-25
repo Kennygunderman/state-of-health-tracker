@@ -50,7 +50,8 @@ const AddFoodScreen = ({ navigation, route }: any) => {
 
         foodSearchService.searchBrandedFoods(text, (foods: FoodItem[]) => {
             setIsLoading(false);
-            setFoodItems([...localItems, ...foods]);
+            const filtered = foods.filter((rf) => localFoodItems.find((lf) => rf.id !== lf.id));
+            setFoodItems([...localItems, ...filtered]);
         });
     }, 500, { leading: false, trailing: true }), []);
 
