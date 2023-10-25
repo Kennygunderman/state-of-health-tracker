@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TouchableOpacity, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import SwipeDeleteListItem from './SwipeDeleteListItem';
@@ -13,12 +13,13 @@ interface Props {
     readonly chip?: JSX.Element;
     readonly swipeableRef?: (ref: Swipeable) => void;
     readonly onSwipeActivated?: () => void;
-    readonly onDeletePressed: () => void;
+    readonly onDeletePressed?: () => void;
     readonly showLeftBorder?: boolean;
     readonly showRightBorder?: boolean
     readonly onPress?: () => void;
     readonly leftRightMargin?: number;
     readonly deleteIconRightMargin?: number;
+    readonly isSwipeable?: boolean;
 }
 
 const ListItem = (props: Props) => {
@@ -34,11 +35,13 @@ const ListItem = (props: Props) => {
         onPress,
         leftRightMargin = 28,
         deleteIconRightMargin = 0,
+        isSwipeable = true,
     } = props;
 
     return (
         <>
             <SwipeDeleteListItem
+                isSwipeable={isSwipeable}
                 deleteIconRightMargin={deleteIconRightMargin}
                 onDeletePressed={onDeletePressed}
                 key={title + subtitle}
@@ -49,6 +52,8 @@ const ListItem = (props: Props) => {
                     <View
                         style={[
                             {
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
                                 backgroundColor: useStyleTheme().colors.background,
                                 borderRadius: BorderRadius.LIST_ITEM,
                                 borderWidth: 1,
@@ -61,20 +66,20 @@ const ListItem = (props: Props) => {
                             },
                         ]}
                     >
-
-                        <Text style={{ fontWeight: 'bold', marginLeft: 10 }}>{title}</Text>
-                        <Text style={{ fontWeight: '200', marginLeft: 10 }}>{subtitle}</Text>
-                        <View style={{
-                            position: 'absolute',
-                            alignSelf: 'flex-end',
-                            top: 0,
-                            bottom: 0,
-                            justifyContent: 'center',
-                            paddingRight: Spacing.SMALL,
-                        }}
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: 'bold', marginLeft: 10, marginRight: Spacing.XX_SMALL }} numberOfLines={1}>{title}</Text>
+                            <Text style={{ fontWeight: '200', marginLeft: 10 }} numberOfLines={2}>{subtitle}</Text>
+                        </View>
+                        <View
+                            style={{
+                                top: 0,
+                                bottom: 0,
+                                justifyContent: 'center',
+                            }}
                         >
                             {chip && chip}
                         </View>
+
                     </View>
                 </TouchableOpacity>
             </SwipeDeleteListItem>

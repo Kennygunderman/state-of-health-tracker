@@ -1,24 +1,27 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { isNil } from 'lodash';
 import { Animated, TouchableOpacity, ViewProps } from 'react-native';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useStyleTheme } from '../styles/Theme';
 
 interface Props extends ViewProps {
     readonly deleteIconRightMargin?: number;
-    readonly onDeletePressed: () => void;
+    readonly onDeletePressed?: () => void;
     readonly swipeableRef?: (ref: Swipeable) => void;
     readonly onSwipeActivated?: () => void;
+    readonly isSwipeable?: boolean;
 }
 
 const SwipeDeleteListItem = (props: Props) => {
     const {
-        children, deleteIconRightMargin = 0, swipeableRef, onSwipeActivated, onDeletePressed,
+        children, deleteIconRightMargin = 0, swipeableRef, onSwipeActivated, onDeletePressed, isSwipeable = true,
     } = props;
 
     return (
         <GestureHandlerRootView>
             <Swipeable
+                enabled={isSwipeable}
                 ref={(ref) => {
                     if (ref) {
                         swipeableRef?.(ref);
