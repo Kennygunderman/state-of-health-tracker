@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { TouchableOpacity, Vibration, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { TouchableOpacity, View } from 'react-native';
 import BouncyCheckbox from 'react-native-bouncy-checkbox';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useDispatch, useSelector } from 'react-redux';
@@ -77,7 +78,9 @@ const ExerciseSetListItem = (props: Props) => {
         setRepsInputError(reps === undefined);
 
         if (weight === undefined || reps === undefined) {
-            Vibration.vibrate(100);
+            Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Error,
+            );
             return;
         }
 
