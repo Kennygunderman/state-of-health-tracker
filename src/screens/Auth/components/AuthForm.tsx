@@ -24,7 +24,7 @@ import {
 import { useThunkDispatch } from '../../../store';
 import LocalStore from '../../../store/LocalStore';
 import Account from '../../../store/user/models/Account';
-import { AuthStatus } from '../../../store/user/models/AuthStatus';
+import AuthStatus from '../../../store/user/models/AuthStatus';
 import { logInUser, registerUser } from '../../../store/user/UserActions';
 import { Text, useStyleTheme } from '../../../styles/Theme';
 import { isValidEmail, isValidPassword } from '../../../utility/AccountUtility';
