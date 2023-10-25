@@ -69,23 +69,12 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     const listSwipeItemManager = new ListSwipeItemManager(foodItems);
 
     const onFoodItemPressed = (foodItem: FoodItem) => {
-        if (foodItem.source === 'remote') {
-            navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
-                path: 'add',
-                mealId,
-                mealName,
-                foodItem,
-            });
-        } else {
-            dispatch(updateMealFood(mealId, foodItem));
-            navigation.goBack();
-
-            Toast.show({
-                type: 'success',
-                text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
-                visibilityTime: 3_000,
-            });
-        }
+        navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
+            path: 'add',
+            mealId,
+            mealName,
+            foodItem,
+        });
     };
 
     const onNewFoodItemPressed = () => {

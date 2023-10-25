@@ -45,10 +45,11 @@ export function createFood(name: string, servings: number, calories: string, mac
         calories: calories === '' ? 0 : isNumber(calories) ? parseInt(calories, 10) : 0,
         macros,
         id: uuidv4(),
+        source: 'local',
     };
 }
 
-export function convertToLocal(foodItem: FoodItem): FoodItem {
+export function convertFoodItemToLocal(foodItem: FoodItem): FoodItem {
     return {
         ...foodItem,
         source: 'local',

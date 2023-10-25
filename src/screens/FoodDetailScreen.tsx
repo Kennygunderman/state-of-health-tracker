@@ -26,7 +26,7 @@ import {
     UPDATE_SERVINGS_BUTTON_TEXT,
 } from '../constants/Strings';
 import { addFood } from '../store/food/FoodActions';
-import FoodItem, { convertToLocal } from '../store/food/models/FoodItem';
+import FoodItem, { convertFoodItemToLocal } from '../store/food/models/FoodItem';
 import { updateMealFood, updateMealFoodItemServings } from '../store/meals/MealsActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 
@@ -129,13 +129,13 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
             return;
         }
 
+        const servingsToAdd = servingsNumber + servingsFraction;
         if (foodItem.source === 'remote') {
-            foodItem.servings = servingsNumber + servingsFraction;
-            const localFoodItem = convertToLocal(foodItem);
+            const localFoodItem = convertFoodItemToLocal({ ...foodItem, servings: servingsToAdd });
             dispatch(updateMealFood(mealId, localFoodItem));
             dispatch(addFood({ ...localFoodItem, servings: 1 }));
         } else {
-            dispatch(updateMealFood(mealId, foodItem));
+            dispatch(updateMealFood(mealId, { ...foodItem, servings: servingsToAdd }));
         }
 
         Toast.show({
