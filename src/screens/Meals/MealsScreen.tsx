@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import crashlytics from '@react-native-firebase/crashlytics';
 import {
     SafeAreaView,
     SectionList, SectionListRenderItem,
@@ -148,8 +147,7 @@ const MealsScreen = ({ navigation }: any) => {
             }}
             label={VIEW_PREVIOUS_ENTRIES_BUTTON_TEXT}
             onPress={() => {
-                // crashlytics().crash();
-                // navigation.push(Screens.PREVIOUS_DAILY_MEAL_ENTRIES);
+                navigation.push(Screens.PREVIOUS_DAILY_MEAL_ENTRIES);
             }}
         />
     );
