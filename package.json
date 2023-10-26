@@ -13,6 +13,10 @@
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
     "@react-native-async-storage/async-storage": "1.17.11",
+    "@react-native-firebase/app": "^18.5.0",
+    "@react-native-firebase/auth": "^18.5.0",
+    "@react-native-firebase/crashlytics": "^18.5.0",
+    "@react-native-firebase/firestore": "^18.5.0",
     "@react-native-masked-view/masked-view": "0.2.8",
     "@react-navigation/bottom-tabs": "^6.5.8",
     "@react-navigation/native": "^6.1.9",
@@ -26,7 +30,6 @@
     "expo-dev-client": "~2.2.1",
     "expo-haptics": "^12.6.0",
     "expo-status-bar": "1.4.4",
-    "firebase": "^10.4.0",
     "fp-ts": "^2.16.1",
     "io-ts": "^2.2.20",
     "lodash": "^4.17.21",
@@ -50,7 +53,8 @@
     "redux-persist-expo-filesystem": "^2.0.0",
     "redux-thunk": "^2.4.2",
     "reselect": "^4.1.8",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "expo-build-properties": "~0.6.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

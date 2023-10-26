@@ -1,3 +1,4 @@
+import crashlytics from '@react-native-firebase/crashlytics';
 import axios from 'axios';
 import { Either, isLeft } from 'fp-ts/lib/Either';
 import * as io from 'io-ts';
@@ -79,7 +80,7 @@ class FoodSearchService implements IFoodSearchService {
                 const decodedData: Either<Errors, any> = decode(data);
                 if (isLeft(decodedData)) {
                     // decode failed
-                    // TODO: report error to crashlytics
+                    crashlytics().recordError(Error(`Error searching foods ${decodedData.left}`));
                     onFetched([]);
                     return;
                 }
@@ -122,7 +123,7 @@ class FoodSearchService implements IFoodSearchService {
                 onFetched(foodItems);
             })
             .catch((error: any) => {
-                // TODO: report error to crashlytics
+                crashlytics().recordError(error);
                 onFetched([]);
             });
     }
@@ -170,8 +171,7 @@ class FoodSearchService implements IFoodSearchService {
 
                 if (isLeft(decodedData)) {
                     // decode failed
-                    // TODO: report error to crashlytics
-                    onFetched(undefined);
+                    crashlytics().recordError(Error(`Error fetching food data ${decodedData.left}`));
                     return;
                 }
 
@@ -201,12 +201,12 @@ class FoodSearchService implements IFoodSearchService {
                         },
                     });
                 } else {
-                    // TODO: report error to crashlytics
+                    crashlytics().recordError(Error(`Error decoding food data: ${foodData}`));
                     onFetched(undefined);
                 }
             })
             .catch((error: any) => {
-                // TODO: report error to crashlytics
+                crashlytics().recordError(error);
                 onFetched(undefined);
             });
     }
