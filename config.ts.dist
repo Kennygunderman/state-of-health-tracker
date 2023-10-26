@@ -12,3 +12,5 @@ export const USDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
 
 // Generate api key here: https://fdc.nal.usda.gov/api-key-signup.html
 export const USDA_FOOD_API_KEY = 'USDA_API_KEY';
+
+//Add GoogleService-Info-plist to root dir

@@ -1,3 +1,4 @@
+import crashlytics from '@react-native-firebase/crashlytics';
 import Account from './models/Account';
 import { AuthError, AuthErrorPathEnum } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
@@ -60,7 +61,7 @@ export function registerUser(email: string, password: string) {
                     },
                     (error) => {
                         // If this error happens, the user has registered but their account data is not synced to the server.
-                        // TODO: add crashlytics error logging - to figure out why this would fail
+                        crashlytics().recordError(Error(error));
                         dispatch(setUserAccount(account));
                         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
                     },
@@ -95,7 +96,7 @@ export function logInUser(email: string, password: string) {
                     (error) => {
                         // If this error happens, the user was able to log in with the auth service, but their data
                         // could not be fetched from the server. In this case, log the user out.
-                        // TODO: add crashlytics error logging - to figure out why this would fail
+                        crashlytics().recordError(Error(error));
                         dispatch(setAuthError({
                             errorPath: AuthErrorPathEnum.LOGIN,
                             errorMessage: decodeAuthError(error),
@@ -129,7 +130,7 @@ export function logOutUser(account: Account) {
             },
             (error) => {
                 // If this error happens, cancel user logout to prevent data loss.
-                // TODO: add crashlytics error logging - to figure out why this would fail
+                crashlytics().recordError(Error(error));
                 dispatch(setAuthError({
                     errorPath: AuthErrorPathEnum.LOGOUT,
                     errorMessage: 'Unable to log out at this time. Please check your connection and try again.',
@@ -157,7 +158,7 @@ export function syncUserData() {
                 dispatch(updateLastSynced(Date.now()));
             },
             (error) => {
-                // TODO: add crashlytics error logging - to figure out why this would fail
+                crashlytics().recordError(Error(error));
             },
         );
     };
