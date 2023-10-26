@@ -40,18 +40,21 @@ const SectionListHeader = (props: Props) => {
                     marginRight: Spacing.MEDIUM,
                     flexDirection: 'row',
                     justifyContent: 'space-between',
-                    flexWrap: 'wrap',
                 },
             ]}
             key={key}
         >
             <TouchableOpacity
+                style={{
+                    flex: 1,
+                }}
                 activeOpacity={0.5}
                 onPress={(event) => {
                     onTitlePressed?.(event.nativeEvent.pageY - event.nativeEvent.locationY);
                 }}
             >
                 <Text
+                    numberOfLines={2}
                     style={{
                         fontWeight: 'bold',
                         fontSize: FontSize.H3,
