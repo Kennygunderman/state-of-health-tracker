@@ -8,8 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "npx eslint .",
-    "eas-build-pre-install": "echo $GOOGLE_SERVICE_INFO_PLIST | base64 --decode",
-    "build-ios-dev": "base64 --decode > ./GoogleService-Info.plist | eas build --profile development --platform ios"
+    "build-ios-dev": "eas build --profile development --platform ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
