@@ -16,3 +16,23 @@ Our tracking app is loaded with comprehensive graphs, and charts to make sure yo
 <img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/84ec42d5-172a-40c6-99d9-aeb206aaf52a" width="334" height="670" />
 <img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/207fff9c-bb63-4b08-9a16-c6a1cdca1768" width="334" height="670" />
 <img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/b2e8c3bb-cbf7-45f4-afee-e4bf407366ae" width="334" height="670" />
+
+
+# Setup
+
+### Firebase
+Info-plist
+generate oauth token and add to plist
+
+### Config
+rename config.ts.dist -> config.ts
+
+Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html
+Update 
+
+`export const USDA_FOOD_API_KEY = 'USDA_API_KEY';`
+
+
+### Dev Builds
+
+Requires EAS - run script in package.json
