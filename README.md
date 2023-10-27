@@ -36,3 +36,18 @@ Update
 ### Dev Builds
 
 Requires EAS - run script in package.json
+
+Add a firebase.json file to root dir to test crashlytics on debug build:
+
+```
+{
+  "react-native": {
+    "crashlytics_debug_enabled": true,
+    "crashlytics_disable_auto_disabler": true,
+    "crashlytics_auto_collection_enabled": true,
+    "crashlytics_is_error_generation_on_js_crash_enabled": true,
+    "crashlytics_javascript_exception_handler_chaining_enabled": true
+  }
+}
+```
+
