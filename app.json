@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "fitness-tracking-app",
+    "name": "State of Health",
     "slug": "fitness-tracking-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1B1D2C"
     },
     "assetBundlePatterns": [
       "**/*"
