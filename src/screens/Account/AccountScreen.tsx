@@ -3,7 +3,7 @@ import {
     Ionicons, MaterialCommunityIcons, FontAwesome5,
 } from '@expo/vector-icons';
 import {
-    Alert, SafeAreaView, ScrollView, TouchableOpacity, View,
+    Alert, Linking, SafeAreaView, ScrollView, TouchableOpacity, View,
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import AccountListItem from './components/AccountListItem';
@@ -132,11 +132,27 @@ const AccountScreen = () => {
         </>
     );
 
+    const openPrivacyPolicy = async () => {
+        const privacyPolicy = 'https://www.thestateofhealth.com/privacy-policy';
+        const supported = await Linking.canOpenURL(privacyPolicy);
+
+        if (supported) {
+            await Linking.openURL(privacyPolicy);
+        }
+    };
+
     const authSection = () => (
         <>
             {sectionHeader(ACCOUNT_AUTH_SECTION_TITLE)}
             <HorizontalDivider />
             <AuthListItem />
+            <AccountListItem
+                type="info"
+                clickable={true}
+                text="Privacy Policy"
+                icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
+                onPressOverride={openPrivacyPolicy}
+            />
         </>
     );
 
