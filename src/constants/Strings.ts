@@ -141,6 +141,12 @@ export const LOG_OUT_CONFIRM_MODAL_HEADER = 'Log Out?';
 export const LOG_OUT_CONFIRM_MODAL_BODY = 'Logging out will reset all your tracked progress. As a logged out user, your data will not be synced on the web and will only be stored locally on your device.';
 export const INGREDIENTS_LABEL = 'Ingredients:';
 export const PER_SERVINGS_LABEL = 'Per Serving';
+export const ACCOUNT_PRIVACY_POLICY = 'Privacy Policy';
+export const DELETE_ACCOUNT_CONFIRM_MODAL_HEADER = 'Delete your account?';
+export const DELETE_ACCOUNT_LIST_ITEM = 'Delete Account';
+export const DELETE_ACCOUNT_CONFIRM_MODAL_BODY = 'Are you sure you want to delete your account? All progress logged under this account will be deleted.';
+export const DELETE_ACCOUNT_ERROR = 'Unable to delete your account at this time. Please check your connection and try again.';
+export const LOGOUT_ACCOUNT_ERROR = 'Unable to log out at this time. Please check your connection and try again.';
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
     let updatedStr = str;

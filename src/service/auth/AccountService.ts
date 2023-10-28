@@ -7,6 +7,8 @@ import { AuthError, AuthErrorPathEnum } from '../../store/user/models/AuthError'
 export interface IAccountService {
     registerUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
     logInUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
+    logOutUser: () => void;
+    deleteUser: (onDeleted: () => void, onError: (Error: Error) => void) => void;
 }
 
 class AccountService implements IAccountService {
@@ -51,20 +53,21 @@ class AccountService implements IAccountService {
                 });
             });
     }
+
+    logOutUser() {
+        auth().signOut();
+    }
+
+    deleteUser(onDeleted: () => void, onError: (error: Error) => void) {
+        auth().currentUser?.delete()
+            .then(() => {
+                onDeleted();
+            })
+            .catch((e) => {
+                onError(Error(e));
+            });
+    }
 }
 
 const accountService = new AccountService() as IAccountService;
 export default accountService;
-
-//
-// import { getAuth, updateProfile } from "firebase/auth";
-// const auth = getAuth();
-// updateProfile(auth.currentUser, {
-//     displayName: "Jane Q. User", photoURL: "https://example.com/jane-q-user/profile.jpg"
-// }).then(() => {
-//     // Profile updated!
-//     // ...
-// }).catch((error) => {
-//     // An error occurred
-//     // ...
-// });

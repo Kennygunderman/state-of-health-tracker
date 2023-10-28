@@ -2,6 +2,7 @@ import crashlytics from '@react-native-firebase/crashlytics';
 import Account from './models/Account';
 import { AuthError, AuthErrorPathEnum } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
+import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Strings';
 import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
 import userSyncService from '../../service/userSync/UserSyncService';
@@ -123,6 +124,7 @@ export function logOutUser(account: Account) {
             account,
             getState(),
             () => {
+                accountService.logOutUser();
                 dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
                 dispatch({
                     type: LOG_OUT_USER, // Logout is handled in the root reducer
@@ -133,13 +135,34 @@ export function logOutUser(account: Account) {
                 crashlytics().recordError(Error(error));
                 dispatch(setAuthError({
                     errorPath: AuthErrorPathEnum.LOGOUT,
-                    errorMessage: 'Unable to log out at this time. Please check your connection and try again.',
+                    errorMessage: LOGOUT_ACCOUNT_ERROR,
                     errorDate: Date.now(),
                     errorCode: error,
                 }));
                 dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
             },
         );
+    };
+}
+
+export function deleteLoggedInUser() {
+    return async (dispatch: any, getState: () => LocalStore) => {
+        dispatch(setAuthStatus(AuthStatus.SYNCING));
+        accountService.deleteUser(() => {
+            dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
+            dispatch({
+                type: LOG_OUT_USER, // Logout is handled in the root reducer
+            });
+        }, (error) => {
+            crashlytics().recordError(Error(`${error}`));
+            dispatch(setAuthError({
+                errorPath: AuthErrorPathEnum.DELETE,
+                errorMessage: DELETE_ACCOUNT_ERROR,
+                errorDate: Date.now(),
+                errorCode: '',
+            }));
+            dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
+        });
     };
 }
 
