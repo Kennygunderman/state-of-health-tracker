@@ -146,7 +146,6 @@ const AccountScreen = () => {
             {sectionHeader(ACCOUNT_AUTH_SECTION_TITLE)}
             <HorizontalDivider />
             <AuthListItem />
-            {authStatus === AuthStatus.LOGGED_IN && <DeleteAccountListItem />}
             <AccountListItem
                 type="info"
                 clickable={true}
@@ -154,6 +153,7 @@ const AccountScreen = () => {
                 icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
                 onPressOverride={openPrivacyPolicy}
             />
+            {authStatus === AuthStatus.LOGGED_IN && <DeleteAccountListItem />}
         </>
     );
 
