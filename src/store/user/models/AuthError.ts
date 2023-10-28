@@ -2,6 +2,7 @@ export enum AuthErrorPathEnum {
     REGISTRATION = 'Registration Failed',
     LOGIN = 'Login Failed',
     LOGOUT = 'Logout Failed',
+    DELETE = 'Delete Failed',
 }
 
 export interface AuthError {

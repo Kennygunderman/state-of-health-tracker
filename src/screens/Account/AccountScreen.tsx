@@ -1,13 +1,12 @@
 import React, { useEffect } from 'react';
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-    Ionicons, MaterialCommunityIcons, FontAwesome5,
-} from '@expo/vector-icons';
-import {
-    Alert, SafeAreaView, ScrollView, TouchableOpacity, View,
+    Alert, Linking, SafeAreaView, ScrollView,
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import AccountListItem from './components/AccountListItem';
 import AuthListItem from './components/AuthListItem';
+import DeleteAccountListItem from './components/DeleteAccountListItem';
 import HorizontalDivider from '../../components/HorizontalDivider';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import FontSize from '../../constants/FontSize';
@@ -17,6 +16,7 @@ import {
     ACCOUNT_CURRENT_WEIGHT_LIST_ITEM,
     ACCOUNT_LOGGED_IN_AS,
     ACCOUNT_LOGGED_IN_AS_GUEST,
+    ACCOUNT_PRIVACY_POLICY,
     ACCOUNT_STATS_SECTION_TITLE,
     ACCOUNT_TARGET_CALORIES_LIST_ITEM,
     ACCOUNT_TARGET_WORKOUTS_LIST_ITEM,
@@ -132,11 +132,28 @@ const AccountScreen = () => {
         </>
     );
 
+    const openPrivacyPolicy = async () => {
+        const privacyPolicy = 'https://www.thestateofhealth.com/privacy-policy';
+        const supported = await Linking.canOpenURL(privacyPolicy);
+
+        if (supported) {
+            await Linking.openURL(privacyPolicy);
+        }
+    };
+
     const authSection = () => (
         <>
             {sectionHeader(ACCOUNT_AUTH_SECTION_TITLE)}
             <HorizontalDivider />
             <AuthListItem />
+            <AccountListItem
+                type="info"
+                clickable={true}
+                text={ACCOUNT_PRIVACY_POLICY}
+                icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
+                onPressOverride={openPrivacyPolicy}
+            />
+            {authStatus === AuthStatus.LOGGED_IN && <DeleteAccountListItem />}
         </>
     );
 
