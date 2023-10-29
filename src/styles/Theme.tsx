@@ -5,15 +5,19 @@ import {
 } from 'react-native';
 import { ColorSchemeName } from 'react-native/Libraries/Utilities/Appearance';
 import BorderRadius from '../constants/BorderRadius';
-import {
-    grey, primary, tertiary, secondary, secondaryLighter, white, accent,
-} from '../constants/Colors';
 import FontSize from '../constants/FontSize';
 import Spacing from '../constants/Spacing';
 
+const primary = '#1B1D2C';
+const accent = '#f1505b';
+const tertiary = '#2E303E';
+const secondary = '#2F3955';
+const secondaryLighter = '#5B8DE6';
+const white = '#fff';
+const grey = 'grey';
+
 type ThemeType = typeof darkTheme;
 
-// TODO remove colors file and add here
 export const darkTheme = {
     dark: true,
     colors: {

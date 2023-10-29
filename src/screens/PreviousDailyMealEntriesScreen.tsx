@@ -51,7 +51,7 @@ const PreviousDailyMealEntriesScreen = () => {
                 right: 0,
                 bottom: 0,
             }}
-            calories={calories}
+            calories={Math.round(calories)}
         />
     );
 
@@ -63,7 +63,7 @@ const PreviousDailyMealEntriesScreen = () => {
             day={item.day}
             headerChip={(
                 <Chip
-                    label={`${item.totalCalories} ${CAL_LABEL}`}
+                    label={`${Math.round(item.totalCalories)} ${CAL_LABEL}`}
                     style={{
                         paddingRight: Spacing.SMALL,
                         paddingLeft: Spacing.SMALL,

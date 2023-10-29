@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import _, { debounce } from 'lodash';
 import {
     Dimensions,
     FlatList,
     ListRenderItemInfo,
     View,
 } from 'react-native';
-import Toast from 'react-native-toast-message';
 import { useDispatch, useSelector } from 'react-redux';
 import CalorieChip from '../components/CalorieChip';
 import ListItem from '../components/ListItem';
-import SearchBar from '../components/SearchBar';
+import LoadingOverlay from '../components/LoadingOverlay';
+import SearchBar, { SEARCH_BAR_HEIGHT } from '../components/SearchBar';
 import SecondaryButton from '../components/SecondaryButton';
 import FontSize from '../constants/FontSize';
 import Screens from '../constants/Screens';
@@ -17,13 +18,13 @@ import Spacing from '../constants/Spacing';
 import {
     NEW_FOOD_ITEM_TEXT,
     FOOD_ITEMS_HEADER,
-    TOAST_MEAL_UPDATED, SEARCH_FOODS_PLACEHOLDER, NO_FOOD_FOUND_EMPTY_TEXT,
+    SEARCH_FOODS_PLACEHOLDER, NO_FOOD_FOUND_EMPTY_TEXT,
 } from '../constants/Strings';
 import { getFoodSelector } from '../selectors/FoodsSelector';
+import foodSearchService from '../service/food/FoodSearchService';
 import { deleteFood } from '../store/food/FoodActions';
 import FoodItem, { formatMacros } from '../store/food/models/FoodItem';
 import LocalStore from '../store/LocalStore';
-import { updateMealFood } from '../store/meals/MealsActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 import ListSwipeItemManager from '../utility/ListSwipeItemManager';
 
@@ -33,25 +34,49 @@ const AddFoodScreen = ({ navigation, route }: any) => {
     const [searchText, setSetSearchText] = useState('');
     const batchIncrement = 15;
     const [loadBatch, setLoadBatch] = useState(1);
-    const foodItems = useSelector<LocalStore, FoodItem[]>((state: LocalStore) => getFoodSelector(state, loadBatch, searchText));
+    const localFoodItems = useSelector<LocalStore, FoodItem[]>((state: LocalStore) => getFoodSelector(state, loadBatch, searchText));
+
+    const [foodItems, setFoodItems] = useState(localFoodItems);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const searchFoodsDebounce = useCallback(debounce((text: string, localItems: FoodItem[], batch: number, runSearch: boolean) => {
+        if (!runSearch) {
+            return;
+        }
+
+        setIsLoading(true);
+
+        foodSearchService.searchBrandedFoods(text, batch, (foods: FoodItem[]) => {
+            setIsLoading(false);
+            const filtered = foods.filter((rf) => localFoodItems.find((lf) => rf.id !== lf.id));
+            setFoodItems([...localItems, ...filtered]);
+        });
+    }, 500, { leading: false, trailing: true }), []);
+
+    useEffect(() => {
+        if (searchText !== '') {
+            searchFoodsDebounce(searchText, localFoodItems, loadBatch, true);
+        } else {
+            searchFoodsDebounce('', [], 0, false); // cancel the search debounce when no search text is present
+            setFoodItems(localFoodItems);
+        }
+    }, [localFoodItems]);
 
     const dispatch = useDispatch();
 
     const listSwipeItemManager = new ListSwipeItemManager(foodItems);
 
     const onFoodItemPressed = (foodItem: FoodItem) => {
-        dispatch(updateMealFood(mealId, foodItem));
-        navigation.goBack();
-
-        Toast.show({
-            type: 'success',
-            text1: `${mealName} ${TOAST_MEAL_UPDATED}`,
-            visibilityTime: 3_000,
+        navigation.navigate(Screens.FOOD_DETAIL_SCREEN, {
+            path: 'add',
+            mealId,
+            mealName,
+            foodItem,
         });
     };
 
     const onNewFoodItemPressed = () => {
-        setLoadBatch(15);
+        setLoadBatch(batchIncrement);
         navigation.push(Screens.CREATE_FOOD, { foodName: searchText });
     };
 
@@ -84,7 +109,15 @@ const AddFoodScreen = ({ navigation, route }: any) => {
                     marginBottom: areFoodItemsEmpty ? emptyStateTopMargin + 64 : 0,
                 }}
                 />
-                <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_FOODS_PLACEHOLDER} />
+                <SearchBar
+                    onSearchTextChanged={(searchString) => {
+                        setSetSearchText(searchString);
+                        if (searchString === '') {
+                            setLoadBatch(batchIncrement);
+                        }
+                    }}
+                    placeholder={SEARCH_FOODS_PLACEHOLDER}
+                />
                 {areFoodItemsEmpty
                     && (
                         <View style={{
@@ -130,45 +163,55 @@ const AddFoodScreen = ({ navigation, route }: any) => {
         </View>
     );
 
-    const renderItem = (info: ListRenderItemInfo<FoodItem>) => {
-        const foodItem = info.item;
+    const renderItem = ({ item, index }: ListRenderItemInfo<FoodItem>) => (
+        <>
+            {index === 0 && renderFoodItemsHeader()}
+            <ListItem
+                isSwipeable={item.source === 'local'}
+                leftRightMargin={Spacing.MEDIUM}
+                swipeableRef={(ref) => listSwipeItemManager.setRef(ref, item, index)}
+                onSwipeActivated={() => listSwipeItemManager.closeRow(item, index)}
+                title={item.name}
+                onPress={() => {
+                    onFoodItemPressed(item);
+                }}
+                subtitle={formatMacros(item.macros)}
+                chip={<CalorieChip calories={item.calories} />}
+                onDeletePressed={() => {
+                    dispatch(deleteFood(item.id));
+                }}
+            />
+        </>
+    );
 
-        return (
-            <>
-                {info.index === 0 && renderFoodItemsHeader()}
-                <ListItem
-                    leftRightMargin={Spacing.MEDIUM}
-                    swipeableRef={(ref) => listSwipeItemManager.setRef(ref, foodItem, info.index)}
-                    onSwipeActivated={() => listSwipeItemManager.closeRow(foodItem, info.index)}
-                    title={foodItem.name}
-                    onPress={() => {
-                        onFoodItemPressed(foodItem);
-                    }}
-                    subtitle={formatMacros(foodItem.macros)}
-                    chip={<CalorieChip calories={foodItem.calories} />}
-                    onDeletePressed={() => {
-                        dispatch(deleteFood(foodItem.id));
-                    }}
-                />
-            </>
-        );
-    };
+    const renderFooter = () => (
+        <View style={{ marginBottom: Spacing.X_LARGE }} />
+    );
 
     return (
-        <FlatList
-            initialNumToRender={10}
-            stickyHeaderIndices={[0]}
-            ListHeaderComponent={renderSearchBar()}
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={true}
-            style={{ height: '100%' }}
-            data={foodItems}
-            renderItem={renderItem}
-            onEndReached={() => {
-                setLoadBatch(loadBatch + batchIncrement);
-            }}
-        />
+        <>
+            <FlatList
+                scrollEnabled={!isLoading}
+                initialNumToRender={1}
+                stickyHeaderIndices={[0]}
+                ListHeaderComponent={renderSearchBar()}
+                ListFooterComponent={renderFooter()}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={true}
+                style={{ height: '100%' }}
+                data={foodItems}
+                renderItem={renderItem}
+                onEndReached={() => {
+                    if (searchText === '' && localFoodItems.length < loadBatch) {
+                        setLoadBatch(localFoodItems.length);
+                    } else {
+                        setLoadBatch(loadBatch + batchIncrement);
+                    }
+                }}
+            />
+            { isLoading && <LoadingOverlay style={{ marginTop: SEARCH_BAR_HEIGHT }} /> }
+        </>
     );
 };
 

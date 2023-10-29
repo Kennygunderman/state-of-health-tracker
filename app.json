@@ -1,23 +1,39 @@
 {
   "expo": {
-    "name": "fitness-tracking-app",
+    "name": "State of Health",
     "slug": "fitness-tracking-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1B1D2C"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
+      "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": true,
-      "bundleIdentifier": "com.stateofhealh.tracker"
+      "bundleIdentifier": "com.stateofhealh.tracker",
+      "icon": "./assets/icon.png",
+      "buildNumber": "3"
     },
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-firebase/crashlytics",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -27,6 +43,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "jsEngine": "jsc"
+    "jsEngine": "jsc",
+    "extra": {
+      "eas": {
+        "projectId": "db392b26-869f-459f-a0b4-f99798cb345f"
+      }
+    }
   }
 }

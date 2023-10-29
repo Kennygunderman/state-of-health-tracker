@@ -1,13 +1,12 @@
 import React, { useEffect } from 'react';
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-    Ionicons, MaterialCommunityIcons, FontAwesome5,
-} from '@expo/vector-icons';
-import {
-    Alert, SafeAreaView, ScrollView, TouchableOpacity, View,
+    Alert, Linking, SafeAreaView, ScrollView,
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import AccountListItem from './components/AccountListItem';
 import AuthListItem from './components/AuthListItem';
+import DeleteAccountListItem from './components/DeleteAccountListItem';
 import HorizontalDivider from '../../components/HorizontalDivider';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import FontSize from '../../constants/FontSize';
@@ -17,6 +16,7 @@ import {
     ACCOUNT_CURRENT_WEIGHT_LIST_ITEM,
     ACCOUNT_LOGGED_IN_AS,
     ACCOUNT_LOGGED_IN_AS_GUEST,
+    ACCOUNT_PRIVACY_POLICY,
     ACCOUNT_STATS_SECTION_TITLE,
     ACCOUNT_TARGET_CALORIES_LIST_ITEM,
     ACCOUNT_TARGET_WORKOUTS_LIST_ITEM,
@@ -91,37 +91,6 @@ const AccountScreen = () => {
         </Text>
     );
 
-    // TODO - REMOVE THIS
-    const listItem = (icon: JSX.Element, text: string, clickable: boolean = true) => (
-        <>
-            <TouchableOpacity
-                activeOpacity={clickable ? 0.25 : 1}
-                style={{
-                    marginTop: Spacing.MEDIUM,
-                    marginBottom: Spacing.MEDIUM,
-                    marginLeft: Spacing.LARGE,
-                    marginRight: Spacing.LARGE,
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                }}
-            >
-                <View style={{ flexDirection: 'row' }}>
-                    {icon}
-                    <Text style={{ alignSelf: 'center', marginLeft: Spacing.X_SMALL }}>{text}</Text>
-                </View>
-                {clickable && (
-                    <Ionicons
-                        name="chevron-forward"
-                        size={iconSize}
-                        color={iconColor}
-                        style={{ alignSelf: 'flex-start' }}
-                    />
-                )}
-            </TouchableOpacity>
-            <HorizontalDivider />
-        </>
-    );
-
     const targetsSection = () => (
         <>
             {sectionHeader(ACCOUNT_TARGETS_SECTION_TITLE)}
@@ -139,32 +108,37 @@ const AccountScreen = () => {
         </>
     );
 
-    const statsSection = () => {
-        const totalDaysLoggedMacros = () => listItem(
-            <MaterialCommunityIcons name="food-variant" size={iconSize} color={iconColor} />,
-            ACCOUNT_TOTAL_DAYS_MACROS_LIST_ITEM + dailyMealEntries.length,
-            false,
-        );
+    const statsSection = () => (
+        <>
+            {sectionHeader(ACCOUNT_STATS_SECTION_TITLE)}
+            <HorizontalDivider />
+            <AccountListItem
+                type="weight"
+                text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${lastWeightEntry} ${LBS_LABEL}`}
+                icon={<FontAwesome5 name="weight" size={iconSize - 4} style={{ marginTop: 2 }} color={iconColor} />}
+            />
+            <AccountListItem
+                type="info"
+                clickable={false}
+                text={ACCOUNT_TOTAL_DAYS_MACROS_LIST_ITEM + dailyMealEntries.length}
+                icon={<MaterialCommunityIcons name="food-variant" size={iconSize} color={iconColor} />}
+            />
+            <AccountListItem
+                type="info"
+                clickable={false}
+                text={ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM + dailyExerciseEntries.length}
+                icon={<Ionicons name="barbell" size={iconSize} color={iconColor} />}
+            />
+        </>
+    );
 
-        const totalDaysLoggedWorkouts = () => listItem(
-            <Ionicons name="barbell" size={iconSize} color={iconColor} />,
-            ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM + dailyExerciseEntries.length,
-            false,
-        );
+    const openPrivacyPolicy = async () => {
+        const privacyPolicy = 'https://www.thestateofhealth.com/privacy-policy';
+        const supported = await Linking.canOpenURL(privacyPolicy);
 
-        return (
-            <>
-                {sectionHeader(ACCOUNT_STATS_SECTION_TITLE)}
-                <HorizontalDivider />
-                <AccountListItem
-                    type="weight"
-                    text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${lastWeightEntry} ${LBS_LABEL}`}
-                    icon={<FontAwesome5 name="weight" size={iconSize - 4} style={{ marginTop: 2 }} color={iconColor} />}
-                />
-                {totalDaysLoggedMacros()}
-                {totalDaysLoggedWorkouts()}
-            </>
-        );
+        if (supported) {
+            await Linking.openURL(privacyPolicy);
+        }
     };
 
     const authSection = () => (
@@ -172,6 +146,14 @@ const AccountScreen = () => {
             {sectionHeader(ACCOUNT_AUTH_SECTION_TITLE)}
             <HorizontalDivider />
             <AuthListItem />
+            <AccountListItem
+                type="info"
+                clickable={true}
+                text={ACCOUNT_PRIVACY_POLICY}
+                icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
+                onPressOverride={openPrivacyPolicy}
+            />
+            {authStatus === AuthStatus.LOGGED_IN && <DeleteAccountListItem />}
         </>
     );
 

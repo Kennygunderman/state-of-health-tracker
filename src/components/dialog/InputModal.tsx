@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { TouchableOpacity, View } from 'react-native';
 import Modal from 'react-native-modal';
 import BorderRadius from '../../constants/BorderRadius';
@@ -10,7 +11,7 @@ import { Text, TextInput, useStyleTheme } from '../../styles/Theme';
 import PrimaryButton from '../PrimaryButton';
 
 interface Props {
-    visible: boolean;
+    isVisible: boolean;
     onCancel: () => void;
     onButtonPressed: () => void;
     value?: string;
@@ -28,7 +29,7 @@ interface Props {
 
 const InputModal = (props: Props) => {
     const {
-        visible,
+        isVisible,
         title,
         subtitle,
         buttonText,
@@ -43,9 +44,16 @@ const InputModal = (props: Props) => {
         maxInputLength = 24,
         placeholder,
     } = props;
+
+    useEffect(() => {
+        if (isVisible) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+    }, [isVisible]);
+
     return (
         <Modal
-            isVisible={visible}
+            isVisible={isVisible}
             avoidKeyboard={true}
             useNativeDriverForBackdrop={true}
             backdropOpacity={0.5}

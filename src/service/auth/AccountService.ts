@@ -1,24 +1,19 @@
-import { FirebaseApp } from '@firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
+import crashlytics from '@react-native-firebase/crashlytics';
 import { decodeAuthError } from './AuthErrorEnum';
 import Account from '../../store/user/models/Account';
 import { AuthError, AuthErrorPathEnum } from '../../store/user/models/AuthError';
-import app from '../index';
 
 export interface IAccountService {
     registerUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
     logInUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
+    logOutUser: () => void;
+    deleteUser: (onDeleted: () => void, onError: (Error: Error) => void) => void;
 }
 
 class AccountService implements IAccountService {
-    private auth;
-
-    constructor(firebaseApp: FirebaseApp) {
-        this.auth = getAuth(firebaseApp);
-    }
-
     registerUser(email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) {
-        createUserWithEmailAndPassword(this.auth, email, password)
+        auth().createUserWithEmailAndPassword(email, password)
             .then((userCredential) => {
                 const { user } = userCredential;
                 onCreated({
@@ -28,6 +23,7 @@ class AccountService implements IAccountService {
                 });
             })
             .catch((error) => {
+                crashlytics().recordError(error);
                 onError({
                     errorPath: AuthErrorPathEnum.REGISTRATION,
                     errorDate: Date.now(),
@@ -38,7 +34,7 @@ class AccountService implements IAccountService {
     }
 
     logInUser(email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) {
-        signInWithEmailAndPassword(this.auth, email, password)
+        auth().signInWithEmailAndPassword(email, password)
             .then((userCredential) => {
                 const { user } = userCredential;
                 onCreated({
@@ -48,6 +44,7 @@ class AccountService implements IAccountService {
                 });
             })
             .catch((error) => {
+                crashlytics().recordError(error);
                 onError({
                     errorPath: AuthErrorPathEnum.LOGIN,
                     errorDate: Date.now(),
@@ -56,20 +53,21 @@ class AccountService implements IAccountService {
                 });
             });
     }
+
+    logOutUser() {
+        auth().signOut();
+    }
+
+    deleteUser(onDeleted: () => void, onError: (error: Error) => void) {
+        auth().currentUser?.delete()
+            .then(() => {
+                onDeleted();
+            })
+            .catch((e) => {
+                onError(Error(e));
+            });
+    }
 }
 
-const accountService = new AccountService(app) as IAccountService;
+const accountService = new AccountService() as IAccountService;
 export default accountService;
-
-//
-// import { getAuth, updateProfile } from "firebase/auth";
-// const auth = getAuth();
-// updateProfile(auth.currentUser, {
-//     displayName: "Jane Q. User", photoURL: "https://example.com/jane-q-user/profile.jpg"
-// }).then(() => {
-//     // Profile updated!
-//     // ...
-// }).catch((error) => {
-//     // An error occurred
-//     // ...
-// });
