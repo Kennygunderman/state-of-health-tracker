@@ -20,7 +20,7 @@ Our tracking app is loaded with comprehensive graphs, and charts to make sure yo
 
 # Setup
 
-This app assumes you are using expo EAS and have a registered Apple Developer account.
+This app assumes you are using Expo EAS and have a registered Apple Developer account.
 
 ### Firebase Setup
 To setup use with firebase:
