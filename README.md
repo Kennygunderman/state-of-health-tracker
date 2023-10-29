@@ -20,12 +20,17 @@ Our tracking app is loaded with comprehensive graphs, and charts to make sure yo
 
 # Setup
 
-### Firebase
-Info-plist
-generate oauth token and add to plist
+This app assumes you are using expo EAS and have a registered Apple Developer account.
+
+### Firebase Setup
+To setup use with firebase:
+1. Create an iOS app in the Firebase console.
+2. Generate GoogleService-Info.plist file from Firebase.
+3. Generate an OAuth 2.0 Token and add to the GoogleServices-Info.plist file: https://developers.google.com/identity/protocols/oauth2#1.-obtain-oauth-2.0-credentials-from-the-dynamic_data.setvar.console_name-.
+4. Add GoogleService-Info.plist to root dir of project.
 
 ### Config
-rename config.ts.dist -> config.ts
+copy `config.ts.dist` and paste it as `config.ts`
 
 Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html
 Update 
@@ -33,11 +38,21 @@ Update
 `export const USDA_FOOD_API_KEY = 'USDA_API_KEY';`
 
 
-### Dev Builds
+### Running EAS builds
+EAS builds will ignore files found in .gitignore. Because of this, you must remove `.config.ts` and `.GoogleService-Info.plist` from the .gitignore to upload a build with EAS. Failing to do so will result in a failed build.
 
-Requires EAS - run script in package.json
 
-Add a firebase.json file to root dir to test crashlytics on debug build:
+### Dev Build
+Run an iOS dev build on physical device:
+1. Create a native build in EAS. Run `npm run build-ios-dev` to upload a dev build to EAS.
+2. Run Expo `npm run start`
+
+Run an iOS dev build on a simular:
+1. Create a simulator build in EAS: `eas build -p ios --profile preview`
+2. Open a simulator from XCode.
+3. Run `eas build:run -p ios --latest`
+
+To debug crashlytics on a dev build, add a firebase.json file with the following to the root dir of the project:
 
 ```
 {
@@ -50,4 +65,7 @@ Add a firebase.json file to root dir to test crashlytics on debug build:
   }
 }
 ```
+
+### Prod Build
+Create an iOS Prod build via via `eas build --platform all`. Submit to appstore connect with: `eas submit -p ios`
 
