@@ -43,7 +43,7 @@ EAS builds will ignore files found in .gitignore. Because of this, you must remo
 
 
 ### Dev Build
-Run an iOS dev build on physical device:
+Run an iOS dev build on a physical device:
 1. Create a native build in EAS. Run `npm run build-ios-dev` to upload a dev build to EAS.
 2. Run Expo `npm run start`
 
