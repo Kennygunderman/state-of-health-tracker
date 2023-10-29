@@ -17,7 +17,9 @@
     "ios": {
       "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": true,
-      "bundleIdentifier": "com.stateofhealh.tracker"
+      "bundleIdentifier": "com.stateofhealh.tracker",
+      "icon": "./assets/icon.png",
+      "buildNumber": "3"
     },
     "plugins": [
       "@react-native-firebase/app",
