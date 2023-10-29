@@ -1,28 +1,4 @@
-// Generate firebase app using the firebase console
-const firebaseConfig = {
-    apiKey: 'API_KEY',
-    authDomain: 'APP_ID.firebaseapp.com',
-    databaseURL: 'https://APP_ID.firebaseio.com',
-    projectId: 'APP_ID',
-    storageBucket: 'APP_ID.appspot.com',
-    appId: 'APP_ID',
-};
-
 export const USDA_BASE_URL = 'https://api.nal.usda.gov/fdc/v1';
 
 // Generate api key here: https://fdc.nal.usda.gov/api-key-signup.html
 export const USDA_FOOD_API_KEY = 'USDA_API_KEY';
-
-//Add GoogleService-Info-plist to root dir
-
-
-Add a firebase.json file to root dir to test crashlytics on debug build:
-{
-  "react-native": {
-    "crashlytics_debug_enabled": true,
-    "crashlytics_disable_auto_disabler": true,
-    "crashlytics_auto_collection_enabled": true,
-    "crashlytics_is_error_generation_on_js_crash_enabled": true,
-    "crashlytics_javascript_exception_handler_chaining_enabled": true
-  }
-}
