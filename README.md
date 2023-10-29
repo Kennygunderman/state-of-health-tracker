@@ -32,9 +32,9 @@ To setup use with firebase:
 ### Config
 copy `config.ts.dist` and paste it as `config.ts`
 
-Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html
-Update 
+Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html 
 
+and update:
 `export const USDA_FOOD_API_KEY = 'USDA_API_KEY';`
 
 
