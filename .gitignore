@@ -4,6 +4,7 @@
 node_modules/
 
 config.ts
+GoogleService-Info.plist
 
 # Expo
 .expo/
