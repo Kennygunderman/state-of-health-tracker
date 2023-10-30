@@ -3,6 +3,14 @@
 # dependencies
 node_modules/
 
+# dev files to run project in expo go
+src/service/index.dev.ts
+src/service/auth/AccountService.dev.ts
+src/service/food/FoodSearchService.dev.ts
+src/service/userSync/UserSyncService.dev.ts
+app.dev.json
+package.dev.json
+
 config.ts
 GoogleService-Info.plist
 
