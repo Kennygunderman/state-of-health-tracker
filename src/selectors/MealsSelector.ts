@@ -14,7 +14,7 @@ export interface MealEntry {
 
 export interface DailyMealEntry {
     day: string;
-    totalCalories: number;
+    totals: Totals;
     meals: MealEntry[];
 }
 
@@ -65,6 +65,7 @@ function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dail
         .forEach((day) => {
             const meals = getMealsForDay(dailyMealEntriesMap, day, mealMap);
             let totalCalories = 0;
+            const totalMacros = { protein: 0, carbs: 0, fat: 0 };
             const mealEntries: MealEntry[] = [];
 
             meals.forEach((meal) => {
@@ -80,6 +81,10 @@ function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dail
                     mealMacros.carbs += food.macros.carbs * food.servings;
                     mealMacros.fat += food.macros.fat * food.servings;
                     mealCalories += food.calories * food.servings;
+
+                    totalMacros.protein += food.macros.protein * food.servings;
+                    totalMacros.carbs += food.macros.carbs * food.servings;
+                    totalMacros.fat += food.macros.fat * food.servings;
                     totalCalories += food.calories * food.servings;
                 });
 
@@ -98,7 +103,10 @@ function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dail
 
             const entry: DailyMealEntry = {
                 day,
-                totalCalories,
+                totals: {
+                    calories: totalCalories,
+                    macros: totalMacros,
+                },
                 meals: mealEntries,
             };
 
