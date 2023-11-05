@@ -68,6 +68,17 @@ export const getTemplatesSelector: ParametricSelector<LocalStore, string, Workou
     getTemplates,
 );
 
+function getExercisesForTemplate(template: WorkoutTemplate, exerciseMap: ExerciseMap): Exercise[] {
+    const exercises = getExercises('', exerciseMap);
+    return exercises.filter((exercise) => template.exerciseIds.includes(exercise.id));
+}
+
+export const getExercisesForTemplateSelector: ParametricSelector<LocalStore, WorkoutTemplate, Exercise[]> = createSelector(
+    (_: LocalStore, template: WorkoutTemplate) => template,
+    (state: LocalStore) => state.exercises.map,
+    getExercisesForTemplate,
+);
+
 function getPreviousDailyExerciseEntries(loadBatch: number, currentDay: string, dailyExerciseMap: DailyExerciseMap): DailyExerciseEntry[] {
     const entries: DailyExerciseEntry[] = [];
 

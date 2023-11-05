@@ -21,6 +21,7 @@ interface Props {
     readonly deleteIconRightMargin?: number;
     readonly isSwipeable?: boolean;
     readonly backgroundColor?: string;
+    readonly isTappable?: boolean;
 }
 
 const ListItem = (props: Props) => {
@@ -38,6 +39,7 @@ const ListItem = (props: Props) => {
         deleteIconRightMargin = 0,
         isSwipeable = true,
         backgroundColor = useStyleTheme().colors.background,
+        isTappable = true,
     } = props;
 
     return (
@@ -50,7 +52,7 @@ const ListItem = (props: Props) => {
                 swipeableRef={swipeableRef}
                 onSwipeActivated={onSwipeActivated}
             >
-                <TouchableOpacity activeOpacity={0.5} delayPressIn={50} onPress={() => { onPress?.(); }}>
+                <TouchableOpacity disabled={!isTappable} activeOpacity={0.5} delayPressIn={50} onPress={() => { onPress?.(); }}>
                     <View
                         style={[
                             {

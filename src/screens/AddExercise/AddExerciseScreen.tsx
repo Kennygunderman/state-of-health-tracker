@@ -93,6 +93,10 @@ const AddExerciseScreen = ({ navigation }: any) => {
         navigation.goBack();
     };
 
+    const onTemplatePressed = (template: WorkoutTemplate) => {
+        navigation.push(Screens.WORKOUT_TEMPLATE_DETAIL, { template });
+    };
+
     const createExerciseButton = () => (
         <SecondaryButton
             style={{ alignSelf: 'flex-end', marginTop: Spacing.MEDIUM, marginBottom: Spacing.MEDIUM }}
@@ -117,7 +121,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const emptyStateTopMargin = 100;
         const emptyStateContainerHeight = 150;
         const isSearchTextEmpty = searchText !== '';
-        const areSearchResultsEmpty = isSearchTextEmpty && exercises.length === 0 && templates.length === 0;
+        const areSearchResultsEmpty = isSearchTextEmpty && exercises.length === 0 && templates.length === 0 && !isCreatingTemplate;
         return (
             <>
                 <View style={{
@@ -232,7 +236,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 listSwipeItemManager.closeRow(section, index + 1);
                 stageTemplateDelete(item);
             };
-        const onPress: () => void = isExercise ? () => onExercisePressed(item) : () => {};
+        const onPress: () => void = isExercise ? () => onExercisePressed(item) : () => onTemplatePressed(item);
 
         return (
             <ListItem

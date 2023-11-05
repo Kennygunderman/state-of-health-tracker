@@ -30,6 +30,7 @@ import PreviousDailyExerciseEntriesScreen
     from './src/screens/PreviousDailyExercises/PreviousDailyExerciseEntriesScreen';
 import PreviousDailyMealEntriesScreen from './src/screens/PreviousDailyMealEntriesScreen';
 import WorkoutsScreen from './src/screens/Workouts/WorkoutsScreen';
+import WorkoutTemplateDetailScreen from './src/screens/WorkoutTemplateDetailScreen';
 import store, { useThunkDispatch } from './src/store';
 import { addDailyMealEntry } from './src/store/dailyMealEntries/DailyMealEntriesActions';
 import { syncUserData } from './src/store/user/UserActions';
@@ -205,6 +206,7 @@ const App = () => {
                         name={Screens.ADD_EXERCISE}
                         component={AddExerciseScreen}
                     />
+                    <Stack.Screen name={Screens.WORKOUT_TEMPLATE_DETAIL} component={WorkoutTemplateDetailScreen} />
                     <Stack.Screen name={Screens.CREATE_EXERCISE} component={CreateExerciseScreen} />
                     <Stack.Screen
                         name={Screens.PREVIOUS_DAILY_EXERCISE_ENTRIES}

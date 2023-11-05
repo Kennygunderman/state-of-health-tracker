@@ -11,4 +11,5 @@ export default {
     ACCOUNT: 'Account',
     REGISTER: 'Register',
     LOG_IN: 'Log In',
+    WORKOUT_TEMPLATE_DETAIL: 'Workout Template',
 };
