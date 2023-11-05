@@ -155,6 +155,13 @@ export const LOGOUT_ACCOUNT_ERROR = 'Unable to log out at this time. Please chec
 export const TOAST_TEMPLATE_CREATED = 'Template created!';
 export const NO_EXERCISES_ADDED_TEXT = 'No exercises added. Tap \'+ Create Exercise\' to get started';
 export const NO_TEMPLATES_ADDED_TEXT = 'No templates added. Tap \'+ Create Template\' to get started';
+export const SELECT_EXERCISES_FOR_TEMPLATE_TITLE = 'Select Exercises for Template';
+export const TEMPLATE_MODAL_PLACEHOLDER = 'Ex: Chest Day';
+export const TEMPLATE_MODAL_TITLE = 'Add Template Name';
+export const TEMPLATE_MODAL_BUTTON_TEXT = 'Create Template';
+export const TEMPLATE_MODAL_ERROR_TEXT = 'Please Enter a Template Name';
+export const TOAST_TEMPLATE_EXERCISES_ADDED = 'Exercises Added!';
+export const TOAST_TEMPLATE_EXERCISES_ADDED_BODY = 'From Template: %0';
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
     let updatedStr = str;

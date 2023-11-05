@@ -7,6 +7,11 @@ import PrimaryButton from '../components/PrimaryButton';
 import { showToast } from '../components/toast/util/ShowToast';
 import FontSize from '../constants/FontSize';
 import Spacing from '../constants/Spacing';
+import {
+    stringWithParameters,
+    TOAST_TEMPLATE_EXERCISES_ADDED,
+    TOAST_TEMPLATE_EXERCISES_ADDED_BODY,
+} from '../constants/Strings';
 import { getExercisesForTemplateSelector, getExercisesSelector } from '../selectors/ExercisesSelector';
 import { addDailyExercise } from '../store/dailyExerciseEntries/DailyExerciseActions';
 import { Exercise } from '../store/exercises/models/Exercise';
@@ -65,7 +70,7 @@ const WorkoutTemplateDetailScreen = ({ navigation, route }: any) => {
                     label="Start Workout"
                     onPress={() => {
                         addExerciseToDailyEntry();
-                        showToast('success', 'Exercises Added!', `From template: ${template.name}`);
+                        showToast('success', TOAST_TEMPLATE_EXERCISES_ADDED, stringWithParameters(TOAST_TEMPLATE_EXERCISES_ADDED_BODY, template.name));
                         navigation.pop(2);
                     }}
                 />

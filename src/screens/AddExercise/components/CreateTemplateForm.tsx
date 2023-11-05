@@ -6,7 +6,7 @@ import ListItem from '../../../components/ListItem';
 import PrimaryButton from '../../../components/PrimaryButton';
 import FontSize from '../../../constants/FontSize';
 import Spacing from '../../../constants/Spacing';
-import { CANCEL_BUTTON_TEXT, NEXT_BUTTON_TEXT } from '../../../constants/Strings';
+import { CANCEL_BUTTON_TEXT, NEXT_BUTTON_TEXT, SELECT_EXERCISES_FOR_TEMPLATE_TITLE } from '../../../constants/Strings';
 import { Exercise } from '../../../store/exercises/models/Exercise';
 import { Text, useStyleTheme } from '../../../styles/Theme';
 
@@ -34,7 +34,7 @@ const CreateTemplateForm = (props: Props) => {
                     fontWeight: 'bold',
                 }}
                 >
-                    Select Exercises for Template
+                    {SELECT_EXERCISES_FOR_TEMPLATE_TITLE}
                 </Text>
             )}
             <ListItem

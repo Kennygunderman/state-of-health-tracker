@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import BaseInputModalProps from '../../../components/dialog/BaseInputModalProps';
 import InputModal from '../../../components/dialog/InputModal';
+import {
+    TEMPLATE_MODAL_BUTTON_TEXT, TEMPLATE_MODAL_ERROR_TEXT,
+    TEMPLATE_MODAL_PLACEHOLDER,
+    TEMPLATE_MODAL_TITLE,
+} from '../../../constants/Strings';
 import { addWorkoutTemplate } from '../../../store/exercises/ExercisesActions';
 import { Exercise } from '../../../store/exercises/models/Exercise';
 import { createWorkoutTemplate } from '../../../store/exercises/models/WorkoutTemplate';
@@ -41,8 +46,8 @@ const CreateTemplateModal = (props: Props) => {
 
     return (
         <InputModal
-            placeholder="Ex: Chest Day"
-            title="Add Template Name"
+            placeholder={TEMPLATE_MODAL_PLACEHOLDER}
+            title={TEMPLATE_MODAL_TITLE}
             subtitle={templateTagline}
             value={name}
             isVisible={isVisible}
@@ -50,13 +55,13 @@ const CreateTemplateModal = (props: Props) => {
                 setShowError(false);
                 onDismissed();
             }}
-            buttonText="Create Template"
+            buttonText={TEMPLATE_MODAL_BUTTON_TEXT}
             onChangeText={(text) => {
                 setShowError(false);
                 setName(text);
             }}
             showError={showError}
-            errorMessage="Please Enter a Template Name"
+            errorMessage={TEMPLATE_MODAL_ERROR_TEXT}
             keyboardType="number-pad"
             onButtonPressed={() => {
                 createTemplate();
