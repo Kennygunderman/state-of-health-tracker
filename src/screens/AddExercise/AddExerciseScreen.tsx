@@ -26,13 +26,16 @@ import {
     TOAST_EXERCISE_ADDED,
     TOAST_EXERCISE_ALREADY_ADDED, TOAST_TEMPLATE_CREATED,
 } from '../../constants/Strings';
-import { getExercisesSelector, getExercisesForDaySelector } from '../../selectors/ExercisesSelector';
+import {
+    getExercisesSelector,
+    getExercisesForDaySelector,
+    getTemplatesSelector,
+} from '../../selectors/ExercisesSelector';
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
 import { deleteExercise } from '../../store/exercises/ExercisesActions';
 import { Exercise, instanceOfExercise } from '../../store/exercises/models/Exercise';
 import {
-    createWorkoutTemplate,
     WorkoutTemplate,
 } from '../../store/exercises/models/WorkoutTemplate';
 import LocalStore from '../../store/LocalStore';
@@ -53,7 +56,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
     const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
     const exercises = useSelector<LocalStore, Exercise[]>((state: LocalStore) => getExercisesSelector(state, searchText));
-    const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => state.exercises.templates);
+    const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => getTemplatesSelector(state, searchText));
     const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 
@@ -111,7 +114,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const emptyStateTopMargin = 100;
         const emptyStateContainerHeight = 150;
         const isSearchTextEmpty = searchText !== '';
-        const areExercisesEmpty = exercises.length === 0;
+        const areSearchResultsEmpty = exercises.length === 0 && templates.length === 0;
         return (
             <>
                 <View style={{
@@ -120,11 +123,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
                     backgroundColor: useStyleTheme().colors.secondary,
                     position: 'absolute',
                     bottom: 0,
-                    marginBottom: areExercisesEmpty ? emptyStateTopMargin + 64 : 0,
+                    marginBottom: areSearchResultsEmpty ? emptyStateTopMargin + 64 : 0,
                 }}
                 />
                 <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER} />
-                {areExercisesEmpty
+                {areSearchResultsEmpty
                     && (
                         <View style={{
                             alignSelf: 'center',
@@ -171,6 +174,10 @@ const AddExerciseScreen = ({ navigation }: any) => {
     );
 
     const renderSectionItemHeader = (section: Section) => {
+        if (section.data.length === 0) {
+            return <View />;
+        }
+
         if (section.title === EXERCISES_HEADER) {
             return renderCreateSection(section.title, createExerciseButton());
         }
@@ -251,6 +258,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 sections={sections}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={renderSearchBar()}
+                ListFooterComponent={<View style={{ marginBottom: Spacing.X_LARGE }} />}
                 renderSectionHeader={({ section }) => renderSectionItemHeader(section)}
                 renderItem={renderItem}
             />

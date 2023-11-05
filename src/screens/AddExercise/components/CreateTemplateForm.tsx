@@ -71,7 +71,7 @@ const CreateTemplateForm = (props: Props) => {
                 keyboardShouldPersistTaps="always"
                 keyboardDismissMode="on-drag"
                 initialNumToRender={10}
-                data={exercises}
+                data={[...selectedExercises, ...exercises.filter((e) => !selectedExercises.includes(e))]}
                 ListHeaderComponent={searchBar}
                 ListFooterComponent={(
                     <>
@@ -86,6 +86,7 @@ const CreateTemplateForm = (props: Props) => {
                                 backgroundColor: useStyleTheme().colors.background,
                                 borderWidth: 1.5,
                                 borderColor: useStyleTheme().colors.secondary,
+                                marginBottom: Spacing.X_LARGE,
                             }}
                             label={CANCEL_BUTTON_TEXT}
                             onPress={() => onCanceled()}

@@ -5,6 +5,7 @@ import { DailyExercise } from '../store/dailyExerciseEntries/models/DailyExercis
 import { ExerciseMap } from '../store/exercises/ExercisesState';
 import { Exercise } from '../store/exercises/models/Exercise';
 import { ExerciseSet } from '../store/exercises/models/ExerciseSet';
+import { WorkoutTemplate } from '../store/exercises/models/WorkoutTemplate';
 import LocalStore from '../store/LocalStore';
 import { formatDate, formatDateToMonthDay } from '../utility/DateUtility';
 
@@ -55,6 +56,16 @@ export const getExercisesSelector: ParametricSelector<LocalStore, string, Exerci
     (_: LocalStore, filter: string) => filter,
     (state: LocalStore) => state.exercises.map,
     getExercises,
+);
+
+function getTemplates(filter: string, templates: WorkoutTemplate[]): WorkoutTemplate[] {
+    return templates.filter((template) => template.name.includes(filter));
+}
+
+export const getTemplatesSelector: ParametricSelector<LocalStore, string, WorkoutTemplate[]> = createSelector(
+    (_: LocalStore, filter: string) => filter,
+    (state: LocalStore) => state.exercises.templates,
+    getTemplates,
 );
 
 function getPreviousDailyExerciseEntries(loadBatch: number, currentDay: string, dailyExerciseMap: DailyExerciseMap): DailyExerciseEntry[] {
