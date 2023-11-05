@@ -1,6 +1,8 @@
 import { Exercise } from './models/Exercise';
+import { WorkoutTemplate } from './models/WorkoutTemplate';
 
 export default interface ExercisesState {
+    templates: WorkoutTemplate[];
     map: ExerciseMap;
 }
 

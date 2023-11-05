@@ -20,6 +20,7 @@ interface Props {
     readonly leftRightMargin?: number;
     readonly deleteIconRightMargin?: number;
     readonly isSwipeable?: boolean;
+    readonly backgroundColor?: string;
 }
 
 const ListItem = (props: Props) => {
@@ -36,6 +37,7 @@ const ListItem = (props: Props) => {
         leftRightMargin = 28,
         deleteIconRightMargin = 0,
         isSwipeable = true,
+        backgroundColor = useStyleTheme().colors.background,
     } = props;
 
     return (
@@ -54,7 +56,7 @@ const ListItem = (props: Props) => {
                             {
                                 flexDirection: 'row',
                                 justifyContent: 'space-between',
-                                backgroundColor: useStyleTheme().colors.background,
+                                backgroundColor,
                                 borderRadius: BorderRadius.LIST_ITEM,
                                 borderWidth: 1,
                                 borderColor: useStyleTheme().colors.border,
@@ -68,7 +70,7 @@ const ListItem = (props: Props) => {
                     >
                         <View style={{ flex: 1 }}>
                             <Text style={{ fontWeight: 'bold', marginLeft: 10, marginRight: Spacing.XX_SMALL }} numberOfLines={1}>{title}</Text>
-                            <Text style={{ fontWeight: '200', marginLeft: 10 }} numberOfLines={2}>{subtitle}</Text>
+                            <Text style={{ fontWeight: '200', marginLeft: 10 }} numberOfLines={1}>{subtitle}</Text>
                         </View>
                         <View
                             style={{

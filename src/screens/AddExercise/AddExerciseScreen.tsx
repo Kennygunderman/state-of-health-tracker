@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import {
-    Dimensions, FlatList, ListRenderItemInfo, View,
+    Dimensions, SectionList, SectionListRenderItem, View,
 } from 'react-native';
-import Toast from 'react-native-toast-message';
 import { useDispatch, useSelector } from 'react-redux';
+import CreateTemplateForm from './components/CreateTemplateForm';
 import ExerciseTypeChip from './components/ExerciseTypeChip';
 import ConfirmModal from '../../components/dialog/ConfirmModal';
 import ListItem from '../../components/ListItem';
@@ -15,32 +15,63 @@ import Screens from '../../constants/Screens';
 import Spacing from '../../constants/Spacing';
 import {
     CREATE_EXERCISE_BUTTON_TEXT,
+    CREATE_TEMPLATE_BUTTON_TEXT,
     DELETE_EXERCISE_MODAL_BODY,
     DELETE_EXERCISE_MODAL_TITLE,
-    EXERCISES_HEADER, NO_EXERCISES_FOUND_EMPTY_TEXT, SEARCH_EXERCISES_PLACEHOLDER, stringWithParameters,
+    EXERCISES_HEADER,
+    NO_EXERCISES_FOUND_EMPTY_TEXT,
+    SEARCH_EXERCISES_PLACEHOLDER,
+    stringWithParameters,
+    TEMPLATES_HEADER,
     TOAST_EXERCISE_ADDED,
-    TOAST_EXERCISE_ALREADY_ADDED,
+    TOAST_EXERCISE_ALREADY_ADDED, TOAST_TEMPLATE_CREATED,
 } from '../../constants/Strings';
 import { getExercisesSelector, getExercisesForDaySelector } from '../../selectors/ExercisesSelector';
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
 import { deleteExercise } from '../../store/exercises/ExercisesActions';
-import { Exercise } from '../../store/exercises/models/Exercise';
+import { Exercise, instanceOfExercise } from '../../store/exercises/models/Exercise';
+import {
+    createWorkoutTemplate,
+    WorkoutTemplate,
+} from '../../store/exercises/models/WorkoutTemplate';
 import LocalStore from '../../store/LocalStore';
+import Unique from '../../store/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';
+
+interface Section extends Unique {
+    title: string;
+    data: Exercise[] | WorkoutTemplate[];
+}
 
 const AddExerciseScreen = ({ navigation }: any) => {
     const [searchText, setSetSearchText] = useState('');
     const [isConfirmDeleteModalVisible, setIsConfirmDeleteModalVisible] = useState(false);
     const [exerciseToDelete, setExerciseToDelete] = useState<Exercise | undefined>(undefined);
 
+    const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+
     const exercises = useSelector<LocalStore, Exercise[]>((state: LocalStore) => getExercisesSelector(state, searchText));
+    const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => state.exercises.templates);
     const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 
+    const sections: Section[] = [
+        {
+            id: 'templates',
+            title: TEMPLATES_HEADER,
+            data: templates,
+        },
+        {
+            id: 'exercises',
+            title: EXERCISES_HEADER,
+            data: exercises,
+        },
+    ];
+
     const dispatch = useDispatch();
-    const listSwipeItemManager = new ListSwipeItemManager(exercises);
+    const listSwipeItemManager = new ListSwipeItemManager(sections);
 
     const onExercisePressed = (exercise: Exercise) => {
         const isAlreadyAdded = dailyExercises.find((dailyExercise) => dailyExercise.exercise.name === exercise.name) !== undefined;
@@ -56,12 +87,22 @@ const AddExerciseScreen = ({ navigation }: any) => {
         navigation.goBack();
     };
 
-    const renderCreateExerciseButton = () => (
+    const createExerciseButton = () => (
         <SecondaryButton
             style={{ alignSelf: 'flex-end', marginTop: Spacing.MEDIUM, marginBottom: Spacing.MEDIUM }}
             label={CREATE_EXERCISE_BUTTON_TEXT}
             onPress={() => {
                 navigation.push(Screens.CREATE_EXERCISE, { exerciseName: searchText });
+            }}
+        />
+    );
+
+    const createTemplateButton = () => (
+        <SecondaryButton
+            style={{ alignSelf: 'flex-end', marginTop: Spacing.MEDIUM, marginBottom: Spacing.MEDIUM }}
+            label={CREATE_TEMPLATE_BUTTON_TEXT}
+            onPress={() => {
+                setIsCreatingTemplate(true);
             }}
         />
     );
@@ -83,7 +124,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 }}
                 />
                 <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER} />
-                { areExercisesEmpty
+                {areExercisesEmpty
                     && (
                         <View style={{
                             alignSelf: 'center',
@@ -101,14 +142,14 @@ const AddExerciseScreen = ({ navigation }: any) => {
                                 {NO_EXERCISES_FOUND_EMPTY_TEXT}
                             </Text>
                             {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
-                            {renderCreateExerciseButton()}
+                            {createExerciseButton()}
                         </View>
                     )}
             </>
         );
     };
 
-    const renderCreateExerciseHeader = () => (
+    const renderCreateSection = (text: string, button?: JSX.Element) => (
         <View style={{
             flexDirection: 'row',
             justifyContent: 'space-between',
@@ -123,33 +164,69 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 fontWeight: 'bold',
             }}
             >
-                {EXERCISES_HEADER}
+                {text}
             </Text>
-            {renderCreateExerciseButton()}
+            {button}
         </View>
     );
 
-    const renderItem = ({ item, index }: ListRenderItemInfo<Exercise>) => (
-        <>
-            {index === 0 && renderCreateExerciseHeader()}
+    const renderSectionItemHeader = (section: Section) => {
+        if (section.title === EXERCISES_HEADER) {
+            return renderCreateSection(section.title, createExerciseButton());
+        }
+
+        return renderCreateSection(section.title, createTemplateButton());
+    };
+
+    const renderItem: SectionListRenderItem<Exercise | WorkoutTemplate, Section> = ({ item, section, index }) => {
+        const isExercise = instanceOfExercise(item);
+
+        const title: string = item.name;
+        const subtitle: string = isExercise ? item.exerciseBodyPart : item.tagline;
+        const chip: JSX.Element | undefined = isExercise ? <ExerciseTypeChip exerciseType={item.exerciseType} /> : undefined;
+        const onDeletePressed: () => void = isExercise
+            ? () => {
+                listSwipeItemManager.closeRow(section, index + 1);
+                setExerciseToDelete(item);
+                setIsConfirmDeleteModalVisible(true);
+            } : () => {
+
+            };
+        const onPress: () => void = isExercise ? () => onExercisePressed(item) : () => {};
+
+        return (
             <ListItem
                 leftRightMargin={Spacing.MEDIUM}
-                swipeableRef={(ref) => listSwipeItemManager.setRef(ref, item, index)}
-                onSwipeActivated={() => listSwipeItemManager.closeRow(item, index)}
-                title={item.name}
-                subtitle={item.exerciseBodyPart}
-                chip={<ExerciseTypeChip exerciseType={item.exerciseType} />}
-                onDeletePressed={() => {
-                    listSwipeItemManager.closeRow(item, index + 1);
-                    setExerciseToDelete(item);
-                    setIsConfirmDeleteModalVisible(true);
+                swipeableRef={(ref) => {
+                    listSwipeItemManager.setRef(ref, section, index);
                 }}
-                onPress={() => {
-                    onExercisePressed(item);
+                onSwipeActivated={() => {
+                    listSwipeItemManager.closeRow(section, index);
+                }}
+                title={title}
+                subtitle={subtitle}
+                chip={chip}
+                onDeletePressed={onDeletePressed}
+                onPress={onPress}
+            />
+        );
+    };
+
+    if (isCreatingTemplate) {
+        return (
+            <CreateTemplateForm
+                searchBar={renderSearchBar()}
+                exercises={exercises}
+                onCanceled={() => {
+                    setIsCreatingTemplate(false);
+                }}
+                onTemplateCreated={(name: string) => {
+                    setIsCreatingTemplate(false);
+                    showToast('success', TOAST_TEMPLATE_CREATED, name);
                 }}
             />
-        </>
-    );
+        );
+    }
 
     return (
         <>
@@ -167,12 +244,14 @@ const AddExerciseScreen = ({ navigation }: any) => {
                     setIsConfirmDeleteModalVisible(false);
                 }}
             />
-            <FlatList
+            <SectionList
                 keyboardShouldPersistTaps="always"
                 keyboardDismissMode="on-drag"
                 initialNumToRender={10}
+                sections={sections}
+                stickySectionHeadersEnabled={false}
                 ListHeaderComponent={renderSearchBar()}
-                data={exercises}
+                renderSectionHeader={({ section }) => renderSectionItemHeader(section)}
                 renderItem={renderItem}
             />
         </>
