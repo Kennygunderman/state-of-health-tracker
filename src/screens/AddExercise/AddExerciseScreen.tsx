@@ -17,9 +17,9 @@ import {
     CREATE_EXERCISE_BUTTON_TEXT,
     CREATE_TEMPLATE_BUTTON_TEXT,
     DELETE_EXERCISE_MODAL_BODY,
-    DELETE_EXERCISE_MODAL_TITLE,
-    EXERCISES_HEADER,
-    NO_EXERCISES_FOUND_EMPTY_TEXT,
+    DELETE_EXERCISE_MODAL_TITLE, DELETE_TEMPLATE_MODAL_BODY, DELETE_TEMPLATE_MODAL_TITLE,
+    EXERCISES_HEADER, NO_EXERCISES_ADDED_TEXT,
+    NO_EXERCISES_FOUND_EMPTY_TEXT, NO_TEMPLATES_ADDED_TEXT,
     SEARCH_EXERCISES_PLACEHOLDER,
     stringWithParameters,
     TEMPLATES_HEADER,
@@ -33,7 +33,7 @@ import {
 } from '../../selectors/ExercisesSelector';
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
-import { deleteExercise } from '../../store/exercises/ExercisesActions';
+import { deleteExercise, deleteWorkoutTemplate } from '../../store/exercises/ExercisesActions';
 import { Exercise, instanceOfExercise } from '../../store/exercises/models/Exercise';
 import {
     WorkoutTemplate,
@@ -50,8 +50,11 @@ interface Section extends Unique {
 
 const AddExerciseScreen = ({ navigation }: any) => {
     const [searchText, setSetSearchText] = useState('');
+    const [confirmDeleteTitle, setConfirmDeleteTitle] = useState('');
+    const [confirmDeleteBody, setConfirmDeleteBody] = useState('');
     const [isConfirmDeleteModalVisible, setIsConfirmDeleteModalVisible] = useState(false);
     const [exerciseToDelete, setExerciseToDelete] = useState<Exercise | undefined>(undefined);
+    const [templateIdToDelete, setTemplateIdToDelete] = useState<string | undefined>(undefined);
 
     const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
@@ -114,7 +117,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const emptyStateTopMargin = 100;
         const emptyStateContainerHeight = 150;
         const isSearchTextEmpty = searchText !== '';
-        const areSearchResultsEmpty = exercises.length === 0 && templates.length === 0;
+        const areSearchResultsEmpty = isSearchTextEmpty && exercises.length === 0 && templates.length === 0;
         return (
             <>
                 <View style={{
@@ -152,37 +155,66 @@ const AddExerciseScreen = ({ navigation }: any) => {
         );
     };
 
-    const renderCreateSection = (text: string, button?: JSX.Element) => (
-        <View style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginLeft: Spacing.MEDIUM,
-            marginRight: Spacing.MEDIUM,
-        }}
-        >
-            <Text style={{
-                marginLeft: Spacing.X_SMALL,
-                fontSize: FontSize.H1,
-                fontWeight: 'bold',
+    const renderCreateSectionHeader = (text: string, button: JSX.Element, emptyText?: string) => (
+        <>
+            <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginLeft: Spacing.MEDIUM,
+                marginRight: Spacing.MEDIUM,
             }}
             >
-                {text}
-            </Text>
-            {button}
-        </View>
+                <Text style={{
+                    marginLeft: Spacing.X_SMALL,
+                    fontSize: FontSize.H1,
+                    fontWeight: 'bold',
+                }}
+                >
+                    {text}
+                </Text>
+                {button}
+            </View>
+            { emptyText
+                && (
+                    <Text style={{
+                        fontWeight: '200',
+                        textAlign: 'center',
+                        alignSelf: 'center',
+                    }}
+                    >
+                        {emptyText}
+                    </Text>
+                )}
+        </>
     );
 
     const renderSectionItemHeader = (section: Section) => {
-        if (section.data.length === 0) {
+        if (section.data.length === 0 && searchText !== '') {
             return <View />;
         }
 
+        const isEmpty = section.data.length === 0;
         if (section.title === EXERCISES_HEADER) {
-            return renderCreateSection(section.title, createExerciseButton());
+            return renderCreateSectionHeader(section.title, createExerciseButton(), isEmpty ? NO_EXERCISES_ADDED_TEXT : undefined);
         }
+        return renderCreateSectionHeader(section.title, createTemplateButton(), isEmpty ? NO_TEMPLATES_ADDED_TEXT : undefined);
+    };
 
-        return renderCreateSection(section.title, createTemplateButton());
+    const stageExerciseDelete = (exercise: Exercise) => {
+        setTemplateIdToDelete(undefined);
+        setConfirmDeleteTitle(DELETE_EXERCISE_MODAL_TITLE);
+        setConfirmDeleteBody(stringWithParameters(DELETE_EXERCISE_MODAL_BODY, exercise?.name ?? ''));
+        setExerciseToDelete(exercise);
+        setIsConfirmDeleteModalVisible(true);
+    };
+
+    const stageTemplateDelete = (template: WorkoutTemplate) => {
+        setExerciseToDelete(undefined);
+        setConfirmDeleteTitle(DELETE_TEMPLATE_MODAL_TITLE);
+        setConfirmDeleteBody(stringWithParameters(DELETE_TEMPLATE_MODAL_BODY, template?.name ?? ''));
+        setTemplateIdToDelete(template.id);
+        setIsConfirmDeleteModalVisible(true);
     };
 
     const renderItem: SectionListRenderItem<Exercise | WorkoutTemplate, Section> = ({ item, section, index }) => {
@@ -191,13 +223,14 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const title: string = item.name;
         const subtitle: string = isExercise ? item.exerciseBodyPart : item.tagline;
         const chip: JSX.Element | undefined = isExercise ? <ExerciseTypeChip exerciseType={item.exerciseType} /> : undefined;
+
         const onDeletePressed: () => void = isExercise
             ? () => {
                 listSwipeItemManager.closeRow(section, index + 1);
-                setExerciseToDelete(item);
-                setIsConfirmDeleteModalVisible(true);
+                stageExerciseDelete(item);
             } : () => {
-
+                listSwipeItemManager.closeRow(section, index + 1);
+                stageTemplateDelete(item);
             };
         const onPress: () => void = isExercise ? () => onExercisePressed(item) : () => {};
 
@@ -238,13 +271,18 @@ const AddExerciseScreen = ({ navigation }: any) => {
     return (
         <>
             <ConfirmModal
-                confirmationTitle={DELETE_EXERCISE_MODAL_TITLE}
-                confirmationBody={stringWithParameters(DELETE_EXERCISE_MODAL_BODY, exerciseToDelete?.name ?? '')}
+                confirmationTitle={confirmDeleteTitle}
+                confirmationBody={confirmDeleteBody}
                 isVisible={isConfirmDeleteModalVisible}
                 onConfirmPressed={() => {
                     if (exerciseToDelete) {
                         dispatch(deleteExercise(exerciseToDelete));
                     }
+
+                    if (templateIdToDelete) {
+                        dispatch(deleteWorkoutTemplate(templateIdToDelete));
+                    }
+
                     setIsConfirmDeleteModalVisible(false);
                 }}
                 onCancel={() => {
