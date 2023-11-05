@@ -3,7 +3,7 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import {
     Alert, Linking, SafeAreaView, ScrollView,
 } from 'react-native';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import AccountListItem from './components/AccountListItem';
 import AuthListItem from './components/AuthListItem';
 import DeleteAccountListItem from './components/DeleteAccountListItem';
@@ -34,6 +34,7 @@ import LocalStore from '../../store/LocalStore';
 import Account from '../../store/user/models/Account';
 import { AuthError } from '../../store/user/models/AuthError';
 import AuthStatus from '../../store/user/models/AuthStatus';
+import { setAuthStatus } from '../../store/user/UserActions';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay, isDateLessThan2SecondsOld } from '../../utility/DateUtility';
 
@@ -48,6 +49,14 @@ const AccountScreen = () => {
     const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
     const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
     const authError = useSelector<LocalStore, AuthError | undefined>((state: LocalStore) => state.user.authError);
+
+    const dispatch = useDispatch();
+
+    useEffect(() => {
+        if (authStatus === AuthStatus.SYNCING) {
+            dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
+        }
+    }, []);
 
     useEffect(() => {
         if (authError && isDateLessThan2SecondsOld(authError.errorDate)) {
