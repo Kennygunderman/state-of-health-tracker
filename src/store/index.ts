@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { composeWithDevTools } from '@redux-devtools/extension';
 import { useDispatch } from 'react-redux';
 import { applyMiddleware, combineReducers, legacy_createStore as createStore } from 'redux';
-import { persistReducer, persistStore } from 'redux-persist';
+import { createMigrate, persistReducer, persistStore } from 'redux-persist';
 import thunk, { ThunkDispatch } from 'redux-thunk';
 import { dailyExerciseEntriesReducer } from './dailyExerciseEntries/DailyExerciseEntriesReducer';
 import { addDailyMealEntry } from './dailyMealEntries/DailyMealEntriesActions';
@@ -13,6 +13,7 @@ import initialState from './initialState';
 import LocalStore from './LocalStore';
 import { mealsReducer } from './meals/MealsReducer';
 import 'react-native-get-random-values';
+import { migrations } from './migrations';
 import { LOG_IN_USER, LOG_OUT_USER } from './user/UserActions';
 import { userReducer } from './user/UserReducer';
 import { setCurrentDate } from './userInfo/UserInfoActions';
@@ -46,7 +47,7 @@ const rootReducer = (state: any, action: Action<any>) => {
 const persistConfig = {
     key: 'root',
     storage: AsyncStorage,
-    version: 1,
+    version: 2,
     whitelist: [
         'user',
         'userInfo',
@@ -56,6 +57,7 @@ const persistConfig = {
         'exercises',
         'dailyExerciseEntries',
     ],
+    migrate: createMigrate(migrations, { debug: false }),
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

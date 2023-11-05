@@ -9,6 +9,8 @@ import FontSize from '../constants/FontSize';
 import Spacing from '../constants/Spacing';
 
 const primary = '#1B1D2C';
+const primarySelected = '#27293d';
+
 const accent = '#f1505b';
 const tertiary = '#2E303E';
 const secondary = '#2F3955';
@@ -25,6 +27,7 @@ export const darkTheme = {
         background: primary,
         accentColor: accent,
         primary,
+        primarySelected,
         tertiary,
         secondary,
         secondaryLighter,

@@ -1,11 +1,12 @@
 import {
-    ADD_EXERCISE,
-    DELETE_EXERCISE,
+    ADD_EXERCISE, ADD_WORKOUT_TEMPLATE,
+    DELETE_EXERCISE, DELETE_WORKOUT_TEMPLATE,
     UPDATE_EXERCISE_LATEST_COMPLETED_SETS,
 } from './ExercisesActions';
 import ExercisesState from './ExercisesState';
 import { Exercise } from './models/Exercise';
 import { ExerciseSet } from './models/ExerciseSet';
+import { WorkoutTemplate } from './models/WorkoutTemplate';
 
 function addExercise(state: ExercisesState, action: Action<Exercise>): ExercisesState {
     const exercise = action.payload;
@@ -68,7 +69,32 @@ function updateLatestCompletedSets(state: ExercisesState, action: Action<{ exerc
     };
 }
 
+function addWorkoutTemplate(state: ExercisesState, action: Action<WorkoutTemplate>): ExercisesState {
+    const template = action.payload;
+    if (!template) {
+        return state;
+    }
+
+    return {
+        ...state,
+        templates: [...state.templates ?? [], template],
+    };
+}
+
+function deleteWorkoutTemplate(state: ExercisesState, action: Action<string>): ExercisesState {
+    const templateId = action.payload;
+    if (!templateId) {
+        return state;
+    }
+
+    return {
+        ...state,
+        templates: (state.templates ?? []).filter((template) => template.id !== templateId),
+    };
+}
+
 export const EXERCISES_INITIAL_STATE: ExercisesState = {
+    templates: [],
     map: {},
 };
 
@@ -76,6 +102,8 @@ const exercisesReducerMap = {
     [ADD_EXERCISE]: addExercise,
     [DELETE_EXERCISE]: deleteExercise,
     [UPDATE_EXERCISE_LATEST_COMPLETED_SETS]: updateLatestCompletedSets,
+    [ADD_WORKOUT_TEMPLATE]: addWorkoutTemplate,
+    [DELETE_WORKOUT_TEMPLATE]: deleteWorkoutTemplate,
 };
 
 export function exercisesReducer(state = EXERCISES_INITIAL_STATE, action: Action<any>): ExercisesState {
