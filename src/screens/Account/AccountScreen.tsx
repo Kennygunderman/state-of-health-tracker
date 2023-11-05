@@ -158,16 +158,20 @@ const AccountScreen = () => {
     );
 
     const header = () => (
-        <Text style={{
-            fontWeight: 'bold',
-            backgroundColor: useStyleTheme().colors.background,
-            paddingTop: Spacing.MEDIUM,
-            paddingLeft: Spacing.LARGE,
-            paddingBottom: Spacing.SMALL,
-        }}
-        >
-            {formatDayMonthDay(currentDate)}
-        </Text>
+        // Wrapping in fragment is necessary here to keep styling
+        <>
+            {}
+            <Text style={{
+                fontWeight: 'bold',
+                backgroundColor: useStyleTheme().colors.background,
+                paddingTop: Spacing.MEDIUM,
+                paddingLeft: Spacing.LARGE,
+                paddingBottom: Spacing.SMALL,
+            }}
+            >
+                {formatDayMonthDay(currentDate)}
+            </Text>
+        </>
     );
 
     return (
