@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
     Dimensions, FlatList, ListRenderItemInfo, View,
 } from 'react-native';
-import Toast from 'react-native-toast-message';
 import { useDispatch, useSelector } from 'react-redux';
 import ExerciseTypeChip from './components/ExerciseTypeChip';
 import ConfirmModal from '../../components/dialog/ConfirmModal';

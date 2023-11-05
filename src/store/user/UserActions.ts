@@ -70,6 +70,7 @@ export function registerUser(email: string, password: string) {
                 );
             },
             (error) => {
+                dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
                 dispatch(setAuthError(error));
             },
         );
