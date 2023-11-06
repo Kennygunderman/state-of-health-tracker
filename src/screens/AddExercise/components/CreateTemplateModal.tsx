@@ -62,7 +62,6 @@ const CreateTemplateModal = (props: Props) => {
             }}
             showError={showError}
             errorMessage={TEMPLATE_MODAL_ERROR_TEXT}
-            keyboardType="number-pad"
             onButtonPressed={() => {
                 createTemplate();
             }}
