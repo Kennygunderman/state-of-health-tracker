@@ -47,7 +47,7 @@ Run an iOS dev build on a physical device:
 1. Create a native build in EAS. Run `npm run build-ios-dev` to upload a dev build to EAS.
 2. Run Expo `npm run start`
 
-Run an iOS dev build on a simular:
+Run an iOS dev build on a simulator:
 1. Create a simulator build in EAS: `eas build -p ios --profile preview`
 2. Open a simulator from XCode.
 3. Run `eas build:run -p ios --latest`
@@ -67,5 +67,5 @@ To debug crashlytics on a dev build, add a firebase.json file with the following
 ```
 
 ### Prod Build
-Create an iOS Prod build via via `eas build --platform all`. Submit to appstore connect with: `eas submit -p ios`
+Create an iOS Prod build via `eas build --platform ios`. Submit to appstore connect with: `eas submit -p ios`
 
