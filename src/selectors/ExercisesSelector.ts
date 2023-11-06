@@ -58,8 +58,8 @@ export const getExercisesSelector: ParametricSelector<LocalStore, string, Exerci
     getExercises,
 );
 
-function getTemplates(filter: string, templates: WorkoutTemplate[]): WorkoutTemplate[] {
-    return templates.filter((template) => template.name.includes(filter));
+function getTemplates(filter: string, templates?: WorkoutTemplate[]): WorkoutTemplate[] {
+    return templates?.filter((template) => template.name.includes(filter)) ?? [];
 }
 
 export const getTemplatesSelector: ParametricSelector<LocalStore, string, WorkoutTemplate[]> = createSelector(
