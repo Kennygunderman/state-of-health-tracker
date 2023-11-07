@@ -50,7 +50,14 @@ function addMealToDailyEntry(state: DailyMealEntriesState, action: Action<{ entr
             },
         };
     }
-    return state;
+
+    return {
+        ...state,
+        map: {
+            ...state.map,
+            [date]: createDailyMealEntry([mealId]),
+        },
+    };
 }
 
 function setMealHasSyncedFalse(state: DailyMealEntriesState, action: Action<string>) {
