@@ -180,10 +180,6 @@ export function syncUserData() {
             return;
         }
 
-        // if (!user.account || user.authStatus === 'LOGGED_OUT') {
-        //     return;
-        // }
-
         await userService.saveUserData(
             user.account,
             getState(),
