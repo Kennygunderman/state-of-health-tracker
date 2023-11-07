@@ -36,6 +36,7 @@ const localStore: LocalStore = {
         },
     },
     exercises: {
+        templates: [],
         map: {
             'Bench Press (Barbell)': createExercise('Bench Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.CHEST),
             'Bent Over One Arm Row (Dumbbell)': createExercise('Bent Over One Arm Row (Dumbbell)', ExerciseTypeEnum.DUMBBELL, ExerciseBodyPartEnum.BACK),

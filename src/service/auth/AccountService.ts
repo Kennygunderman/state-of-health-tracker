@@ -1,8 +1,8 @@
 import auth from '@react-native-firebase/auth';
-import crashlytics from '@react-native-firebase/crashlytics';
 import { decodeAuthError } from './AuthErrorEnum';
 import Account from '../../store/user/models/Account';
 import { AuthError, AuthErrorPathEnum } from '../../store/user/models/AuthError';
+import CrashUtility from '../../utility/CrashUtility';
 
 export interface IAccountService {
     registerUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
@@ -23,7 +23,7 @@ class AccountService implements IAccountService {
                 });
             })
             .catch((error) => {
-                crashlytics().recordError(error);
+                CrashUtility.recordError(error);
                 onError({
                     errorPath: AuthErrorPathEnum.REGISTRATION,
                     errorDate: Date.now(),
@@ -44,7 +44,7 @@ class AccountService implements IAccountService {
                 });
             })
             .catch((error) => {
-                crashlytics().recordError(error);
+                CrashUtility.recordError(error);
                 onError({
                     errorPath: AuthErrorPathEnum.LOGIN,
                     errorDate: Date.now(),

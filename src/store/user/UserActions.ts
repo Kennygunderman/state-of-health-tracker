@@ -1,4 +1,3 @@
-import crashlytics from '@react-native-firebase/crashlytics';
 import Account from './models/Account';
 import { AuthError, AuthErrorPathEnum } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
@@ -6,6 +5,7 @@ import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Stri
 import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
 import userSyncService from '../../service/userSync/UserSyncService';
+import CrashUtility from '../../utility/CrashUtility';
 import { isDateOlderThanADay } from '../../utility/DateUtility';
 import LocalStore from '../LocalStore';
 
@@ -62,13 +62,15 @@ export function registerUser(email: string, password: string) {
                     },
                     (error) => {
                         // If this error happens, the user has registered but their account data is not synced to the server.
-                        crashlytics().recordError(Error(error));
+                        CrashUtility.recordError(Error(error));
+
                         dispatch(setUserAccount(account));
                         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
                     },
                 );
             },
             (error) => {
+                dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
                 dispatch(setAuthError(error));
             },
         );
@@ -97,7 +99,7 @@ export function logInUser(email: string, password: string) {
                     (error) => {
                         // If this error happens, the user was able to log in with the auth service, but their data
                         // could not be fetched from the server. In this case, log the user out.
-                        crashlytics().recordError(Error(error));
+                        CrashUtility.recordError(Error(error));
                         dispatch(setAuthError({
                             errorPath: AuthErrorPathEnum.LOGIN,
                             errorMessage: decodeAuthError(error),
@@ -132,7 +134,7 @@ export function logOutUser(account: Account) {
             },
             (error) => {
                 // If this error happens, cancel user logout to prevent data loss.
-                crashlytics().recordError(Error(error));
+                CrashUtility.recordError(Error(error));
                 dispatch(setAuthError({
                     errorPath: AuthErrorPathEnum.LOGOUT,
                     errorMessage: LOGOUT_ACCOUNT_ERROR,
@@ -154,7 +156,7 @@ export function deleteLoggedInUser() {
                 type: LOG_OUT_USER, // Logout is handled in the root reducer
             });
         }, (error) => {
-            crashlytics().recordError(Error(`${error}`));
+            CrashUtility.recordError(Error(`${error}`));
             dispatch(setAuthError({
                 errorPath: AuthErrorPathEnum.DELETE,
                 errorMessage: DELETE_ACCOUNT_ERROR,
@@ -181,7 +183,7 @@ export function syncUserData() {
                 dispatch(updateLastSynced(Date.now()));
             },
             (error) => {
-                crashlytics().recordError(Error(error));
+                CrashUtility.recordError(Error(error));
             },
         );
     };

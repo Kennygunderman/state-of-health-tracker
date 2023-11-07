@@ -58,3 +58,7 @@ export function createExercise(
         latestCompletedSets,
     };
 }
+
+export function instanceOfExercise(object: any): object is Exercise {
+    return 'id' in object && 'name' in object && 'exerciseType' in object && 'exerciseBodyPart' in object && 'latestCompletedSets' in object;
+}
