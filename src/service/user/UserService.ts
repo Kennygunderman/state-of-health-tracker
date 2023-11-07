@@ -20,6 +20,7 @@ import { Meal } from '../../store/meals/models/Meal';
 import { USER_INITIAL_STATE } from '../../store/user/initialState';
 import Account from '../../store/user/models/Account';
 import { USER_INFO_INITIAL_STATE } from '../../store/userInfo/UserInfoReducer';
+import { getCurrentDate } from '../../utility/DateUtility';
 
 interface IUserService {
     saveUserData: (account: Account, store: LocalStore, onDataSynced: () => void, onError: (errorCode: string) => void) => void;
@@ -54,7 +55,9 @@ class UserService implements IUserService {
 
             await firestore().collection('userInfo').doc(account.id).set(
                 {
-                    ...store.userInfo,
+                    targetCalories: store.userInfo.targetCalories,
+                    targetWorkouts: store.userInfo.targetWorkouts,
+                    dateWeightMap: store.userInfo.dateWeightMap,
                 },
             );
 
@@ -212,7 +215,7 @@ class UserService implements IUserService {
 
         return {
             user: legacyUserData?.user ?? USER_INITIAL_STATE,
-            userInfo: legacyUserData?.userInfo ?? USER_INFO_INITIAL_STATE,
+            userInfo: legacyUserData ? { ...legacyUserData.userInfo, currentDate: getCurrentDate() } : USER_INFO_INITIAL_STATE,
             food: legacyUserData?.food ?? FOOD_INITIAL_STATE,
             meals: legacyUserData?.meals ?? MEALS_INITIAL_STATE,
             exercises: legacyUserData?.exercises ?? EXERCISES_INITIAL_STATE,
@@ -231,6 +234,8 @@ class UserService implements IUserService {
                 return;
             }
 
+            const userInfo = await this.fetchUserDoc('userInfo', userId);
+
             const { mealMap, dailyMealEntryMap } = await this.fetchMealEntries(userId);
             const dailyExerciseMap = await this.fetchExerciseEntries(userId);
 
@@ -238,7 +243,7 @@ class UserService implements IUserService {
                 // @ts-ignore
                 user: user ?? USER_INITIAL_STATE,
                 // @ts-ignore
-                userInfo: await this.fetchUserDoc('userInfo', userId) ?? USER_INFO_INITIAL_STATE,
+                userInfo: userInfo ? { ...userInfo, currentDate: getCurrentDate() } : USER_INFO_INITIAL_STATE,
                 // @ts-ignore
                 food: await this.fetchUserDoc('userFood', userId) ?? FOOD_INITIAL_STATE,
                 // @ts-ignore
