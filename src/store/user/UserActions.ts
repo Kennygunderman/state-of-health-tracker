@@ -4,7 +4,7 @@ import AuthStatus from './models/AuthStatus';
 import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Strings';
 import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
-import userService from '../../service/userSync/UserService';
+import userService from '../../service/user/UserService';
 import CrashUtility from '../../utility/CrashUtility';
 import { isDateOlderThanADay } from '../../utility/DateUtility';
 import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
