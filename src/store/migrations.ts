@@ -32,7 +32,7 @@ const storageMigrationVersion3 = containAndLogMigrationError((state: any) => {
     const exerciseEntryMap = state.dailyExerciseEntries.map;
     const newExerciseEntryMap: { [date: string]: DailyExerciseEntry } = {};
     Object.keys(exerciseEntryMap).forEach((dateKey) => {
-        newExerciseEntryMap[dateKey] = createDailyExerciseEntry(exerciseEntryMap[dateKey].dailyExercises);
+        newExerciseEntryMap[dateKey] = createDailyExerciseEntry(exerciseEntryMap[dateKey]);
     });
 
     return ({
