@@ -1,3 +1,4 @@
+import { createDailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
 import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from './exercises/models/Exercise';
 import { createFood } from './food/models/FoodItem';
 import LocalStore from './LocalStore';
@@ -19,7 +20,7 @@ const localStore: LocalStore = {
         foods: [
             createFood('Chicken Breast (4oz)', 1, '176', { protein: 35, carbs: 0, fat: 4 }),
             createFood('Egg (Large)', 1, '78', { protein: 6, carbs: 0, fat: 6 }),
-            createFood('Peanut Butter (2 tbsp)', 1, '78', { protein: 7, carbs: 4, fat: 16 }),
+            createFood('Peanut Butter (2 tbsp)', 1, '180', { protein: 7, carbs: 4, fat: 16 }),
             createFood('Apple (Medium)', 1, '96', { protein: 0, carbs: 24, fat: 0 }),
         ],
     },
@@ -32,7 +33,7 @@ const localStore: LocalStore = {
     },
     dailyMealEntries: {
         map: {
-            [initialDate]: [initialMealBreakfast.id, initialMealLunch.id, initialMealDinner.id],
+            [initialDate]: createDailyMealEntry([initialMealBreakfast.id, initialMealLunch.id, initialMealDinner.id]),
         },
     },
     exercises: {
