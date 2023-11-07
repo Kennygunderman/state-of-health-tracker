@@ -70,7 +70,16 @@ export const getTemplatesSelector: ParametricSelector<LocalStore, string, Workou
 
 function getExercisesForTemplate(template: WorkoutTemplate, exerciseMap: ExerciseMap): Exercise[] {
     const exercises = getExercises('', exerciseMap);
-    return exercises.filter((exercise) => template.exerciseIds.includes(exercise.id));
+
+    const orderedExercises: Exercise[] = [];
+    template.exerciseIds.forEach((id) => {
+        const exercise = exercises.find((e) => id === e.id);
+        if (exercise) {
+            orderedExercises.push(exercise);
+        }
+    });
+
+    return orderedExercises;
 }
 
 export const getExercisesForTemplateSelector: ParametricSelector<LocalStore, WorkoutTemplate, Exercise[]> = createSelector(
