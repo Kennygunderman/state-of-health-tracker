@@ -12,6 +12,7 @@ interface Props {
     readonly buttonText?: string;
     readonly onTitlePressed?: (topMargin?: number) => void;
     readonly onButtonPressed?: () => void;
+    readonly headerView?: JSX.Element;
 }
 
 const SectionListHeader = (props: Props) => {
@@ -21,6 +22,7 @@ const SectionListHeader = (props: Props) => {
         onTitlePressed,
         buttonText,
         onButtonPressed,
+        headerView,
     } = props;
 
     return (
@@ -44,27 +46,30 @@ const SectionListHeader = (props: Props) => {
             ]}
             key={key}
         >
-            <TouchableOpacity
-                style={{
-                    flex: 1,
-                }}
-                activeOpacity={0.5}
-                onPress={(event) => {
-                    onTitlePressed?.(event.nativeEvent.pageY - event.nativeEvent.locationY);
-                }}
-            >
-                <Text
-                    numberOfLines={2}
+            <View style={{ flex: 1 }}>
+                <TouchableOpacity
                     style={{
-                        fontWeight: 'bold',
-                        fontSize: FontSize.H3,
-                        backgroundColor: useStyleTheme().colors.background,
+                        flex: 1,
+                    }}
+                    activeOpacity={0.5}
+                    onPress={(event) => {
+                        onTitlePressed?.(event.nativeEvent.pageY - event.nativeEvent.locationY);
                     }}
                 >
-                    {title}
-                </Text>
+                    <Text
+                        numberOfLines={2}
+                        style={{
+                            fontWeight: 'bold',
+                            fontSize: FontSize.H3,
+                            backgroundColor: useStyleTheme().colors.background,
+                        }}
+                    >
+                        {title}
+                    </Text>
+                </TouchableOpacity>
+                {headerView}
 
-            </TouchableOpacity>
+            </View>
 
             <SecondaryButton
                 label={buttonText}

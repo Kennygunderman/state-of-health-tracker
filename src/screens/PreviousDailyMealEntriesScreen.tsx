@@ -3,11 +3,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { FlatList, ListRenderItemInfo } from 'react-native';
 import { useSelector } from 'react-redux';
 import CalorieChip from '../components/CalorieChip';
-import Chip from '../components/Chip';
+import MacroChips from '../components/MacroChips';
 import PreviousEntryListItem, { EmptyState } from '../components/PreviousEntryListItem';
 import Spacing from '../constants/Spacing';
 import {
-    CAL_LABEL,
     CALORIES_LABEL, MEALS_LABEL,
     PREVIOUS_MEAL_ENTRIES_EMPTY_BODY,
     PREVIOUS_MEAL_ENTRIES_EMPTY_TITLE,
@@ -61,15 +60,8 @@ const PreviousDailyMealEntriesScreen = () => {
             column2Label={CALORIES_LABEL}
             subItems={item.meals}
             day={item.day}
-            headerChip={(
-                <Chip
-                    label={`${Math.round(item.totalCalories)} ${CAL_LABEL}`}
-                    style={{
-                        paddingRight: Spacing.SMALL,
-                        paddingLeft: Spacing.SMALL,
-                        alignSelf: 'flex-start',
-                    }}
-                />
+            headerView={(
+                <MacroChips calories={item.totals.calories} macros={item.totals.macros} />
             )}
             getChipForItem={(entry) => renderCalorieChipForMeal(entry.mealCalories)}
             getTitleForItem={(entry) => entry.meal.name}

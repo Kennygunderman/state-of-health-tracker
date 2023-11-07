@@ -4,7 +4,6 @@ import {
     Dimensions, ScrollView, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import Toast from 'react-native-toast-message';
 import { useDispatch } from 'react-redux';
 import Chip from '../components/Chip';
 import Picker, { PickerItem } from '../components/Picker';
