@@ -26,6 +26,7 @@ import {
     TOAST_MEAL_UPDATED,
     UPDATE_SERVINGS_BUTTON_TEXT,
 } from '../constants/Strings';
+import { useThunkDispatch } from '../store';
 import { addFood } from '../store/food/FoodActions';
 import FoodItem, { convertFoodItemToLocal } from '../store/food/models/FoodItem';
 import { updateMealFood, updateMealFoodItemServings } from '../store/meals/MealsActions';
@@ -89,7 +90,7 @@ const FoodDetailScreen = ({ navigation, route }: any) => {
     const [selectedSlice, setSelectedSlice] = useState<'protein' | 'carbs' | 'fat' | 'none'>('none');
     const [percentageText, setPercentageText] = useState('');
 
-    const dispatch = useDispatch();
+    const dispatch = useThunkDispatch();
 
     useEffect(() => {
         switch (selectedSlice) {

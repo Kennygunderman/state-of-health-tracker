@@ -29,10 +29,8 @@ export interface DayTotals {
 }
 
 function getMealsForDay(dailyMealEntriesMap: DailyMealEntryMap, day: string, mealMap: MealMap): Meal[] {
-    const mealIds = dailyMealEntriesMap[day];
-
     const meals: Meal[] = [];
-
+    const mealIds = dailyMealEntriesMap[day]?.mealIds;
     Object.keys(mealMap).forEach((key) => {
         const meal = mealMap[key];
         if (mealIds && mealIds.includes(meal.id)) {

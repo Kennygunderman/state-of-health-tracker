@@ -6,7 +6,8 @@ import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
 import userSyncService from '../../service/userSync/UserSyncService';
 import CrashUtility from '../../utility/CrashUtility';
-import { isDateOlderThanADay } from '../../utility/DateUtility';
+import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
+import { setMealEntriesSynced } from '../dailyMealEntries/DailyMealEntriesActions';
 import LocalStore from '../LocalStore';
 
 export const SET_USER_ACCOUNT: string = 'SET_USER_ACCOUNT';
@@ -59,6 +60,8 @@ export function registerUser(email: string, password: string) {
                         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
                         dispatch(setUserAccount(account));
                         dispatch(setAuthError(undefined));
+                        dispatch(setMealEntriesSynced());
+                        dispatch(setExerciseEntriesSynced());
                     },
                     (error) => {
                         // If this error happens, the user has registered but their account data is not synced to the server.
@@ -172,7 +175,11 @@ export function syncUserData() {
     return async (dispatch: any, getState: () => LocalStore) => {
         // only sync logged-in users if last data sync was > 1 day ago.
         const { user } = getState();
-        if (!user.account || user.authStatus === 'LOGGED_OUT' || !isDateOlderThanADay(user.lastDataSync ?? 0)) {
+        // if (!user.account || user.authStatus === 'LOGGED_OUT' || !isDateOlderThanADay(user.lastDataSync ?? 0)) {
+        //     return;
+        // }
+
+        if (!user.account || user.authStatus === 'LOGGED_OUT') {
             return;
         }
 
@@ -180,6 +187,8 @@ export function syncUserData() {
             user.account,
             getState(),
             () => {
+                dispatch(setMealEntriesSynced());
+                dispatch(setExerciseEntriesSynced());
                 dispatch(updateLastSynced(Date.now()));
             },
             (error) => {

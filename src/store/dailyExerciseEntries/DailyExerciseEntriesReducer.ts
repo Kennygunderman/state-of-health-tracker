@@ -2,10 +2,11 @@ import {
     ADD_DAILY_EXERCISE,
     ADD_DAILY_EXERCISE_SET,
     COMPLETE_DAILY_EXERCISE_SET, DELETE_DAILY_EXERCISE,
-    DELETE_DAILY_EXERCISE_SET, UPDATE_DAILY_EXERCISES,
+    DELETE_DAILY_EXERCISE_SET, SET_EXERCISE_ENTRIES_SYNCED, UPDATE_DAILY_EXERCISES,
 } from './DailyExerciseActions';
-import DailyExerciseEntriesState from './DailyExerciseEntriesState';
+import DailyExerciseEntriesState, { DailyExerciseMap } from './DailyExerciseEntriesState';
 import { createDailyExercise, DailyExercise } from './models/DailyExercise';
+import { createDailyExerciseEntry } from './models/DailyExerciseEntry';
 import { Exercise } from '../exercises/models/Exercise';
 import { createSet, ExerciseSet } from '../exercises/models/ExerciseSet';
 
@@ -17,7 +18,7 @@ function addDailyExercise(state: DailyExerciseEntriesState, action: Action<{ dat
         return state;
     }
 
-    const doesExist = (state.map[date] ?? []).find((dailyExercise) => dailyExercise.exercise.name === exercise.name);
+    const doesExist = (state.map[date]?.dailyExercises ?? []).find((dailyExercise) => dailyExercise.exercise.name === exercise.name);
 
     if (doesExist) {
         return state;
@@ -27,7 +28,7 @@ function addDailyExercise(state: DailyExerciseEntriesState, action: Action<{ dat
         ...state,
         map: {
             ...state.map,
-            [date]: [...state.map[date] ?? [], createDailyExercise(exercise)],
+            [date]: createDailyExerciseEntry([...state.map[date]?.dailyExercises ?? [], createDailyExercise(exercise)]),
         },
     };
 }
@@ -40,7 +41,7 @@ function deleteDailyExercise(state: DailyExerciseEntriesState, action: Action<{ 
         return state;
     }
 
-    const dailyExercises = [...state.map[date]];
+    const dailyExercises = [...state.map[date].dailyExercises];
     const indexToDelete = dailyExercises.findIndex((dailyExercise: DailyExercise) => dailyExercise.id === dailyExerciseId);
 
     if (indexToDelete === -1) {
@@ -53,7 +54,11 @@ function deleteDailyExercise(state: DailyExerciseEntriesState, action: Action<{ 
         ...state,
         map: {
             ...state.map,
-            [date]: dailyExercises,
+            [date]: {
+                ...state.map[date],
+                hasSynced: false,
+                dailyExercises,
+            },
         },
     };
 }
@@ -70,7 +75,11 @@ function updateDailyExercises(state: DailyExerciseEntriesState, action: Action<{
         ...state,
         map: {
             ...state.map,
-            [date]: dailyExercises,
+            [date]: {
+                ...state.map[date],
+                hasSynced: false,
+                dailyExercises,
+            },
         },
     };
 }
@@ -83,7 +92,7 @@ function addSet(state: DailyExerciseEntriesState, action: Action<{ date: string,
         return state;
     }
 
-    const dailyExercises = [...state.map[date]];
+    const dailyExercises = [...state.map[date].dailyExercises];
     const indexToUpdate = dailyExercises.findIndex((dailyExercise: DailyExercise) => dailyExercise.exercise.name === exercise.name);
 
     if (indexToUpdate === -1) {
@@ -95,7 +104,11 @@ function addSet(state: DailyExerciseEntriesState, action: Action<{ date: string,
         ...state,
         map: {
             ...state.map,
-            [date]: dailyExercises,
+            [date]: {
+                ...state.map[date],
+                hasSynced: false,
+                dailyExercises,
+            },
         },
     };
 }
@@ -112,7 +125,7 @@ function completeSet(state: DailyExerciseEntriesState, action: Action<{ date: st
         return state;
     }
 
-    const dailyExercises = [...state.map[date]];
+    const dailyExercises = [...state.map[date].dailyExercises];
     const dailyExerciseIndex = dailyExercises.findIndex((dailyExercise: DailyExercise) => dailyExercise.exercise.name === exercise.name);
 
     if (dailyExerciseIndex === -1) {
@@ -133,7 +146,11 @@ function completeSet(state: DailyExerciseEntriesState, action: Action<{ date: st
         ...state,
         map: {
             ...state.map,
-            [date]: dailyExercises,
+            [date]: {
+                ...state.map[date],
+                hasSynced: false,
+                dailyExercises,
+            },
         },
     };
 }
@@ -147,7 +164,7 @@ function deleteSet(state: DailyExerciseEntriesState, action: Action<{ date: stri
         return state;
     }
 
-    const dailyExercises = [...state.map[date]];
+    const dailyExercises = [...state.map[date].dailyExercises];
     const dailyExerciseIndex = dailyExercises.findIndex((dailyExercise: DailyExercise) => dailyExercise.exercise.name === exercise.name);
 
     if (dailyExerciseIndex === -1) {
@@ -166,10 +183,27 @@ function deleteSet(state: DailyExerciseEntriesState, action: Action<{ date: stri
         ...state,
         map: {
             ...state.map,
-            [date]: dailyExercises,
+            [date]: {
+                ...state.map[date],
+                hasSynced: false,
+                dailyExercises,
+            },
         },
     };
 }
+
+function setExerciseEntriesSynced(state: DailyExerciseEntriesState, action: Action<undefined>): DailyExerciseEntriesState {
+    const updatedMap: DailyExerciseMap = {};
+    Object.keys(state.map).forEach((key) => {
+        updatedMap[key] = { ...state.map[key], hasSynced: true };
+    });
+
+    return {
+        ...state,
+        map: updatedMap,
+    };
+}
+
 export const DAILY_EXERCISE_ENTRIES_INITIAL_STATE: DailyExerciseEntriesState = {
     map: {},
 };
@@ -181,6 +215,7 @@ const dailyExerciseEntriesReducerMap = {
     [ADD_DAILY_EXERCISE_SET]: addSet,
     [COMPLETE_DAILY_EXERCISE_SET]: completeSet,
     [DELETE_DAILY_EXERCISE_SET]: deleteSet,
+    [SET_EXERCISE_ENTRIES_SYNCED]: setExerciseEntriesSynced,
 };
 
 export function dailyExerciseEntriesReducer(state = DAILY_EXERCISE_ENTRIES_INITIAL_STATE, action: Action<any>): DailyExerciseEntriesState {

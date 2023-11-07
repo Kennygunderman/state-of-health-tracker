@@ -26,7 +26,7 @@ function getExercisesForDay(dailyExercisesMap: DailyExerciseMap, day: string): D
         return [];
     }
 
-    return dailyExercisesMap[day] ?? [];
+    return dailyExercisesMap[day]?.dailyExercises ?? [];
 }
 
 export const getExercisesForDaySelector: Selector<LocalStore, DailyExercise[]> = createSelector(
@@ -165,7 +165,7 @@ function getNumberOfExercisesForLast7Weeks(currentDate: string, dailyExerciseMap
         for (let i = 0; i < 7; i++) {
             const date = formatDate(monday + (oneDayMs * i));
             if (date !== currentDate) {
-                const dailyExercises = dailyExerciseMap[date] ?? [];
+                const dailyExercises = dailyExerciseMap[date]?.dailyExercises ?? [];
                 let totalWeightForDay = 0;
                 dailyExercises.forEach((dailyExercise) => {
                     dailyExercise.sets.forEach((set) => {

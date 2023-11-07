@@ -1,3 +1,4 @@
+import { createDailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
 import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from './exercises/models/Exercise';
 import { createFood } from './food/models/FoodItem';
 import LocalStore from './LocalStore';
@@ -32,7 +33,7 @@ const localStore: LocalStore = {
     },
     dailyMealEntries: {
         map: {
-            [initialDate]: [initialMealBreakfast.id, initialMealLunch.id, initialMealDinner.id],
+            [initialDate]: createDailyMealEntry([initialMealBreakfast.id, initialMealLunch.id, initialMealDinner.id]),
         },
     },
     exercises: {

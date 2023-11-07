@@ -1,9 +1,9 @@
-import { DailyExercise } from './models/DailyExercise';
+import { DailyExerciseEntry } from './models/DailyExerciseEntry';
 
 export default interface DailyExerciseEntriesState {
     map: DailyExerciseMap;
 }
 
 export interface DailyExerciseMap {
-    [date: string]: DailyExercise[];
+    [date: string]: DailyExerciseEntry;
 }

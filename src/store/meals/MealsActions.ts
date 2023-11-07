@@ -1,5 +1,5 @@
 import { Meal } from './models/Meal';
-import { addMealToDailyEntry } from '../dailyMealEntries/DailyMealEntriesActions';
+import { addMealToDailyEntry, SET_DAILY_MEALS_HAS_SYNCED_FALSE } from '../dailyMealEntries/DailyMealEntriesActions';
 import FoodItem from '../food/models/FoodItem';
 import LocalStore from '../LocalStore';
 
@@ -20,29 +20,57 @@ export function addMeal(meal: Meal) {
 }
 
 export function updateMealFood(mealId: string, foodItem: FoodItem) {
-    return {
-        payload: { mealId, foodItem },
-        type: UPDATE_MEAL_FOOD,
+    return async (dispatch: any, getState: () => LocalStore) => {
+        dispatch({
+            payload: { mealId, foodItem },
+            type: UPDATE_MEAL_FOOD,
+        });
+
+        dispatch({
+            payload: getState().userInfo.currentDate,
+            type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
+        });
     };
 }
 
 export function deleteMealFood(mealId: string, foodItemId: string) {
-    return {
-        payload: { mealId, foodItemId },
-        type: DELETE_MEAL_FOOD,
+    return async (dispatch: any, getState: () => LocalStore) => {
+        dispatch({
+            payload: { mealId, foodItemId },
+            type: DELETE_MEAL_FOOD,
+        });
+
+        dispatch({
+            payload: getState().userInfo.currentDate,
+            type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
+        });
     };
 }
 
 export function updateMealName(mealId: string, mealName: string) {
-    return {
-        payload: { mealId, mealName },
-        type: UPDATE_MEAL_NAME,
+    return async (dispatch: any, getState: () => LocalStore) => {
+        dispatch({
+            payload: { mealId, mealName },
+            type: UPDATE_MEAL_NAME,
+        });
+
+        dispatch({
+            payload: getState().userInfo.currentDate,
+            type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
+        });
     };
 }
 
 export function updateMealFoodItemServings(mealId: string, foodItemId: string, servings: number) {
-    return {
-        payload: { mealId, foodItemId, servings },
-        type: UPDATE_MEAL_FOOD_ITEM_SERVINGS,
+    return async (dispatch: any, getState: () => LocalStore) => {
+        dispatch({
+            payload: { mealId, foodItemId, servings },
+            type: UPDATE_MEAL_FOOD_ITEM_SERVINGS,
+        });
+
+        dispatch({
+            payload: getState().userInfo.currentDate,
+            type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
+        });
     };
 }

@@ -7,6 +7,7 @@ export const UPDATE_DAILY_EXERCISES: string = 'UPDATE_DAILY_EXERCISES';
 export const ADD_DAILY_EXERCISE_SET: string = 'ADD_DAILY_EXERCISE_SET';
 export const DELETE_DAILY_EXERCISE_SET: string = 'DELETE_DAILY_EXERCISE_SET';
 export const COMPLETE_DAILY_EXERCISE_SET: string = 'COMPLETE_DAILY_EXERCISE_SET';
+export const SET_EXERCISE_ENTRIES_SYNCED: string = 'SET_EXERCISE_ENTRIES_SYNCED';
 
 export function addDailyExercise(date: string, exercise: Exercise) {
     return {
@@ -49,5 +50,12 @@ export function deleteSet(date: string, exercise: Exercise, setId: string) {
     return {
         payload: { date, exercise, setId },
         type: DELETE_DAILY_EXERCISE_SET,
+    };
+}
+
+export function setExerciseEntriesSynced() {
+    return {
+        payload: true,
+        type: SET_EXERCISE_ENTRIES_SYNCED,
     };
 }
