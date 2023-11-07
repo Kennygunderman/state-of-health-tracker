@@ -4,8 +4,9 @@ import AuthStatus from './models/AuthStatus';
 import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Strings';
 import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
-import userSyncService from '../../service/userSync/UserSyncService';
+import userService from '../../service/userSync/UserService';
 import CrashUtility from '../../utility/CrashUtility';
+import { isDateOlderThanADay } from '../../utility/DateUtility';
 import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
 import { setMealEntriesSynced } from '../dailyMealEntries/DailyMealEntriesActions';
 import LocalStore from '../LocalStore';
@@ -53,7 +54,7 @@ export function registerUser(email: string, password: string) {
             email,
             password,
             (account) => {
-                userSyncService.syncUserData(
+                userService.saveUserData(
                     account,
                     getState(),
                     () => {
@@ -88,7 +89,7 @@ export function logInUser(email: string, password: string) {
             email,
             password,
             (account) => {
-                userSyncService.fetchUserData(
+                userService.fetchUserData(
                     account.id,
                     (data: LocalStore) => {
                         dispatch({
@@ -125,7 +126,7 @@ export function logInUser(email: string, password: string) {
 export function logOutUser(account: Account) {
     return async (dispatch: any, getState: () => LocalStore) => {
         dispatch(setAuthStatus(AuthStatus.SYNCING));
-        await userSyncService.syncUserData(
+        await userService.saveUserData(
             account,
             getState(),
             () => {
@@ -175,15 +176,15 @@ export function syncUserData() {
     return async (dispatch: any, getState: () => LocalStore) => {
         // only sync logged-in users if last data sync was > 1 day ago.
         const { user } = getState();
-        // if (!user.account || user.authStatus === 'LOGGED_OUT' || !isDateOlderThanADay(user.lastDataSync ?? 0)) {
-        //     return;
-        // }
-
-        if (!user.account || user.authStatus === 'LOGGED_OUT') {
+        if (!user.account || user.authStatus === 'LOGGED_OUT' || !isDateOlderThanADay(user.lastDataSync ?? 0)) {
             return;
         }
 
-        await userSyncService.syncUserData(
+        // if (!user.account || user.authStatus === 'LOGGED_OUT') {
+        //     return;
+        // }
+
+        await userService.saveUserData(
             user.account,
             getState(),
             () => {

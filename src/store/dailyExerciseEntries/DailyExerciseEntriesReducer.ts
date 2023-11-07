@@ -18,17 +18,30 @@ function addDailyExercise(state: DailyExerciseEntriesState, action: Action<{ dat
         return state;
     }
 
-    const doesExist = (state.map[date]?.dailyExercises ?? []).find((dailyExercise) => dailyExercise.exercise.name === exercise.name);
+    const isExerciseAlreadyAdded = (state.map[date]?.dailyExercises ?? []).find((dailyExercise) => dailyExercise.exercise.name === exercise.name);
 
-    if (doesExist) {
+    if (isExerciseAlreadyAdded) {
         return state;
+    }
+
+    if (!state.map[date]) {
+        return {
+            ...state,
+            map: {
+                ...state.map,
+                [date]: createDailyExerciseEntry([createDailyExercise(exercise)]),
+            },
+        };
     }
 
     return {
         ...state,
         map: {
             ...state.map,
-            [date]: createDailyExerciseEntry([...state.map[date]?.dailyExercises ?? [], createDailyExercise(exercise)]),
+            [date]: {
+                ...state.map[date],
+                dailyExercises: [...state.map[date]?.dailyExercises ?? [], createDailyExercise(exercise)],
+            },
         },
     };
 }
