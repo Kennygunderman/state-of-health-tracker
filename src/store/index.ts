@@ -47,7 +47,7 @@ const rootReducer = (state: any, action: Action<any>) => {
 const persistConfig = {
     key: 'root',
     storage: AsyncStorage,
-    version: 2,
+    version: 3,
     whitelist: [
         'user',
         'userInfo',

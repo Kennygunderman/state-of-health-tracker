@@ -6,7 +6,7 @@ import Unique from '../../models/Unique';
 export interface Meal extends Unique {
     createdDate: number;
     name: string;
-    food: FoodItem[]
+    food: FoodItem[];
 }
 
 export function createMeal(name: string, food: FoodItem[]): Meal {

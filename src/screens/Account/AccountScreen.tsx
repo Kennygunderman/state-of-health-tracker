@@ -123,7 +123,7 @@ const AccountScreen = () => {
             <HorizontalDivider />
             <AccountListItem
                 type="weight"
-                text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${lastWeightEntry} ${LBS_LABEL}`}
+                text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${lastWeightEntry}`}
                 icon={<FontAwesome5 name="weight" size={iconSize - 4} style={{ marginTop: 2 }} color={iconColor} />}
             />
             <AccountListItem

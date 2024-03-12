@@ -4,9 +4,11 @@ import AuthStatus from './models/AuthStatus';
 import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Strings';
 import accountService from '../../service/auth/AccountService';
 import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
-import userSyncService from '../../service/userSync/UserSyncService';
+import userService from '../../service/user/UserService';
 import CrashUtility from '../../utility/CrashUtility';
 import { isDateOlderThanADay } from '../../utility/DateUtility';
+import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
+import { setMealEntriesSynced } from '../dailyMealEntries/DailyMealEntriesActions';
 import LocalStore from '../LocalStore';
 
 export const SET_USER_ACCOUNT: string = 'SET_USER_ACCOUNT';
@@ -52,13 +54,15 @@ export function registerUser(email: string, password: string) {
             email,
             password,
             (account) => {
-                userSyncService.syncUserData(
+                userService.saveUserData(
                     account,
                     getState(),
                     () => {
                         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
                         dispatch(setUserAccount(account));
                         dispatch(setAuthError(undefined));
+                        dispatch(setMealEntriesSynced());
+                        dispatch(setExerciseEntriesSynced());
                     },
                     (error) => {
                         // If this error happens, the user has registered but their account data is not synced to the server.
@@ -85,7 +89,7 @@ export function logInUser(email: string, password: string) {
             email,
             password,
             (account) => {
-                userSyncService.fetchUserData(
+                userService.fetchUserData(
                     account.id,
                     (data: LocalStore) => {
                         dispatch({
@@ -122,7 +126,7 @@ export function logInUser(email: string, password: string) {
 export function logOutUser(account: Account) {
     return async (dispatch: any, getState: () => LocalStore) => {
         dispatch(setAuthStatus(AuthStatus.SYNCING));
-        await userSyncService.syncUserData(
+        await userService.saveUserData(
             account,
             getState(),
             () => {
@@ -176,10 +180,12 @@ export function syncUserData() {
             return;
         }
 
-        await userSyncService.syncUserData(
+        await userService.saveUserData(
             user.account,
             getState(),
             () => {
+                dispatch(setMealEntriesSynced());
+                dispatch(setExerciseEntriesSynced());
                 dispatch(updateLastSynced(Date.now()));
             },
             (error) => {
