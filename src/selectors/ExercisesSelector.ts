@@ -26,7 +26,7 @@ function getExercisesForDay(dailyExercisesMap: DailyExerciseMap, day: string): D
         return [];
     }
 
-    return dailyExercisesMap[day] ?? [];
+    return dailyExercisesMap[day]?.dailyExercises ?? [];
 }
 
 export const getExercisesForDaySelector: Selector<LocalStore, DailyExercise[]> = createSelector(
@@ -70,7 +70,16 @@ export const getTemplatesSelector: ParametricSelector<LocalStore, string, Workou
 
 function getExercisesForTemplate(template: WorkoutTemplate, exerciseMap: ExerciseMap): Exercise[] {
     const exercises = getExercises('', exerciseMap);
-    return exercises.filter((exercise) => template.exerciseIds.includes(exercise.id));
+
+    const orderedExercises: Exercise[] = [];
+    template.exerciseIds.forEach((id) => {
+        const exercise = exercises.find((e) => id === e.id);
+        if (exercise) {
+            orderedExercises.push(exercise);
+        }
+    });
+
+    return orderedExercises;
 }
 
 export const getExercisesForTemplateSelector: ParametricSelector<LocalStore, WorkoutTemplate, Exercise[]> = createSelector(
@@ -165,7 +174,7 @@ function getNumberOfExercisesForLast7Weeks(currentDate: string, dailyExerciseMap
         for (let i = 0; i < 7; i++) {
             const date = formatDate(monday + (oneDayMs * i));
             if (date !== currentDate) {
-                const dailyExercises = dailyExerciseMap[date] ?? [];
+                const dailyExercises = dailyExerciseMap[date]?.dailyExercises ?? [];
                 let totalWeightForDay = 0;
                 dailyExercises.forEach((dailyExercise) => {
                     dailyExercise.sets.forEach((set) => {
