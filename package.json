@@ -1,11 +1,10 @@
 {
   "name": "fitness-tracking-app",
   "version": "1.0.0",
-  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "npx eslint .",
     "build-ios-dev": "eas build --profile development --platform ios"
@@ -25,8 +24,9 @@
     "@types/uuid": "^9.0.4",
     "axios": "^1.5.1",
     "date-fns": "^2.30.0",
-    "expo": "48.0.9",
+    "expo": "~48.0.21",
     "expo-application": "~5.1.1",
+    "expo-build-properties": "~0.6.0",
     "expo-dev-client": "~2.2.1",
     "expo-haptics": "^12.6.0",
     "expo-status-bar": "1.4.4",
@@ -54,13 +54,14 @@
     "redux-thunk": "^2.4.2",
     "reselect": "^4.1.8",
     "uuid": "^9.0.1",
-    "expo-build-properties": "~0.6.0"
+    "expo-splash-screen": "~0.18.2"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@types/lodash": "^4.14.199",
     "@types/node": "^20.8.6",
     "@types/react": "18.0.27",
+    "@types/react-native": "^0.73.0",
     "@typescript-eslint/eslint-plugin": "^6.7.5",
     "@typescript-eslint/parser": "^6.7.5",
     "eslint": "^8.51.0",

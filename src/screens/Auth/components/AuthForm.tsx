@@ -115,6 +115,7 @@ const AuthForm = (props: Props) => {
                 }}
                 >
                     <TextInputWithHeader
+                        maxLength={64}
                         header={AUTH_FORM_EMAIL_HEADER}
                         value={email}
                         onChangeText={onEmailTextChanged}
