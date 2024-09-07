@@ -9,15 +9,6 @@ At State of Health, we strive to simplify fitness. Our app is devoid of unnecess
 
 Our tracking app is loaded with comprehensive graphs, and charts to make sure you are on track every day to hit your goals. Each day you log a workout or meal, a diary entry will automatically be created for you to keep track of your progress.
 
-# Screenshots
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/f2161f8a-6dd3-4849-ae81-9ea96cc0d173" width="334" height="670" />
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/29f0bbcf-7a20-425e-974e-dd7aed3ca68e" width="334" height="670" />
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/332054b4-c71b-4e67-8ecc-f7720925154c" width="334" height="670" />
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/84ec42d5-172a-40c6-99d9-aeb206aaf52a" width="334" height="670" />
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/207fff9c-bb63-4b08-9a16-c6a1cdca1768" width="334" height="670" />
-<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/b2e8c3bb-cbf7-45f4-afee-e4bf407366ae" width="334" height="670" />
-
-
 # Setup
 
 This app assumes you are using Expo EAS and have a registered Apple Developer account.
@@ -29,17 +20,13 @@ To setup use with firebase:
 3. Generate an OAuth 2.0 Token and add to the GoogleServices-Info.plist file: https://developers.google.com/identity/protocols/oauth2#1.-obtain-oauth-2.0-credentials-from-the-dynamic_data.setvar.console_name-.
 4. Add GoogleService-Info.plist to root dir of project.
 
-### Config
-copy `config.ts.dist` and paste it as `config.ts`
-
-Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html 
-
-and update:
-`export const USDA_FOOD_API_KEY = 'USDA_API_KEY';`
-
+### Env / API Keys
+1. copy `.env.dist` and paste it as `.env`
+2. Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html or request key from project maintainer.
+3. Update `USDA_FOOD_API_KEY=` in the .env file with your API Key.
 
 ### Running EAS builds
-EAS builds will ignore files found in .gitignore. Because of this, you must remove `.config.ts` and `.GoogleService-Info.plist` from the .gitignore to upload a build with EAS. Failing to do so will result in a failed build.
+EAS builds will ignore files found in .gitignore. Because of this, you must remove `.GoogleService-Info.plist` from the .gitignore to upload a build with EAS. Failing to do so will result in a failed build.
 
 
 ### Dev Build
@@ -53,7 +40,6 @@ Run an iOS dev build on a physical device:
 2. Run Expo `npm run start`
 
 To debug crashlytics on a dev build, add a firebase.json file with the following to the root dir of the project:
-
 ```
 {
   "react-native": {
@@ -67,5 +53,14 @@ To debug crashlytics on a dev build, add a firebase.json file with the following
 ```
 
 ### Prod Build
-Create an iOS Prod build via `eas build --platform ios`. Submit to appstore connect with: `eas submit -p ios`
+1. Make sure to increment `version` and `buildNumber` inside the app.json file.
+2. Build a native iOS build with `npx expo run:ios`
+3. Create an iOS Prod build via `eas build --platform ios`. Submit to appstore connect with: `eas submit -p ios`
 
+# Screenshots
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/f2161f8a-6dd3-4849-ae81-9ea96cc0d173" width="334" height="670" />
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/29f0bbcf-7a20-425e-974e-dd7aed3ca68e" width="334" height="670" />
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/332054b4-c71b-4e67-8ecc-f7720925154c" width="334" height="670" />
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/84ec42d5-172a-40c6-99d9-aeb206aaf52a" width="334" height="670" />
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/207fff9c-bb63-4b08-9a16-c6a1cdca1768" width="334" height="670" />
+<img src="https://github.com/Kennygunderman/state-of-health-tracker/assets/16354865/b2e8c3bb-cbf7-45f4-afee-e4bf407366ae" width="334" height="670" />
