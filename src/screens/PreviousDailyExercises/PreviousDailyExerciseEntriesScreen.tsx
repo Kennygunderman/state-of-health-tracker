@@ -50,7 +50,7 @@ const PreviousDailyExerciseEntriesScreen = () => {
             column2Label={BEST_SET_LABEL}
             subItems={item.exercises}
             day={item.day}
-            headerChip={(
+            headerView={(
                 <Chip
                     label={`${item.totalWeight} ${LBS_LABEL}`}
                     icon={(
@@ -64,6 +64,7 @@ const PreviousDailyExerciseEntriesScreen = () => {
                         />
                     )}
                     style={{
+                        marginTop: Spacing.SMALL,
                         paddingRight: Spacing.SMALL,
                         paddingLeft: Spacing.SMALL,
                         alignSelf: 'flex-start',

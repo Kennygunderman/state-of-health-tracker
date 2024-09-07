@@ -10,6 +10,7 @@ import AddUpdateMealInputDialog, { MealAction } from './components/AddUpdateMeal
 import ProgressModulesContainer from './components/ProgressModulesContainer';
 import CalorieChip from '../../components/CalorieChip';
 import ListItem from '../../components/ListItem';
+import MacroChips from '../../components/MacroChips';
 import PrimaryButton from '../../components/PrimaryButton';
 import SecondaryButton from '../../components/SecondaryButton';
 import SectionListHeader, { SectionListFooter } from '../../components/SectionListHeader';
@@ -32,7 +33,9 @@ import { useThunkDispatch } from '../../store';
 import FoodItem from '../../store/food/models/FoodItem';
 import LocalStore from '../../store/LocalStore';
 import { addMeal, deleteMealFood } from '../../store/meals/MealsActions';
-import { createMeal, Meal } from '../../store/meals/models/Meal';
+import {
+    createMeal, getCaloriesForMeal, getMacrosForMeal, Meal,
+} from '../../store/meals/models/Meal';
 import Unique from '../../store/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
@@ -152,20 +155,30 @@ const MealsScreen = ({ navigation }: any) => {
         />
     );
 
-    const renderSectionItemHeader = (meal: Meal) => (
-        <SectionListHeader
-            key={meal.id}
-            title={meal.name}
-            onTitlePressed={() => {
-                setMealInputModalMealName(meal.name);
-                setMealInputModalMealUpdateId(meal.id);
-                presentMealNameInputModal(MealAction.UPDATE_NAME, meal.name, meal.id);
-            }}
-            onButtonPressed={() => {
-                addFood(meal.name, meal.id);
-            }}
-        />
-    );
+    const renderSectionItemHeader = (meal: Meal) => {
+        const caloriesForMeal = getCaloriesForMeal(meal);
+        return (
+            <SectionListHeader
+                key={meal.id}
+                title={meal.name}
+                onTitlePressed={() => {
+                    setMealInputModalMealName(meal.name);
+                    setMealInputModalMealUpdateId(meal.id);
+                    presentMealNameInputModal(MealAction.UPDATE_NAME, meal.name, meal.id);
+                }}
+                headerView={caloriesForMeal > 0 ? (
+                    <MacroChips
+                        style={{ marginBottom: Spacing.X_SMALL }}
+                        macros={getMacrosForMeal(meal)}
+                        calories={caloriesForMeal}
+                    />
+                ) : undefined}
+                onButtonPressed={() => {
+                    addFood(meal.name, meal.id);
+                }}
+            />
+        );
+    };
 
     const renderMealEmptyState = () => (
         <SectionListFooter>
