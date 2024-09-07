@@ -3,10 +3,11 @@ import { Either, isLeft } from 'fp-ts/lib/Either';
 import * as io from 'io-ts';
 import { Errors } from 'io-ts';
 import { isNil } from 'lodash';
-import { USDA_BASE_URL, USDA_FOOD_API_KEY } from '../../../config';
 import FoodItem, { caloriesFromMacros, Macros } from '../../store/food/models/FoodItem';
 import CrashUtility from '../../utility/CrashUtility';
 import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
+
+import { USDA_BASE_URL, USDA_FOOD_API_KEY } from '@env';
 
 interface IFoodSearchService {
     searchBrandedFoods: (searchQuery: string, numToLoad: number, onFetched: (foods: FoodItem[]) => void) => void;
