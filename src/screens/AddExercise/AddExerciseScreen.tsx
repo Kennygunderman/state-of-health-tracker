@@ -33,7 +33,7 @@ import {
 } from '../../selectors/ExercisesSelector';
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
-import { deleteExercise, deleteWorkoutTemplate } from '../../store/exercises/ExercisesActions';
+import { addExercise, deleteExercise, deleteWorkoutTemplate } from '../../store/exercises/ExercisesActions';
 import { Exercise, instanceOfExercise } from '../../store/exercises/models/Exercise';
 import {
     WorkoutTemplate,
@@ -116,6 +116,16 @@ const AddExerciseScreen = ({ navigation }: any) => {
         if (isAlreadyAdded) {
             showToast('error', TOAST_EXERCISE_ALREADY_ADDED, exercise.name);
             return;
+        }
+
+        const isExerciseSavedLocally = exercises.find(e => e.name === exercise.name);
+
+        if (!isExerciseSavedLocally) {
+            const exerciseCopy: Exercise = { ...exercise };
+            if (exercise.source === 'remote') {
+                delete exerciseCopy.source;
+            }
+            dispatch(addExercise(exerciseCopy));
         }
 
         dispatch(addDailyExercise(currentDate, exercise));
