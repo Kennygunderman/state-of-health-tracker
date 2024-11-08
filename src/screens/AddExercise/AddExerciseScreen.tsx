@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Dimensions, SectionList, SectionListRenderItem, View,
 } from 'react-native';
@@ -7,7 +7,7 @@ import CreateTemplateForm from './components/CreateTemplateForm';
 import ExerciseTypeChip from './components/ExerciseTypeChip';
 import ConfirmModal from '../../components/dialog/ConfirmModal';
 import ListItem from '../../components/ListItem';
-import SearchBar from '../../components/SearchBar';
+import SearchBar, { SEARCH_BAR_HEIGHT } from '../../components/SearchBar';
 import SecondaryButton from '../../components/SecondaryButton';
 import { showToast } from '../../components/toast/util/ShowToast';
 import FontSize from '../../constants/FontSize';
@@ -42,6 +42,9 @@ import LocalStore from '../../store/LocalStore';
 import Unique from '../../store/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';
+import exerciseSearchService from "../../service/exercises/ExerciseSearchService";
+import LoadingOverlay from "../../components/LoadingOverlay";
+import { debounce } from "lodash";
 
 interface Section extends Unique {
     title: string;
@@ -50,6 +53,7 @@ interface Section extends Unique {
 
 const AddExerciseScreen = ({ navigation }: any) => {
     const [searchText, setSetSearchText] = useState('');
+
     const [confirmDeleteTitle, setConfirmDeleteTitle] = useState('');
     const [confirmDeleteBody, setConfirmDeleteBody] = useState('');
     const [isConfirmDeleteModalVisible, setIsConfirmDeleteModalVisible] = useState(false);
@@ -58,10 +62,38 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
+    const [remoteExercises, setRemoteExercises] = useState<Exercise[]>([]);
+
+    const [isLoading, setIsLoading] = useState(false);
+
     const exercises = useSelector<LocalStore, Exercise[]>((state: LocalStore) => getExercisesSelector(state, searchText));
     const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => getTemplatesSelector(state, searchText));
     const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
+
+    // Debounced search function
+    const searchExercisesDebounce = useCallback(
+        debounce((text) => {
+            if (text) {
+                setIsLoading(true);
+                exerciseSearchService.searchExercises(text, 100, (fetchedExercises) => {
+                    setRemoteExercises(fetchedExercises);
+                    setIsLoading(false);
+                });
+            } else {
+                setRemoteExercises([]);
+            }
+        }, 500),
+        []
+    );
+
+    useEffect(() => {
+        searchExercisesDebounce(searchText);
+    }, [searchText, searchExercisesDebounce]);
+
+    const combinedExercises: Exercise[] = Array.from(
+        new Map([...exercises, ...remoteExercises].map(exercise => [exercise.name, exercise])).values()
+    );
 
     const sections: Section[] = [
         {
@@ -72,7 +104,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         {
             id: 'exercises',
             title: EXERCISES_HEADER,
-            data: exercises,
+            data: combinedExercises,
         },
     ];
 
@@ -99,7 +131,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const createExerciseButton = () => (
         <SecondaryButton
-            style={{ alignSelf: 'flex-end', marginTop: Spacing.MEDIUM, marginBottom: Spacing.MEDIUM }}
+            style={{
+                alignSelf: 'flex-end',
+                marginTop: Spacing.MEDIUM,
+                marginBottom: Spacing.MEDIUM
+            }}
             label={CREATE_EXERCISE_BUTTON_TEXT}
             onPress={() => {
                 navigation.push(Screens.CREATE_EXERCISE, { exerciseName: searchText });
@@ -109,7 +145,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const createTemplateButton = () => (
         <SecondaryButton
-            style={{ alignSelf: 'flex-end', marginTop: Spacing.MEDIUM, marginBottom: Spacing.MEDIUM }}
+            style={{
+                alignSelf: 'flex-end',
+                marginTop: Spacing.MEDIUM,
+                marginBottom: Spacing.MEDIUM
+            }}
             label={CREATE_TEMPLATE_BUTTON_TEXT}
             onPress={() => {
                 setIsCreatingTemplate(true);
@@ -121,7 +161,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
         const emptyStateTopMargin = 100;
         const emptyStateContainerHeight = 150;
         const isSearchTextEmpty = searchText !== '';
-        const areSearchResultsEmpty = isSearchTextEmpty && exercises.length === 0 && templates.length === 0 && !isCreatingTemplate;
+        const areSearchResultsEmpty = isSearchTextEmpty && combinedExercises.length === 0 && templates.length === 0 && !isCreatingTemplate;
         return (
             <>
                 <View style={{
@@ -133,7 +173,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                     marginBottom: areSearchResultsEmpty ? emptyStateTopMargin + 64 : 0,
                 }}
                 />
-                <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER} />
+                <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER}/>
                 {areSearchResultsEmpty
                     && (
                         <View style={{
@@ -179,7 +219,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 </Text>
                 {button}
             </View>
-            { emptyText
+            {emptyText
                 && (
                     <Text style={{
                         fontWeight: '200',
@@ -195,7 +235,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const renderSectionItemHeader = (section: Section) => {
         if (section.data.length === 0 && searchText !== '') {
-            return <View />;
+            return <View/>;
         }
 
         const isEmpty = section.data.length === 0;
@@ -226,7 +266,8 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
         const title: string = item.name;
         const subtitle: string = isExercise ? item.exerciseBodyPart : item.tagline;
-        const chip: JSX.Element | undefined = isExercise ? <ExerciseTypeChip exerciseType={item.exerciseType} /> : undefined;
+        const chip: JSX.Element | undefined = isExercise ?
+            <ExerciseTypeChip exerciseType={item.exerciseType}/> : undefined;
 
         const onDeletePressed: () => void = isExercise
             ? () => {
@@ -247,6 +288,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 onSwipeActivated={() => {
                     listSwipeItemManager.closeRow(section, index);
                 }}
+                isSwipeable={"source" in item ? item.source !== 'remote' : true}
                 title={title}
                 subtitle={subtitle}
                 chip={chip}
@@ -300,10 +342,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 sections={sections}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={renderSearchBar()}
-                ListFooterComponent={<View style={{ marginBottom: Spacing.X_LARGE }} />}
+                ListFooterComponent={<View style={{ marginBottom: Spacing.X_LARGE }}/>}
                 renderSectionHeader={({ section }) => renderSectionItemHeader(section)}
                 renderItem={renderItem}
             />
+            {isLoading && <LoadingOverlay style={{ marginTop: SEARCH_BAR_HEIGHT }}/>}
         </>
     );
 };
