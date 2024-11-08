@@ -91,7 +91,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
     }, [searchText, searchExercisesDebounce]);
 
     const combinedExercises: Exercise[] = Array.from(
-        new Map([...exercises, ...remoteExercises].map(exercise => [exercise.name, exercise])).values()
+        new Map([...remoteExercises, ...exercises].map(exercise => [exercise.name, exercise])).values()
     );
 
     const sections: Section[] = [
@@ -120,15 +120,15 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
         const isExerciseSavedLocally = exercises.find(e => e.name === exercise.name);
 
+        const exerciseCopy: Exercise = { ...exercise };
         if (!isExerciseSavedLocally) {
-            const exerciseCopy: Exercise = { ...exercise };
-            if (exercise.source === 'remote') {
+            if (exerciseCopy.source === 'remote') {
                 delete exerciseCopy.source;
             }
             dispatch(addExercise(exerciseCopy));
         }
 
-        dispatch(addDailyExercise(currentDate, exercise));
+        dispatch(addDailyExercise(currentDate, exerciseCopy));
         showToast('success', TOAST_EXERCISE_ADDED, exercise.name);
 
         navigation.goBack();
