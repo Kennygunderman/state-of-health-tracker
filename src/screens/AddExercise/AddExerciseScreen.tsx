@@ -71,7 +71,6 @@ const AddExerciseScreen = ({ navigation }: any) => {
     const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 
-    // Debounced search function
     const searchExercisesDebounce = useCallback(
         debounce((text) => {
             if (text) {

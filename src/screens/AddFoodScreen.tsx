@@ -5,7 +5,6 @@ import {
     FlatList,
     ListRenderItemInfo,
     View,
-    StyleSheet,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import CalorieChip from '../components/CalorieChip';
@@ -29,14 +28,8 @@ import LocalStore from '../store/LocalStore';
 import { Text, useStyleTheme } from '../styles/Theme';
 import ListSwipeItemManager from '../utility/ListSwipeItemManager';
 
-const AddFoodScreen = ({
-                           navigation,
-                           route
-                       }: any) => {
-    const {
-        mealName,
-        mealId
-    } = route.params;
+const AddFoodScreen = ({ navigation, route }: any) => {
+    const { mealName, mealId } = route.params;
 
     const [searchText, setSetSearchText] = useState('');
     const batchIncrement = 15;
@@ -58,10 +51,7 @@ const AddFoodScreen = ({
             const filtered = foods.filter((rf) => localFoodItems.find((lf) => rf.id !== lf.id));
             setFoodItems([...localItems, ...filtered]);
         });
-    }, 500, {
-        leading: false,
-        trailing: true
-    }), []);
+    }, 500, { leading: false, trailing: true }), []);
 
     useEffect(() => {
         if (searchText !== '') {
@@ -92,7 +82,12 @@ const AddFoodScreen = ({
 
     const renderNewFoodItemButton = () => (
         <SecondaryButton
-            style={styles.newFoodItemButton}
+            style={{
+                alignSelf: 'flex-end',
+                marginTop: Spacing.MEDIUM,
+                marginBottom: Spacing.MEDIUM,
+                marginRight: Spacing.MEDIUM,
+            }}
             label={NEW_FOOD_ITEM_TEXT}
             onPress={onNewFoodItemPressed}
         />
@@ -105,12 +100,14 @@ const AddFoodScreen = ({
         const areFoodItemsEmpty = foodItems.length === 0;
         return (
             <>
-                <View style={[
-                    styles.fullScreen,
-                    {
-                        backgroundColor: useStyleTheme().colors.secondary,
-                        marginBottom: areFoodItemsEmpty ? emptyStateTopMargin + 64 : 0,
-                    }]}
+                <View style={{
+                    width: '100%',
+                    height: Dimensions.get('window').height,
+                    backgroundColor: useStyleTheme().colors.secondary,
+                    position: 'absolute',
+                    bottom: 0,
+                    marginBottom: areFoodItemsEmpty ? emptyStateTopMargin + 64 : 0,
+                }}
                 />
                 <SearchBar
                     onSearchTextChanged={(searchString) => {
@@ -121,32 +118,52 @@ const AddFoodScreen = ({
                     }}
                     placeholder={SEARCH_FOODS_PLACEHOLDER}
                 />
-                {areFoodItemsEmpty && (
-                    <View style={[styles.emptyStateContainer, { height: emptyStateContainerHeight }]}>
-                        <Text style={[styles.emptyStateText, { marginTop: emptyStateTopMargin }]}>
-                            {NO_FOOD_FOUND_EMPTY_TEXT}
-                        </Text>
-                        {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
-                        {renderNewFoodItemButton()}
-                    </View>
-                )}
+                {areFoodItemsEmpty
+                    && (
+                        <View style={{
+                            alignSelf: 'center',
+                            alignItems: 'center',
+                            height: emptyStateContainerHeight,
+                        }}
+                        >
+                            <Text style={{
+                                textAlign: 'center',
+                                marginTop: emptyStateTopMargin,
+                                fontSize: FontSize.H2,
+                                fontWeight: 'bold',
+                            }}
+                            >
+                                {NO_FOOD_FOUND_EMPTY_TEXT}
+                            </Text>
+                            {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
+                            {renderNewFoodItemButton()}
+                        </View>
+                    )}
             </>
         );
     };
 
     const renderFoodItemsHeader = () => (
-        <View style={styles.foodItemsHeader}>
-            <Text style={styles.foodItemsHeaderText}>
+        <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginLeft: Spacing.MEDIUM,
+        }}
+        >
+            <Text style={{
+                marginLeft: Spacing.X_SMALL,
+                fontSize: FontSize.H1,
+                fontWeight: 'bold',
+            }}
+            >
                 {FOOD_ITEMS_HEADER}
             </Text>
             {renderNewFoodItemButton()}
         </View>
     );
 
-    const renderItem = ({
-                            item,
-                            index
-                        }: ListRenderItemInfo<FoodItem>) => (
+    const renderItem = ({ item, index }: ListRenderItemInfo<FoodItem>) => (
         <>
             {index === 0 && renderFoodItemsHeader()}
             <ListItem
@@ -159,7 +176,7 @@ const AddFoodScreen = ({
                     onFoodItemPressed(item);
                 }}
                 subtitle={formatMacros(item.macros)}
-                chip={<CalorieChip calories={item.calories}/>}
+                chip={<CalorieChip calories={item.calories} />}
                 onDeletePressed={() => {
                     dispatch(deleteFood(item.id));
                 }}
@@ -168,7 +185,7 @@ const AddFoodScreen = ({
     );
 
     const renderFooter = () => (
-        <View style={styles.footer}/>
+        <View style={{ marginBottom: Spacing.X_LARGE }} />
     );
 
     return (
@@ -185,7 +202,6 @@ const AddFoodScreen = ({
                 style={{ height: '100%' }}
                 data={foodItems}
                 renderItem={renderItem}
-                keyExtractor={(item) => item.id.toString()}
                 onEndReached={() => {
                     if (searchText === '' && localFoodItems.length < loadBatch) {
                         setLoadBatch(localFoodItems.length);
@@ -194,47 +210,9 @@ const AddFoodScreen = ({
                     }
                 }}
             />
-            {isLoading && <LoadingOverlay style={{ marginTop: SEARCH_BAR_HEIGHT }}/>}
+            { isLoading && <LoadingOverlay style={{ marginTop: SEARCH_BAR_HEIGHT }} /> }
         </>
     );
 };
-
-const styles = StyleSheet.create({
-    newFoodItemButton: {
-        alignSelf: 'flex-end',
-        marginTop: Spacing.MEDIUM,
-        marginBottom: Spacing.MEDIUM,
-        marginRight: Spacing.MEDIUM,
-    },
-    fullScreen: {
-        width: '100%',
-        height: Dimensions.get('window').height,
-        position: 'absolute',
-        bottom: 0,
-    },
-    emptyStateContainer: {
-        alignSelf: 'center',
-        alignItems: 'center',
-    },
-    emptyStateText: {
-        textAlign: 'center',
-        fontSize: FontSize.H2,
-        fontWeight: 'bold',
-    },
-    foodItemsHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginLeft: Spacing.MEDIUM,
-    },
-    foodItemsHeaderText: {
-        marginLeft: Spacing.X_SMALL,
-        fontSize: FontSize.H1,
-        fontWeight: 'bold',
-    },
-    footer: {
-        marginBottom: Spacing.X_LARGE,
-    },
-});
 
 export default AddFoodScreen;
