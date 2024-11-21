@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Dimensions, SectionList, SectionListRenderItem, View,
 } from 'react-native';
@@ -90,9 +90,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
         searchExercisesDebounce(searchText);
     }, [searchText, searchExercisesDebounce]);
 
-    const combinedExercises: Exercise[] = Array.from(
-        new Map([...remoteExercises, ...exercises].map(exercise => [exercise.name, exercise])).values()
-    );
+    const combinedExercises: Exercise[] = useMemo(() => {
+        return Array.from(
+            new Map([...remoteExercises, ...exercises].map(exercise => [exercise.name, exercise])).values()
+        );
+    }, [remoteExercises, exercises]);
 
     const sections: Section[] = [
         {
