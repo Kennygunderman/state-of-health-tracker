@@ -4,7 +4,8 @@ export const mapExerciseType = (type: string): ExerciseTypeEnum => {
     switch (type.toLowerCase()) {
         case 'barbell': return ExerciseTypeEnum.BARBELL;
         case 'dumbbell': return ExerciseTypeEnum.DUMBBELL;
-        case 'body weight': return ExerciseTypeEnum.BODY_WEIGHT;
+        case 'bodyweight': return ExerciseTypeEnum.BODYWEIGHT;
+        case 'cable': return ExerciseTypeEnum.CABLE;
         case 'machine': return ExerciseTypeEnum.MACHINE;
         case 'weighted': return ExerciseTypeEnum.WEIGHTED;
         case 'kettlebell': return ExerciseTypeEnum.KETTLEBELL;

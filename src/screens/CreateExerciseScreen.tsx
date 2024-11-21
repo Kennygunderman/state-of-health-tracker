@@ -37,7 +37,8 @@ const CreateExerciseScreen = ({ navigation, route }: any) => {
     const exerciseTypeValues: PickerItem[] = [
         { label: ExerciseTypeEnum.BARBELL, value: ExerciseTypeEnum.BARBELL },
         { label: ExerciseTypeEnum.DUMBBELL, value: ExerciseTypeEnum.DUMBBELL },
-        { label: ExerciseTypeEnum.BODY_WEIGHT, value: ExerciseTypeEnum.BODY_WEIGHT },
+        { label: ExerciseTypeEnum.BODYWEIGHT, value: ExerciseTypeEnum.BODYWEIGHT },
+        { label: ExerciseTypeEnum.CABLE, value: ExerciseTypeEnum.CABLE },
         { label: ExerciseTypeEnum.MACHINE, value: ExerciseTypeEnum.MACHINE },
         { label: ExerciseTypeEnum.WEIGHTED, value: ExerciseTypeEnum.WEIGHTED },
         { label: ExerciseTypeEnum.KETTLEBELL, value: ExerciseTypeEnum.KETTLEBELL },
