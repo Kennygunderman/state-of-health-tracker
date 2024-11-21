@@ -8,7 +8,7 @@ import { Text, useStyleTheme } from '../styles/Theme';
 interface Props<T> {
     readonly subItems: T[];
     readonly day: string;
-    readonly headerChip: JSX.Element;
+    readonly headerView: JSX.Element;
     readonly column1Label: String;
     readonly column2Label: String;
     readonly getChipForItem: (item: T) => JSX.Element;
@@ -18,7 +18,7 @@ interface Props<T> {
 
 const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
     const {
-        headerChip,
+        headerView,
         column1Label,
         column2Label,
         subItems,
@@ -40,9 +40,9 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
                 marginBottom: Spacing.MEDIUM,
             }}
         >
-            <Text style={{ fontSize: FontSize.H3, marginBottom: Spacing.SMALL }}>{day}</Text>
+            <Text style={{ fontSize: FontSize.H3 }}>{day}</Text>
             <View style={{ flexDirection: 'row' }}>
-                {headerChip}
+                {headerView}
             </View>
             <View style={{
                 marginTop: Spacing.MEDIUM,
