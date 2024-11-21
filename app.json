@@ -19,7 +19,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.stateofhealh.tracker",
       "icon": "./assets/icon.png",
-      "buildNumber": "10"
+      "buildNumber": "11"
     },
     "plugins": [
       "@react-native-firebase/app",
