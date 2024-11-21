@@ -18,8 +18,10 @@ const ExerciseTypeChip = (props: Props) => {
         switch (exerciseType) {
             case ExerciseTypeEnum.DUMBBELL:
                 return <MaterialCommunityIcons name="dumbbell" size={24} color={useStyleTheme().colors.white} />;
-            case ExerciseTypeEnum.BODY_WEIGHT:
+            case ExerciseTypeEnum.BODYWEIGHT:
                 return <MaterialCommunityIcons name="weight-lifter" size={24} color={useStyleTheme().colors.white} />;
+            case ExerciseTypeEnum.CABLE:
+                return <MaterialCommunityIcons name="jump-rope" size={24} color={useStyleTheme().colors.white} />;
             case ExerciseTypeEnum.WEIGHTED:
                 return <FontAwesome5 style={{ marginTop: -3 }} name="weight-hanging" size={20} color={useStyleTheme().colors.white} />;
             case ExerciseTypeEnum.MACHINE:

@@ -5,7 +5,8 @@ import Unique from '../../models/Unique';
 export enum ExerciseTypeEnum {
     BARBELL = 'Barbell',
     DUMBBELL = 'Dumbbell',
-    BODY_WEIGHT = 'Body weight',
+    BODYWEIGHT = 'Bodyweight',
+    CABLE = 'Cable',
     MACHINE = 'Machine',
     WEIGHTED = 'Weighted',
     KETTLEBELL = 'Kettlebell',
@@ -33,6 +34,7 @@ export interface Exercise extends Unique {
     exerciseType: ExerciseTypeEnum;
     exerciseBodyPart: ExerciseBodyPartEnum;
     latestCompletedSets: ExerciseSet[] | undefined[];
+    source?: 'remote' | 'local';
 }
 
 export function createExerciseName(exerciseName: string, exerciseType: ExerciseTypeEnum): string {
