@@ -33,6 +33,7 @@ export interface Exercise extends Unique {
     exerciseType: ExerciseTypeEnum;
     exerciseBodyPart: ExerciseBodyPartEnum;
     latestCompletedSets: ExerciseSet[] | undefined[];
+    source?: 'remote' | 'local';
 }
 
 export function createExerciseName(exerciseName: string, exerciseType: ExerciseTypeEnum): string {

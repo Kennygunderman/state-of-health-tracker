@@ -15,7 +15,7 @@ module.exports = (api) => {
                 {
                     moduleName: '@env',
                     path: '.env',
-                    allowlist: ['USDA_BASE_URL', 'USDA_FOOD_API_KEY'],
+                    allowlist: ['USDA_BASE_URL', 'USDA_FOOD_API_KEY', 'SOH_API_KEY', 'SOH_API_BASE_URL'],
                 },
             ],
         ],
