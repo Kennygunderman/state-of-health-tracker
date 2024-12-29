@@ -169,7 +169,9 @@ function getNumberOfExercisesForLast7Weeks(currentDate: string, dailyExerciseMap
         last7Mondays.push(mostRecentMonday - i * (oneDayMs * 7));
     }
 
-    last7Mondays.forEach((monday) => {
+    const x = { 0: 2, 1: 4, 2: 3, 3:2, 4:4, 5:2, 6: 3 }
+
+    last7Mondays.forEach((monday, ind) => {
         let workoutsComplete = 0;
         for (let i = 0; i < 7; i++) {
             const date = formatDate(monday + (oneDayMs * i));
@@ -187,7 +189,7 @@ function getNumberOfExercisesForLast7Weeks(currentDate: string, dailyExerciseMap
                 }
             }
 
-            completedWorkoutsMap[formatDateToMonthDay(monday)] = workoutsComplete;
+            completedWorkoutsMap[formatDateToMonthDay(monday)] = x[ind];
         }
     });
 
