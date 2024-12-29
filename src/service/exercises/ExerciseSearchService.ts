@@ -8,6 +8,7 @@ import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
 import { SOH_API_KEY, SOH_API_BASE_URL } from '@env';
 import { createExercise, createExerciseName, Exercise } from "../../store/exercises/models/Exercise";
 import { mapExerciseBodyPart, mapExerciseType } from "../../store/exercises/utils/ExerciseConverter";
+import exercises from "./exercises";
 
 interface IExerciseSearchService {
     searchExercises: (term: string, limit: number, onFetched: (exercises: Exercise[]) => void) => void;
@@ -26,6 +27,25 @@ const ExerciseSearchResponse = io.type({
 
 class ExerciseSearchService implements IExerciseSearchService {
     searchExercises(term: string, limit: number, onFetched: (exercises: Exercise[]) => void): void {
+         const filteredExercises = exercises
+                .filter((exercise) =>
+                    exercise.name.toLowerCase().includes(term.toLowerCase())
+                )
+                .slice(0, limit)
+                .map((exercise) => {
+                    const exerciseName = capitalizeFirstLetterOfEveryWord(exercise.name);
+                    const exerciseType = mapExerciseType(exercise.type);
+                    return createExercise(
+                        createExerciseName(exerciseName, exerciseType),
+                        exerciseType,
+                        mapExerciseBodyPart(exercise.muscleGroup)
+                    );
+                });
+
+            onFetched(filteredExercises);
+
+            return;
+
 
         const options = {
             method: 'GET',
