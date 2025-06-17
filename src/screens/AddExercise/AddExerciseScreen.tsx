@@ -52,7 +52,7 @@ interface Section extends Unique {
     data: Exercise[] | WorkoutTemplate[];
 }
 
-const AddExerciseScreen = ({ navigation }: any) => {
+const AddExerciseScreenOld = ({ navigation }: any) => {
     const [searchText, setSetSearchText] = useState('');
 
     const [confirmDeleteTitle, setConfirmDeleteTitle] = useState('');
@@ -69,10 +69,8 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const { exercises, fetchExercises } = useExercisesStore()
 
-    console.log('Exercises in AddExerciseScreen:', exercises);
-
     useEffect(() => {
-        fetchExercises()
+        if (exercises.length === 0) fetchExercises()
     }, []);
 
     // const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => getTemplatesSelector(state, searchText));
@@ -82,18 +80,15 @@ const AddExerciseScreen = ({ navigation }: any) => {
     // const searchExercisesDebounce = useCallback(
     //     debounce((text) => {
     //         if (text) {
-    //             setIsLoading(true);
-    //             exerciseSearchService.searchExercises(text, 100, (fetchedExercises) => {
-    //                 setRemoteExercises(fetchedExercises);
-    //                 setIsLoading(false);
-    //             });
+    //             const exercises = exerciseSearchService.searchExercises(text);
+    //             setRemoteExercises(exercises)
     //         } else {
     //             setRemoteExercises([]);
     //         }
     //     }, 500),
     //     []
     // );
-    //
+
     // useEffect(() => {
     //     searchExercisesDebounce(searchText);
     // }, [searchText, searchExercisesDebounce]);
@@ -370,4 +365,4 @@ const AddExerciseScreen = ({ navigation }: any) => {
     );
 };
 
-export default AddExerciseScreen;
+// export default AddExerciseScreen;

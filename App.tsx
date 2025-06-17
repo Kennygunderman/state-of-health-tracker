@@ -18,7 +18,6 @@ import {
     QUICK_ADD_FOOD_SCREEN_TITLE,
 } from './src/constants/Strings';
 import AccountScreen from './src/screens/Account/AccountScreen';
-import AddExerciseScreen from './src/screens/AddExercise/AddExerciseScreen';
 import AddFoodScreen from './src/screens/AddFoodScreen';
 import LogInScreen from './src/screens/Auth/LogInScreen';
 import RegisterScreen from './src/screens/Auth/RegisterScreen';
@@ -37,6 +36,8 @@ import { syncUserData } from './src/store/user/UserActions';
 import { setCurrentDate } from './src/store/userInfo/UserInfoActions';
 import { darkTheme, useStyleTheme } from './src/styles/Theme';
 import { getCurrentDate } from './src/utility/DateUtility';
+import AddExerciseScreen from "./src/screens/AddExercise";
+import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -215,6 +216,7 @@ const App = () => {
                     />
 
                 </Stack.Navigator>
+                <GlobalBottomSheet />
                 <Toast
                     config={ToastConfig}
                     position="top"

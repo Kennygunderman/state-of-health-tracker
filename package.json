@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
+    "@gorhom/bottom-sheet": "^4.4.5",
     "@react-native-async-storage/async-storage": "1.17.11",
     "@react-native-firebase/app": "^21.0.0",
     "@react-native-firebase/auth": "^21.0.0",
@@ -56,6 +57,7 @@
     "redux-persist-expo-filesystem": "^2.0.0",
     "redux-thunk": "^2.4.2",
     "reselect": "^4.1.8",
+    "rxjs": "^7.8.2",
     "uuid": "^9.0.1",
     "zustand": "^5.0.5"
   },
