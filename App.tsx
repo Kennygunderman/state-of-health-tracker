@@ -95,7 +95,7 @@ const Home = () => {
                 },
             })}
         >
-            <Tab.Screen name={Screens.MEALS} options={{ title: MACROS_TITLE }} component={MealsScreen} />
+            {/* <Tab.Screen name={Screens.MEALS} options={{ title: MACROS_TITLE }} component={MealsScreen} /> */}
             <Tab.Screen name={Screens.WORKOUTS} component={WorkoutsScreen} />
             <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen} />
         </Tab.Navigator>

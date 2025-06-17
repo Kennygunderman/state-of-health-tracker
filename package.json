@@ -32,6 +32,7 @@
     "expo-splash-screen": "~0.18.2",
     "expo-status-bar": "1.4.4",
     "fp-ts": "^2.16.1",
+    "immer": "^10.1.1",
     "io-ts": "^2.2.20",
     "lodash": "^4.17.21",
     "react": "18.2.0",
@@ -55,7 +56,8 @@
     "redux-persist-expo-filesystem": "^2.0.0",
     "redux-thunk": "^2.4.2",
     "reselect": "^4.1.8",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

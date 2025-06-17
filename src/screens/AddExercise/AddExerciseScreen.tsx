@@ -45,6 +45,7 @@ import ListSwipeItemManager from '../../utility/ListSwipeItemManager';
 import exerciseSearchService from "../../service/exercises/ExerciseSearchService";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import { debounce } from "lodash";
+import useExercisesStore from "../../store/exercises/useExercisesStore";
 
 interface Section extends Unique {
     title: string;
@@ -66,29 +67,36 @@ const AddExerciseScreen = ({ navigation }: any) => {
 
     const [isLoading, setIsLoading] = useState(false);
 
-    const exercises = useSelector<LocalStore, Exercise[]>((state: LocalStore) => getExercisesSelector(state, searchText));
-    const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => getTemplatesSelector(state, searchText));
+    const { exercises, fetchExercises } = useExercisesStore()
+
+    console.log('Exercises in AddExerciseScreen:', exercises);
+
+    useEffect(() => {
+        fetchExercises()
+    }, []);
+
+    // const templates = useSelector<LocalStore, WorkoutTemplate[]>((state: LocalStore) => getTemplatesSelector(state, searchText));
     const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 
-    const searchExercisesDebounce = useCallback(
-        debounce((text) => {
-            if (text) {
-                setIsLoading(true);
-                exerciseSearchService.searchExercises(text, 100, (fetchedExercises) => {
-                    setRemoteExercises(fetchedExercises);
-                    setIsLoading(false);
-                });
-            } else {
-                setRemoteExercises([]);
-            }
-        }, 500),
-        []
-    );
-
-    useEffect(() => {
-        searchExercisesDebounce(searchText);
-    }, [searchText, searchExercisesDebounce]);
+    // const searchExercisesDebounce = useCallback(
+    //     debounce((text) => {
+    //         if (text) {
+    //             setIsLoading(true);
+    //             exerciseSearchService.searchExercises(text, 100, (fetchedExercises) => {
+    //                 setRemoteExercises(fetchedExercises);
+    //                 setIsLoading(false);
+    //             });
+    //         } else {
+    //             setRemoteExercises([]);
+    //         }
+    //     }, 500),
+    //     []
+    // );
+    //
+    // useEffect(() => {
+    //     searchExercisesDebounce(searchText);
+    // }, [searchText, searchExercisesDebounce]);
 
     const combinedExercises: Exercise[] = useMemo(() => {
         return Array.from(
@@ -97,11 +105,11 @@ const AddExerciseScreen = ({ navigation }: any) => {
     }, [remoteExercises, exercises]);
 
     const sections: Section[] = [
-        {
-            id: 'templates',
-            title: TEMPLATES_HEADER,
-            data: templates,
-        },
+        // {
+        //     id: 'templates',
+        //     title: TEMPLATES_HEADER,
+        //     data: templates,
+        // },
         {
             id: 'exercises',
             title: EXERCISES_HEADER,
@@ -168,47 +176,47 @@ const AddExerciseScreen = ({ navigation }: any) => {
         />
     );
 
-    const renderSearchBar = () => {
-        const emptyStateTopMargin = 100;
-        const emptyStateContainerHeight = 150;
-        const isSearchTextEmpty = searchText !== '';
-        const areSearchResultsEmpty = isSearchTextEmpty && combinedExercises.length === 0 && templates.length === 0 && !isCreatingTemplate;
-        return (
-            <>
-                <View style={{
-                    width: '100%',
-                    height: Dimensions.get('window').height,
-                    backgroundColor: useStyleTheme().colors.secondary,
-                    position: 'absolute',
-                    bottom: 0,
-                    marginBottom: areSearchResultsEmpty ? emptyStateTopMargin + 64 : 0,
-                }}
-                />
-                <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER}/>
-                {areSearchResultsEmpty
-                    && (
-                        <View style={{
-                            alignSelf: 'center',
-                            alignItems: 'center',
-                            height: emptyStateContainerHeight,
-                        }}
-                        >
-                            <Text style={{
-                                textAlign: 'center',
-                                marginTop: emptyStateTopMargin,
-                                fontSize: FontSize.H2,
-                                fontWeight: 'bold',
-                            }}
-                            >
-                                {NO_EXERCISES_FOUND_EMPTY_TEXT}
-                            </Text>
-                            {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
-                            {createExerciseButton()}
-                        </View>
-                    )}
-            </>
-        );
-    };
+    // const renderSearchBar = () => {
+    //     const emptyStateTopMargin = 100;
+    //     const emptyStateContainerHeight = 150;
+    //     const isSearchTextEmpty = searchText !== '';
+    //     const areSearchResultsEmpty = isSearchTextEmpty && combinedExercises.length === 0 //&& templates.length === 0 && !isCreatingTemplate;
+    //     return (
+    //         <>
+    //             <View style={{
+    //                 width: '100%',
+    //                 height: Dimensions.get('window').height,
+    //                 backgroundColor: useStyleTheme().colors.secondary,
+    //                 position: 'absolute',
+    //                 bottom: 0,
+    //                 marginBottom: areSearchResultsEmpty ? emptyStateTopMargin + 64 : 0,
+    //             }}
+    //             />
+    //             <SearchBar onSearchTextChanged={setSetSearchText} placeholder={SEARCH_EXERCISES_PLACEHOLDER}/>
+    //             {areSearchResultsEmpty
+    //                 && (
+    //                     <View style={{
+    //                         alignSelf: 'center',
+    //                         alignItems: 'center',
+    //                         height: emptyStateContainerHeight,
+    //                     }}
+    //                     >
+    //                         <Text style={{
+    //                             textAlign: 'center',
+    //                             marginTop: emptyStateTopMargin,
+    //                             fontSize: FontSize.H2,
+    //                             fontWeight: 'bold',
+    //                         }}
+    //                         >
+    //                             {NO_EXERCISES_FOUND_EMPTY_TEXT}
+    //                         </Text>
+    //                         {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
+    //                         {createExerciseButton()}
+    //                     </View>
+    //                 )}
+    //         </>
+    //     );
+    // };
 
     const renderCreateSectionHeader = (text: string, button: JSX.Element, emptyText?: string) => (
         <>
@@ -309,21 +317,21 @@ const AddExerciseScreen = ({ navigation }: any) => {
         );
     };
 
-    if (isCreatingTemplate) {
-        return (
-            <CreateTemplateForm
-                searchBar={renderSearchBar()}
-                exercises={exercises}
-                onCanceled={() => {
-                    setIsCreatingTemplate(false);
-                }}
-                onTemplateCreated={(name: string) => {
-                    setIsCreatingTemplate(false);
-                    showToast('success', TOAST_TEMPLATE_CREATED, name);
-                }}
-            />
-        );
-    }
+    // if (isCreatingTemplate) {
+    //     return (
+    //         <CreateTemplateForm
+    //             searchBar={renderSearchBar()}
+    //             exercises={exercises}
+    //             onCanceled={() => {
+    //                 setIsCreatingTemplate(false);
+    //             }}
+    //             onTemplateCreated={(name: string) => {
+    //                 setIsCreatingTemplate(false);
+    //                 showToast('success', TOAST_TEMPLATE_CREATED, name);
+    //             }}
+    //         />
+    //     );
+    // }
 
     return (
         <>
@@ -352,7 +360,7 @@ const AddExerciseScreen = ({ navigation }: any) => {
                 initialNumToRender={10}
                 sections={sections}
                 stickySectionHeadersEnabled={false}
-                ListHeaderComponent={renderSearchBar()}
+                // ListHeaderComponent={renderSearchBar()}
                 ListFooterComponent={<View style={{ marginBottom: Spacing.X_LARGE }}/>}
                 renderSectionHeader={({ section }) => renderSectionItemHeader(section)}
                 renderItem={renderItem}
