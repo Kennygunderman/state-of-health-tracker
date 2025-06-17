@@ -6,6 +6,10 @@ import { Exercise } from "../../../../store/exercises/models/Exercise";
 import ExerciseTypeChip from "../ExerciseTypeChip";
 import { openGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
 import DeleteExerciseBottomSheet from "../DeleteExerciseBottomSheet";
+import { useNavigation } from "@react-navigation/native";
+import useDailyWorkoutEntryStore from "../../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
+import { showToast } from "../../../../components/toast/util/ShowToast";
+import { TOAST_EXERCISE_ADDED, TOAST_EXERCISE_ALREADY_ADDED } from "../../../../constants/Strings";
 
 interface Props {
   exercise: Exercise;
@@ -16,6 +20,19 @@ const ExerciseListItem = ({
 }: Props) => {
   const theme = useStyleTheme();
 
+  const { goBack } = useNavigation();
+
+  const {addDailyExercise}  = useDailyWorkoutEntryStore()
+
+  const onPress = () => {
+    if (addDailyExercise(exercise)) {
+      showToast('success', TOAST_EXERCISE_ADDED, exercise.name);
+      goBack()
+    } else {
+      showToast('error', TOAST_EXERCISE_ALREADY_ADDED, exercise.name);
+    }
+  }
+
   const onLongPress = () => {
     openGlobalBottomSheet(<DeleteExerciseBottomSheet exercise={exercise} />);
   }
@@ -24,6 +41,7 @@ const ExerciseListItem = ({
     <TouchableOpacity
       activeOpacity={0.5}
       delayPressIn={50}
+      onPress={onPress}
       onLongPress={onLongPress}
     >
       <View style={

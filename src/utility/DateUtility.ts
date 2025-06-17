@@ -3,6 +3,8 @@ import { format, isMonday } from 'date-fns';
 // returns current date as Ex: September 28, 2023
 export const getCurrentDate = () => format(Date.now(), 'MMMM dd, yyyy');
 
+export const getCurrentDateISO = () => format(new Date(), 'yyyy-MM-dd');
+
 export const formatDate = (date: number) => format(date, 'MMMM dd, yyyy');
 
 export const formatDateToMonthDay = (date: string | number): string => format(new Date(date), 'M/d');

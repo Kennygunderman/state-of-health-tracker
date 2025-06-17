@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
     KeyboardAvoidingView,
@@ -7,7 +7,7 @@ import {
     SectionListRenderItem,
     View,
 } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import ExerciseSectionListHeader from './components/ExerciseSectionListHeader';
 import ExerciseSetListItem from './components/ExerciseSetListItem';
 import WeeklyWorkoutsGraphModule from './components/WeeklyWorkoutsGraphModule';
@@ -26,8 +26,6 @@ import {
     VIEW_PREVIOUS_WORKOUTS_BUTTON_TEXT,
     YOUR_EXERCISES_HEADER,
 } from '../../constants/Strings';
-import { getExercisesForDaySelector } from '../../selectors/ExercisesSelector';
-import { deleteSet } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
 import { ExerciseSet } from '../../store/exercises/models/ExerciseSet';
 import LocalStore from '../../store/LocalStore';
@@ -35,6 +33,7 @@ import Unique from '../../store/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';
+import useDailyWorkoutEntryStore from "../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 
 interface Section extends Unique {
     dailyExercise: DailyExercise;
@@ -45,15 +44,24 @@ const listSwipeItemManager = new ListSwipeItemManager();
 
 const WorkoutsScreen = ({ navigation }: any) => {
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
-    const dailyExercises = useSelector<LocalStore, DailyExercise[]>((state: LocalStore) => getExercisesForDaySelector(state));
 
+    const {
+      initCurrentWorkoutDay,
+      currentWorkoutDay,
+      deleteSet
+    } = useDailyWorkoutEntryStore();
+
+  useEffect(() => {
+    initCurrentWorkoutDay()
+  }, []);
+
+
+    const dailyExercises = currentWorkoutDay?.dailyExercises ?? []
     const sections: Section[] = dailyExercises.map((dailyExercise) => ({
         id: dailyExercise.id,
         dailyExercise,
         data: dailyExercise.sets,
     }));
-
-    const dispatch = useDispatch();
 
     listSwipeItemManager.setRows(dailyExercises);
 
@@ -138,7 +146,6 @@ const WorkoutsScreen = ({ navigation }: any) => {
     const renderSectionItemHeader = (dailyExercise: DailyExercise) => (
         <ExerciseSectionListHeader
             dailyExercise={dailyExercise}
-            currentDate={currentDate}
             dailyExercisesToReorg={dailyExercises}
         />
     );
@@ -164,7 +171,7 @@ const WorkoutsScreen = ({ navigation }: any) => {
             set={item}
             index={index}
             onDeletePressed={() => {
-                dispatch(deleteSet(currentDate, section.dailyExercise.exercise, item.id));
+              deleteSet(section.dailyExercise.exercise, item.id);
             }}
             swipeableRef={(ref) => {
                 listSwipeItemManager.setRef(ref, section, index);

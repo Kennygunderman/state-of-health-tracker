@@ -3,17 +3,14 @@ import * as Haptics from 'expo-haptics';
 import { TouchableOpacity, View } from 'react-native';
 import BouncyCheckbox from 'react-native-bouncy-checkbox';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useDispatch, useSelector } from 'react-redux';
 import SwipeDeleteListItem from '../../../components/SwipeDeleteListItem';
 import BorderRadius from '../../../constants/BorderRadius';
 import Spacing from '../../../constants/Spacing';
 import { LBS_LABEL, REPS_LABEL } from '../../../constants/Strings';
-import { completeSet } from '../../../store/dailyExerciseEntries/DailyExerciseActions';
-import { updateLatestCompletedSets } from '../../../store/exercises/ExercisesActions';
 import { Exercise } from '../../../store/exercises/models/Exercise';
 import { ExerciseSet } from '../../../store/exercises/models/ExerciseSet';
-import LocalStore from '../../../store/LocalStore';
 import { Text, TextInput, useStyleTheme } from '../../../styles/Theme';
+import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 
 interface Props {
     readonly exercise: Exercise;
@@ -29,8 +26,8 @@ const ExerciseSetListItem = (props: Props) => {
         exercise, set, index, swipeableRef, onSwipeActivated, onDeletePressed,
     } = props;
 
-    const dispatch = useDispatch();
-    const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
+
+    const { completeSet } = useDailyWorkoutEntryStore()
 
     const [weightText, setWeightText] = useState(set.weight?.toString() ?? '');
     const [repsText, setRepsText] = useState(set.reps?.toString() ?? '');
@@ -92,8 +89,10 @@ const ExerciseSetListItem = (props: Props) => {
         };
 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        dispatch(updateLatestCompletedSets(exercise, updatedSet, index));
-        dispatch(completeSet(currentDate, exercise, set.id, isChecked, weight, reps));
+
+        // Todo need to update the latest completed sets in the exercise state once i implement db functionality for this
+        // dispatch(updateLatestCompletedSets(exercise, updatedSet, index));
+        completeSet(exercise, set.id, isChecked, weight, reps);
     };
 
     const onWeightTextChanged = (text: string) => {

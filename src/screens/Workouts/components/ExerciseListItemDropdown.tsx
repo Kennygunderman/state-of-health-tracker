@@ -3,7 +3,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { TouchableOpacity, View } from 'react-native';
 import Modal from 'react-native-modal';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import ConfirmModal from '../../../components/dialog/ConfirmModal';
 import ReorganizeModal from '../../../components/dialog/ReorganizeModal';
 import Spacing from '../../../constants/Spacing';
@@ -12,10 +12,9 @@ import {
     DELETE_EXERCISE_MODAL_TITLE, DELETE_EXERCISE_BUTTON_TEXT,
     stringWithParameters, ORGANIZE_EXERCISES_BUTTON_TEXT,
 } from '../../../constants/Strings';
-import { deleteDailyExercise, updateDailyExercise } from '../../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../../store/dailyExerciseEntries/models/DailyExercise';
-import LocalStore from '../../../store/LocalStore';
 import { Text, useStyleTheme } from '../../../styles/Theme';
+import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 
 interface Props {
     readonly isVisible: boolean;
@@ -30,13 +29,14 @@ const ExerciseListItemDropdown = (props: Props) => {
         isVisible, dropdownTopMargin, onDropdownCancel, dailyExerciseToDelete, dailyExercisesToReorg,
     } = props;
 
+    const { deleteDailyExercise, updateDailyExercises } = useDailyWorkoutEntryStore();
+
     const [isDeleteConfirmationModalVisible, setIsDeleteConfirmationModalVisible] = useState(false);
     const [doDelete, setDoDelete] = useState(false);
 
     const [isReorgModalVisible, setIsReorgModalVisible] = useState(false);
     const [doReorg, setDoReorg] = useState(false);
 
-    const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
     const dispatch = useDispatch();
 
     const cancel = () => {
@@ -59,13 +59,13 @@ const ExerciseListItemDropdown = (props: Props) => {
 
     const confirmDeletePressed = () => {
         if (dailyExerciseToDelete) {
-            dispatch(deleteDailyExercise(currentDate, dailyExerciseToDelete.id));
+            deleteDailyExercise(dailyExerciseToDelete.id);
         }
         cancel();
     };
 
     const confirmReorgPressed = (dailyExercises: DailyExercise[]) => {
-        dispatch(updateDailyExercise(currentDate, dailyExercises));
+        updateDailyExercises(dailyExercises);
         cancel();
     };
 

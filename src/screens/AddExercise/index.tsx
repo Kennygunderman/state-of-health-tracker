@@ -1,6 +1,5 @@
-import { useNavigation } from "@react-navigation/native";
-import useExercisesStore from "../../store/exercises/useExercisesStore";
 import React, { useEffect } from "react";
+import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { SectionList, SectionListRenderItem, View } from "react-native";
 import Spacing from "../../constants/Spacing";
 import { EXERCISES_HEADER } from "../../constants/Strings";
@@ -16,7 +15,6 @@ interface Section {
 }
 
 const AddExerciseScreen = () => {
-  const { navigate } = useNavigation();
 
   const {
     exercises,
@@ -35,7 +33,7 @@ const AddExerciseScreen = () => {
   ];
 
   const renderItem: SectionListRenderItem<SectionItem> = ({ item }) => {
-    return instanceOfExercise(item) ? <ExerciseListItem exercise={item} /> : null
+    return instanceOfExercise(item) ? <ExerciseListItem exercise={item}/> : null
   };
 
   return (

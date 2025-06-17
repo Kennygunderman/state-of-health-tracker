@@ -41,6 +41,7 @@ interface RemoteDailyExerciseEntry {
     dailyExercises: DailyExercise[];
 }
 
+// This is horrible, what was i thinking
 class UserService implements IUserService {
     async saveUserData(account: Account, store: LocalStore, onDataSynced: () => void, onError: (error: string) => void) {
         try {
