@@ -36,6 +36,9 @@ import Screens from "../../constants/Screens";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../navigation/types";
+import useExercisesStore from "../../store/exercises/useExercisesStore";
+import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
+import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore";
 
 interface Section extends Unique {
   dailyExercise: DailyExercise;
@@ -51,14 +54,20 @@ const WorkoutsScreen = () => {
   const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 
   const {
-    isInitializing,
     initCurrentWorkoutDay,
+    isInitializing,
     currentWorkoutDay,
     deleteSet
   } = useDailyWorkoutEntryStore();
+  const { fetchExercises  } = useExercisesStore()
+  const { fetchSummaries } = useWorkoutSummariesStore()
+  const { fetchWeeklySummaries } = useWeeklyWorkoutSummariesStore()
 
   useEffect(() => {
-    initCurrentWorkoutDay()
+    initCurrentWorkoutDay();
+    fetchExercises();
+    fetchSummaries();
+    fetchWeeklySummaries();
   }, []);
 
   const dailyExercises = currentWorkoutDay?.dailyExercises ?? [];

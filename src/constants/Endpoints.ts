@@ -5,6 +5,7 @@ const Endpoints = {
   WorkoutDay: `${baseApiUrl}/workout/:day`,
   WorkoutSummaries: `${baseApiUrl}/workouts/summary`,
   SaveWorkout: `${baseApiUrl}/workout`,
+  WeeklyWorkoutSummary: `${baseApiUrl}/workouts/weekly-summary/7`
 }
 
 export default Endpoints;

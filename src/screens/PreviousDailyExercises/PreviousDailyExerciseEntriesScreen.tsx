@@ -20,11 +20,7 @@ const PreviousDailyExerciseEntriesScreen = () => {
     const loadBatchIncrement = 20;
     const [loadBatch, setLoadBatch] = useState(5);
 
-  const { summaries, fetchSummaries } = useWorkoutSummariesStore();
-
-  useEffect(() => {
-    fetchSummaries()
-  }, []);
+  const { summaries } = useWorkoutSummariesStore();
 
     if (summaries.length === 0) {
         return (

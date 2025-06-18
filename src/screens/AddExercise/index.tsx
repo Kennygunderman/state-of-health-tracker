@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { SectionList, SectionListRenderItem, View } from "react-native";
 import Spacing from "../../constants/Spacing";
@@ -16,14 +16,7 @@ interface Section {
 
 const AddExerciseScreen = () => {
 
-  const {
-    exercises,
-    fetchExercises
-  } = useExercisesStore()
-
-  useEffect(() => {
-    if (exercises.length === 0) fetchExercises()
-  }, []);
+  const { exercises } = useExercisesStore()
 
   const sections: Section[] = [
     {

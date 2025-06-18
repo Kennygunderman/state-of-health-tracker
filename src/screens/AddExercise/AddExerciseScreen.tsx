@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Dimensions, SectionList, SectionListRenderItem, View,
+    SectionList, SectionListRenderItem, View,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import CreateTemplateForm from './components/CreateTemplateForm';
 import ExerciseTypeChip from './components/ExerciseTypeChip';
 import ConfirmModal from '../../components/dialog/ConfirmModal';
 import ListItem from '../../components/ListItem';
@@ -19,12 +18,11 @@ import {
     DELETE_EXERCISE_MODAL_BODY,
     DELETE_EXERCISE_MODAL_TITLE, DELETE_TEMPLATE_MODAL_BODY, DELETE_TEMPLATE_MODAL_TITLE,
     EXERCISES_HEADER, NO_EXERCISES_ADDED_TEXT,
-    NO_EXERCISES_FOUND_EMPTY_TEXT, NO_TEMPLATES_ADDED_TEXT,
-    SEARCH_EXERCISES_PLACEHOLDER,
+    NO_TEMPLATES_ADDED_TEXT,
     stringWithParameters,
     TEMPLATES_HEADER,
     TOAST_EXERCISE_ADDED,
-    TOAST_EXERCISE_ALREADY_ADDED, TOAST_TEMPLATE_CREATED,
+    TOAST_EXERCISE_ALREADY_ADDED,
 } from '../../constants/Strings';
 import {
     getExercisesSelector,
