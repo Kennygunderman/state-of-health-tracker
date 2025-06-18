@@ -6,10 +6,13 @@ import { Exercise } from "../exercises/models/Exercise";
 import { createDailyExercise, DailyExercise } from "../dailyExerciseEntries/models/DailyExercise";
 import { createSet } from "../exercises/models/ExerciseSet";
 import offlineWorkoutStorageService from "../../service/workouts/OfflineWorkoutStorageService";
+import syncOfflineWorkouts from "../../service/workouts/syncOfflineWorkouts";
+import { fetchWorkoutForDay } from "../../service/workouts/fetchWorkoutForDay";
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null;
   initCurrentWorkoutDay: () => Promise<void>;
+  isInitializing : boolean;
   addDailyExercise: (exercise: Exercise) => boolean;
   deleteDailyExercise: (dailyExerciseId: string) => void;
   updateDailyExercises: (dailyExercises: DailyExercise[]) => void;
@@ -28,18 +31,27 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
   immer((set, get) => {
     const persist = async (state: { currentWorkoutDay: WorkoutDay | null }) => {
       if (state.currentWorkoutDay) {
-        await offlineWorkoutStorageService.save(state.currentWorkoutDay);
+        await offlineWorkoutStorageService.save({
+          ...state.currentWorkoutDay,
+          synced: false
+        });
       }
     };
 
     return {
       currentWorkoutDay: null,
-
+      isInitializing: false,
       initCurrentWorkoutDay: async () => {
+        set({ isInitializing: true });
+
+        const userId = 'BCsEDn7nMXatgkegN83pTksIcGs2';
+        await syncOfflineWorkouts(userId);
+
         const today = getCurrentDateISO();
         const localWorkouts = await offlineWorkoutStorageService.readAll();
         const localWorkout = localWorkouts.find((w) => w.date === today);
 
+        // prioritize local workout if exists
         if (localWorkout) {
           set((state) => {
             state.currentWorkoutDay = localWorkout;
@@ -47,12 +59,17 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           return;
         }
 
-        const newWorkout = createWorkoutDay('BCsEDn7nMXatgkegN83pTksIcGs2', today);
-        await offlineWorkoutStorageService.save(newWorkout);
+        // try to fetch remote workout for today
+        let workout: WorkoutDay;
+        try {
+          workout = await fetchWorkoutForDay(userId, today)
+        } catch (error) {
+          // if no remote workout, create a new offline copy
+          workout = createWorkoutDay(userId, today);
+          await offlineWorkoutStorageService.save(workout);
+        }
 
-        set((state) => {
-          state.currentWorkoutDay = newWorkout;
-        });
+        set({ currentWorkoutDay: workout, isInitializing: false });
       },
 
       addDailyExercise: (exercise) => {

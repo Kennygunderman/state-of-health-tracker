@@ -3,14 +3,18 @@ import * as io from 'io-ts'
 import { isLeft } from 'fp-ts/lib/Either'
 import CrashUtility from "../../utility/CrashUtility";
 
+export interface HttpResponse<T> {
+  data: T;
+  status: number;
+}
+
 async function httpRequest<T>(
   method: Method,
   url: string,
   decoder: io.Type<T>,
   config: AxiosRequestConfig = {},
   body?: any
-): Promise<T | null> {
-
+): Promise<HttpResponse<T>> {
   const axiosConfig: AxiosRequestConfig = {
     method,
     url,
@@ -28,11 +32,13 @@ async function httpRequest<T>(
   if (isLeft(decoded)) {
     const error = Error(`Decoding failed for ${method} ${url}: ${JSON.stringify(decoded.left)}`)
     CrashUtility.recordError(error)
-
     throw error
   }
 
-  return decoded.right
+  return {
+    data: decoded.right,
+    status: response.status,
+  }
 }
 
 export default httpRequest;

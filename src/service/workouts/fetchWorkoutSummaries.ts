@@ -46,9 +46,12 @@ export async function fetchWorkoutSummaries(userId: string): Promise<WorkoutSumm
       }
     );
 
-    if (!response?.summaries) throw new Error('No workout summaries returned');
+    const data = response?.data
 
-    return response.summaries;
+    if (!data?.summaries) throw new Error('No workout summaries returned');
+
+    return data?.summaries
+
   } catch (error) {
     CrashUtility.recordError(error);
     throw error;

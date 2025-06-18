@@ -8,6 +8,7 @@ export interface WorkoutDay extends Unique {
   userId: string;
   date: string;
   dailyExercises: DailyExercise[];
+  synced?: boolean; // Optional field to track if the workout day has been synced
 }
 
 export function createWorkoutDay(

@@ -31,8 +31,8 @@ const WorkoutDayResponse = io.type({
 });
 
 export async function fetchWorkoutForDay(
-  isoDayStamp: string,
-  userId: string
+  userId: string,
+  isoDayStamp: string
 ): Promise<WorkoutDay> {
   try {
     const response = await httpGet(
@@ -45,13 +45,15 @@ export async function fetchWorkoutForDay(
       }
     );
 
-    if (!response) throw new Error('Workout not found');
+    const data = response?.data
+
+    if (!response || !data) throw new Error('Workout not found');
 
     return {
-      id: response.id,
-      date: response.date,
+      id: data.id,
+      date: data.date,
       userId: userId,
-      dailyExercises: response.dailyExercises.map((entry) => ({
+      dailyExercises: data.dailyExercises.map((entry) => ({
         id: entry.dailyExerciseId,
         dailyExerciseId: entry.dailyExerciseId,
         exercise: {

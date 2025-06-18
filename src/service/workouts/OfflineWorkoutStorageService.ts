@@ -6,6 +6,8 @@ const OFFLINE_FILE_PATH = `${FileSystem.documentDirectory}unsynced-workouts.json
 class OfflineWorkoutStorageService {
   async save(workoutDay: WorkoutDay): Promise<void> {
     try {
+
+      console.log('saving workout:', workoutDay);
       const existing = await this.readAll();
 
       const updated = existing.filter((w) => w.date !== workoutDay.date);
@@ -41,6 +43,22 @@ class OfflineWorkoutStorageService {
       }
     } catch (error) {
       console.error('Failed to clear offline workouts:', error);
+    }
+  }
+
+  async deleteAllSynced(): Promise<void> {
+    try {
+      const allWorkouts = await this.readAll();
+      const unsyncedOnly = allWorkouts.filter((w) => !w.synced);
+
+      await FileSystem.writeAsStringAsync(
+        OFFLINE_FILE_PATH,
+        JSON.stringify(unsyncedOnly)
+      );
+
+      console.log(`Deleted ${allWorkouts.length - unsyncedOnly.length} synced workout(s).`);
+    } catch (error) {
+      console.error('Failed to delete synced workouts:', error);
     }
   }
 

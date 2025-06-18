@@ -34,10 +34,11 @@ export async function fetchExercises(
       },
     })
 
-    if (!response) throw new Error('No exercises found')
+    const data = response?.data
 
+    if (!response || !data) throw new Error('No exercises found')
 
-    return response.map((ex) => {
+    return data.map((ex) => {
       const exerciseType = mapExerciseType(ex.exerciseType)
       const exercise = createExercise(
         ex.name,
