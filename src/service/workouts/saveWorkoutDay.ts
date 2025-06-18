@@ -26,8 +26,6 @@ export async function saveWorkoutDay(
       throw new Error(`Unexpected response status: ${response?.status}`);
     }
 
-    console.log('Workout synced!!')
-
     return true;
   } catch (error) {
     CrashUtility.recordError(error);

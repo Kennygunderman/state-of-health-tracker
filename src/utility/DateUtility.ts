@@ -19,6 +19,16 @@ export const formatDateUTC = (isoDate: string) => {
     });
 };
 
+export const compareIsoDateStrings = (a: string, b: string): boolean => {
+    try {
+        const [y1, m1, d1] = a.split('T')[0].split('-');
+        const [y2, m2, d2] = b.split('T')[0].split('-');
+        return y1 === y2 && m1 === m2 && d1 === d2;
+    } catch {
+        return false;
+    }
+};
+
 export const formatDateToMonthDay = (date: string | number): string => format(new Date(date), 'M/d');
 
 export const ONE_DAY_MS = 1000 * 60 * 60 * 24; // 1000 ms * 60s * 60m * 24h

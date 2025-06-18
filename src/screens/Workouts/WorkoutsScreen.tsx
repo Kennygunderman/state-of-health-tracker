@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   SafeAreaView,
   SectionList,
@@ -35,6 +34,8 @@ import useDailyWorkoutEntryStore from "../../store/dailyWorkoutEntry/useDailyWor
 import styles from './index.styled';
 import Screens from "../../constants/Screens";
 import LoadingOverlay from "../../components/LoadingOverlay";
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "../../navigation/types";
 
 interface Section extends Unique {
   dailyExercise: DailyExercise;
@@ -43,7 +44,9 @@ interface Section extends Unique {
 
 const listSwipeItemManager = new ListSwipeItemManager();
 
-const WorkoutsScreen = ({ navigation }: any) => {
+const WorkoutsScreen = () => {
+
+  const navigation = useNavigation<Navigation>()
 
   const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
 

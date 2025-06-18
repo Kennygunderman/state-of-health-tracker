@@ -12,4 +12,5 @@ export default {
     REGISTER: 'Register',
     LOG_IN: 'Log In',
     WORKOUT_TEMPLATE_DETAIL: 'Workout Template',
-};
+} as const;
+

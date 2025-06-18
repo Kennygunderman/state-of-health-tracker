@@ -7,14 +7,12 @@ const syncOfflineWorkouts = async (userId: string) => {
   try {
     const workouts = await offlineWorkoutStorageService.readAll();
 
-    let syncedCount = 0;
-
     for (const workout of workouts) {
+      if (workout.synced) continue;
       const success = await saveWorkoutDay(userId, workout);
       if (success) {
         workout.synced = true;
         await offlineWorkoutStorageService.save(workout);
-        syncedCount++;
       }
     }
 
