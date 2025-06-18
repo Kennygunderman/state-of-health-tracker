@@ -5,12 +5,13 @@ import { LBS_LABEL } from '../../../constants/Strings';
 import { ExerciseSet } from '../../../store/exercises/models/ExerciseSet';
 
 interface Props {
-    set?: ExerciseSet;
+    weight?: number;
+    reps?: number;
 }
 const BestSetChip = (props: Props) => {
-    const { set } = props;
+    const { weight, reps } = props;
 
-    const label = `${set?.weight ?? 0} ${LBS_LABEL} x ${set?.reps ?? 0}`;
+    const label = `${weight ?? 0} ${LBS_LABEL} x ${reps ?? 0}`;
 
     return (
         <Chip

@@ -6,12 +6,21 @@ import { mapExerciseBodyPart, mapExerciseType } from '../../store/exercises/util
 import Endpoints from "../../constants/Endpoints";
 import { httpGet } from "../http/httpUtil";
 
+const LatestCompletedSet = io.type({
+  id: io.string,
+  reps: io.number,
+  weight: io.number,
+  setNumber: io.number,
+  completedAt: io.string,
+});
+
 const ExerciseResponse = io.type({
   id: io.string,
   name: io.string,
   exerciseType: io.string,
   exerciseBodyPart: io.string,
-})
+  latestCompletedSets: io.array(LatestCompletedSet),
+});
 
 const ExerciseArrayResponse = io.array(ExerciseResponse)
 
@@ -33,7 +42,14 @@ export async function fetchExercises(
       const exercise = createExercise(
         ex.name,
         exerciseType,
-        mapExerciseBodyPart(ex.exerciseBodyPart)
+        mapExerciseBodyPart(ex.exerciseBodyPart),
+        ex.latestCompletedSets.map(set => ({
+          id: set.id,
+          reps: set.reps,
+          weight: set.weight,
+          setNumber: set.setNumber,
+          completedAt: new Date(set.completedAt)
+        }))
       )
 
       return {

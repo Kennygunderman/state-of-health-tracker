@@ -81,17 +81,7 @@ const ExerciseSetListItem = (props: Props) => {
             return;
         }
 
-        const updatedSet: ExerciseSet = {
-            id: set.id,
-            reps,
-            weight,
-            completed: isChecked,
-        };
-
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-        // Todo need to update the latest completed sets in the exercise state once i implement db functionality for this
-        // dispatch(updateLatestCompletedSets(exercise, updatedSet, index));
         completeSet(exercise, set.id, isChecked, weight, reps);
     };
 

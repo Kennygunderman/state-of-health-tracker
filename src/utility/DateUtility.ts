@@ -7,6 +7,18 @@ export const getCurrentDateISO = () => format(new Date(), 'yyyy-MM-dd');
 
 export const formatDate = (date: number) => format(date, 'MMMM dd, yyyy');
 
+export const formatDateUTC = (isoDate: string) => {
+    const [year, month, day] = isoDate.split('T')[0].split('-');
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+    return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: '2-digit',
+        timeZone: 'UTC',
+    });
+};
+
 export const formatDateToMonthDay = (date: string | number): string => format(new Date(date), 'M/d');
 
 export const ONE_DAY_MS = 1000 * 60 * 60 * 24; // 1000 ms * 60s * 60m * 24h

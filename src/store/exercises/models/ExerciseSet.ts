@@ -4,6 +4,8 @@ import Unique from '../../models/Unique';
 export interface ExerciseSet extends Unique {
     reps?: number;
     weight?: number;
+    setNumber?: number | null;
+    completedAt?: string | null;
     completed: boolean;
 }
 

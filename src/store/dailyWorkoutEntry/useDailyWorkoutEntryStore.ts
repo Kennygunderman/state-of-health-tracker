@@ -123,6 +123,8 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           setItem.completed = isCompleted;
           if (weight !== undefined) setItem.weight = weight;
           if (reps !== undefined) setItem.reps = reps;
+          setItem.setNumber = isCompleted ? (entry?.sets.length || 0) + 1 : null;
+          setItem.completedAt = isCompleted ? new Date().toISOString() : null;
         })
 
         persist(get());
