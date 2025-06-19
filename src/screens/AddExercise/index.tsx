@@ -20,6 +20,7 @@ import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
 import styles from "./index.styled";
 import SecondaryButton from "../../components/SecondaryButton";
 import { Text } from "../../styles/Theme";
+import SearchBarButton from "./components/SearchBarButton";
 
 type SectionItem = Exercise | ExerciseTemplate;
 
@@ -82,11 +83,9 @@ const AddExerciseScreen = () => {
   };
 
   const renderItem: SectionListRenderItem<SectionItem> = ({ item }) => {
-    return isExerciseObject(item) ? (
-      <ExerciseListItem exercise={item}/>
-    ) : (
-      <TemplateListItem template={item}/>
-    );
+    return isExerciseObject(item)
+      ? <ExerciseListItem exercise={item}/>
+      : <TemplateListItem template={item}/>
   };
 
   return (
@@ -94,7 +93,8 @@ const AddExerciseScreen = () => {
       keyboardShouldPersistTaps="always"
       keyboardDismissMode="on-drag"
       sections={sections}
-      stickySectionHeadersEnabled={true}
+      stickySectionHeadersEnabled={false}
+      ListHeaderComponent={SearchBarButton}
       ListFooterComponent={<View style={styles.listFooter}/>}
       renderSectionHeader={({ section }) => renderHeader(section)}
       renderItem={renderItem}
