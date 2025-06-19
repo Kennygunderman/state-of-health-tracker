@@ -3,7 +3,7 @@ import {
     SectionList, SectionListRenderItem, View,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import ExerciseTypeChip from './components/ExerciseTypeChip';
+import ExerciseTypeChip from '../../components/ExerciseTypeChip';
 import ConfirmModal from '../../components/dialog/ConfirmModal';
 import ListItem from '../../components/ListItem';
 import SearchBar, { SEARCH_BAR_HEIGHT } from '../../components/SearchBar';

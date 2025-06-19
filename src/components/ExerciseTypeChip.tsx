@@ -3,9 +3,9 @@ import {
     Ionicons, MaterialCommunityIcons, FontAwesome5, Entypo,
 } from '@expo/vector-icons';
 import { View } from 'react-native';
-import BorderRadius from '../../../constants/BorderRadius';
-import { ExerciseTypeEnum } from '../../../data/models/Exercise';
-import { useStyleTheme } from '../../../styles/Theme';
+import BorderRadius from '../constants/BorderRadius';
+import { ExerciseTypeEnum } from '../data/models/Exercise';
+import { useStyleTheme } from '../styles/Theme';
 
 interface Props {
     exerciseType: ExerciseTypeEnum;

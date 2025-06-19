@@ -5,6 +5,7 @@ export type RootStackParamList = {
   'Previous Daily Exercise Entries': undefined;
   'Workout Template': undefined;
   'Create Exercise': undefined;
+  'Create Template': undefined;
 };
 
 export type Navigation = NativeStackNavigationProp<RootStackParamList>;

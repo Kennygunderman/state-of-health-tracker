@@ -1,6 +1,6 @@
 import React from 'react';
 import { FlatList, ListRenderItemInfo } from 'react-native';
-import ExerciseTypeChip from '../../screens/AddExercise/components/ExerciseTypeChip';
+import ExerciseTypeChip from '../../components/ExerciseTypeChip';
 import ListItem from '../../components/ListItem';
 import PrimaryButton from '../../components/PrimaryButton';
 import { showToast } from '../../components/toast/util/ShowToast';

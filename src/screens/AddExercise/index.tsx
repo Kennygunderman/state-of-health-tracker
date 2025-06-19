@@ -94,6 +94,7 @@ const AddExerciseScreen = () => {
           style={styles.createButton}
           label={CREATE_TEMPLATE_BUTTON_TEXT}
           onPress={() => {
+            push(Screens.CREATE_TEMPLATE)
           }}
         />
       );

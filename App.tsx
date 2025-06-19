@@ -39,6 +39,7 @@ import { getCurrentDate } from './src/utility/DateUtility';
 import AddExerciseScreen from "./src/screens/AddExercise";
 import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import DebugScreen from "./src/screens/debug/DebugScreen";
+import CreateTemplateScreen from "./src/screens/CreateTemplate";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -225,6 +226,17 @@ const App = () => {
             name={Screens.ADD_EXERCISE}
             component={AddExerciseScreen}
           />
+
+          <Stack.Screen
+            options={{
+              headerStyle: {
+                backgroundColor: useStyleTheme().colors.secondary,
+              },
+            }}
+            name={Screens.CREATE_TEMPLATE}
+            component={CreateTemplateScreen}
+          />
+
           <Stack.Screen name={Screens.WORKOUT_TEMPLATE_DETAIL} component={WorkoutTemplateDetailScreen}/>
           <Stack.Screen name={Screens.CREATE_EXERCISE} component={CreateExerciseScreen}/>
           <Stack.Screen

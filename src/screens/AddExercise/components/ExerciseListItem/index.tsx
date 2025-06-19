@@ -3,7 +3,7 @@ import { TouchableOpacity, View } from 'react-native';
 import styles from './index.styled';
 import { Text, useStyleTheme } from "../../../../styles/Theme";
 import { Exercise } from "../../../../data/models/Exercise";
-import ExerciseTypeChip from "../ExerciseTypeChip";
+import ExerciseTypeChip from "../../../../components/ExerciseTypeChip";
 import { openGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
 import DeleteExerciseBottomSheet from "../DeleteExerciseBottomSheet";
 import { useNavigation } from "@react-navigation/native";

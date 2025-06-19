@@ -13,6 +13,7 @@ import { DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS } from "../../constants/
 export type ExercisesState = {
   exercises: Exercise[]
   getExercises: (exerciseIds: string[]) => Exercise[]
+  getFilterExercises: (filter: string) => Exercise[]
   fetchExercises: () => Promise<void>
   createExercise: (exercise: CreateExercisePayload) => Promise<void>
   deleteExercise: (exerciseId: string) => Promise<void>
@@ -24,6 +25,16 @@ const useExercisesStore = create<ExercisesState>()(
     getExercises: (exerciseIds: string[]) => {
       const exercises = get().exercises
       return exercises.filter(exercise => exerciseIds.includes(exercise.id))
+    },
+    getFilterExercises: (filter: string) => {
+      const exercises = get().exercises;
+      if (!filter) return exercises;
+
+      return exercises.filter(exercise =>
+        exercise.name.toLowerCase().includes(filter.toLowerCase()) ||
+        exercise.exerciseType.toLowerCase().includes(filter.toLowerCase()) ||
+        exercise.exerciseBodyPart.toLowerCase().includes(filter.toLowerCase())
+      );
     },
     fetchExercises: async () => {
       try {

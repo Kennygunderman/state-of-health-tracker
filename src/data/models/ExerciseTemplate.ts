@@ -7,7 +7,6 @@ export interface ExerciseTemplate {
 }
 
 export interface CreateExerciseTemplatePayload {
-  userId: string;
   name: string;
   tagline: string;
   exerciseIds: string[];

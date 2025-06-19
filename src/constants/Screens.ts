@@ -12,6 +12,7 @@ export default {
     REGISTER: 'Register',
     LOG_IN: 'Log In',
     WORKOUT_TEMPLATE_DETAIL: 'Workout Template',
-    DEBUG: 'Debug'
+    DEBUG: 'Debug',
+    CREATE_TEMPLATE: 'Create Template',
 } as const;
 
