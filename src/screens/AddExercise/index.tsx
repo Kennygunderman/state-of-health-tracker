@@ -21,6 +21,9 @@ import styles from "./index.styled";
 import SecondaryButton from "../../components/SecondaryButton";
 import { Text } from "../../styles/Theme";
 import SearchBarButton from "./components/SearchBarButton";
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "../../navigation/types";
+import Screens from "../../constants/Screens";
 
 type SectionItem = Exercise | ExerciseTemplate;
 
@@ -30,6 +33,9 @@ interface Section {
 }
 
 const AddExerciseScreen = () => {
+
+  const { push } = useNavigation<Navigation>()
+
   const { templates } = useExerciseTemplateStore();
   const { exercises } = useExercisesStore();
 
@@ -53,6 +59,7 @@ const AddExerciseScreen = () => {
           style={styles.createButton}
           label={CREATE_EXERCISE_BUTTON_TEXT}
           onPress={() => {
+            push(Screens.CREATE_EXERCISE)
           }}
         />
       ) : (

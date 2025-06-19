@@ -1,5 +1,5 @@
 import { createDailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
-import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from '../data/models/Exercise';
+// import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from '../data/models/Exercise';
 import { createFood } from './food/models/FoodItem';
 import LocalStore from './LocalStore';
 import { createMeal } from './meals/models/Meal';
@@ -39,12 +39,12 @@ const localStore: LocalStore = {
     exercises: {
         templates: [],
         map: {
-            'Bench Press (Barbell)': createExercise('Bench Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.CHEST),
-            'Bent Over One Arm Row (Dumbbell)': createExercise('Bent Over One Arm Row (Dumbbell)', ExerciseTypeEnum.DUMBBELL, ExerciseBodyPartEnum.BACK),
-            'Close Grip Bench Press (Barbell)': createExercise('Close Grip Bench Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.TRICEPS),
-            'Pull Up (Body weight)': createExercise('Pull Up (Bodyweight)', ExerciseTypeEnum.BODYWEIGHT, ExerciseBodyPartEnum.BACK),
-            'Bench Press (Dumbbell)': createExercise('Bench Press (Dumbbell)', ExerciseTypeEnum.DUMBBELL, ExerciseBodyPartEnum.CHEST),
-            'Overhead Press (Barbell)': createExercise('Overhead Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.SHOULDERS),
+            // 'Bench Press (Barbell)': createExercise('Bench Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.CHEST),
+            // 'Bent Over One Arm Row (Dumbbell)': createExercise('Bent Over One Arm Row (Dumbbell)', ExerciseTypeEnum.DUMBBELL, ExerciseBodyPartEnum.BACK),
+            // 'Close Grip Bench Press (Barbell)': createExercise('Close Grip Bench Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.TRICEPS),
+            // 'Pull Up (Body weight)': createExercise('Pull Up (Bodyweight)', ExerciseTypeEnum.BODYWEIGHT, ExerciseBodyPartEnum.BACK),
+            // 'Bench Press (Dumbbell)': createExercise('Bench Press (Dumbbell)', ExerciseTypeEnum.DUMBBELL, ExerciseBodyPartEnum.CHEST),
+            // 'Overhead Press (Barbell)': createExercise('Overhead Press (Barbell)', ExerciseTypeEnum.BARBELL, ExerciseBodyPartEnum.SHOULDERS),
         },
     },
     dailyExerciseEntries: { map: {} },

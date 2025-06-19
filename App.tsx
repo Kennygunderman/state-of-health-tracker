@@ -21,7 +21,7 @@ import AccountScreen from './src/screens/Account/AccountScreen';
 import AddFoodScreen from './src/screens/AddFoodScreen';
 import LogInScreen from './src/screens/Auth/LogInScreen';
 import RegisterScreen from './src/screens/Auth/RegisterScreen';
-import CreateExerciseScreen from './src/screens/CreateExerciseScreen';
+import CreateExerciseScreen from './src/screens/CreateExercise';
 import CreateFoodScreen from './src/screens/CreateFoodScreen';
 import FoodDetailScreen from './src/screens/FoodDetailScreen';
 import MealsScreen from './src/screens/Meals/MealsScreen';
@@ -29,7 +29,7 @@ import PreviousDailyExerciseEntriesScreen
   from './src/screens/PreviousDailyExercises/PreviousDailyExerciseEntriesScreen';
 import PreviousDailyMealEntriesScreen from './src/screens/PreviousDailyMealEntriesScreen';
 import WorkoutsScreen from './src/screens/Workouts/WorkoutsScreen';
-import WorkoutTemplateDetailScreen from './src/screens/TemplateDetailScreen';
+import WorkoutTemplateDetailScreen from './src/screens/TemplateDetail';
 import store, { useThunkDispatch } from './src/store';
 import { addDailyMealEntry } from './src/store/dailyMealEntries/DailyMealEntriesActions';
 import { syncUserData } from './src/store/user/UserActions';

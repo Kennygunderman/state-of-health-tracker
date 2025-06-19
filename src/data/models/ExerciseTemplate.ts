@@ -6,7 +6,7 @@ export interface ExerciseTemplate {
   exerciseIds: string[];
 }
 
-export interface ExerciseTemplatePayload {
+export interface CreateExerciseTemplatePayload {
   userId: string;
   name: string;
   tagline: string;

@@ -1,6 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
 import { ExerciseSet } from './ExerciseSet';
-import Unique from '../../store/models/Unique';
 
 export enum ExerciseTypeEnum {
     BARBELL = 'Barbell',
@@ -29,36 +27,18 @@ export enum ExerciseBodyPartEnum {
     OTHER = 'Other',
 }
 
-export interface Exercise extends Unique {
+export interface CreateExercisePayload {
+    name: string;
+    exerciseType: string;
+    exerciseBodyPart: string;
+}
+
+export interface Exercise {
+    id: string;
     name: string;
     exerciseType: ExerciseTypeEnum;
     exerciseBodyPart: ExerciseBodyPartEnum;
-    latestCompletedSets: ExerciseSet[] | undefined[];
-    source?: 'remote' | 'local';
-}
-
-export function createExerciseName(exerciseName: string, exerciseType: ExerciseTypeEnum): string {
-    let name: string = exerciseName;
-    if (exerciseType !== ExerciseTypeEnum.OTHER) {
-        name += ` (${exerciseType})`;
-    }
-
-    return name;
-}
-
-export function createExercise(
-    name: string,
-    exerciseType: ExerciseTypeEnum = ExerciseTypeEnum.OTHER,
-    exerciseBodyPart: ExerciseBodyPartEnum = ExerciseBodyPartEnum.OTHER,
-    latestCompletedSets = [],
-): Exercise {
-    return {
-        id: uuidv4(),
-        name,
-        exerciseType,
-        exerciseBodyPart,
-        latestCompletedSets,
-    };
+    latestCompletedSets: ExerciseSet[];
 }
 
 export function isExerciseObject(object: any): object is Exercise {
