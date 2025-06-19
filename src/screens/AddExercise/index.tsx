@@ -7,7 +7,7 @@ import {
   EXERCISES_HEADER,
   NO_EXERCISES_ADDED_TEXT,
   NO_TEMPLATES_ADDED_TEXT,
-  TEMPLATES_HEADER,
+  TEMPLATES_HEADER, YOUR_EXERCISES_HEADER,
 } from "../../constants/Strings";
 import {
   Exercise,
@@ -57,7 +57,7 @@ const AddExerciseScreen = () => {
       data: templates,
     },
     {
-      title: EXERCISES_HEADER,
+      title: YOUR_EXERCISES_HEADER,
       data: exercises,
     },
   ];
@@ -86,7 +86,7 @@ const AddExerciseScreen = () => {
     const isEmpty = section.data.length === 0;
 
     const button =
-      section.title === EXERCISES_HEADER ? (
+      section.title === YOUR_EXERCISES_HEADER ? (
         <SecondaryButton
           style={styles.createButton}
           label={CREATE_EXERCISE_BUTTON_TEXT}

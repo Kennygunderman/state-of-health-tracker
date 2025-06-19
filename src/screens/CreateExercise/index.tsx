@@ -16,6 +16,7 @@ import {
   TOAST_EXERCISE_CREATED,
 } from '../../constants/Strings';
 import {
+  CreateExercisePayload,
   ExerciseBodyPartEnum,
   ExerciseTypeEnum,
 } from '../../data/models/Exercise';
@@ -27,6 +28,7 @@ import { Navigation } from "../../navigation/types";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { Subject } from "rxjs";
 import LoadingOverlay from "../../components/LoadingOverlay";
+import { combineExerciseNameType } from "../../utility/combineExerciseNameType";
 
 export enum CreateExerciseEvent {
   Created = 'created',
@@ -34,7 +36,10 @@ export enum CreateExerciseEvent {
   Error = 'error',
 }
 
-export const CreateExerciseEventSubject$ = new Subject<{ event: CreateExerciseEvent, exerciseName: string }>();
+export const CreateExerciseEventSubject$ = new Subject<{
+  event: CreateExerciseEvent,
+  payload: CreateExercisePayload
+}>();
 
 const CreateExerciseScreen = () => {
 
@@ -53,18 +58,18 @@ const CreateExerciseScreen = () => {
 
   useEffect(() => {
     const sub = CreateExerciseEventSubject$.subscribe({
-      next: ({ event, exerciseName }) => {
+      next: ({ event, payload }) => {
         if (event === CreateExerciseEvent.Created) {
           showToast(
             'success',
             TOAST_EXERCISE_CREATED,
-            exerciseName
+            payload.name
           );
           goBack();
         } else if (event === CreateExerciseEvent.Exists) {
           showToast(
             'error',
-            `${exerciseName} ${TOAST_ALREADY_EXISTS}`
+            `${combineExerciseNameType(payload.name, payload.exerciseType)} ${TOAST_ALREADY_EXISTS}`
           );
         } else if (event === CreateExerciseEvent.Error) {
           showToast('error', CREATE_EXERCISE_ERROR);

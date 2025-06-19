@@ -12,6 +12,7 @@ import { DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS } from "../../constants/
 
 export type ExercisesState = {
   exercises: Exercise[]
+  findExercise: (name: string, type: string) => Exercise | undefined
   getExercises: (exerciseIds: string[]) => Exercise[]
   getFilterExercises: (filter: string) => Exercise[]
   fetchExercises: () => Promise<void>
@@ -22,6 +23,12 @@ export type ExercisesState = {
 const useExercisesStore = create<ExercisesState>()(
   immer((set, get) => ({
     exercises: [],
+    findExercise: (name: string, type: string) => {
+      const exercises = get().exercises;
+      return exercises.find(
+        e => e.name === name && e.exerciseType === type
+      );
+    },
     getExercises: (exerciseIds: string[]) => {
       const exercises = get().exercises
       return exercises.filter(exercise => exerciseIds.includes(exercise.id))
@@ -49,15 +56,12 @@ const useExercisesStore = create<ExercisesState>()(
       }
     },
     createExercise: async (exercise: CreateExercisePayload) => {
-      const { exercises } = get();
-      const existingExercise = exercises.find(
-        e => e.name === exercise.name && e.exerciseType === exercise.exerciseType
-      );
-
+      const { exercises, findExercise } = get();
+      const existingExercise = findExercise(exercise.name, exercise.exerciseType)
       if (existingExercise) {
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Exists,
-          exerciseName: combineExerciseNameType(exercise.name, exercise.exerciseType)
+          payload: exercise
         });
         return;
       }
@@ -67,10 +71,10 @@ const useExercisesStore = create<ExercisesState>()(
        set({ exercises: [...exercises, exerciseCreated]});
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Created,
-          exerciseName: combineExerciseNameType(exercise.name, exercise.exerciseType)
+          payload: exercise
         });
       } catch (error) {
-        CreateExerciseEventSubject$.next({ event: CreateExerciseEvent.Error, exerciseName: '' });
+        CreateExerciseEventSubject$.next({ event: CreateExerciseEvent.Error, payload: exercise });
       }
     },
     deleteExercise: async (exerciseId: string) => {

@@ -5,24 +5,37 @@ import { CreateExercisePayload } from '../../data/models/Exercise';
 import SearchBar from '../../components/SearchBar';
 import ListItem from '../../components/ListItem';
 import ExerciseTypeChip from '../../components/ExerciseTypeChip';
-import { SEARCH_EXERCISES_PLACEHOLDER } from '../../constants/Strings';
+import {
+  SEARCH_ADD_EXERCISE_ERROR,
+  SEARCH_ADD_EXERCISE_SUCCESS,
+  SEARCH_EXERCISES_PLACEHOLDER,
+} from '../../constants/Strings';
 import Spacing from '../../constants/Spacing';
 import styles from './index.styled';
 import { debounce } from 'lodash';
 import exerciseSearchService from '../../service/exercises/ExerciseSearchService';
 import { mapExerciseType } from '../../data/converters/ExerciseConverter';
 import { useStyleTheme } from '../../styles/Theme';
+import { CreateExerciseEvent, CreateExerciseEventSubject$ } from "../CreateExercise";
+import { showToast } from "../../components/toast/util/ShowToast";
+import useDailyWorkoutEntryStore from "../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
+import useExercisesStore from "../../store/exercises/useExercisesStore";
+import { Navigation } from "../../navigation/types";
+import LoadingOverlay from "../../components/LoadingOverlay";
 
 const LoadBatchSize = 50;
 
-
 const SearchExercisesScreen = () => {
-  const navigation = useNavigation();
+  const { popToTop } = useNavigation<Navigation>();
   const theme = useStyleTheme();
 
   const [searchText, setSearchText] = useState('');
   const [results, setResults] = useState<CreateExercisePayload[]>([]);
   const [batchCount, setBatchCount] = useState(1);
+  const [isCreatingExercise, setIsCreatingExercise] = useState(false);
+
+  const { createExercise, findExercise  } = useExercisesStore();
+  const { addDailyExercise } = useDailyWorkoutEntryStore();
 
   const debouncedSearch = useCallback(
     debounce((filter: string) => {
@@ -32,6 +45,31 @@ const SearchExercisesScreen = () => {
     }, 300),
     []
   );
+
+  useEffect(() => {
+    const sub = CreateExerciseEventSubject$.subscribe({
+      next: ({ event, payload }) => {
+        if (event === CreateExerciseEvent.Created || event === CreateExerciseEvent.Exists) {
+          const exercise = findExercise(payload.name, payload.exerciseType);
+          if (exercise) {
+            showToast(
+              'success',
+              SEARCH_ADD_EXERCISE_SUCCESS,
+              payload.name
+            );
+            addDailyExercise(exercise);
+            popToTop()
+          }
+        } else if (event === CreateExerciseEvent.Error) {
+          showToast('error', SEARCH_ADD_EXERCISE_ERROR);
+        }
+        setIsCreatingExercise(false);
+      }
+    })
+    return () => {
+      sub.unsubscribe();
+    };
+  }, [])
 
   useEffect(() => {
     debouncedSearch(searchText);
@@ -46,6 +84,11 @@ const SearchExercisesScreen = () => {
     setBatchCount(nextBatch);
   };
 
+  const onExercisePressed = (exercise: CreateExercisePayload) => {
+    setIsCreatingExercise(true);
+    createExercise(exercise);
+  }
+
   const renderItem = ({ item }: ListRenderItemInfo<CreateExercisePayload>) => (
     <ListItem
       isSwipeable={false}
@@ -53,15 +96,14 @@ const SearchExercisesScreen = () => {
       title={item.name}
       backgroundColor={theme.colors.background}
       subtitle={item.exerciseBodyPart}
-      chip={<ExerciseTypeChip exerciseType={mapExerciseType(item.exerciseType)} />}
-      onPress={() => {
-        // Optional: define behavior when exercise is tapped
-      }}
+      chip={<ExerciseTypeChip exerciseType={mapExerciseType(item.exerciseType)}/>}
+      onPress={() => onExercisePressed(item)}
     />
   );
 
   return (
     <View style={styles.container}>
+      {isCreatingExercise && <LoadingOverlay />}
       <SearchBar
         placeholder={SEARCH_EXERCISES_PLACEHOLDER}
         onSearchTextChanged={setSearchText}

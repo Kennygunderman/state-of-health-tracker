@@ -6066,7 +6066,7 @@ const exercises = [
         muscleGroup: 'Triceps'
     },
     {
-        name: 'Lying Dumbbell Extension (Single Dumbbell),
+        name: 'Lying Dumbbell Extension (Single Dumbbell)',
         type: 'Dumbbell',
         muscleGroup: 'Triceps'
     },
