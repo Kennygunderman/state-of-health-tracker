@@ -1,8 +1,8 @@
 import * as io from 'io-ts'
 import CrashUtility from '../../utility/CrashUtility'
 
-import { createExercise, Exercise } from '../../store/exercises/models/Exercise'
-import { mapExerciseBodyPart, mapExerciseType } from '../../store/exercises/utils/ExerciseConverter'
+import { createExercise, Exercise } from '../../data/models/Exercise'
+import { mapExerciseBodyPart, mapExerciseType } from '../../data/converters/ExerciseConverter'
 import Endpoints from "../../constants/Endpoints";
 import { httpGet } from "../http/httpUtil";
 

@@ -8,7 +8,7 @@ import {
     TEMPLATE_MODAL_TITLE,
 } from '../../../constants/Strings';
 import { addWorkoutTemplate } from '../../../store/exercises/ExercisesActions';
-import { Exercise } from '../../../store/exercises/models/Exercise';
+import { Exercise } from '../../../data/models/Exercise';
 import { createWorkoutTemplate } from '../../../store/exercises/models/WorkoutTemplate';
 
 interface Props extends BaseInputModalProps {

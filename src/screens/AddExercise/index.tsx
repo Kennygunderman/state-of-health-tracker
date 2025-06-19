@@ -12,7 +12,7 @@ import {
 import {
   Exercise,
   isExerciseObject,
-} from "../../store/exercises/models/Exercise";
+} from "../../data/models/Exercise";
 import ExerciseListItem from "./components/ExerciseListItem";
 import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
 import TemplateListItem from "./components/TemplateListItem";

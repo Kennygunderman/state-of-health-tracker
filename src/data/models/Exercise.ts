@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ExerciseSet } from './ExerciseSet';
-import Unique from '../../models/Unique';
+import Unique from '../../store/models/Unique';
 
 export enum ExerciseTypeEnum {
     BARBELL = 'Barbell',

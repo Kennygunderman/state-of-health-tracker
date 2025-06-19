@@ -1,7 +1,7 @@
 import { WorkoutDay } from "../../data/models/WorkoutDay";
 import { httpGet } from "../http/httpUtil";
 import CrashUtility from "../../utility/CrashUtility";
-import { mapExerciseBodyPart, mapExerciseType } from "../../store/exercises/utils/ExerciseConverter";
+import { mapExerciseBodyPart, mapExerciseType } from "../../data/converters/ExerciseConverter";
 import * as io from 'io-ts';
 import { getUserId } from "../auth/userStorage";
 

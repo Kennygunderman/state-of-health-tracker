@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { fetchExercises } from "../../service/exercises/fetchExercises";
-import { Exercise } from "./models/Exercise";
+import { Exercise } from "../../data/models/Exercise";
 
 export type ExercisesState = {
   exercises: Exercise[]

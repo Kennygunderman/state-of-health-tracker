@@ -1,5 +1,5 @@
-import { Exercise } from './models/Exercise';
-import { ExerciseSet } from './models/ExerciseSet';
+import { Exercise } from '../../data/models/Exercise';
+import { ExerciseSet } from '../../data/models/ExerciseSet';
 import { WorkoutTemplate } from './models/WorkoutTemplate';
 
 export const ADD_EXERCISE: string = 'ADD_EXERCISE';

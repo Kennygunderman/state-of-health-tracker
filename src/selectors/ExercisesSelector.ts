@@ -1,10 +1,10 @@
 import { isMonday } from 'date-fns';
 import { createSelector, ParametricSelector, Selector } from 'reselect';
 import { DailyExerciseMap } from '../store/dailyExerciseEntries/DailyExerciseEntriesState';
-import { DailyExercise } from '../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../data/models/DailyExercise';
 import { ExerciseMap } from '../store/exercises/ExercisesState';
-import { Exercise } from '../store/exercises/models/Exercise';
-import { ExerciseSet } from '../store/exercises/models/ExerciseSet';
+import { Exercise } from '../data/models/Exercise';
+import { ExerciseSet } from '../data/models/ExerciseSet';
 import { WorkoutTemplate } from '../store/exercises/models/WorkoutTemplate';
 import LocalStore from '../store/LocalStore';
 import { formatDate, formatDateToMonthDay } from '../utility/DateUtility';

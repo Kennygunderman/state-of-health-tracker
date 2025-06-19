@@ -7,8 +7,8 @@ import SwipeDeleteListItem from '../../../components/SwipeDeleteListItem';
 import BorderRadius from '../../../constants/BorderRadius';
 import Spacing from '../../../constants/Spacing';
 import { LBS_LABEL, REPS_LABEL } from '../../../constants/Strings';
-import { Exercise } from '../../../store/exercises/models/Exercise';
-import { ExerciseSet } from '../../../store/exercises/models/ExerciseSet';
+import { Exercise } from '../../../data/models/Exercise';
+import { ExerciseSet } from '../../../data/models/ExerciseSet';
 import { Text, TextInput, useStyleTheme } from '../../../styles/Theme';
 import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 

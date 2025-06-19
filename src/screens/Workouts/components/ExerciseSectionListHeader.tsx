@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import ExerciseListItemDropdown from './ExerciseListItemDropdown';
 import SectionListHeader from '../../../components/SectionListHeader';
 import { ADD_SET_BUTTON_TEXT } from '../../../constants/Strings';
-import { DailyExercise } from '../../../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../../../data/models/DailyExercise';
 import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 
 interface Props {

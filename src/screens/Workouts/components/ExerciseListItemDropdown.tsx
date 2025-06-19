@@ -12,7 +12,7 @@ import {
     DELETE_EXERCISE_MODAL_TITLE, DELETE_EXERCISE_BUTTON_TEXT,
     stringWithParameters, ORGANIZE_EXERCISES_BUTTON_TEXT,
 } from '../../../constants/Strings';
-import { DailyExercise } from '../../../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../../../data/models/DailyExercise';
 import { Text, useStyleTheme } from '../../../styles/Theme';
 import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 

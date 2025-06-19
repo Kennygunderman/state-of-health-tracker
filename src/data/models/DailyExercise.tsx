@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Exercise } from '../../exercises/models/Exercise';
-import { ExerciseSet } from '../../exercises/models/ExerciseSet';
-import Unique from '../../models/Unique';
+import { Exercise } from './Exercise';
+import { ExerciseSet } from './ExerciseSet';
+import Unique from '../../store/models/Unique';
 
 export interface DailyExercise extends Unique {
     exercise: Exercise;

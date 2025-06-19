@@ -4,8 +4,8 @@ import {
     UPDATE_EXERCISE_LATEST_COMPLETED_SETS,
 } from './ExercisesActions';
 import ExercisesState from './ExercisesState';
-import { Exercise } from './models/Exercise';
-import { ExerciseSet } from './models/ExerciseSet';
+import { Exercise } from '../../data/models/Exercise';
+import { ExerciseSet } from '../../data/models/ExerciseSet';
 import { WorkoutTemplate } from './models/WorkoutTemplate';
 
 function addExercise(state: ExercisesState, action: Action<Exercise>): ExercisesState {

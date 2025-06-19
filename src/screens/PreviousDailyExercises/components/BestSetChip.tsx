@@ -2,7 +2,7 @@ import React from 'react';
 import Chip from '../../../components/Chip';
 import Spacing from '../../../constants/Spacing';
 import { LBS_LABEL } from '../../../constants/Strings';
-import { ExerciseSet } from '../../../store/exercises/models/ExerciseSet';
+import { ExerciseSet } from '../../../data/models/ExerciseSet';
 
 interface Props {
     weight?: number;

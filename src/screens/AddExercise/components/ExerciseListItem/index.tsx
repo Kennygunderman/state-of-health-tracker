@@ -2,7 +2,7 @@ import React from 'react';
 import { TouchableOpacity, View } from 'react-native';
 import styles from './index.styled';
 import { Text, useStyleTheme } from "../../../../styles/Theme";
-import { Exercise } from "../../../../store/exercises/models/Exercise";
+import { Exercise } from "../../../../data/models/Exercise";
 import ExerciseTypeChip from "../ExerciseTypeChip";
 import { openGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
 import DeleteExerciseBottomSheet from "../DeleteExerciseBottomSheet";

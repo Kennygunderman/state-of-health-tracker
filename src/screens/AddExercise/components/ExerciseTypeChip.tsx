@@ -4,7 +4,7 @@ import {
 } from '@expo/vector-icons';
 import { View } from 'react-native';
 import BorderRadius from '../../../constants/BorderRadius';
-import { ExerciseTypeEnum } from '../../../store/exercises/models/Exercise';
+import { ExerciseTypeEnum } from '../../../data/models/Exercise';
 import { useStyleTheme } from '../../../styles/Theme';
 
 interface Props {

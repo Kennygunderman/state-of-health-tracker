@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 import { Text, useStyleTheme } from "../../../../styles/Theme";
 import styles from "./index.styled";
-import { Exercise } from "../../../../store/exercises/models/Exercise";
+import { Exercise } from "../../../../data/models/Exercise";
 import { Ionicons } from "@expo/vector-icons";
 import { TouchableOpacity } from "react-native";
 import {

@@ -1,4 +1,4 @@
-import { Exercise } from './models/Exercise';
+import { Exercise } from '../../data/models/Exercise';
 import { WorkoutTemplate } from './models/WorkoutTemplate';
 
 export default interface ExercisesState {

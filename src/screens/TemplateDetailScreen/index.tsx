@@ -9,7 +9,7 @@ import {
   TOAST_TEMPLATE_EXERCISES_ADDED,
   TOAST_TEMPLATE_EXERCISES_ADDED_BODY,
 } from '../../constants/Strings';
-import { Exercise } from '../../store/exercises/models/Exercise';
+import { Exercise } from '../../data/models/Exercise';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import useExercisesStore from '../../store/exercises/useExercisesStore';
 import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore';

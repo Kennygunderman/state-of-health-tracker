@@ -3,7 +3,7 @@ import { collection, doc } from '@react-native-firebase/firestore/lib/modular';
 import { getDocs, query } from '@react-native-firebase/firestore/lib/modular/query';
 import { DAILY_EXERCISE_ENTRIES_INITIAL_STATE } from '../../store/dailyExerciseEntries/DailyExerciseEntriesReducer';
 import { DailyExerciseMap } from '../../store/dailyExerciseEntries/DailyExerciseEntriesState';
-import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../../data/models/DailyExercise';
 import {
     createDailyExerciseEntry,
     DailyExerciseEntry,

@@ -23,8 +23,8 @@ import {
   VIEW_PREVIOUS_WORKOUTS_BUTTON_TEXT,
   YOUR_EXERCISES_HEADER,
 } from '../../constants/Strings';
-import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
-import { ExerciseSet } from '../../store/exercises/models/ExerciseSet';
+import { DailyExercise } from '../../data/models/DailyExercise';
+import { ExerciseSet } from '../../data/models/ExerciseSet';
 import LocalStore from '../../store/LocalStore';
 import Unique from '../../store/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';

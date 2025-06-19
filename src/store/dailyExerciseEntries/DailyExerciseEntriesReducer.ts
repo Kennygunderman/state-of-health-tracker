@@ -5,10 +5,10 @@ import {
     DELETE_DAILY_EXERCISE_SET, SET_EXERCISE_ENTRIES_SYNCED, UPDATE_DAILY_EXERCISES,
 } from './DailyExerciseActions';
 import DailyExerciseEntriesState, { DailyExerciseMap } from './DailyExerciseEntriesState';
-import { createDailyExercise, DailyExercise } from './models/DailyExercise';
+import { createDailyExercise, DailyExercise } from '../../data/models/DailyExercise';
 import { createDailyExerciseEntry } from './models/DailyExerciseEntry';
-import { Exercise } from '../exercises/models/Exercise';
-import { createSet, ExerciseSet } from '../exercises/models/ExerciseSet';
+import { Exercise } from '../../data/models/Exercise';
+import { createSet, ExerciseSet } from '../../data/models/ExerciseSet';
 
 function addDailyExercise(state: DailyExerciseEntriesState, action: Action<{ date: string, exercise: Exercise }>): DailyExerciseEntriesState {
     const date = action.payload?.date;

@@ -1,5 +1,5 @@
 import { createDailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
-import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from './exercises/models/Exercise';
+import { createExercise, ExerciseBodyPartEnum, ExerciseTypeEnum } from '../data/models/Exercise';
 import { createFood } from './food/models/FoodItem';
 import LocalStore from './LocalStore';
 import { createMeal } from './meals/models/Meal';

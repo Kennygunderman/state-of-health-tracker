@@ -1,7 +1,7 @@
 import { capitalizeFirstLetterOfEveryWord } from '../../utility/TextUtility';
 
-import { createExercise, createExerciseName, Exercise } from "../../store/exercises/models/Exercise";
-import { mapExerciseBodyPart, mapExerciseType } from "../../store/exercises/utils/ExerciseConverter";
+import { createExercise, createExerciseName, Exercise } from "../../data/models/Exercise";
+import { mapExerciseBodyPart, mapExerciseType } from "../../data/converters/ExerciseConverter";
 import exercises from "./exercises";
 
 class ExerciseSearchService {

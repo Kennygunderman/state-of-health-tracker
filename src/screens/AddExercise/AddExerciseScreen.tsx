@@ -30,9 +30,9 @@ import {
     getTemplatesSelector,
 } from '../../selectors/ExercisesSelector';
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
-import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../../data/models/DailyExercise';
 import { addExercise, deleteExercise, deleteWorkoutTemplate } from '../../store/exercises/ExercisesActions';
-import { Exercise, isExerciseObject } from '../../store/exercises/models/Exercise';
+import { Exercise, isExerciseObject } from '../../data/models/Exercise';
 import {
     WorkoutTemplate,
 } from '../../store/exercises/models/WorkoutTemplate';

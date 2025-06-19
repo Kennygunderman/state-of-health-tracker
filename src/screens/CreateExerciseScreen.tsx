@@ -20,7 +20,7 @@ import {
     createExerciseName,
     ExerciseBodyPartEnum,
     ExerciseTypeEnum,
-} from '../store/exercises/models/Exercise';
+} from '../data/models/Exercise';
 import LocalStore from '../store/LocalStore';
 import { Text, useStyleTheme } from '../styles/Theme';
 

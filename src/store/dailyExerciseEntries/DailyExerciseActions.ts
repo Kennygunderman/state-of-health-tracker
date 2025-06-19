@@ -1,5 +1,5 @@
-import { DailyExercise } from './models/DailyExercise';
-import { Exercise } from '../exercises/models/Exercise';
+import { DailyExercise } from '../../data/models/DailyExercise';
+import { Exercise } from '../../data/models/Exercise';
 
 export const ADD_DAILY_EXERCISE: string = 'ADD_DAILY_EXERCISE';
 export const DELETE_DAILY_EXERCISE: string = 'DELETE_DAILY_EXERCISE';
