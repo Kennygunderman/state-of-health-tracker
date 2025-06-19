@@ -73,14 +73,16 @@ const useExercisesStore = create<ExercisesState>()(
 
         useExerciseTemplateStore.getState().removeExerciseFromAllTemplates(exerciseId);
 
-        ExerciseScreenUpdateSubject$.next({ isUpdating: false,
+        ExerciseScreenUpdateSubject$.next({
+          isUpdating: false,
           updatePayload: {
             success: true,
             message: DELETE_EXERCISE_SUCCESS
           }
         })
       } catch (error) {
-        ExerciseScreenUpdateSubject$.next({ isUpdating: false,
+        ExerciseScreenUpdateSubject$.next({
+          isUpdating: false,
           updatePayload: {
             success: false,
             message: DELETE_EXERCISE_ERROR
