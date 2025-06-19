@@ -2,7 +2,7 @@ const baseApiUrl = "http://192.168.4.104:3000/api";
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
-  CreateExercise: `${baseApiUrl}/exercise`,
+  Exercise: `${baseApiUrl}/exercise/`,
   WorkoutDay: `${baseApiUrl}/workout/:day`,
   WorkoutSummaries: `${baseApiUrl}/workouts/summary`,
   SaveWorkout: `${baseApiUrl}/workout`,

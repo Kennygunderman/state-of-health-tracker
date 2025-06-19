@@ -17,7 +17,7 @@ export async function createExercise(
 ): Promise<Exercise> {
   try {
     const response = await httpPost(
-      Endpoints.CreateExercise,
+      Endpoints.Exercise,
       ExerciseResponse,
       payload
     );

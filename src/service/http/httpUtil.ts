@@ -10,6 +10,14 @@ export function httpGet<T>(
   return httpRequest('GET', url, decoder, config, {})
 }
 
+export function httpDelete<T>(
+  url: string,
+  decoder: io.Type<T>,
+  config?: AxiosRequestConfig
+): Promise<HttpResponse<T> | null> {
+  return httpRequest('DELETE', url, decoder, config, {});
+}
+
 export function httpPost<T>(
   url: string,
   decoder: io.Type<T>,

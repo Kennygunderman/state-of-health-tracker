@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { SectionList, SectionListRenderItem, View } from "react-native";
 import {
@@ -24,6 +24,9 @@ import SearchBarButton from "./components/SearchBarButton";
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../navigation/types";
 import Screens from "../../constants/Screens";
+import LoadingOverlay from "../../components/LoadingOverlay";
+import { Subject } from "rxjs";
+import { showToast } from "../../components/toast/util/ShowToast";
 
 type SectionItem = Exercise | ExerciseTemplate;
 
@@ -31,6 +34,14 @@ interface Section {
   title: string;
   data: SectionItem[];
 }
+
+export const ExerciseScreenUpdateSubject$ = new Subject<{
+  isUpdating: boolean,
+  updatePayload?: {
+    success: boolean,
+    message: string
+  }
+}>();
 
 const AddExerciseScreen = () => {
 
@@ -49,6 +60,22 @@ const AddExerciseScreen = () => {
       data: exercises,
     },
   ];
+
+  const [isUpdating, setIsUpdating] = useState(false);
+  useEffect(() => {
+    const sub = ExerciseScreenUpdateSubject$.subscribe({
+      next: ({ isUpdating, updatePayload }) => {
+        setIsUpdating(isUpdating);
+        if (updatePayload) {
+          showToast(updatePayload.success ? 'success' : 'error', updatePayload.message);
+        }
+      }
+    })
+
+    return () => {
+      sub.unsubscribe();
+    }
+  }, []);
 
   const renderHeader = (section: Section) => {
     const isEmpty = section.data.length === 0;
@@ -96,16 +123,19 @@ const AddExerciseScreen = () => {
   };
 
   return (
-    <SectionList<SectionItem, Section>
-      keyboardShouldPersistTaps="always"
-      keyboardDismissMode="on-drag"
-      sections={sections}
-      stickySectionHeadersEnabled={false}
-      ListHeaderComponent={SearchBarButton}
-      ListFooterComponent={<View style={styles.listFooter}/>}
-      renderSectionHeader={({ section }) => renderHeader(section)}
-      renderItem={renderItem}
-    />
+    <>
+      {isUpdating && <LoadingOverlay/>}
+      <SectionList<SectionItem, Section>
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="on-drag"
+        sections={sections}
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={SearchBarButton}
+        ListFooterComponent={<View style={styles.listFooter}/>}
+        renderSectionHeader={({ section }) => renderHeader(section)}
+        renderItem={renderItem}
+      />
+    </>
   );
 };
 

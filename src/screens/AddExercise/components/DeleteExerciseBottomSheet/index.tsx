@@ -4,7 +4,7 @@ import { Text, useStyleTheme } from "../../../../styles/Theme";
 import styles from "./index.styled";
 import { Exercise } from "../../../../data/models/Exercise";
 import { Ionicons } from "@expo/vector-icons";
-import { TouchableOpacity } from "react-native";
+import { TouchableOpacity, View } from "react-native";
 import {
   DELETE_BUTTON_TEXT,
   DELETE_EXERCISE_MODAL_BODY,
@@ -13,6 +13,7 @@ import {
 } from "../../../../constants/Strings";
 import ConfirmModal from "../../../../components/dialog/ConfirmModal";
 import { closeGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
+import useExercisesStore from "../../../../store/exercises/useExercisesStore";
 
 interface Props {
   readonly exercise: Exercise;
@@ -21,6 +22,8 @@ interface Props {
 const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
 
   const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
+
+  const { deleteExercise } = useExercisesStore();
 
   const handleDeletePressed = () => {
     setIsConfirmModalVisible(true);
@@ -31,24 +34,31 @@ const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
     setIsConfirmModalVisible(false);
   }
 
+  const onConfirmedPressed = () => {
+    deleteExercise(exercise.id);
+    closeSheet()
+  }
+
   return (
     <>
       <ConfirmModal
         confirmationTitle={DELETE_EXERCISE_MODAL_TITLE}
         confirmationBody={stringWithParameters(DELETE_EXERCISE_MODAL_BODY, exercise.name)}
         isVisible={isConfirmModalVisible}
-        onConfirmPressed={closeSheet}
+        onConfirmPressed={onConfirmedPressed}
         onCancel={closeSheet}
       />
-      <Text style={styles.title}>{exercise.name}</Text>
-      <TouchableOpacity
-        onPress={handleDeletePressed}
-        activeOpacity={0.7}
-        style={styles.deleteContainer}
-      >
-        <Ionicons name="trash-bin-outline" size={20} color={useStyleTheme().colors.error}/>
-        <Text style={styles.deleteText}>{DELETE_BUTTON_TEXT}</Text>
-      </TouchableOpacity>
+      <View>
+        <Text style={styles.title}>{exercise.name}</Text>
+        <TouchableOpacity
+          onPress={handleDeletePressed}
+          activeOpacity={0.7}
+          style={styles.deleteContainer}
+        >
+          <Ionicons name="trash-bin-outline" size={20} color={useStyleTheme().colors.error}/>
+          <Text style={styles.deleteText}>{DELETE_BUTTON_TEXT}</Text>
+        </TouchableOpacity>
+      </View>
     </>
   )
 }
