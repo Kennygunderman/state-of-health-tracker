@@ -168,6 +168,8 @@ export const TOAST_TEMPLATE_EXERCISES_ADDED_BODY = 'From Template: %0';
 export const CREATE_EXERCISE_ERROR = 'Error creating exercise. Please check your connection and try again.';
 export const DELETE_EXERCISE_SUCCESS = 'Exercise deleted!';
 export const DELETE_EXERCISE_ERROR = 'Error deleting exercise. Please check your connection and try again.';
+export const DELETE_TEMPLATE_SUCCESS = 'Template deleted!';
+export const DELETE_TEMPLATE_ERROR = 'Error deleting template. Please check your connection and try again.';
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
     let updatedStr = str;

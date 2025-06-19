@@ -7,6 +7,8 @@ import useExerciseTemplateStore from "../../../../store/exerciseTemplates/useExe
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../../../navigation/types";
 import Screens from "../../../../constants/Screens";
+import { openGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
+import DeleteTemplateBottomSheet from "../DeleteTemplateBottomSheet";
 
 interface Props {
   template: ExerciseTemplate;
@@ -23,10 +25,15 @@ const TemplateListItem = ({ template }: Props) => {
     push(Screens.WORKOUT_TEMPLATE_DETAIL)
   };
 
+  const onLongPress = () => {
+    openGlobalBottomSheet(<DeleteTemplateBottomSheet template={template} />)
+  }
+
   return (
     <TouchableOpacity
       activeOpacity={0.5}
       delayPressIn={50}
+      onLongPress={onLongPress}
       onPress={onPress}
     >
       <View

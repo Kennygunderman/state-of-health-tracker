@@ -39,7 +39,8 @@ export const ExerciseScreenUpdateSubject$ = new Subject<{
   isUpdating: boolean,
   updatePayload?: {
     success: boolean,
-    message: string
+    message: string,
+    message2?: string
   }
 }>();
 
@@ -67,7 +68,11 @@ const AddExerciseScreen = () => {
       next: ({ isUpdating, updatePayload }) => {
         setIsUpdating(isUpdating);
         if (updatePayload) {
-          showToast(updatePayload.success ? 'success' : 'error', updatePayload.message);
+          showToast(
+            updatePayload.success ? 'success' : 'error',
+            updatePayload.message,
+            updatePayload?.message2
+          );
         }
       }
     })

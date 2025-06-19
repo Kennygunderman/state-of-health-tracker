@@ -2,28 +2,27 @@ import React, { useState } from "react";
 
 import { Text, useStyleTheme } from "../../../../styles/Theme";
 import styles from "./index.styled";
-import { Exercise } from "../../../../data/models/Exercise";
 import { Ionicons } from "@expo/vector-icons";
 import { TouchableOpacity, View } from "react-native";
 import {
   DELETE_BUTTON_TEXT,
-  DELETE_EXERCISE_MODAL_BODY,
-  DELETE_EXERCISE_MODAL_TITLE,
+  DELETE_TEMPLATE_MODAL_BODY, DELETE_TEMPLATE_MODAL_TITLE,
   stringWithParameters
 } from "../../../../constants/Strings";
 import ConfirmModal from "../../../../components/dialog/ConfirmModal";
 import { closeGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
-import useExercisesStore from "../../../../store/exercises/useExercisesStore";
+import { ExerciseTemplate } from "../../../../data/models/ExerciseTemplate";
+import useExerciseTemplateStore from "../../../../store/exerciseTemplates/useExerciseTemplateStore";
 
 interface Props {
-  readonly exercise: Exercise;
+  readonly template: ExerciseTemplate;
 }
 
-const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
+const DeleteTemplateBottomSheet = ({ template }: Props) => {
 
   const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
 
-  const { deleteExercise } = useExercisesStore();
+  const { deleteTemplate } = useExerciseTemplateStore();
 
   const handleDeletePressed = () => {
     setIsConfirmModalVisible(true);
@@ -35,21 +34,22 @@ const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
   }
 
   const onConfirmedPressed = () => {
-    deleteExercise(exercise.id);
+    deleteTemplate(template.name, template.id);
     closeSheet()
   }
 
   return (
     <>
       <ConfirmModal
-        confirmationTitle={DELETE_EXERCISE_MODAL_TITLE}
-        confirmationBody={stringWithParameters(DELETE_EXERCISE_MODAL_BODY, exercise.name)}
+        confirmationTitle={DELETE_TEMPLATE_MODAL_TITLE}
+        confirmationBody={stringWithParameters(DELETE_TEMPLATE_MODAL_BODY, template.name)}
         isVisible={isConfirmModalVisible}
         onConfirmPressed={onConfirmedPressed}
         onCancel={closeSheet}
       />
       <View>
-        <Text style={styles.title} numberOfLines={2}>{exercise.name}</Text>
+        <Text style={styles.title} numberOfLines={2}>{template.name}</Text>
+        <Text style={styles.tagline} numberOfLines={1}>{template.tagline}</Text>
         <TouchableOpacity
           onPress={handleDeletePressed}
           activeOpacity={0.7}
@@ -63,4 +63,4 @@ const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
   )
 }
 
-export default DeleteExerciseBottomSheet
+export default DeleteTemplateBottomSheet

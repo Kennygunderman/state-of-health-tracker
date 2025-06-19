@@ -4,6 +4,9 @@ import { fetchTemplates } from '../../service/exercises/fetchTemplates';
 import { CreateExerciseTemplatePayload, ExerciseTemplate } from "../../data/models/ExerciseTemplate";
 import { createTemplate } from "../../service/exercises/createTemplate";
 import { CreateTemplateEventSubject$ } from "../../screens/CreateTemplate";
+import { ExerciseScreenUpdateSubject$ } from "../../screens/AddExercise";
+import { DELETE_TEMPLATE_ERROR, DELETE_TEMPLATE_SUCCESS } from "../../constants/Strings";
+import { deleteTemplate } from "../../service/exercises/deleteTemplate";
 
 export type ExerciseTemplateState = {
   templates: ExerciseTemplate[];
@@ -12,6 +15,7 @@ export type ExerciseTemplateState = {
   setSelectedTemplate: (template: ExerciseTemplate) => void;
   fetchTemplates: () => Promise<void>;
   createTemplate: (template: CreateExerciseTemplatePayload) => Promise<void>;
+  deleteTemplate: (templateName: string, templateId: string) => Promise<void>;
 };
 
 const useExerciseTemplateStore = create<ExerciseTemplateState>()(
@@ -51,6 +55,31 @@ const useExerciseTemplateStore = create<ExerciseTemplateState>()(
         })
       }
     },
+    deleteTemplate: async (templateName: string, templateId: string) => {
+      try {
+        ExerciseScreenUpdateSubject$.next({ isUpdating: true });
+        await deleteTemplate(templateId);
+
+        const { templates } = get();
+        set({ templates: templates.filter(template => template.id !== templateId) });
+        ExerciseScreenUpdateSubject$.next({
+          isUpdating: false,
+          updatePayload: {
+            success: true,
+            message: DELETE_TEMPLATE_SUCCESS,
+            message2: templateName
+          }
+        })
+      } catch (error) {
+        ExerciseScreenUpdateSubject$.next({
+          isUpdating: false,
+          updatePayload: {
+            success: false,
+            message: DELETE_TEMPLATE_ERROR
+          }
+        })
+      }
+    }
   }))
 );
 
