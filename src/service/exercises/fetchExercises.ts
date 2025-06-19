@@ -24,15 +24,9 @@ const ExerciseResponse = io.type({
 
 const ExerciseArrayResponse = io.array(ExerciseResponse)
 
-export async function fetchExercises(
-  userId: string
-): Promise<Exercise[]> {
+export async function fetchExercises(): Promise<Exercise[]> {
   try {
-    const response = await httpGet(Endpoints.Exercises, ExerciseArrayResponse, {
-      headers: {
-        'x-user-id': userId,
-      },
-    })
+    const response = await httpGet(Endpoints.Exercises, ExerciseArrayResponse)
 
     const data = response?.data
 

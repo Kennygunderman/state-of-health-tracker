@@ -16,7 +16,7 @@ const useWeeklyWorkoutSummariesStore = create<WeeklyWorkoutSummariesState>()(
     fetchWeeklySummaries: async () => {
       try {
         set({ isLoadingSummaries: true });
-        const summaries = await fetchWeeklyWorkoutSummaries('BCsEDn7nMXatgkegN83pTksIcGs2');
+        const summaries = await fetchWeeklyWorkoutSummaries();
         set({ weeklySummaries: summaries, isLoadingSummaries: false });
       } catch (error) {
         set({ isLoadingSummaries: false });

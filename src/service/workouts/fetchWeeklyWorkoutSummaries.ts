@@ -11,16 +11,11 @@ const WeeklyWorkoutSummaryResponse = io.type({
 
 const WeeklyWorkoutSummariesResponse = io.array(WeeklyWorkoutSummaryResponse);
 
-export async function fetchWeeklyWorkoutSummaries(userId: string): Promise<WeeklyWorkoutSummary[]> {
+export async function fetchWeeklyWorkoutSummaries(): Promise<WeeklyWorkoutSummary[]> {
   try {
     const response = await httpGet(
       Endpoints.WeeklyWorkoutSummary,
-      WeeklyWorkoutSummariesResponse,
-      {
-        headers: {
-          "x-user-id": userId,
-        },
-      }
+      WeeklyWorkoutSummariesResponse
     );
 
     const data = response?.data;

@@ -34,16 +34,11 @@ const WorkoutSummariesApiResponse = io.type({
   }),
 });
 
-export async function fetchWorkoutSummaries(userId: string): Promise<WorkoutSummary[]> {
+export async function fetchWorkoutSummaries(): Promise<WorkoutSummary[]> {
   try {
     const response = await httpGet(
       Endpoints.WorkoutSummaries,
-      WorkoutSummariesApiResponse,
-      {
-        headers: {
-          'x-user-id': userId,
-        },
-      }
+      WorkoutSummariesApiResponse
     );
 
     const data = response?.data

@@ -13,7 +13,7 @@ const useWorkoutSummariesStore = create<WorkoutSummariesState>()(
     summaries: [],
     fetchSummaries: async () => {
       try {
-        const summaries = await fetchWorkoutSummaries('BCsEDn7nMXatgkegN83pTksIcGs2');
+        const summaries = await fetchWorkoutSummaries();
 
         set((state) => {
           state.summaries = summaries;

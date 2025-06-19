@@ -18,7 +18,7 @@ const useExercisesStore = create<ExercisesState>()(
     },
     fetchExercises: async () => {
       try {
-        const exercises = await fetchExercises('BCsEDn7nMXatgkegN83pTksIcGs2')
+        const exercises = await fetchExercises()
 
         set((state) => {
           state.exercises = exercises

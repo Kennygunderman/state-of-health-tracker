@@ -7,18 +7,12 @@ import * as io from 'io-ts';
 const VoidResponse = io.unknown; // Accepts any response (even empty)
 
 export async function saveWorkoutDay(
-  userId: string,
   workoutDay: WorkoutDay
 ): Promise<boolean> {
   try {
     const response = await httpPost(
       Endpoints.SaveWorkout,
       VoidResponse,
-      {
-        headers: {
-          'x-user-id': userId,
-        },
-      },
       workoutDay
     );
 

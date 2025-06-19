@@ -2,6 +2,7 @@ import axios, { AxiosRequestConfig, Method } from 'axios'
 import * as io from 'io-ts'
 import { isLeft } from 'fp-ts/lib/Either'
 import CrashUtility from "../../utility/CrashUtility";
+import { getUserId } from "../auth/userStorage";
 
 export interface HttpResponse<T> {
   data: T;
@@ -15,10 +16,25 @@ async function httpRequest<T>(
   config: AxiosRequestConfig = {},
   body?: any
 ): Promise<HttpResponse<T>> {
+
+  const userId = await getUserId()
+  if (!userId) {
+    const error = new Error('userId is required for HTTP requests')
+    CrashUtility.recordError(error)
+    throw error
+  }
+
+  const conf: AxiosRequestConfig = {
+    headers: {
+      'x-user-id': userId,
+    },
+    ...config
+  }
+
   const axiosConfig: AxiosRequestConfig = {
     method,
     url,
-    ...config,
+    ...conf
   }
 
   if (method !== 'GET') {

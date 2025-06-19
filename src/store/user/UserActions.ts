@@ -10,6 +10,7 @@ import { isDateOlderThanADay } from '../../utility/DateUtility';
 import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
 import { setMealEntriesSynced } from '../dailyMealEntries/DailyMealEntriesActions';
 import LocalStore from '../LocalStore';
+import { removeUserId, storeUserId } from "../../service/auth/userStorage";
 
 export const SET_USER_ACCOUNT: string = 'SET_USER_ACCOUNT';
 export const SET_AUTH_ERROR: string = 'SET_AUTH_ERROR';
@@ -85,6 +86,7 @@ export function registerUser(email: string, password: string) {
 export function logInUser(email: string, password: string) {
     return async (dispatch: any, getState: () => LocalStore) => {
         dispatch(setAuthStatus(AuthStatus.SYNCING));
+        removeUserId();
         accountService.logInUser(
             email,
             password,
@@ -99,6 +101,7 @@ export function logInUser(email: string, password: string) {
                         dispatch(setUserAccount(account));
                         dispatch(setAuthError(undefined));
                         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
+                        storeUserId(account.id)
                     },
                     (error) => {
                         // If this error happens, the user was able to log in with the auth service, but their data
@@ -126,7 +129,7 @@ export function logInUser(email: string, password: string) {
 export function logOutUser(account: Account) {
     return async (dispatch: any, getState: () => LocalStore) => {
         dispatch(setAuthStatus(AuthStatus.SYNCING));
-        await userService.saveUserData(
+        userService.saveUserData(
             account,
             getState(),
             () => {
@@ -135,6 +138,7 @@ export function logOutUser(account: Account) {
                 dispatch({
                     type: LOG_OUT_USER, // Logout is handled in the root reducer
                 });
+                removeUserId();
             },
             (error) => {
                 // If this error happens, cancel user logout to prevent data loss.

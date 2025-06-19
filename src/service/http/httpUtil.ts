@@ -13,8 +13,8 @@ export function httpGet<T>(
 export function httpPost<T>(
   url: string,
   decoder: io.Type<T>,
+  body?: any,
   config?: AxiosRequestConfig,
-  body?: any
 ): Promise<HttpResponse<T>  | null> {
   return httpRequest('POST', url, decoder, config, body)
 }

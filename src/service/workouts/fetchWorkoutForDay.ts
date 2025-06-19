@@ -3,6 +3,7 @@ import { httpGet } from "../http/httpUtil";
 import CrashUtility from "../../utility/CrashUtility";
 import { mapExerciseBodyPart, mapExerciseType } from "../../store/exercises/utils/ExerciseConverter";
 import * as io from 'io-ts';
+import { getUserId } from "../auth/userStorage";
 
 const ExerciseSetResponse = io.type({
   id: io.string,
@@ -31,23 +32,18 @@ const WorkoutDayResponse = io.type({
 });
 
 export async function fetchWorkoutForDay(
-  userId: string,
   isoDayStamp: string
 ): Promise<WorkoutDay> {
   try {
     const response = await httpGet(
       `http://192.168.4.104:3000/api/workouts/${isoDayStamp}`,
-      WorkoutDayResponse,
-      {
-        headers: {
-          'x-user-id': userId,
-        },
-      }
+      WorkoutDayResponse
     );
 
     const data = response?.data
+    const userId = await getUserId()
 
-    if (!response || !data) throw new Error('Workout not found');
+    if (!response || !data || !userId) throw new Error('Error fetching workout for day');
 
     return {
       id: data.id,

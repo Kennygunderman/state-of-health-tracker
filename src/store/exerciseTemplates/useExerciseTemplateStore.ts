@@ -17,8 +17,7 @@ const useExerciseTemplateStore = create<ExerciseTemplateState>()(
     setSelectedTemplate: (template: ExerciseTemplate) => set({ selectedTemplate: template }),
     fetchTemplates: async () => {
       try {
-        const userId = 'BCsEDn7nMXatgkegN83pTksIcGs2';
-        const templates = await fetchTemplates(userId);
+        const templates = await fetchTemplates();
         set({templates})
       } catch (error) {
         // no-op, gracefully handle errors
