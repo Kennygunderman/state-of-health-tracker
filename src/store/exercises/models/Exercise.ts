@@ -61,6 +61,6 @@ export function createExercise(
     };
 }
 
-export function instanceOfExercise(object: any): object is Exercise {
+export function isExerciseObject(object: any): object is Exercise {
     return 'id' in object && 'name' in object && 'exerciseType' in object && 'exerciseBodyPart' in object && 'latestCompletedSets' in object;
 }

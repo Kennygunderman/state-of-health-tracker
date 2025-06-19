@@ -1,13 +1,27 @@
 import React from "react";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { SectionList, SectionListRenderItem, View } from "react-native";
-import Spacing from "../../constants/Spacing";
-import { EXERCISES_HEADER } from "../../constants/Strings";
-import { Exercise, instanceOfExercise } from "../../store/exercises/models/Exercise";
-import { WorkoutTemplate } from "../../store/exercises/models/WorkoutTemplate";
+import {
+  CREATE_EXERCISE_BUTTON_TEXT,
+  CREATE_TEMPLATE_BUTTON_TEXT,
+  EXERCISES_HEADER,
+  NO_EXERCISES_ADDED_TEXT,
+  NO_TEMPLATES_ADDED_TEXT,
+  TEMPLATES_HEADER,
+} from "../../constants/Strings";
+import {
+  Exercise,
+  isExerciseObject,
+} from "../../store/exercises/models/Exercise";
 import ExerciseListItem from "./components/ExerciseListItem";
+import useExerciseTemplatesStore from "../../store/exerciseTemplates/useExerciseTemplatesStore";
+import TemplateListItem from "./components/TemplateListItem";
+import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
+import styles from "./index.styled";
+import SecondaryButton from "../../components/SecondaryButton";
+import { Text } from "../../styles/Theme";
 
-type SectionItem = Exercise | WorkoutTemplate;
+type SectionItem = Exercise | ExerciseTemplate;
 
 interface Section {
   title: string;
@@ -15,33 +29,77 @@ interface Section {
 }
 
 const AddExerciseScreen = () => {
-
-  const { exercises } = useExercisesStore()
+  const { templates } = useExerciseTemplatesStore();
+  const { exercises } = useExercisesStore();
 
   const sections: Section[] = [
+    {
+      title: TEMPLATES_HEADER,
+      data: templates,
+    },
     {
       title: EXERCISES_HEADER,
       data: exercises,
     },
   ];
 
+  const renderHeader = (section: Section) => {
+    const isEmpty = section.data.length === 0;
+
+    const button =
+      section.title === EXERCISES_HEADER ? (
+        <SecondaryButton
+          style={styles.createButton}
+          label={CREATE_EXERCISE_BUTTON_TEXT}
+          onPress={() => {
+          }}
+        />
+      ) : (
+        <SecondaryButton
+          style={styles.createButton}
+          label={CREATE_TEMPLATE_BUTTON_TEXT}
+          onPress={() => {
+          }}
+        />
+      );
+
+    const emptyText =
+      isEmpty
+        ? section.title === EXERCISES_HEADER
+          ? NO_EXERCISES_ADDED_TEXT
+          : NO_TEMPLATES_ADDED_TEXT
+        : undefined;
+
+    return (
+      <>
+        <View style={styles.sectionHeaderContainer}>
+          <Text style={styles.sectionHeaderText}>{section.title}</Text>
+          {button}
+        </View>
+        {emptyText && <Text style={styles.emptyText}>{emptyText}</Text>}
+      </>
+    );
+  };
+
   const renderItem: SectionListRenderItem<SectionItem> = ({ item }) => {
-    return instanceOfExercise(item) ? <ExerciseListItem exercise={item}/> : null
+    return isExerciseObject(item) ? (
+      <ExerciseListItem exercise={item}/>
+    ) : (
+      <TemplateListItem template={item}/>
+    );
   };
 
   return (
-    <SectionList
+    <SectionList<SectionItem, Section>
       keyboardShouldPersistTaps="always"
       keyboardDismissMode="on-drag"
       sections={sections}
       stickySectionHeadersEnabled={true}
-      // ListHeaderComponent={renderSearchBar()}
-      ListFooterComponent={<View style={{ marginBottom: Spacing.X_LARGE }}/>}
-      // renderSectionHeader={({ section }) => renderSectionItemHeader(section)}
+      ListFooterComponent={<View style={styles.listFooter}/>}
+      renderSectionHeader={({ section }) => renderHeader(section)}
       renderItem={renderItem}
     />
-  )
+  );
+};
 
-}
-
-export default AddExerciseScreen
+export default AddExerciseScreen;

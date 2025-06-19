@@ -44,7 +44,10 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       initCurrentWorkoutDay: async () => {
         set({ isInitializing: true });
 
-        const userId = '03wD83qf64Oq5YSXOd2plYifhoA2';
+
+        // 03wD83qf64Oq5YSXOd2plYifhoA2
+        // BCsEDn7nMXatgkegN83pTksIcGs2
+        const userId = 'BCsEDn7nMXatgkegN83pTksIcGs2';
         await syncOfflineWorkouts(userId);
 
         const today = getCurrentDateISO();

@@ -32,7 +32,7 @@ import {
 import { addDailyExercise } from '../../store/dailyExerciseEntries/DailyExerciseActions';
 import { DailyExercise } from '../../store/dailyExerciseEntries/models/DailyExercise';
 import { addExercise, deleteExercise, deleteWorkoutTemplate } from '../../store/exercises/ExercisesActions';
-import { Exercise, instanceOfExercise } from '../../store/exercises/models/Exercise';
+import { Exercise, isExerciseObject } from '../../store/exercises/models/Exercise';
 import {
     WorkoutTemplate,
 } from '../../store/exercises/models/WorkoutTemplate';
@@ -274,7 +274,7 @@ const AddExerciseScreenOld = ({ navigation }: any) => {
     };
 
     const renderItem: SectionListRenderItem<Exercise | WorkoutTemplate, Section> = ({ item, section, index }) => {
-        const isExercise = instanceOfExercise(item);
+        const isExercise = isExerciseObject(item);
 
         const title: string = item.name;
         const subtitle: string = isExercise ? item.exerciseBodyPart : item.tagline;

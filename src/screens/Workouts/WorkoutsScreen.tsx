@@ -39,6 +39,7 @@ import { Navigation } from "../../navigation/types";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
 import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore";
+import useExerciseTemplatesStore from "../../store/exerciseTemplates/useExerciseTemplatesStore";
 
 interface Section extends Unique {
   dailyExercise: DailyExercise;
@@ -59,14 +60,16 @@ const WorkoutsScreen = () => {
     currentWorkoutDay,
     deleteSet
   } = useDailyWorkoutEntryStore();
-  const { fetchExercises  } = useExercisesStore()
-  const { fetchSummaries } = useWorkoutSummariesStore()
-  const { fetchWeeklySummaries } = useWeeklyWorkoutSummariesStore()
+  const { fetchExercises  } = useExercisesStore();
+  const { fetchSummaries } = useWorkoutSummariesStore();
+  const { fetchWeeklySummaries } = useWeeklyWorkoutSummariesStore();
+  const { fetchTemplates } = useExerciseTemplatesStore();
 
   useEffect(() => {
     initCurrentWorkoutDay();
     fetchExercises();
     fetchSummaries();
+    fetchTemplates();
     fetchWeeklySummaries();
   }, []);
 

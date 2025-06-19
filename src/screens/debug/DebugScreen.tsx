@@ -7,6 +7,7 @@ import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/u
 import offlineWorkoutStorageService from "../../service/workouts/OfflineWorkoutStorageService";
 import { useEffect, useState } from "react";
 import PrimaryButton from "../../components/PrimaryButton";
+import useExerciseTemplatesStore from "../../store/exerciseTemplates/useExerciseTemplatesStore";
 
 const DebugScreen = () => {
 
@@ -16,6 +17,7 @@ const DebugScreen = () => {
   const { exercises  } = useExercisesStore()
   const { summaries } = useWorkoutSummariesStore()
   const { weeklySummaries } = useWeeklyWorkoutSummariesStore()
+  const { templates } = useExerciseTemplatesStore()
 
   const [offlineWorkouts, setOfflineWorkouts] = useState([]);
 
@@ -32,11 +34,15 @@ const DebugScreen = () => {
           setOfflineWorkouts(res);
         })
       }} />
-
-      <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Offline Workouts:</Text>
+      <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Templates:</Text>
       <Text style={{ marginBottom: 20 }}>
-        {JSON.stringify(offlineWorkouts, null, 2)}
+        {JSON.stringify(templates, null, 2)}
       </Text>
+
+      {/* <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Offline Workouts:</Text> */}
+      {/* <Text style={{ marginBottom: 20 }}> */}
+      {/*   {JSON.stringify(offlineWorkouts, null, 2)} */}
+      {/* </Text> */}
 
       {/* <Text> */}
       {/*   <Text style={{ fontWeight: 'bold' }}>Current Workout Day:</Text> {JSON.stringify(currentWorkoutDay, null, 2)} */}
