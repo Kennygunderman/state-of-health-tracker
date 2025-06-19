@@ -5,6 +5,8 @@ import { CreateExercisePayload, Exercise } from "../../data/models/Exercise";
 import { CreateExerciseEvent, CreateExerciseEventSubject$ } from "../../screens/CreateExercise";
 import { createExercise } from "../../service/exercises/createExercise";
 import CrashUtility from "../../utility/CrashUtility";
+import { combineExerciseNameType } from "../../utility/combineExerciseNameType";
+import { mapExerciseType } from "../../data/converters/ExerciseConverter";
 
 export type ExercisesState = {
   exercises: Exercise[]
@@ -39,15 +41,22 @@ const useExercisesStore = create<ExercisesState>()(
       );
 
       if (existingExercise) {
-        CreateExerciseEventSubject$.next(CreateExerciseEvent.Exists);
+        CreateExerciseEventSubject$.next({
+          event: CreateExerciseEvent.Exists,
+          exerciseName: combineExerciseNameType(exercise.name, exercise.exerciseType)
+        });
         return;
       }
 
       try {
-        const exerciseCreated = await createExercise(exercise);
-        set({ exercises: [...exercises, exerciseCreated]})
+       const exerciseCreated = await createExercise(exercise);
+       set({ exercises: [...exercises, exerciseCreated]});
+        CreateExerciseEventSubject$.next({
+          event: CreateExerciseEvent.Created,
+          exerciseName: combineExerciseNameType(exercise.name, exercise.exerciseType)
+        });
       } catch (error) {
-        CreateExerciseEventSubject$.next(CreateExerciseEvent.Error);
+        CreateExerciseEventSubject$.next({ event: CreateExerciseEvent.Error });
         CrashUtility.recordError(error);
       }
     }

@@ -163,7 +163,7 @@ export const TEMPLATE_MODAL_ERROR_TEXT = 'Please Enter a Template Name';
 export const TEMPLATE_START = 'Start Workout';
 export const TOAST_TEMPLATE_EXERCISES_ADDED = 'Exercises Added!';
 export const TOAST_TEMPLATE_EXERCISES_ADDED_BODY = 'From Template: %0';
-export const CREATE_EXERCISE_ERROR = 'Error occurred while creating the exercise. Please try again.';
+export const CREATE_EXERCISE_ERROR = 'Error creating exercise. Please check your connection and try again.';
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
     let updatedStr = str;

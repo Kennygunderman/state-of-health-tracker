@@ -26,7 +26,6 @@ import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../navigation/types";
 import useExercisesStore from "../../store/exercises/useExercisesStore";
 import { Subject } from "rxjs";
-import { combineExerciseNameType } from "../../utility/combineExerciseNameType";
 import LoadingOverlay from "../../components/LoadingOverlay";
 
 export enum CreateExerciseEvent {
@@ -35,7 +34,7 @@ export enum CreateExerciseEvent {
   Error = 'error',
 }
 
-export const CreateExerciseEventSubject$ = new Subject<CreateExerciseEvent>();
+export const CreateExerciseEventSubject$ = new Subject<{ event: CreateExerciseEvent, exerciseName: string }>();
 
 const CreateExerciseScreen = () => {
 
@@ -54,18 +53,18 @@ const CreateExerciseScreen = () => {
 
   useEffect(() => {
     const sub = CreateExerciseEventSubject$.subscribe({
-      next: (event) => {
+      next: ({ event, exerciseName }) => {
         if (event === CreateExerciseEvent.Created) {
           showToast(
             'success',
             TOAST_EXERCISE_CREATED,
-            combineExerciseNameType(exerciseNameText, exerciseType)
+            exerciseName
           );
           goBack();
         } else if (event === CreateExerciseEvent.Exists) {
           showToast(
             'error',
-            `${combineExerciseNameType(exerciseNameText, exerciseType)} ${TOAST_ALREADY_EXISTS}`
+            `${exerciseName} ${TOAST_ALREADY_EXISTS}`
           );
         } else if (event === CreateExerciseEvent.Error) {
           showToast('error', CREATE_EXERCISE_ERROR);
