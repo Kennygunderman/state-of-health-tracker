@@ -40,6 +40,7 @@ import AddExerciseScreen from "./src/screens/AddExercise";
 import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import DebugScreen from "./src/screens/debug/DebugScreen";
 import CreateTemplateScreen from "./src/screens/CreateTemplate";
+import SearchExercisesScreen from "./src/screens/SearchExercises";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -235,6 +236,16 @@ const App = () => {
             }}
             name={Screens.CREATE_TEMPLATE}
             component={CreateTemplateScreen}
+          />
+
+          <Stack.Screen
+            options={{
+              headerStyle: {
+                backgroundColor: useStyleTheme().colors.secondary,
+              },
+            }}
+            name={Screens.SEARCH_EXERCISES}
+            component={SearchExercisesScreen}
           />
 
           <Stack.Screen name={Screens.WORKOUT_TEMPLATE_DETAIL} component={WorkoutTemplateDetailScreen}/>

@@ -4,12 +4,17 @@ import { TouchableOpacity, View } from 'react-native';
 import styles from './index.styled';
 import { Text, useStyleTheme } from "../../../../styles/Theme";
 import { SEARCH_EXERCISES_PLACEHOLDER } from "../../../../constants/Strings";
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "../../../../navigation/types";
+import Screens from "../../../../constants/Screens";
 
-const SearchBarButton = () => {
+const ExerciseSearchBarButton = () => {
+
+  const { navigate } = useNavigation<Navigation>()
   const theme = useStyleTheme();
 
   const onPress = () => {
-    // todo: handle press
+    navigate(Screens.SEARCH_EXERCISES)
   }
 
   return (
@@ -36,4 +41,4 @@ const SearchBarButton = () => {
   );
 };
 
-export default SearchBarButton;
+export default ExerciseSearchBarButton;

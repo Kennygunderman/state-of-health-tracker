@@ -20,7 +20,7 @@ import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
 import styles from "./index.styled";
 import SecondaryButton from "../../components/SecondaryButton";
 import { Text } from "../../styles/Theme";
-import SearchBarButton from "./components/SearchBarButton";
+import ExerciseSearchBarButton from "./components/SearchBarButton";
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../navigation/types";
 import Screens from "../../constants/Screens";
@@ -136,7 +136,7 @@ const AddExerciseScreen = () => {
         keyboardDismissMode="on-drag"
         sections={sections}
         stickySectionHeadersEnabled={false}
-        ListHeaderComponent={SearchBarButton}
+        ListHeaderComponent={ExerciseSearchBarButton}
         ListFooterComponent={<View style={styles.listFooter}/>}
         renderSectionHeader={({ section }) => renderHeader(section)}
         renderItem={renderItem}

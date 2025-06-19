@@ -1,35 +1,80 @@
-export const exercises = [
+// I should turn this into a proper assest .json file, but too lazy right now
+const exercises = [
     {
         name: 'Hip Abduction Machine',
         type: 'Machine',
         muscleGroup: 'Legs'
     },
-    { name: 'Cable Hip Abduction', type: 'Cable', muscleGroup: 'Legs' },
-    { name: 'Lying Floor Leg Raise', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Cable Crunch', type: 'Cable', muscleGroup: 'Core' },
-    { name: 'Weighted Crunch', type: 'Weighted', muscleGroup: 'Core' },
-    { name: 'Hanging Leg Raise', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Plank', type: 'Bodyweight', muscleGroup: 'Core' },
-    { name: 'Side Plank', type: 'Bodyweight', muscleGroup: 'Core' },
-    { name: 'Ab Crunch', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Cable Hip Abduction',
+        type: 'Cable',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Lying Floor Leg Raise',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Cable Crunch',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Weighted Crunch',
+        type: 'Weighted',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Hanging Leg Raise',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Plank',
+        type: 'Bodyweight',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Side Plank',
+        type: 'Bodyweight',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Ab Crunch',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Dumbbell Side Bends',
         type: 'Dumbbell',
         muscleGroup: 'Core'
     },
-    { name: 'Sit Up', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Sit Up',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Abdominal Barbell Rollouts',
         type: 'Barbell',
         muscleGroup: 'Core'
     },
-    { name: 'Decline Sit Up', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Decline Sit Up',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Abdominal Air Bike (AKA Bicycle)',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Exercise Ball Crunch', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Exercise Ball Crunch',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Twisting Hanging Knee Raise',
         type: 'Other',
@@ -50,14 +95,26 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Core'
     },
-    { name: 'Hanging Knee Raise', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Hanging Knee Raise',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Standing Stomach Vacuum',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Russian Twist', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Lying Floor Knee Tuck', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Russian Twist',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Lying Floor Knee Tuck',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Alternate Straight Leg Lower',
         type: 'Other',
@@ -68,10 +125,26 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Core'
     },
-    { name: 'Pallof Press', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Dead Bug', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Chair Leg Raise', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Abominal Hip Thrust', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Pallof Press',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Dead Bug',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Chair Leg Raise',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Abominal Hip Thrust',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Straight Leg Toe Touch (Floor Toe Reach)',
         type: 'Other',
@@ -82,9 +155,21 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Core'
     },
-    { name: 'Seated Leg Tucks', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Twisting Bench Crunch', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Turkish Get Up', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Seated Leg Tucks',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Twisting Bench Crunch',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Turkish Get Up',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Lying Leg Raise With Hip Thrust',
         type: 'Other',
@@ -95,8 +180,16 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Core'
     },
-    { name: 'Hollow Body Hold', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Lying Bench Leg Raise', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Hollow Body Hold',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Lying Bench Leg Raise',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Medicine Ball Dead Bug',
         type: 'Other',
@@ -107,7 +200,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Twisting Floor Crunch', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Twisting Floor Crunch',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Plank With Feet On Bench',
         type: 'Bodyweight',
@@ -123,9 +220,21 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Core'
     },
-    { name: 'Dragon Flag', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Bench Jack Knife', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Frog Sit Up', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Dragon Flag',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Bench Jack Knife',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Frog Sit Up',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Standing Oblique Cable Crunch',
         type: 'Cable',
@@ -141,7 +250,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Shoulder Taps', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Shoulder Taps',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Kneeling Dumbbell Hold to Stand',
         type: 'Dumbbell',
@@ -182,15 +295,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Abdominal Pendulum', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Banded Alphabet', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Standing Push-Pull', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Abdominal Pendulum',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Banded Alphabet',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Standing Push-Pull',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Half Kneeling Push-Pull',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Reach And Catch', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Reach And Catch',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Lying Cable Knee Raise',
         type: 'Cable',
@@ -201,7 +330,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Core'
     },
-    { name: 'Twisting Cable Crunch', type: 'Cable', muscleGroup: 'Core' },
+    {
+        name: 'Twisting Cable Crunch',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Upper Body Band Resistance Dead Bug',
         type: 'Other',
@@ -217,8 +350,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Seated Cable Crunch', type: 'Cable', muscleGroup: 'Core' },
-    { name: 'Standing Cable Crunch', type: 'Cable', muscleGroup: 'Core' },
+    {
+        name: 'Seated Cable Crunch',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Standing Cable Crunch',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Roman Chair Knee Raise',
         type: 'Other',
@@ -229,7 +370,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Barbell Side Bends', type: 'Barbell', muscleGroup: 'Core' },
+    {
+        name: 'Barbell Side Bends',
+        type: 'Barbell',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Lying Alternate Knee Raise',
         type: 'Other',
@@ -285,8 +430,16 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Core'
     },
-    { name: 'Ipsilateral Bird Dog', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Straight Leg Dead Bug', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Ipsilateral Bird Dog',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Straight Leg Dead Bug',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Weighted Exercise Ball Sit Up',
         type: 'Weighted',
@@ -327,7 +480,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Core'
     },
-    { name: 'Barbell Climbs', type: 'Barbell', muscleGroup: 'Core' },
+    {
+        name: 'Barbell Climbs',
+        type: 'Barbell',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Lying Alternate Heel Touches',
         type: 'Other',
@@ -338,7 +495,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Valslide Body Saw', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Valslide Body Saw',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Wall Press 90/90 Extension',
         type: 'Other',
@@ -349,20 +510,36 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Core'
     },
-    { name: 'Lying Pallof Press', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Lying Pallof Press',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Alternate Reach And Catch',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Wall Press Heel Tap', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Wall Press Heel Tap',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Lying Knee Tuck to Heel Raise',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Lying Cable Crunch', type: 'Cable', muscleGroup: 'Core' },
-    { name: 'Floor Barbell Twist', type: 'Barbell', muscleGroup: 'Core' },
+    {
+        name: 'Lying Cable Crunch',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Floor Barbell Twist',
+        type: 'Barbell',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Wall Press Straight Leg Extension',
         type: 'Other',
@@ -438,10 +615,26 @@ export const exercises = [
         type: 'Machine',
         muscleGroup: 'Legs'
     },
-    { name: 'Rocking Frog Stretch', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Adductor Foam Rolling', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Deep Squat Prying', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Cable Hip Adduction', type: 'Cable', muscleGroup: 'Legs' },
+    {
+        name: 'Rocking Frog Stretch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Adductor Foam Rolling',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Deep Squat Prying',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Cable Hip Adduction',
+        type: 'Cable',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Alternating Lateral Lunge with Overhead Reach',
         type: 'Other',
@@ -472,14 +665,26 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'Concentration Curl', type: 'Other', muscleGroup: 'Biceps' },
-    { name: 'Cable Curl', type: 'Cable', muscleGroup: 'Biceps' },
+    {
+        name: 'Concentration Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
+    {
+        name: 'Cable Curl',
+        type: 'Cable',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'EZ Bar Preacher Curl',
         type: 'Other',
         muscleGroup: 'Biceps'
     },
-    { name: 'Zottman Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'Zottman Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Alternating Seated Dumbbell Curl',
         type: 'Dumbbell',
@@ -500,7 +705,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'EZ Bar Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'EZ Bar Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Cable Curl (Rope Extension)',
         type: 'Cable',
@@ -511,7 +720,11 @@ export const exercises = [
         type: 'Machine',
         muscleGroup: 'Biceps'
     },
-    { name: 'Spider Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'Spider Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Standing Dumbbell Reverse Curl',
         type: 'Dumbbell',
@@ -542,9 +755,21 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Biceps'
     },
-    { name: 'Cable Preacher Curl', type: 'Cable', muscleGroup: 'Biceps' },
-    { name: 'One-Arm Cable Curl', type: 'Cable', muscleGroup: 'Biceps' },
-    { name: 'Seated Hammer Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'Cable Preacher Curl',
+        type: 'Cable',
+        muscleGroup: 'Biceps'
+    },
+    {
+        name: 'One-Arm Cable Curl',
+        type: 'Cable',
+        muscleGroup: 'Biceps'
+    },
+    {
+        name: 'Seated Hammer Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Dumbbell Preacher Curl',
         type: 'Dumbbell',
@@ -560,8 +785,16 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'Barbell Drag Curl', type: 'Barbell', muscleGroup: 'Biceps' },
-    { name: 'Seated Zottman Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'Barbell Drag Curl',
+        type: 'Barbell',
+        muscleGroup: 'Biceps'
+    },
+    {
+        name: 'Seated Zottman Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Smith Machine Bicep Curl',
         type: 'Barbell',
@@ -597,7 +830,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Biceps'
     },
-    { name: 'Cable Drag Curl', type: 'Cable', muscleGroup: 'Biceps' },
+    {
+        name: 'Cable Drag Curl',
+        type: 'Cable',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Wide Grip Cable Curl',
         type: 'Cable',
@@ -653,7 +890,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'Incline Hammer Curl', type: 'Other', muscleGroup: 'Biceps' },
+    {
+        name: 'Incline Hammer Curl',
+        type: 'Other',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Lying High Pulley Cable Curl',
         type: 'Cable',
@@ -669,7 +910,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'Seated Cable Curl', type: 'Cable', muscleGroup: 'Biceps' },
+    {
+        name: 'Seated Cable Curl',
+        type: 'Cable',
+        muscleGroup: 'Biceps'
+    },
     {
         name: 'Cable Concentration Curl',
         type: 'Cable',
@@ -785,7 +1030,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Biceps'
     },
-    { name: 'Seated Calf Raise', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Seated Calf Raise',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Seated Dumbbell Calf Raise',
         type: 'Dumbbell',
@@ -821,7 +1070,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Calves'
     },
-    { name: 'Donkey Calf Raise', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Donkey Calf Raise',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Smith Machine Calf Raise',
         type: 'Barbell',
@@ -852,7 +1105,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Calves'
     },
-    { name: 'Jump Rope', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Jump Rope',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Side to Side Jump Rope',
         type: 'Other',
@@ -898,7 +1155,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Calves'
     },
-    { name: 'Cable Calf Raise', type: 'Cable', muscleGroup: 'Calves' },
+    {
+        name: 'Cable Calf Raise',
+        type: 'Cable',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Anterior Calf Tiger Tail',
         type: 'Other',
@@ -924,7 +1185,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Calves'
     },
-    { name: 'Reverse Jump Rope', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Reverse Jump Rope',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Rocking Soleus Emphasis Ankle Mobilization',
         type: 'Other',
@@ -955,7 +1220,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Calves'
     },
-    { name: 'Skipping Jump Rope', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Skipping Jump Rope',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Posterior Calf Lacrosse Ball',
         type: 'Other',
@@ -996,8 +1265,16 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Calves'
     },
-    { name: 'Peroneal Tiger Tail', type: 'Other', muscleGroup: 'Calves' },
-    { name: '45 Degree Toe Raise', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Peroneal Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
+    {
+        name: '45 Degree Toe Raise',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Double Jump Jump Rope',
         type: 'Other',
@@ -1033,7 +1310,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Calves'
     },
-    { name: 'Reverse Jump Rope', type: 'Other', muscleGroup: 'Calves' },
+    {
+        name: 'Reverse Jump Rope',
+        type: 'Other',
+        muscleGroup: 'Calves'
+    },
     {
         name: 'Rocking Soleus Emphasis Ankle Mobilization',
         type: 'Other',
@@ -1064,33 +1345,61 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Dumbbell Pullover', type: 'Dumbbell', muscleGroup: 'Chest' },
+    {
+        name: 'Dumbbell Pullover',
+        type: 'Dumbbell',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Incline Dumbbell Bench Press',
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Dumbbell Flys', type: 'Dumbbell', muscleGroup: 'Chest' },
-    { name: 'Incline Bench Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Dumbbell Flys',
+        type: 'Dumbbell',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Incline Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Barbell Bench Press',
         type: 'Barbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Pec Dec', type: 'Machine', muscleGroup: 'Chest' },
-    { name: 'Standing Cable Fly', type: 'Cable', muscleGroup: 'Chest' },
+    {
+        name: 'Pec Dec',
+        type: 'Machine',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Standing Cable Fly',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Hammer Strength Bench Press',
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Chest Dip', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Chest Dip',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Incline Dumbbell Flys',
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Cable Iron Cross', type: 'Cable', muscleGroup: 'Chest' },
+    {
+        name: 'Cable Iron Cross',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Close Grip Dumbbell Press (AKA Crush Press)',
         type: 'Dumbbell',
@@ -1101,13 +1410,21 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Chest'
     },
-    { name: 'Decline Bench Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Decline Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Hammer Strength Machine Incline Bench Press',
         type: 'Machine',
         muscleGroup: 'Chest'
     },
-    { name: 'Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Reverse Grip Dumbbell Bench Press',
         type: 'Dumbbell',
@@ -1143,7 +1460,11 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Cable Chest Press', type: 'Cable', muscleGroup: 'Chest' },
+    {
+        name: 'Cable Chest Press',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Plyometric Push Up',
         type: 'Bodyweight',
@@ -1159,7 +1480,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Barbell Pullover', type: 'Barbell', muscleGroup: 'Chest' },
+    {
+        name: 'Barbell Pullover',
+        type: 'Barbell',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'One Arm Kettlebell Bench Press',
         type: 'Kettlebell',
@@ -1220,7 +1545,11 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Incline Cable Flys', type: 'Cable', muscleGroup: 'Chest' },
+    {
+        name: 'Incline Cable Flys',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Incline Cable Chest Press',
         type: 'Cable',
@@ -1236,7 +1565,11 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Lying Cable Pullover', type: 'Cable', muscleGroup: 'Chest' },
+    {
+        name: 'Lying Cable Pullover',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Straight Bar Dip',
         type: 'Bodyweight',
@@ -1262,8 +1595,16 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Push-Up (On Bench)', type: 'Other', muscleGroup: 'Chest' },
-    { name: '1 Leg Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Push-Up (On Bench)',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: '1 Leg Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Kettlebell Push Up',
         type: 'Bodyweight',
@@ -1284,7 +1625,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Paused Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Paused Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Reverse Grip Bench Press',
         type: 'Other',
@@ -1310,9 +1655,21 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Decline Cable Flys', type: 'Cable', muscleGroup: 'Chest' },
-    { name: '2 Board Bench Press', type: 'Other', muscleGroup: 'Chest' },
-    { name: 'Yoga Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Decline Cable Flys',
+        type: 'Cable',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: '2 Board Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Yoga Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Resistance Banded Dumbbell Bench Press',
         type: 'Dumbbell',
@@ -1328,13 +1685,21 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Floor Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Floor Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Lying Cable Pullover (Rope Extension)',
         type: 'Cable',
         muscleGroup: 'Chest'
     },
-    { name: 'Wall Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Wall Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Tall Kneeling Medicine Ball Chest Pass',
         type: 'Other',
@@ -1345,9 +1710,21 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'T-Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
-    { name: 'Push Up Jacks', type: 'Bodyweight', muscleGroup: 'Chest' },
-    { name: 'Muscle Up', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'T-Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Push Up Jacks',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Muscle Up',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Push Up to Side Plank',
         type: 'Bodyweight',
@@ -1368,8 +1745,16 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Knuckle Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
-    { name: 'Rack Pec Stretch', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Knuckle Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Rack Pec Stretch',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Shoulder Tap Push Up',
         type: 'Bodyweight',
@@ -1410,7 +1795,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Chain Fly', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Chain Fly',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Bird Dog Push Up',
         type: 'Bodyweight',
@@ -1421,13 +1810,21 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Push Up Plus', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Push Up Plus',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Plyometric Clapping Push Up',
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: '1 Board Bench Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: '1 Board Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Dumbbell Bench Press Rotational Grip',
         type: 'Dumbbell',
@@ -1443,7 +1840,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'T-Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'T-Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Decline Cable Chest Press',
         type: 'Cable',
@@ -1454,7 +1855,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: '3 Board Bench Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: '3 Board Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Exercise Ball Push Up',
         type: 'Bodyweight',
@@ -1470,8 +1875,16 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Chest'
     },
-    { name: 'Pec Lacrosse Ball', type: 'Other', muscleGroup: 'Chest' },
-    { name: 'Ring Fly', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Pec Lacrosse Ball',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Ring Fly',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Half Kneeling PVC Pec Mobilization',
         type: 'Other',
@@ -1487,8 +1900,16 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Ring Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
-    { name: 'Guillotine Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Ring Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Guillotine Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Exercise Ball Dumbbell Fly',
         type: 'Dumbbell',
@@ -1529,7 +1950,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: '3 Board Bench Press', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: '3 Board Bench Press',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Push Up (Feet on Swiss Ball)',
         type: 'Bodyweight',
@@ -1540,8 +1965,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Chest'
     },
-    { name: 'Pec Lacrosse Ball', type: 'Other', muscleGroup: 'Chest' },
-    { name: 'Ring Fly', type: 'Other', muscleGroup: 'Chest' },
+    {
+        name: 'Pec Lacrosse Ball',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
+    {
+        name: 'Ring Fly',
+        type: 'Other',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Lateral Hand Walk Push Up',
         type: 'Bodyweight',
@@ -1557,7 +1990,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Chest'
     },
-    { name: 'Ring Push Up', type: 'Bodyweight', muscleGroup: 'Chest' },
+    {
+        name: 'Ring Push Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Chest'
+    },
     {
         name: 'Seated Barbell Wrist Curl',
         type: 'Barbell',
@@ -1608,8 +2045,16 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Arms'
     },
-    { name: 'Plate Pinch Carry', type: 'Weighted', muscleGroup: 'Arms' },
-    { name: 'Wrist Rollers', type: 'Other', muscleGroup: 'Arms' },
+    {
+        name: 'Plate Pinch Carry',
+        type: 'Weighted',
+        muscleGroup: 'Arms'
+    },
+    {
+        name: 'Wrist Rollers',
+        type: 'Other',
+        muscleGroup: 'Arms'
+    },
     {
         name: 'Dumbbell Wrist Curl (Over Bench)',
         type: 'Dumbbell',
@@ -1670,7 +2115,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Arms'
     },
-    { name: 'Forearm Tiger Tail', type: 'Other', muscleGroup: 'Arms' },
+    {
+        name: 'Forearm Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Arms'
+    },
     {
         name: 'Forearm Extensors Lacrosse Ball',
         type: 'Other',
@@ -1821,15 +2270,31 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Arms'
     },
-    { name: 'Hyperextension', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Barbell Hip Thrust', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Good Mornings', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Hyperextension',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Barbell Hip Thrust',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Good Mornings',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Standing Glute Kickback',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Glute Kick Back', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Glute Kick Back',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Bodyweight Glute Bridge',
         type: 'Bodyweight',
@@ -1850,7 +2315,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Side Lying Clam', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Side Lying Clam',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Hip Thruster with Mini Band',
         type: 'Other',
@@ -1866,7 +2335,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Banded Good Morning', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Banded Good Morning',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Bodyweight Hip Thrust',
         type: 'Bodyweight',
@@ -1882,15 +2355,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Lateral Band Walk', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Banded Glute Bridge', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'X-Band Walk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Lateral Band Walk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Banded Glute Bridge',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'X-Band Walk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Single Leg Hip Thrust with Dumbbell',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Diagonal Band Walk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Diagonal Band Walk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Single Leg Good Morning',
         type: 'Other',
@@ -1901,14 +2390,26 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Glute Lacrosse Ball', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Hip Extensions', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Glute Lacrosse Ball',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Hip Extensions',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: '90/90 Piriformis Stretch',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Glute Foam Rolling', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Glute Foam Rolling',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Figure 4 Glute Stretch',
         type: 'Other',
@@ -1924,17 +2425,41 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Seated Good Mornings', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Marching Glute Bridge', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Dynamic Pigeon', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'GHD Back Extension', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Single Leg Hip Thrust', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Seated Good Mornings',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Marching Glute Bridge',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Dynamic Pigeon',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'GHD Back Extension',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Single Leg Hip Thrust',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Seated External Rotation',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Sled Pull Through', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sled Pull Through',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Knee to Chest Single Leg Glute Bridge',
         type: 'Other',
@@ -1945,7 +2470,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Sled Pull Through', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sled Pull Through',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Knee to Chest Single Leg Glute Bridge',
         type: 'Other',
@@ -1961,9 +2490,21 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Conventional Deadlift', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Stiff Leg Deadlift', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Leg Curl', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Conventional Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Stiff Leg Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Leg Curl',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Romanian Deadlift (AKA RDL)',
         type: 'Other',
@@ -1974,23 +2515,51 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Trap Bar Rack Pull', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Trap Bar Deadlift', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Seated Leg Curl', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Trap Bar Rack Pull',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Trap Bar Deadlift',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Seated Leg Curl',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Bodyweight Single Leg Deadlift',
         type: 'Bodyweight',
         muscleGroup: 'Legs'
     },
-    { name: 'Landmine RDL', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Landmine RDL',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Standing Cable Hamstring Curl',
         type: 'Cable',
         muscleGroup: 'Legs'
     },
-    { name: 'Kettlebell Swing', type: 'Kettlebell', muscleGroup: 'Legs' },
-    { name: 'Sumo Deadlift', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Reverse Hack Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Kettlebell Swing',
+        type: 'Kettlebell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Sumo Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Reverse Hack Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Band Assisted Nordic Hamstring Curl',
         type: 'Other',
@@ -2011,7 +2580,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Glute Ham Raise (GHR)', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Glute Ham Raise (GHR)',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Kettlebell Romanian Deadlift',
         type: 'Kettlebell',
@@ -2037,7 +2610,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Single Leg Curl', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Single Leg Curl',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Kettlebell Sumo Deadlift (1 KB)',
         type: 'Kettlebell',
@@ -2048,10 +2625,26 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Legs'
     },
-    { name: 'Razor Curl', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Valslide Leg Curl', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Straight Leg Deadlift', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Inchworm', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Razor Curl',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Valslide Leg Curl',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Straight Leg Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Inchworm',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'One-Leg Lying Cable Hamstring Curl',
         type: 'Cable',
@@ -2067,7 +2660,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Deficit Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Deficit Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Banded Glute Ham Raise',
         type: 'Other',
@@ -2093,7 +2690,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Deficit Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Deficit Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Single Leg Exercise Ball Leg Curl',
         type: 'Other',
@@ -2104,13 +2705,21 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Reverse Band Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Reverse Band Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Banded Trap Bar Deadlift',
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Sumo Deficit Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sumo Deficit Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Lying Cable Hamstring Curl',
         type: 'Cable',
@@ -2131,7 +2740,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Hamstring Tiger Tail', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Hamstring Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Conventional Deadlift Against Chains',
         type: 'Other',
@@ -2142,14 +2755,26 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Barbell Split Jump', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Paused Sumo Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Barbell Split Jump',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Paused Sumo Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Snatch Grip Romanian Deadlift',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Jefferson Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Jefferson Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Single Leg Snatch Grip Romanian Deadlift',
         type: 'Other',
@@ -2175,7 +2800,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Snatch Grip Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Snatch Grip Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Banded Conventional Deadlift',
         type: 'Other',
@@ -2196,7 +2825,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Banded Sumo Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Banded Sumo Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Sumo Block Pull Deadlift',
         type: 'Other',
@@ -2207,26 +2840,46 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'American Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'American Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Conventional Block Pull Deadlift',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Reeves Deadlift', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Fat Bar Deadlift', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Reeves Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Fat Bar Deadlift',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Cradle Walk to Forward Lunge',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Cradle Walk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Cradle Walk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Kneeling Posterior Hip Capsule Mobilization',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Fire Hydrant Circles', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Fire Hydrant Circles',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Standing Hip Flexion w/ Bands',
         type: 'Other',
@@ -2237,14 +2890,26 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Lying Psoas March', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Lying Psoas March',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Hip Flexor Lacrosse Ball',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'IT Band Foam Rolling', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Lat Pull Down', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'IT Band Foam Rolling',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Lat Pull Down',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Close Grip Lat Pull Down',
         type: 'Other',
@@ -2260,22 +2925,46 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Back'
     },
-    { name: 'Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Reverse Grip Lat Pull Down (Underhand)',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
+    {
+        name: 'Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Wide Grip Lat Pull Down',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Shotgun Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'V-Bar Pull Down', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Weighted Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
-    { name: 'V-Bar Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
+    {
+        name: 'Shotgun Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'V-Bar Pull Down',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Weighted Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'V-Bar Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Eccentric Only Pull Up',
         type: 'Bodyweight',
@@ -2296,8 +2985,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Weighted Chin Up', type: 'Weighted', muscleGroup: 'Back' },
-    { name: 'Rack Lat Stretch', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Weighted Chin Up',
+        type: 'Weighted',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Rack Lat Stretch',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Close Grip Pull Up',
         type: 'Bodyweight',
@@ -2333,26 +3030,46 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Lat Foam Rolling', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Lat Foam Rolling',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Standing Overhead Medicine Ball Slam',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Close Grip Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Close Grip Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Pull Up with Leg Raise',
         type: 'Bodyweight',
         muscleGroup: 'Back'
     },
-    { name: 'Arms Only Rope Climb', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Mixed Grip Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Arms Only Rope Climb',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Mixed Grip Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Standing Overhead Medicine Ball Throw',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Wide Grip Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Wide Grip Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Grip Ball Pull Ups',
         type: 'Bodyweight',
@@ -2363,14 +3080,26 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'L-Sit Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
+    {
+        name: 'L-Sit Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Single Leg Overhead Medicine Ball Tap',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Archer Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
-    { name: 'Thibaudeau Kayak Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Archer Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Thibaudeau Kayak Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Overhand Close Grip Lateral Pulldown',
         type: 'Other',
@@ -2381,21 +3110,41 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Back'
     },
-    { name: 'Skin the Cat', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Rope Pull Up', type: 'Bodyweight', muscleGroup: 'Back' },
-    { name: 'Double Pause Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Skin the Cat',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Rope Pull Up',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Double Pause Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Eccentric Only Chin Up',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Band Resisted Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Band Resisted Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Double Pause Pull Up',
         type: 'Bodyweight',
         muscleGroup: 'Back'
     },
-    { name: 'One Arm Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'One Arm Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Single Pause Pull Up',
         type: 'Bodyweight',
@@ -2411,24 +3160,56 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Rope Climb', type: 'Other', muscleGroup: 'Back' },
-    { name: 'L-Sit Chin Up', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Rope Climb',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'L-Sit Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Overhand Close Grip Lateral Pulldown',
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Single Pause Chin Up', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Triple Pause Chin Up', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Dumbbell Deadlift', type: 'Dumbbell', muscleGroup: 'Back' },
-    { name: 'Superman', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Single Pause Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Triple Pause Chin Up',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Dumbbell Deadlift',
+        type: 'Dumbbell',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Superman',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Smith Machine Deadlift',
         type: 'Barbell',
         muscleGroup: 'Back'
     },
-    { name: '90/90 Hip Crossover', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Rollover Into V-Sits', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: '90/90 Hip Crossover',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Rollover Into V-Sits',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'One Arm Dumbbell Row',
         type: 'Dumbbell',
@@ -2439,10 +3220,26 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Back'
     },
-    { name: 'Bent Over Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Seated Cable Row', type: 'Cable', muscleGroup: 'Back' },
-    { name: 'Machine Row', type: 'Machine', muscleGroup: 'Back' },
-    { name: 'T-Bar Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Bent Over Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Seated Cable Row',
+        type: 'Cable',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Machine Row',
+        type: 'Machine',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'T-Bar Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Neutral Grip Chest Supported Dumbbell Row',
         type: 'Dumbbell',
@@ -2468,7 +3265,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Back'
     },
-    { name: 'Machine T-Bar Row', type: 'Machine', muscleGroup: 'Back' },
+    {
+        name: 'Machine T-Bar Row',
+        type: 'Machine',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Smith Machine Bent-Over Row',
         type: 'Barbell',
@@ -2479,7 +3280,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Inverted Row', type: 'Bodyweight', muscleGroup: 'Back' },
+    {
+        name: 'Inverted Row',
+        type: 'Bodyweight',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Bent Over Kettlebell Row',
         type: 'Kettlebell',
@@ -2490,21 +3295,41 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'Pendlay Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Pendlay Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Chest Supported Dumbbell Row with Isohold',
         type: 'Dumbbell',
         muscleGroup: 'Back'
     },
-    { name: 'Meadows Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Meadows Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'One-Arm Seated Cable Row',
         type: 'Cable',
         muscleGroup: 'Back'
     },
-    { name: 'Renegade Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'One Arm Machine Row', type: 'Machine', muscleGroup: 'Back' },
-    { name: 'Trap Bar Row', type: 'Barbell', muscleGroup: 'Back' },
+    {
+        name: 'Renegade Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'One Arm Machine Row',
+        type: 'Machine',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Trap Bar Row',
+        type: 'Barbell',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Thoracic Extension on Foam Roller',
         type: 'Other',
@@ -2555,7 +3380,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Back'
     },
-    { name: 'Seated High Cable Row', type: 'Cable', muscleGroup: 'Back' },
+    {
+        name: 'Seated High Cable Row',
+        type: 'Cable',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Reverse Grip Smith Machine Bent-Over Row',
         type: 'Barbell',
@@ -2571,10 +3400,26 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Back'
     },
-    { name: 'One-Arm Bent-Over Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Deadstop Rack Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Palm Rotational Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Dante Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'One-Arm Bent-Over Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Deadstop Rack Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Palm Rotational Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Dante Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Ring Inverted Row with Chains',
         type: 'Bodyweight',
@@ -2590,10 +3435,26 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Back'
     },
-    { name: 'Double Arm Sled Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Yoga Plex', type: 'Other', muscleGroup: 'Back' },
-    { name: 'One-Arm Bent-Over Row', type: 'Other', muscleGroup: 'Back' },
-    { name: 'Inverted Rope Row', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'Double Arm Sled Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Yoga Plex',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'One-Arm Bent-Over Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
+    {
+        name: 'Inverted Rope Row',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Incline Bench Cable Row',
         type: 'Cable',
@@ -2634,20 +3495,36 @@ export const exercises = [
         type: 'Machine',
         muscleGroup: 'Back'
     },
-    { name: 'High Pull Sled Drag', type: 'Other', muscleGroup: 'Back' },
+    {
+        name: 'High Pull Sled Drag',
+        type: 'Other',
+        muscleGroup: 'Back'
+    },
     {
         name: 'Reverse Grip Incline Bench Cable Row',
         type: 'Cable',
         muscleGroup: 'Back'
     },
-    { name: 'Neck Tiger Tail', type: 'Other', muscleGroup: 'Other' },
+    {
+        name: 'Neck Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Other'
+    },
     {
         name: 'Side Crunch (AKA Oblique Crunch)',
         type: 'Other',
         muscleGroup: 'Core'
     },
-    { name: 'Landmine Rotation', type: 'Other', muscleGroup: 'Core' },
-    { name: 'Wood Chop', type: 'Other', muscleGroup: 'Core' },
+    {
+        name: 'Landmine Rotation',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
+    {
+        name: 'Wood Chop',
+        type: 'Other',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Side Plank with Hip Dip',
         type: 'Bodyweight',
@@ -2663,7 +3540,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Core'
     },
-    { name: 'Low Cable Wood Chop', type: 'Cable', muscleGroup: 'Core' },
+    {
+        name: 'Low Cable Wood Chop',
+        type: 'Cable',
+        muscleGroup: 'Core'
+    },
     {
         name: 'Split Stance Cable Lift',
         type: 'Cable',
@@ -2699,31 +3580,71 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Other'
     },
-    { name: 'Barbell Back Squat', type: 'Barbell', muscleGroup: 'Legs' },
+    {
+        name: 'Barbell Back Squat',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Goblet Squat',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Dumbbell Squat', type: 'Dumbbell', muscleGroup: 'Legs' },
-    { name: 'Leg Press', type: 'Machine', muscleGroup: 'Legs' },
-    { name: 'Leg Extension', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Dumbbell Lunge', type: 'Dumbbell', muscleGroup: 'Legs' },
+    {
+        name: 'Dumbbell Squat',
+        type: 'Dumbbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Leg Press',
+        type: 'Machine',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Leg Extension',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Dumbbell Lunge',
+        type: 'Dumbbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Rear Lunge',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Dumbbell Step Up', type: 'Dumbbell', muscleGroup: 'Legs' },
-    { name: 'Frog Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Dumbbell Step Up',
+        type: 'Dumbbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Frog Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'One Leg Dumbbell Squat (AKA Dumbbell Bulgarian Split Squat)',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Machine Hack Squat', type: 'Machine', muscleGroup: 'Legs' },
-    { name: 'Plie Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Front Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Machine Hack Squat',
+        type: 'Machine',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Plie Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Front Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Walking Lunge',
         type: 'Dumbbell',
@@ -2744,20 +3665,36 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Legs'
     },
-    { name: 'Prisoner Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Prisoner Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Bodyweight Side Lunge',
         type: 'Bodyweight',
         muscleGroup: 'Legs'
     },
-    { name: 'Smith Machine Squat', type: 'Barbell', muscleGroup: 'Legs' },
+    {
+        name: 'Smith Machine Squat',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Reverse Bodyweight Lunge',
         type: 'Bodyweight',
         muscleGroup: 'Legs'
     },
-    { name: 'Barbell Lunge', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Barbell Hack Squat', type: 'Barbell', muscleGroup: 'Legs' },
+    {
+        name: 'Barbell Lunge',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Barbell Hack Squat',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Smith Machine Front Squat',
         type: 'Barbell',
@@ -2768,8 +3705,16 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Bodyweight Lunge', type: 'Bodyweight', muscleGroup: 'Legs' },
-    { name: 'Smith Machine Lunge', type: 'Barbell', muscleGroup: 'Legs' },
+    {
+        name: 'Bodyweight Lunge',
+        type: 'Bodyweight',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Smith Machine Lunge',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Side Lunge',
         type: 'Dumbbell',
@@ -2780,9 +3725,21 @@ export const exercises = [
         type: 'Machine',
         muscleGroup: 'Legs'
     },
-    { name: 'Sissy Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Prisoner Squat Jump', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Landmine Goblet Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sissy Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Prisoner Squat Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Landmine Goblet Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Kettlebell Goblet Squat',
         type: 'Kettlebell',
@@ -2793,7 +3750,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Single Leg Extension', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Single Leg Extension',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Bodyweight Step Up',
         type: 'Bodyweight',
@@ -2809,19 +3770,31 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Sumo Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sumo Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Jumping Squat',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: '1 Dumbbell Step Up', type: 'Dumbbell', muscleGroup: 'Legs' },
+    {
+        name: '1 Dumbbell Step Up',
+        type: 'Dumbbell',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Jumping Squat',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Deep Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Deep Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: '1 KB Kettlebell Push Press',
         type: 'Kettlebell',
@@ -2842,7 +3815,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Wall Ball', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Wall Ball',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Smith Machine Leg Press',
         type: 'Barbell',
@@ -2863,7 +3840,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Squat To Bench', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Squat To Bench',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: '1 KB Kettlebell Clean & Press',
         type: 'Kettlebell',
@@ -2874,15 +3855,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Wide Hack Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Barbell Step Ups', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Narrow Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Wide Hack Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Barbell Step Ups',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Narrow Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Narrow Stance High Bar Back Squat',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Pit Shark Belt Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Pit Shark Belt Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Front Foot Elevated Smith Machine Split Squat',
         type: 'Barbell',
@@ -2893,8 +3890,16 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Safety Bar Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Single Leg Hop', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Safety Bar Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Single Leg Hop',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Narrow Stance 45 Degree Leg Press',
         type: 'Machine',
@@ -2910,15 +3915,31 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Zerchers Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Wide Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Zerchers Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Wide Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Kettlebell Walking Lunge',
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Muscle Clean', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Seated Vertical Jump', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Muscle Clean',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Seated Vertical Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Contralateral Load Dumbbell Front Lunge',
         type: 'Dumbbell',
@@ -2929,16 +3950,36 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Prone Quad Stretch', type: 'Other', muscleGroup: 'Legs' },
-    { name: '1/4 Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Prone Quad Stretch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: '1/4 Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Resistance Band Machine Hack Squat',
         type: 'Machine',
         muscleGroup: 'Legs'
     },
-    { name: 'Box Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Squat to Stand', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Clean & Jerk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Box Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Squat to Stand',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Clean & Jerk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Barbell Jumping Squats',
         type: 'Barbell',
@@ -2954,7 +3995,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Tire Flip', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Tire Flip',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: '1 Kettlebell Step Up',
         type: 'Kettlebell',
@@ -2970,15 +4015,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Barbell Thruster', type: 'Barbell', muscleGroup: 'Legs' },
-    { name: 'Power Jerk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Barbell Thruster',
+        type: 'Barbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Power Jerk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Split Squat with Banded Adduction',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Box Jump', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Box Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Box Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Box Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Wide Stance Front Squat',
         type: 'Other',
@@ -3004,14 +4065,26 @@ export const exercises = [
         type: 'Weighted',
         muscleGroup: 'Legs'
     },
-    { name: 'Reverse Sled Drag', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Overhead Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Reverse Sled Drag',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Overhead Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Ipsilateral Load Split Squat',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Split Squat Jump', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Split Squat Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Toes Out Leg Extension',
         type: 'Other',
@@ -3022,13 +4095,21 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Rack Pin Front Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Rack Pin Front Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Wall Squat',
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Sled Push', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Sled Push',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Valslide Lateral Lunge',
         type: 'Other',
@@ -3039,8 +4120,16 @@ export const exercises = [
         type: 'Machine',
         muscleGroup: 'Legs'
     },
-    { name: 'Overhead Step Up', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Split Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Overhead Step Up',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Split Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Goblet Split Squat',
         type: 'Dumbbell',
@@ -3086,8 +4175,16 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Legs'
     },
-    { name: 'Power Snatch', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Sled Push', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Power Snatch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Sled Push',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Valslide Lateral Lunge',
         type: 'Other',
@@ -3113,11 +4210,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Backward Sled Push', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Power Clean', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Dumbbell Thruster', type: 'Dumbbell', muscleGroup: 'Legs' },
-    { name: 'Snatch Balance', type: 'Other', muscleGroup: 'Legs' },
-    { name: '1/2 Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Backward Sled Push',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Power Clean',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Dumbbell Thruster',
+        type: 'Dumbbell',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Snatch Balance',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: '1/2 Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Band Resisted Box Squat',
         type: 'Other',
@@ -3133,8 +4250,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Hang Clean', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Snatch', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Hang Clean',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Snatch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Ipsilateral Load Dumbbell Front Lunge',
         type: 'Dumbbell',
@@ -3145,8 +4270,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Jerk Balance', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Split Clean', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Jerk Balance',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Split Clean',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'One Leg Bodyweight Squat',
         type: 'Bodyweight',
@@ -3162,7 +4295,11 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Split Jerk', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Split Jerk',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'One Leg Bodyweight Wall Squat',
         type: 'Bodyweight',
@@ -3193,7 +4330,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Split Snatch', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Split Snatch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Cycled Split Squat Jump',
         type: 'Other',
@@ -3209,7 +4350,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: 'Low Bar Back Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Low Bar Back Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Decline Bench Dumbbell Lunge',
         type: 'Dumbbell',
@@ -3235,8 +4380,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Anderson Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Toes In Leg Extension', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Anderson Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Toes In Leg Extension',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: '2 KB Kettlebell Clean & Press',
         type: 'Kettlebell',
@@ -3252,16 +4405,36 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Quad Tiger Tail', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Counterbalanced Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: '1 to 2 Box Jump', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Front Squat To Bench', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Quad Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Counterbalanced Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: '1 to 2 Box Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Front Squat To Bench',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Depth Jump to Broad Jump',
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Belt Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Belt Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Half Kneeling Quad Stretch',
         type: 'Other',
@@ -3277,8 +4450,16 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Legs'
     },
-    { name: '2 to 1 Box Jump', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Muscle Snatch', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: '2 to 1 Box Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Muscle Snatch',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Valslide Reverse Lunges',
         type: 'Other',
@@ -3299,11 +4480,31 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Legs'
     },
-    { name: 'Overhead Banded Squat', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Sled Sprint', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Speed Squats', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Depth Jump', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'High Bar Back Squat', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Overhead Banded Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Sled Sprint',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Speed Squats',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Depth Jump',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'High Bar Back Squat',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Lateral Lunge to Drop Lunge',
         type: 'Other',
@@ -3319,8 +4520,16 @@ export const exercises = [
         type: 'Dumbbell',
         muscleGroup: 'Legs'
     },
-    { name: 'Backward Sled Push', type: 'Other', muscleGroup: 'Legs' },
-    { name: 'Power Clean', type: 'Other', muscleGroup: 'Legs' },
+    {
+        name: 'Backward Sled Push',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
+    {
+        name: 'Power Clean',
+        type: 'Other',
+        muscleGroup: 'Legs'
+    },
     {
         name: 'Dumbbell Lateral Raise',
         type: 'Dumbbell',
@@ -3371,7 +4580,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Cable Face Pull', type: 'Cable', muscleGroup: 'Shoulders' },
+    {
+        name: 'Cable Face Pull',
+        type: 'Cable',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Seated Behind the Neck Shoulder Press',
         type: 'Other',
@@ -3437,7 +4650,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Band Pull Apart', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Band Pull Apart',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Smith Machine Upright Row',
         type: 'Barbell',
@@ -3448,7 +4665,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Z Press', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Z Press',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Standing Arnold Press',
         type: 'Other',
@@ -3474,7 +4695,11 @@ export const exercises = [
         type: 'Kettlebell',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Push Press', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Push Press',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Seated Neutral Grip Dumbbell Shoulder Press',
         type: 'Dumbbell',
@@ -3495,7 +4720,11 @@ export const exercises = [
         type: 'Cable',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Clean Press', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Clean Press',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Alternate Seated Dumbbell Press',
         type: 'Dumbbell',
@@ -3546,7 +4775,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Arm Circles', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Arm Circles',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Cable Internal Rotation',
         type: 'Cable',
@@ -3647,7 +4880,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Bus Drivers', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Bus Drivers',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Anti-Gravity Press',
         type: 'Other',
@@ -3713,8 +4950,16 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Spider Crawls', type: 'Other', muscleGroup: 'Shoulders' },
-    { name: 'Dublin Press', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Spider Crawls',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
+    {
+        name: 'Dublin Press',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Back to Wall Shoulder Flexion',
         type: 'Other',
@@ -3845,7 +5090,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Serrano Press', type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: 'Serrano Press',
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Standing Banded Face Pull to Chest',
         type: 'Other',
@@ -4021,7 +5270,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: "Banded Y's", type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: "Banded Y's",
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Alternating Rear Delt Fly',
         type: 'Other',
@@ -4117,7 +5370,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: "Banded Y's", type: 'Other', muscleGroup: 'Shoulders' },
+    {
+        name: "Banded Y's",
+        type: 'Other',
+        muscleGroup: 'Shoulders'
+    },
     {
         name: 'Alternating Lying Rear Delt Fly',
         type: 'Other',
@@ -4153,13 +5410,21 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Shoulders'
     },
-    { name: 'Dumbbell Shrug', type: 'Dumbbell', muscleGroup: 'Traps' },
+    {
+        name: 'Dumbbell Shrug',
+        type: 'Dumbbell',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Barbell Upright Row',
         type: 'Barbell',
         muscleGroup: 'Traps'
     },
-    { name: 'Barbell Shrug', type: 'Barbell', muscleGroup: 'Traps' },
+    {
+        name: 'Barbell Shrug',
+        type: 'Barbell',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Wide Grip Upright Row',
         type: 'Other',
@@ -4180,18 +5445,46 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Traps'
     },
-    { name: 'High Pull', type: 'Other', muscleGroup: 'Traps' },
-    { name: 'Cable Shrug', type: 'Cable', muscleGroup: 'Traps' },
-    { name: 'Trap Bar Shrug', type: 'Barbell', muscleGroup: 'Traps' },
-    { name: 'Tate Press', type: 'Other', muscleGroup: 'Traps' },
-    { name: 'Sumo High Pull', type: 'Other', muscleGroup: 'Traps' },
+    {
+        name: 'High Pull',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Cable Shrug',
+        type: 'Cable',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Trap Bar Shrug',
+        type: 'Barbell',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Tate Press',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Sumo High Pull',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Snatch Grip High Pull',
         type: 'Other',
         muscleGroup: 'Traps'
     },
-    { name: 'Trap Lacrosse Ball', type: 'Other', muscleGroup: 'Traps' },
-    { name: 'Seated Cable Shrug', type: 'Cable', muscleGroup: 'Traps' },
+    {
+        name: 'Trap Lacrosse Ball',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Seated Cable Shrug',
+        type: 'Cable',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Snatch Grip Barbell Shrug',
         type: 'Barbell',
@@ -4222,23 +5515,51 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Traps'
     },
-    { name: 'Inverted Shrug', type: 'Other', muscleGroup: 'Traps' },
+    {
+        name: 'Inverted Shrug',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Lying Cable Upright Row',
         type: 'Cable',
         muscleGroup: 'Traps'
     },
-    { name: 'Machine Shrug', type: 'Machine', muscleGroup: 'Traps' },
-    { name: 'Cable Row to Neck', type: 'Cable', muscleGroup: 'Traps' },
-    { name: 'Snatch Shrug', type: 'Other', muscleGroup: 'Traps' },
-    { name: 'Lying Cable Shrug', type: 'Cable', muscleGroup: 'Traps' },
+    {
+        name: 'Machine Shrug',
+        type: 'Machine',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Cable Row to Neck',
+        type: 'Cable',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Snatch Shrug',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Lying Cable Shrug',
+        type: 'Cable',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Overhead Barbell Shrug',
         type: 'Barbell',
         muscleGroup: 'Traps'
     },
-    { name: 'Clean Shrug', type: 'Other', muscleGroup: 'Traps' },
-    { name: 'Gittleson Shrug', type: 'Other', muscleGroup: 'Traps' },
+    {
+        name: 'Clean Shrug',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
+    {
+        name: 'Gittleson Shrug',
+        type: 'Other',
+        muscleGroup: 'Traps'
+    },
     {
         name: 'Straight Bar Tricep Extension',
         type: 'Other',
@@ -4269,7 +5590,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Triceps'
     },
-    { name: 'Tricep Dip', type: 'Bodyweight', muscleGroup: 'Triceps' },
+    {
+        name: 'Tricep Dip',
+        type: 'Bodyweight',
+        muscleGroup: 'Triceps'
+    },
     {
         name: 'Bent Over Dumbbell Tricep Kickback',
         type: 'Dumbbell',
@@ -4290,7 +5615,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Triceps'
     },
-    { name: 'French Press', type: 'Other', muscleGroup: 'Triceps' },
+    {
+        name: 'French Press',
+        type: 'Other',
+        muscleGroup: 'Triceps'
+    },
     {
         name: 'Dumbbell Tricep Kickback',
         type: 'Dumbbell',
@@ -4311,7 +5640,11 @@ export const exercises = [
         type: 'Bodyweight',
         muscleGroup: 'Triceps'
     },
-    { name: 'Bench Dip', type: 'Bodyweight', muscleGroup: 'Triceps' },
+    {
+        name: 'Bench Dip',
+        type: 'Bodyweight',
+        muscleGroup: 'Triceps'
+    },
     {
         name: 'One-Arm Seated Dumbbell Extension',
         type: 'Dumbbell',
@@ -4572,7 +5905,11 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Triceps'
     },
-    { name: 'Ring Dip', type: 'Bodyweight', muscleGroup: 'Triceps' },
+    {
+        name: 'Ring Dip',
+        type: 'Bodyweight',
+        muscleGroup: 'Triceps'
+    },
     {
         name: 'Lying Dumbbell Extension (Single Dumbbell)',
         type: 'Dumbbell',
@@ -4593,7 +5930,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Triceps'
     },
-    { name: 'Tricep Tiger Tail', type: 'Other', muscleGroup: 'Triceps' },
+    {
+        name: 'Tricep Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Triceps'
+    },
     {
         name: 'One Arm Bottoms Up Kettlebell Floor Press',
         type: 'Kettlebell',
@@ -4719,9 +6060,13 @@ export const exercises = [
         type: 'Barbell',
         muscleGroup: 'Triceps'
     },
-    { name: 'Ring Dip', type: 'Bodyweight', muscleGroup: 'Triceps' },
     {
-        name: 'Lying Dumbbell Extension (Single Dumbbell)',
+        name: 'Ring Dip',
+        type: 'Bodyweight',
+        muscleGroup: 'Triceps'
+    },
+    {
+        name: 'Lying Dumbbell Extension (Single Dumbbell),
         type: 'Dumbbell',
         muscleGroup: 'Triceps'
     },
@@ -4740,7 +6085,11 @@ export const exercises = [
         type: 'Other',
         muscleGroup: 'Triceps'
     },
-    { name: 'Tricep Tiger Tail', type: 'Other', muscleGroup: 'Triceps' }
+    {
+        name: 'Tricep Tiger Tail',
+        type: 'Other',
+        muscleGroup: 'Triceps'
+    }
 ]
 
 export default exercises;
