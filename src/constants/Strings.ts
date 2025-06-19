@@ -160,6 +160,7 @@ export const TEMPLATE_MODAL_PLACEHOLDER = 'Ex: Chest Day';
 export const TEMPLATE_MODAL_TITLE = 'Add Template Name';
 export const TEMPLATE_MODAL_BUTTON_TEXT = 'Create Template';
 export const TEMPLATE_MODAL_ERROR_TEXT = 'Please Enter a Template Name';
+export const TEMPLATE_START = 'Start Workout';
 export const TOAST_TEMPLATE_EXERCISES_ADDED = 'Exercises Added!';
 export const TOAST_TEMPLATE_EXERCISES_ADDED_BODY = 'From Template: %0';
 

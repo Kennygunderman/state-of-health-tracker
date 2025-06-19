@@ -6,11 +6,16 @@ import { Exercise } from "./models/Exercise";
 export type ExercisesState = {
   exercises: Exercise[]
   fetchExercises: () => Promise<void>
+  getExercises: (exerciseIds: string[]) => Exercise[]
 }
 
 const useExercisesStore = create<ExercisesState>()(
-  immer((set) => ({
+  immer((set, get) => ({
     exercises: [],
+    getExercises: (exerciseIds: string[]) => {
+      const exercises = get().exercises
+      return exercises.filter(exercise => exerciseIds.includes(exercise.id))
+    },
     fetchExercises: async () => {
       try {
         const exercises = await fetchExercises('BCsEDn7nMXatgkegN83pTksIcGs2')

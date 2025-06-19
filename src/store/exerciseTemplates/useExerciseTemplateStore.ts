@@ -3,14 +3,18 @@ import { immer } from 'zustand/middleware/immer';
 import { fetchTemplates } from '../../service/exercises/fetchTemplates';
 import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
 
-export type ExerciseTemplatesState = {
+export type ExerciseTemplateState = {
   templates: ExerciseTemplate[];
+  selectedTemplate: ExerciseTemplate | null;
+  setSelectedTemplate: (template: ExerciseTemplate) => void;
   fetchTemplates: () => Promise<void>;
 };
 
-const useExerciseTemplatesStore = create<ExerciseTemplatesState>()(
+const useExerciseTemplateStore = create<ExerciseTemplateState>()(
   immer((set) => ({
     templates: [],
+    selectedTemplate: null,
+    setSelectedTemplate: (template: ExerciseTemplate) => set({ selectedTemplate: template }),
     fetchTemplates: async () => {
       try {
         const userId = 'BCsEDn7nMXatgkegN83pTksIcGs2';
@@ -23,4 +27,4 @@ const useExerciseTemplatesStore = create<ExerciseTemplatesState>()(
   }))
 );
 
-export default useExerciseTemplatesStore;
+export default useExerciseTemplateStore;

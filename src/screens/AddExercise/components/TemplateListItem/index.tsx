@@ -3,6 +3,10 @@ import { TouchableOpacity, View } from 'react-native';
 import styles from './index.styled';
 import { Text, useStyleTheme } from '../../../../styles/Theme';
 import { ExerciseTemplate } from "../../../../data/models/ExerciseTemplate";
+import useExerciseTemplateStore from "../../../../store/exerciseTemplates/useExerciseTemplateStore";
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "../../../../navigation/types";
+import Screens from "../../../../constants/Screens";
 
 interface Props {
   template: ExerciseTemplate;
@@ -11,9 +15,12 @@ interface Props {
 const TemplateListItem = ({ template }: Props) => {
   const theme = useStyleTheme();
 
+  const { push } =useNavigation<Navigation>()
+  const { setSelectedTemplate } = useExerciseTemplateStore();
+
   const onPress = () => {
-    // TODO: Implement template selection logic
-    console.log(`Pressed template: ${template.name}`);
+    setSelectedTemplate(template);
+    push(Screens.WORKOUT_TEMPLATE_DETAIL)
   };
 
   return (

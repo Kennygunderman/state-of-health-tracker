@@ -7,7 +7,7 @@ import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/u
 import offlineWorkoutStorageService from "../../service/workouts/OfflineWorkoutStorageService";
 import { useEffect, useState } from "react";
 import PrimaryButton from "../../components/PrimaryButton";
-import useExerciseTemplatesStore from "../../store/exerciseTemplates/useExerciseTemplatesStore";
+import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
 
 const DebugScreen = () => {
 
@@ -17,7 +17,7 @@ const DebugScreen = () => {
   const { exercises  } = useExercisesStore()
   const { summaries } = useWorkoutSummariesStore()
   const { weeklySummaries } = useWeeklyWorkoutSummariesStore()
-  const { templates } = useExerciseTemplatesStore()
+  const { templates } = useExerciseTemplateStore()
 
   const [offlineWorkouts, setOfflineWorkouts] = useState([]);
 

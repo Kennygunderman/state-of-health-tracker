@@ -14,7 +14,7 @@ import {
   isExerciseObject,
 } from "../../store/exercises/models/Exercise";
 import ExerciseListItem from "./components/ExerciseListItem";
-import useExerciseTemplatesStore from "../../store/exerciseTemplates/useExerciseTemplatesStore";
+import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
 import TemplateListItem from "./components/TemplateListItem";
 import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
 import styles from "./index.styled";
@@ -30,7 +30,7 @@ interface Section {
 }
 
 const AddExerciseScreen = () => {
-  const { templates } = useExerciseTemplatesStore();
+  const { templates } = useExerciseTemplateStore();
   const { exercises } = useExercisesStore();
 
   const sections: Section[] = [

@@ -29,7 +29,7 @@ import PreviousDailyExerciseEntriesScreen
   from './src/screens/PreviousDailyExercises/PreviousDailyExerciseEntriesScreen';
 import PreviousDailyMealEntriesScreen from './src/screens/PreviousDailyMealEntriesScreen';
 import WorkoutsScreen from './src/screens/Workouts/WorkoutsScreen';
-import WorkoutTemplateDetailScreen from './src/screens/WorkoutTemplateDetailScreen';
+import WorkoutTemplateDetailScreen from './src/screens/TemplateDetailScreen';
 import store, { useThunkDispatch } from './src/store';
 import { addDailyMealEntry } from './src/store/dailyMealEntries/DailyMealEntriesActions';
 import { syncUserData } from './src/store/user/UserActions';
