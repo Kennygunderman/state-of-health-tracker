@@ -30,7 +30,8 @@ export type DailyWorkoutState = {
 
 const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
   immer((set, get) => {
-    const persist = async (state: { currentWorkoutDay: WorkoutDay | null }) => {
+    const persist = async () => {
+      const state = get();
       if (state.currentWorkoutDay) {
         await offlineWorkoutStorageService.save({
           ...state.currentWorkoutDay,
@@ -79,7 +80,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           workout.dailyExercises.push(createDailyExercise(exercise, workout.dailyExercises.length + 1));
         })
 
-        persist(get());
+        persist();
 
         return wasAdded;
       },
@@ -96,7 +97,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           }));
         });
 
-        persist(get());
+        persist();
       },
 
       updateDailyExercises: (dailyExercises) => {
@@ -111,7 +112,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           }));
         });
 
-        persist(get());
+        persist();
       },
       addSet: (exercise) => {
         set((state) => {
@@ -124,7 +125,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           target.sets.push(createSet());
         })
 
-        persist(get());
+        persist();
       },
 
       completeSet: (exercise, setId, isCompleted, weight, reps) => {
@@ -143,7 +144,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           setItem.completedAt = isCompleted ? new Date().toISOString() : null;
         })
 
-        persist(get());
+        persist();
       },
 
       deleteSet: (exercise, setId) => {
@@ -157,7 +158,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           entry.sets = entry.sets.filter(s => s.id !== setId);
         })
 
-        persist(get());
+        persist();
       },
     };
   })

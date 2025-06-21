@@ -22,6 +22,7 @@ const ExerciseResponse = io.type({
 const DailyExerciseResponse = io.type({
   dailyExerciseId: io.string,
   exercise: ExerciseResponse,
+  order: io.union([io.number, io.undefined]),
   sets: io.array(ExerciseSetResponse),
 });
 
@@ -52,6 +53,7 @@ export async function fetchWorkoutForDay(
       dailyExercises: data.dailyExercises.map((entry) => ({
         id: entry.dailyExerciseId,
         dailyExerciseId: entry.dailyExerciseId,
+        order: entry.order ?? 0,
         exercise: {
           id: entry.exercise.id,
           name: entry.exercise.name,

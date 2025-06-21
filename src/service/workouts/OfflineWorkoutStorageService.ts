@@ -3,8 +3,25 @@ import { WorkoutDay } from '../../data/models/WorkoutDay';
 import { compareIsoDateStrings } from "../../utility/DateUtility";
 
 const OFFLINE_FILE_PATH = `${FileSystem.documentDirectory}unsynced-workouts.json`;
+const TEMP_FILE_PATH = `${FileSystem.documentDirectory}unsynced-workouts.tmp.json`;
 
 class OfflineWorkoutStorageService {
+  private isLocked = false;
+
+  private async withLock(task: () => Promise<void>) {
+    if (this.isLocked) {
+      console.warn('[OfflineStorage] Write in progress, skipping.');
+      return;
+    }
+
+    this.isLocked = true;
+    try {
+      await task();
+    } finally {
+      this.isLocked = false;
+    }
+  }
+
   async readAll(): Promise<WorkoutDay[]> {
     try {
       const fileInfo = await FileSystem.getInfoAsync(OFFLINE_FILE_PATH);
@@ -13,12 +30,13 @@ class OfflineWorkoutStorageService {
       const content = await FileSystem.readAsStringAsync(OFFLINE_FILE_PATH);
       return JSON.parse(content || '[]');
     } catch (error) {
+      console.error('Failed to read offline workouts:', error);
       return [];
     }
   }
 
   async save(workoutDay: WorkoutDay): Promise<void> {
-    try {
+    await this.withLock(async () => {
       const existing = await this.readAll();
 
       const updated = existing.filter(
@@ -27,39 +45,38 @@ class OfflineWorkoutStorageService {
 
       updated.push(workoutDay);
 
-      await FileSystem.writeAsStringAsync(
-        OFFLINE_FILE_PATH,
-        JSON.stringify(updated)
-      );
-    } catch (error) {
-      console.error('Failed to save unsynced workout:', error);
-    }
+      const json = JSON.stringify(updated);
+      await FileSystem.writeAsStringAsync(TEMP_FILE_PATH, json);
+      await FileSystem.moveAsync({
+        from: TEMP_FILE_PATH,
+        to: OFFLINE_FILE_PATH
+      });
+    });
   }
 
   async clear(): Promise<void> {
-    try {
+    await this.withLock(async () => {
       const fileInfo = await FileSystem.getInfoAsync(OFFLINE_FILE_PATH);
       if (fileInfo.exists) {
         await FileSystem.deleteAsync(OFFLINE_FILE_PATH);
       }
-    } catch (error) {
-      console.error('Failed to clear offline workouts:', error);
-    }
+    });
   }
 
   async deleteAllSynced(): Promise<void> {
-    try {
+    await this.withLock(async () => {
       const allWorkouts = await this.readAll();
       const unsyncedOnly = allWorkouts.filter((w) => !w.synced);
 
-      await FileSystem.writeAsStringAsync(
-        OFFLINE_FILE_PATH,
-        JSON.stringify(unsyncedOnly)
-      );
+      const json = JSON.stringify(unsyncedOnly);
+      await FileSystem.writeAsStringAsync(TEMP_FILE_PATH, json);
+      await FileSystem.moveAsync({
+        from: TEMP_FILE_PATH,
+        to: OFFLINE_FILE_PATH
+      });
+
       console.log(`Deleted ${allWorkouts.length - unsyncedOnly.length} synced workout(s).`);
-    } catch (error) {
-      console.error('Failed to delete synced workouts:', error);
-    }
+    });
   }
 
   async findLocalWorkoutByDate(date: string): Promise<WorkoutDay | null> {
