@@ -76,7 +76,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
             return;
           }
 
-          workout.dailyExercises.push(createDailyExercise(exercise));
+          workout.dailyExercises.push(createDailyExercise(exercise, workout.dailyExercises.length + 1));
         })
 
         persist(get());
@@ -89,8 +89,12 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           const workout = state.currentWorkoutDay;
           if (!workout) return;
 
-          workout.dailyExercises = workout.dailyExercises.filter(e => e.id !== dailyExerciseId)
-        })
+          const filtered = workout.dailyExercises.filter(e => e.id !== dailyExerciseId);
+          workout.dailyExercises = filtered.map((e, index) => ({
+            ...e,
+            order: index + 1,
+          }));
+        });
 
         persist(get());
       },
@@ -100,12 +104,15 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           const workout = state.currentWorkoutDay;
           if (!workout) return;
 
-          workout.dailyExercises = dailyExercises;
-        })
+          // Reset order based on new position in array
+          workout.dailyExercises = dailyExercises.map((exercise, index) => ({
+            ...exercise,
+            order: index + 1,
+          }));
+        });
 
         persist(get());
       },
-
       addSet: (exercise) => {
         set((state) => {
           const workout = state.currentWorkoutDay;

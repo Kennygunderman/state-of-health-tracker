@@ -34,19 +34,19 @@ const DebugScreen = () => {
           setOfflineWorkouts(res);
         })
       }} />
-      <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Templates:</Text>
-      <Text style={{ marginBottom: 20 }}>
-        {JSON.stringify(templates, null, 2)}
-      </Text>
+      {/* <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Templates:</Text> */}
+      {/* <Text style={{ marginBottom: 20 }}> */}
+      {/*   {JSON.stringify(templates, null, 2)} */}
+      {/* </Text> */}
 
       {/* <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Offline Workouts:</Text> */}
       {/* <Text style={{ marginBottom: 20 }}> */}
       {/*   {JSON.stringify(offlineWorkouts, null, 2)} */}
       {/* </Text> */}
 
-      {/* <Text> */}
-      {/*   <Text style={{ fontWeight: 'bold' }}>Current Workout Day:</Text> {JSON.stringify(currentWorkoutDay, null, 2)} */}
-      {/* </Text> */}
+      <Text>
+        <Text style={{ fontWeight: 'bold' }}>Current Workout Day:</Text> {JSON.stringify(currentWorkoutDay, null, 2)}
+      </Text>
     </ScrollView>
   )
 

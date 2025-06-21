@@ -5,12 +5,14 @@ import Unique from '../../store/models/Unique';
 
 export interface DailyExercise extends Unique {
     exercise: Exercise;
+    order?: number;
     sets: ExerciseSet[];
 }
 
-export function createDailyExercise(exercise: Exercise, sets: ExerciseSet[] = []): DailyExercise {
+export function createDailyExercise(exercise: Exercise, order: number, sets: ExerciseSet[] = []): DailyExercise {
     return {
         id: uuidv4(),
+        order,
         exercise,
         sets,
     };
