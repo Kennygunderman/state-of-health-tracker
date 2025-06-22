@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import LogInScreen from '../screens/Auth/LogInScreen';
-import RegisterScreen from '../screens/Auth/RegisterScreen';
+import LogInScreen from '../screens/Login';
+import RegisterScreen from '../screens/Register';
 import { TouchableOpacity } from 'react-native';
 import { useStyleTheme } from '../styles/Theme';
 import { Ionicons } from '@expo/vector-icons';

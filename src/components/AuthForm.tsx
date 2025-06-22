@@ -5,11 +5,11 @@ import { TouchableOpacity, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useSelector } from 'react-redux';
 import PasswordTextInput from './PasswordTextInput';
-import LoadingOverlay from '../../../components/LoadingOverlay';
-import PrimaryButton from '../../../components/PrimaryButton';
-import TextInputWithHeader from '../../../components/TextInputWithHeader';
-import Screens from '../../../constants/Screens';
-import Spacing from '../../../constants/Spacing';
+import LoadingOverlay from './LoadingOverlay';
+import PrimaryButton from './PrimaryButton';
+import TextInputWithHeader from './TextInputWithHeader';
+import Screens from '../constants/Screens';
+import Spacing from '../constants/Spacing';
 import {
   AUTH_FORM_CONFIRM_PASSWORD_HEADER,
   AUTH_FORM_EMAIL_ERROR,
@@ -20,14 +20,14 @@ import {
   AUTH_LOG_IN_BUTTON_TEXT,
   AUTH_NO_ACCOUNT_BUTTON_TEXT,
   AUTH_REGISTER_BUTTON_TEXT,
-} from '../../../constants/Strings';
-import { useThunkDispatch } from '../../../store';
-import LocalStore from '../../../store/LocalStore';
-import Account from '../../../store/user/models/Account';
-import AuthStatus from '../../../store/user/models/AuthStatus';
-import { logInUser, registerUser } from '../../../store/user/UserActions';
-import { Text, useStyleTheme } from '../../../styles/Theme';
-import { isValidEmail, isValidPassword } from '../../../utility/AccountUtility';
+} from '../constants/Strings';
+import { useThunkDispatch } from '../store';
+import LocalStore from '../store/LocalStore';
+import Account from '../store/user/models/Account';
+import AuthStatus from '../store/user/models/AuthStatus';
+import { logInUser, registerUser } from '../store/user/UserActions';
+import { Text, useStyleTheme } from '../styles/Theme';
+import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
 
 interface Props {
   readonly authType: 'register' | 'log-in';
@@ -105,7 +105,6 @@ const AuthForm = (props: Props) => {
     <>
       <KeyboardAwareScrollView
         keyboardShouldPersistTaps="always"
-        style={{ height: '100%' }}
         extraHeight={Spacing.X_LARGE}
         keyboardDismissMode="interactive"
       >

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { TouchableOpacity } from 'react-native';
-import TextInputWithHeader, { TextInputProps } from '../../../components/TextInputWithHeader';
-import { useStyleTheme } from '../../../styles/Theme';
+import TextInputWithHeader, { TextInputProps } from './TextInputWithHeader';
+import { useStyleTheme } from '../styles/Theme';
 
 const PasswordTextInput = (props: TextInputProps) => {
     const { secureTextEntry } = props;

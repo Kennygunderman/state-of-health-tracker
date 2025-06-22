@@ -140,6 +140,7 @@ export const OKAY_BUTTON_TEXT = 'Okay';
 export const AUTH_REGISTER_BUTTON_TEXT = 'Register';
 export const AUTH_LOG_IN_BUTTON_TEXT = 'Log In';
 export const AUTH_NO_ACCOUNT_BUTTON_TEXT = 'Don\'t have an account? Click here to register';
+export const AUTH_TO_CONTINUE_DESC = 'To continue, please log in or create an account.';
 export const ACCOUNT_LOG_IN_LIST_ITEM = 'Log In';
 export const ACCOUNT_LOG_OUT_LIST_ITEM = 'Log Out';
 export const LOG_OUT_CONFIRM_MODAL_HEADER = 'Log Out?';
