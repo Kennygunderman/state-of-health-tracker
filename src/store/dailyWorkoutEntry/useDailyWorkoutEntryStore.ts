@@ -57,7 +57,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           let localWorkout = await offlineWorkoutStorageService.findLocalWorkoutByDate(today);
           if (!localWorkout) {
             // if no remote workout, create a new offline copy
-            const userId = await getUserId()
+            const userId = await getUserId();
             localWorkout = createWorkoutDay(userId ?? '', today);
             await offlineWorkoutStorageService.save(localWorkout);
           }

@@ -1,11 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { ParamListBase, useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import React, { useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import { TouchableOpacity, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { useSelector } from 'react-redux';
 import PasswordTextInput from './PasswordTextInput';
-import LoadingOverlay from './LoadingOverlay';
 import PrimaryButton from './PrimaryButton';
 import TextInputWithHeader from './TextInputWithHeader';
 import Screens from '../constants/Screens';
@@ -22,15 +19,10 @@ import {
   AUTH_REGISTER_BUTTON_TEXT,
 } from '../constants/Strings';
 import { useThunkDispatch } from '../store';
-import LocalStore from '../store/LocalStore';
-import Account from '../store/user/models/Account';
-import AuthStatus from '../store/user/models/AuthStatus';
-import { registerUser } from '../store/user/UserActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
 import { Navigation } from "../navigation/types";
 import useAuthStore from "../store/auth/useAuthStore";
-import { authStatus } from "../data/types/authStatus";
 
 interface Props {
   readonly authType: 'register' | 'log-in';
@@ -51,7 +43,7 @@ const AuthForm = (props: Props) => {
   const [showPasswordError, setShowPasswordError] = useState(false);
   const [showConfirmPasswordError, setShowConfirmPasswordError] = useState(false);
 
-  const { isAttemptingAuth, loginUser } = useAuthStore();
+  const { isAttemptingAuth, loginUser, registerUser } = useAuthStore();
 
   const dispatch = useThunkDispatch();
 
@@ -93,7 +85,7 @@ const AuthForm = (props: Props) => {
   const handleAuth = () => {
     if (validate()) {
       if (authType === 'register') {
-        dispatch(registerUser(email, password));
+        registerUser(email, password);
       } else {
         loginUser(email, password, dispatch);
       }
