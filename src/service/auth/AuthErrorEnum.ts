@@ -1,6 +1,6 @@
 export enum AuthErrorEnum {
     EMAIL_IN_USE = 'auth/email-already-in-use',
-    INVALID_CREDENTIALS = 'auth/invalid-login-credentials',
+    INVALID_CREDENTIALS = 'auth/invalid-credential',
     TOO_MANY_REQUESTS = 'auth/too-many-requests',
 }
 

@@ -29,6 +29,7 @@ import { logInUser, registerUser } from '../store/user/UserActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
 import { Navigation } from "../navigation/types";
+import useAuthStore from "../store/auth/useAuthStore";
 
 interface Props {
   readonly authType: 'register' | 'log-in';
@@ -48,6 +49,8 @@ const AuthForm = (props: Props) => {
 
   const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
   const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
+
+  const { loginUser } = useAuthStore();
 
   useEffect(() => {
     if (account) {
@@ -97,7 +100,7 @@ const AuthForm = (props: Props) => {
       if (authType === 'register') {
         dispatch(registerUser(email, password));
       } else {
-        dispatch(logInUser(email, password));
+        loginUser(email, password, dispatch);
       }
     }
   };

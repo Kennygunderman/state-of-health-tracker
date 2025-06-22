@@ -4,16 +4,21 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStyleTheme } from '../styles/Theme';
 import Screens from '../constants/Screens';
-import { MACROS_TITLE } from '../constants/Strings';
+import { MACROS_TITLE, OKAY_BUTTON_TEXT } from '../constants/Strings';
 
 import MealsStack from './MealsStack';
 import WorkoutsStack from './WorkoutsStack';
 import AccountScreen from '../screens/Account/AccountScreen';
 import DebugScreen from '../screens/debug/DebugScreen';
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { Navigation } from "./types";
 import useAuthStore from "../store/auth/useAuthStore";
 import { authStatus } from "../data/types/authStatus";
+import { AuthError } from "../store/user/models/AuthError";
+import { Subject } from "rxjs";
+import { Alert, View } from "react-native";
+
+export const AuthErrorSubject$ = new Subject<AuthError>()
 
 const Tab = createBottomTabNavigator();
 
@@ -22,30 +27,62 @@ const HomeTabs = () => {
 
   const { push } = useNavigation<Navigation>();
 
-  const { authStatus: status, initAuth } = useAuthStore();
+  const isFocused = useIsFocused();
+
+  const {
+    authStatus: status,
+    initAuth
+  } = useAuthStore();
 
   useEffect(() => {
-    initAuth();
+    if (isFocused) {
+      initAuth();
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    const subscription = AuthErrorSubject$.subscribe((error: AuthError) => {
+      Alert.alert(
+        error.errorPath,
+        error.errorMessage,
+        [
+          {
+            text: OKAY_BUTTON_TEXT,
+          },
+        ],
+      );
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
-    if (status === authStatus.Unauthed) push('Auth', { screen: Screens.LOG_IN });
+    if (status === authStatus.Unauthed) {
+
+      // setTimeout(() => {
+        push('Auth', { screen: Screens.LOG_IN });
+      // }, 500)
+    } else if (status === authStatus.Authed) {
+      console.log('WE AUTHED')
+    }
   }, [status]);
 
   const macrosIcon = (color: string) => (
-    <FontAwesome5 name="utensils" size={16} color={color} style={{ marginBottom: -3 }} />
+    <FontAwesome5 name="utensils" size={16} color={color} style={{ marginBottom: -3 }}/>
   );
 
   const barbellIcon = (color: string) => (
-    <Ionicons name="barbell" size={24} color={color} style={{ marginBottom: -3 }} />
+    <Ionicons name="barbell" size={24} color={color} style={{ marginBottom: -3 }}/>
   );
 
   const accountIcon = (color: string) => (
-    <MaterialCommunityIcons name="account" size={24} color={color} style={{ marginBottom: -3 }} />
+    <MaterialCommunityIcons name="account" size={24} color={color} style={{ marginBottom: -3 }}/>
   );
 
   const debugIcon = (color: string) => (
-    <MaterialCommunityIcons name="desktop-mac" size={24} color={color} style={{ marginBottom: -3 }} />
+    <MaterialCommunityIcons name="desktop-mac" size={24} color={color} style={{ marginBottom: -3 }}/>
   );
 
   return (
@@ -67,10 +104,10 @@ const HomeTabs = () => {
         },
       })}
     >
-      <Tab.Screen name={Screens.MEALS} component={MealsStack} options={{ title: MACROS_TITLE }} />
-      <Tab.Screen name={Screens.WORKOUTS} component={WorkoutsStack} />
-      <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen} />
-      <Tab.Screen name={Screens.DEBUG} component={DebugScreen} />
+      <Tab.Screen name={Screens.MEALS} component={MealsStack} options={{ title: MACROS_TITLE }}/>
+      <Tab.Screen name={Screens.WORKOUTS} component={WorkoutsStack}/>
+      <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen}/>
+      <Tab.Screen name={Screens.DEBUG} component={DebugScreen}/>
     </Tab.Navigator>
   );
 };

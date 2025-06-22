@@ -1,7 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import { collection, doc } from '@react-native-firebase/firestore/lib/modular';
 import { getDocs, query } from '@react-native-firebase/firestore/lib/modular/query';
-import { DailyExercise } from '../../data/models/DailyExercise';
 import { DAILY_MEAL_ENTRIES_INITIAL_STATE } from '../../store/dailyMealEntries/DailyMealEntriesReducer';
 import { DailyMealEntryMap } from '../../store/dailyMealEntries/DailyMealEntriesState';
 import { createDailyMealEntry, DailyMealEntry } from '../../store/dailyMealEntries/models/DailyMealEntry';
@@ -15,11 +14,6 @@ import Account from '../../store/user/models/Account';
 import { USER_INFO_INITIAL_STATE } from '../../store/userInfo/UserInfoReducer';
 import { getCurrentDate } from '../../utility/DateUtility';
 
-interface IUserService {
-    saveUserData: (account: Account, store: LocalStore, onDataSynced: () => void, onError: (errorCode: string) => void) => void;
-    fetchUserData: (userId: string, onDataFetched: (data: LocalStore) => void, onError: (errorCode: string) => void) => void;
-}
-
 interface RemoteDailyMealEntry {
     id: string;
     date: string;
@@ -27,15 +21,8 @@ interface RemoteDailyMealEntry {
     meals: Meal[];
 }
 
-interface RemoteDailyExerciseEntry {
-    id: string;
-    date: string;
-    userId?: string;
-    dailyExercises: DailyExercise[];
-}
-
 // This is horrible, what was i thinking
-class UserService implements IUserService {
+class UserService {
     async saveUserData(account: Account, store: LocalStore, onDataSynced: () => void, onError: (error: string) => void) {
         try {
             await firestore().collection('user').doc(account.id).set(
@@ -155,38 +142,36 @@ class UserService implements IUserService {
         };
     }
 
-    async fetchUserData(userId: string, onDataFetched: (data: LocalStore) => void, onError: (error: string) => void) {
+    async fetchUserData(userId: string): Promise<LocalStore> {
         try {
             const user = await this.fetchUserDoc('user', userId);
-            const isLegacyUser = user && 'user' in user && 'userInfo';
+
+            const isLegacyUser = user && 'user' in user && 'userInfo' in user;
             if (isLegacyUser) {
-                const store = this.handleLegacyMigration(user);
-                onDataFetched(store);
-                return;
+                return this.handleLegacyMigration(user);
             }
 
             const userInfo = await this.fetchUserDoc('userInfo', userId);
-
             const { mealMap, dailyMealEntryMap } = await this.fetchMealEntries(userId);
 
             const store: LocalStore = {
-                // @ts-ignore
+                //@ts-ignore
                 user: user ?? USER_INITIAL_STATE,
                 // @ts-ignore
                 userInfo: userInfo ? { ...userInfo, currentDate: getCurrentDate() } : USER_INFO_INITIAL_STATE,
                 // @ts-ignore
                 food: await this.fetchUserDoc('userFood', userId) ?? FOOD_INITIAL_STATE,
-                // @ts-ignore
-                exercises: await this.fetchUserDoc('userExercises', userId) ?? EXERCISES_INITIAL_STATE,
                 meals: { map: mealMap },
                 dailyMealEntries: { map: dailyMealEntryMap },
             };
-            onDataFetched(store);
+
+            return store;
         } catch (error: any) {
-            onError(error);
+            // Re-throw so the caller can handle it with try/catch
+            throw error;
         }
     }
 }
 
-const userService = new UserService() as IUserService;
+const userService = new UserService();
 export default userService;

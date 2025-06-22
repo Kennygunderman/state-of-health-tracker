@@ -1,21 +1,19 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-    Alert, Linking, SafeAreaView, ScrollView,
+  Linking, SafeAreaView, ScrollView,
 } from 'react-native';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import AccountListItem from './components/AccountListItem';
 import AuthListItem from './components/AuthListItem';
 import DeleteAccountListItem from './components/DeleteAccountListItem';
 import HorizontalDivider from '../../components/HorizontalDivider';
-import LoadingOverlay from '../../components/LoadingOverlay';
 import FontSize from '../../constants/FontSize';
 import Spacing from '../../constants/Spacing';
 import {
     ACCOUNT_AUTH_SECTION_TITLE,
     ACCOUNT_CURRENT_WEIGHT_LIST_ITEM,
     ACCOUNT_LOGGED_IN_AS,
-    ACCOUNT_LOGGED_IN_AS_GUEST,
     ACCOUNT_PRIVACY_POLICY,
     ACCOUNT_STATS_SECTION_TITLE,
     ACCOUNT_TARGET_CALORIES_LIST_ITEM,
@@ -24,18 +22,15 @@ import {
     ACCOUNT_TOTAL_DAYS_MACROS_LIST_ITEM,
     ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM,
     ACCOUNT_WELCOME_TEXT,
-    OKAY_BUTTON_TEXT,
 } from '../../constants/Strings';
 import { DailyMealEntry, getPreviousDailyMealEntriesSelector } from '../../selectors/MealsSelector';
 import { getLastRecordedWeightSelector } from '../../selectors/UserInfoSelector';
 import LocalStore from '../../store/LocalStore';
-import Account from '../../store/user/models/Account';
-import { AuthError } from '../../store/user/models/AuthError';
-import AuthStatus from '../../store/user/models/AuthStatus';
-import { setAuthStatus } from '../../store/user/UserActions';
 import { Text, useStyleTheme } from '../../styles/Theme';
-import { formatDayMonthDay, isDateLessThan2SecondsOld } from '../../utility/DateUtility';
+import { formatDayMonthDay } from '../../utility/DateUtility';
 import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
+import useAuthStore from "../../store/auth/useAuthStore";
+import { authStatus } from "../../data/types/authStatus";
 
 const AccountScreen = () => {
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
@@ -44,47 +39,14 @@ const AccountScreen = () => {
     const lastWeightEntry = useSelector<LocalStore, string>((state: LocalStore) => getLastRecordedWeightSelector(state));
     const dailyMealEntries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, 10_000));
 
-    const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
-    const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
-    const authError = useSelector<LocalStore, AuthError | undefined>((state: LocalStore) => state.user.authError);
-
+    const { userEmail, authStatus: authorizationStatus } = useAuthStore()
     const { totalSummaries } = useWorkoutSummariesStore()
-
-    const dispatch = useDispatch();
-
-    useEffect(() => {
-        if (authStatus === AuthStatus.SYNCING) {
-            dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
-        }
-    }, []);
-
-    useEffect(() => {
-        if (authError && isDateLessThan2SecondsOld(authError.errorDate)) {
-            Alert.alert(
-                authError.errorPath,
-                authError.errorMessage,
-                [
-                    {
-                        text: OKAY_BUTTON_TEXT,
-                    },
-                ],
-            );
-        }
-    }, [authError]);
 
     const iconSize = 24;
     const iconColor = useStyleTheme().colors.white;
 
     const getWelcomeMessage = () => {
-        if (account?.name && account?.name !== '') {
-            return ACCOUNT_LOGGED_IN_AS + account.name;
-        }
-
-        if (account?.email && account?.email !== '') {
-            return ACCOUNT_LOGGED_IN_AS + account.email;
-        }
-
-        return ACCOUNT_LOGGED_IN_AS_GUEST;
+      return ACCOUNT_LOGGED_IN_AS + userEmail;
     };
 
     const sectionHeader = (title: string) => (
@@ -162,7 +124,7 @@ const AccountScreen = () => {
                 icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
                 onPressOverride={openPrivacyPolicy}
             />
-            {authStatus === AuthStatus.LOGGED_IN && <DeleteAccountListItem />}
+            {authorizationStatus === authStatus.Authed && <DeleteAccountListItem />}
         </>
     );
 
@@ -214,7 +176,6 @@ const AccountScreen = () => {
                     {authSection()}
                 </ScrollView>
             </SafeAreaView>
-            {authStatus === AuthStatus.SYNCING && <LoadingOverlay />}
         </>
     );
 };

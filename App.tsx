@@ -8,7 +8,6 @@ import {
 import Toast from 'react-native-toast-message';
 import { Provider } from 'react-redux';
 import ToastConfig from './src/components/toast/ToastConfig';
-import Screens from './src/constants/Screens';
 import store, { useThunkDispatch } from './src/store';
 import { addDailyMealEntry } from './src/store/dailyMealEntries/DailyMealEntriesActions';
 import { syncUserData } from './src/store/user/UserActions';
@@ -49,7 +48,7 @@ const App = () => {
       <AppStateChanged/>
       <NavigationContainer theme={darkTheme}>
         <Stack.Navigator
-          initialRouteName={Screens.MEALS}
+          initialRouteName={'Home'}
           screenOptions={({ navigation }) => ({
             headerLeft: () => (
               <TouchableOpacity onPress={() => navigation.goBack()}>

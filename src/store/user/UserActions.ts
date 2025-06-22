@@ -13,7 +13,7 @@ import { removeUserId, storeUserId } from "../../service/auth/userStorage";
 
 export const SET_USER_ACCOUNT: string = 'SET_USER_ACCOUNT';
 export const SET_AUTH_ERROR: string = 'SET_AUTH_ERROR';
-export const LOG_IN_USER: string = 'LOG_OUT_USER';
+export const LOG_IN_USER: string = 'LOG_IN_USER';
 export const LOG_OUT_USER: string = 'LOG_OUT_USER';
 export const SET_AUTH_STATUS: string = 'SET_AUTH_STATUS';
 export const UPDATE_LAST_SYNCED: string = 'UPDATE_LAST_SYNCED';

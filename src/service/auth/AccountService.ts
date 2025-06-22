@@ -1,17 +1,10 @@
-import auth from '@react-native-firebase/auth';
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { decodeAuthError } from './AuthErrorEnum';
 import Account from '../../store/user/models/Account';
 import { AuthError, AuthErrorPathEnum } from '../../store/user/models/AuthError';
 import CrashUtility from '../../utility/CrashUtility';
 
-export interface IAccountService {
-    registerUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
-    logInUser: (email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) => void;
-    logOutUser: () => void;
-    deleteUser: (onDeleted: () => void, onError: (Error: Error) => void) => void;
-}
-
-class AccountService implements IAccountService {
+class AccountService {
     registerUser(email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) {
         auth().createUserWithEmailAndPassword(email, password)
             .then((userCredential) => {
@@ -33,27 +26,27 @@ class AccountService implements IAccountService {
             });
     }
 
-    logInUser(email: string, password: string, onCreated: (account: Account) => void, onError: (authError: AuthError) => void) {
-        auth().signInWithEmailAndPassword(email, password)
-            .then((userCredential) => {
-                const { user } = userCredential;
-                onCreated({
-                    id: user.uid,
-                    name: user.displayName,
-                    email: user.email,
-                });
-            })
-            .catch((error) => {
-                CrashUtility.recordError(error);
-                onError({
-                    errorPath: AuthErrorPathEnum.LOGIN,
-                    errorDate: Date.now(),
-                    errorCode: error.code,
-                    errorMessage: decodeAuthError(error.code),
-                });
-            });
-    }
+    async logInUser(email: string, password: string): Promise<Account> {
+        try {
+            const userCredential = await auth().signInWithEmailAndPassword(email, password);
+            const { user } = userCredential;
+            return {
+                id: user.uid,
+                name: user.displayName,
+                email: user.email,
+            };
+        } catch (e) {
+            const error = e as FirebaseAuthTypes.NativeFirebaseAuthError;
+            const authError: AuthError = {
+                errorPath: AuthErrorPathEnum.LOGIN,
+                errorDate: Date.now(),
+                errorCode: error.code,
+                errorMessage: decodeAuthError(error.code),
+            };
 
+            return Promise.reject(authError);
+        }
+    }
     logOutUser() {
         auth().signOut();
     }
@@ -69,5 +62,5 @@ class AccountService implements IAccountService {
     }
 }
 
-const accountService = new AccountService() as IAccountService;
+const accountService = new AccountService();
 export default accountService;
