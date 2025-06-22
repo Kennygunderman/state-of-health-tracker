@@ -63,7 +63,7 @@ const App = () => {
           <Stack.Screen
             name="Home"
             component={HomeTabs}
-            options={{ headerShown: false }}
+            options={{ animation: 'fade', headerShown: false }}
           />
 
           <Stack.Screen

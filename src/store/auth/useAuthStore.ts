@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { authStatus, AuthStatus } from "../../data/types/authStatus";
+import { authStatus } from "../../data/types/authStatus";
 import auth from "@react-native-firebase/auth";
 import accountService from "../../service/auth/AccountService";
 import userService from "../../service/user/UserService";
@@ -8,6 +8,7 @@ import { AuthError, AuthErrorPathEnum } from "../user/models/AuthError";
 import { decodeAuthError } from "../../service/auth/AuthErrorEnum";
 import { LOG_IN_USER } from "../user/UserActions";
 import { AuthSubject$ } from "../../screens/Auth";
+import { authEventType } from "../../data/types/authEvent";
 
 export type AuthState = {
   userId: string | null;
@@ -35,7 +36,10 @@ const useAuthStore = create<AuthState>()(
         isAuthed: isAuthed
       });
 
-      AuthSubject$.next(isAuthed ? authStatus.Authed : authStatus.Unauthed);
+      AuthSubject$.next({
+        type: authEventType.Status,
+        status: isAuthed ? authStatus.Authed : authStatus.Unauthed,
+      });
     },
     loginUser: async (email, password, dispatch) => {
       set({ isAttemptingAuth: true });
@@ -52,7 +56,10 @@ const useAuthStore = create<AuthState>()(
 
         set({ userEmail: account.email, isAuthed: true });
 
-        AuthSubject$.next(authStatus.Authed);
+        AuthSubject$.next({
+          type: authEventType.Status,
+          status: authStatus.Authed
+        });
       } catch (error: any) {
         const code = error?.code || error?.errorCode || 'unknown'
         const authError: AuthError = {
@@ -62,7 +69,11 @@ const useAuthStore = create<AuthState>()(
           errorCode: code,
         }
 
-        AuthSubject$.error(authError);
+        AuthSubject$.next({
+          type: authEventType.Error,
+          error: authError
+        });
+
         set({ isAuthed: false });
       } finally {
         set({ isAttemptingAuth: false });

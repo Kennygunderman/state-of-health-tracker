@@ -1,24 +1,23 @@
 import { Alert, View, Image } from "react-native";
 
-import { CommonActions, useNavigation } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "../../navigation/types";
 import useAuthStore from "../../store/auth/useAuthStore";
 import { useEffect, useState } from "react";
-import { AuthError } from "../../store/user/models/AuthError";
 import { OKAY_BUTTON_TEXT } from "../../constants/Strings";
-import { AuthStatus, authStatus } from "../../data/types/authStatus";
+import { authStatus } from "../../data/types/authStatus";
+import { AuthEvent, authEventType } from "../../data/types/authEvent";
 import Screens from "../../constants/Screens";
 import { Subject } from "rxjs";
 import { useStyleTheme } from "../../styles/Theme";
 
 import * as SplashScreen from "expo-splash-screen";
-
 import styles from "./index.styled";
 
-export const AuthSubject$ = new Subject<AuthStatus>();
+export const AuthSubject$ = new Subject<AuthEvent>();
 
 const RootAuthScreen = () => {
-  const navigation = useNavigation<Navigation>();
+  const { replace, push } = useNavigation<Navigation>();
 
   const theme = useStyleTheme();
 
@@ -35,28 +34,24 @@ const RootAuthScreen = () => {
 
   useEffect(() => {
     const subscription = AuthSubject$.subscribe({
-      next: (status: AuthStatus) => {
-        if (status === authStatus.Unauthed) {
-          navigation.push('Auth', { screen: Screens.LOG_IN });
-        } else if (status === authStatus.Authed) {
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Home' }],
-            })
+      next: (event: AuthEvent) => {
+        if (event.type === authEventType.Error) {
+          Alert.alert(
+            event.error.errorPath,
+            event.error.errorMessage,
+            [
+              {
+                text: OKAY_BUTTON_TEXT,
+              },
+            ],
           );
+        } else {
+          if (event.status === authStatus.Unauthed) {
+            push('Auth', { screen: Screens.LOG_IN });
+          } else if (event.status === authStatus.Authed) {
+            replace('Home');
+          }
         }
-      },
-      error: (error: AuthError) => {
-        Alert.alert(
-          error.errorPath,
-          error.errorMessage,
-          [
-            {
-              text: OKAY_BUTTON_TEXT,
-            },
-          ],
-        );
       }
     });
 
