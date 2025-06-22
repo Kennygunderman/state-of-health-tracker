@@ -49,7 +49,7 @@ const AuthListItem = () => {
                     if (account) {
                         setIsConfirmModalVisible(true);
                     } else {
-                        navigation.push(Screens.LOG_IN);
+                        navigation.push('Auth', { screen: Screens.LOG_IN })
                     }
                 }}
             />

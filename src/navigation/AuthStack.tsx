@@ -7,23 +7,31 @@ import { useStyleTheme } from '../styles/Theme';
 import { Ionicons } from '@expo/vector-icons';
 
 import Screens from '../constants/Screens';
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "./types";
 
 const Stack = createNativeStackNavigator();
 
 const AuthStack = () => {
   const theme = useStyleTheme();
+  const { goBack, push } = useNavigation<Navigation>();
 
-  const closeButton = (onPress: () => void) => (
-    <TouchableOpacity onPress={onPress}>
-      <Ionicons name="close" size={24} color={theme.colors.white}/>
-    </TouchableOpacity>
-  );
+  const onBackPressed = () => {
+    goBack();
+    setTimeout(() => {
+      push('Auth', { screen: Screens.LOG_IN });
+    }, 300);
+  }
 
   return (
     <Stack.Navigator
-      screenOptions={({ navigation }) => ({
-        presentation: 'modal',
-        headerLeft: () => closeButton(() => navigation.goBack()),
+      screenOptions={({ route }) => ({
+        headerLeft: () =>
+          route.name === Screens.REGISTER && (
+            <TouchableOpacity onPress={onBackPressed}>
+              <Ionicons name="chevron-back" size={24} color={useStyleTheme().colors.white}/>
+            </TouchableOpacity>
+          ),
         headerStyle: {
           backgroundColor: theme.colors.background,
         },

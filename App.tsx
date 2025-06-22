@@ -1,6 +1,5 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
@@ -21,7 +20,6 @@ import AuthStack from "./src/navigation/AuthStack";
 import HomeTabs from "./src/navigation/HomeTabs";
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
 
 LogBox.ignoreAllLogs(true);
 
@@ -66,7 +64,15 @@ const App = () => {
             options={{ headerShown: false }}
           />
 
-          <Stack.Screen name="Auth" component={AuthStack} options={{ headerShown: false }}/>
+          <Stack.Screen
+            name="Auth"
+            component={AuthStack}
+            options={{
+              gestureEnabled: false,
+              headerShown: false,
+              presentation: "modal"
+            }}
+          />
 
         </Stack.Navigator>
         <GlobalBottomSheet/>

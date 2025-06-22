@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,11 +10,24 @@ import MealsStack from './MealsStack';
 import WorkoutsStack from './WorkoutsStack';
 import AccountScreen from '../screens/Account/AccountScreen';
 import DebugScreen from '../screens/debug/DebugScreen';
+import { useNavigation } from "@react-navigation/native";
+import { Navigation } from "./types";
+import { getUserId } from "../service/auth/userStorage";
 
 const Tab = createBottomTabNavigator();
 
 const HomeTabs = () => {
   const theme = useStyleTheme();
+
+  const { push } = useNavigation<Navigation>();
+
+  useEffect(() => {
+    getUserId().then((id) => {
+      if (!id) {
+        push('Auth', { screen: Screens.LOG_IN });
+      }
+    })
+  }, []);
 
   const macrosIcon = (color: string) => (
     <FontAwesome5 name="utensils" size={16} color={color} style={{ marginBottom: -3 }} />
