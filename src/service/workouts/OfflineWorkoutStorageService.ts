@@ -10,7 +10,7 @@ class OfflineWorkoutStorageService {
 
   private async withLock(task: () => Promise<void>) {
     if (this.isLocked) {
-      console.warn('[OfflineStorage] Write in progress, skipping.');
+      console.log('[OfflineStorage] Write in progress, skipping.');
       return;
     }
 

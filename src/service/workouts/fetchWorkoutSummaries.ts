@@ -3,6 +3,7 @@ import CrashUtility from "../../utility/CrashUtility";
 import * as io from 'io-ts';
 import Endpoints from "../../constants/Endpoints";
 import { WorkoutSummary } from "../../data/models/WorkoutSummary";
+import { Pagination } from "../../data/models/Pagination";
 
 const BestSetResponse = io.type({
   weight: io.number,
@@ -34,10 +35,10 @@ const WorkoutSummariesApiResponse = io.type({
   }),
 });
 
-export async function fetchWorkoutSummaries(): Promise<WorkoutSummary[]> {
+export async function fetchWorkoutSummaries(page: number = 1): Promise<{summaries: WorkoutSummary[]; pagination: Pagination}> {
   try {
     const response = await httpGet(
-      Endpoints.WorkoutSummaries,
+      Endpoints.WorkoutSummaries + `?page=${page}&limit=15`,
       WorkoutSummariesApiResponse
     );
 
@@ -45,7 +46,10 @@ export async function fetchWorkoutSummaries(): Promise<WorkoutSummary[]> {
 
     if (!data?.summaries) throw new Error('No workout summaries returned');
 
-    return data?.summaries
+    return {
+      summaries: data.summaries,
+      pagination: data.pagination
+    }
 
   } catch (error) {
     CrashUtility.recordError(error);

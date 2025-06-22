@@ -25,8 +25,6 @@ import CreateExerciseScreen from './src/screens/CreateExercise';
 import CreateFoodScreen from './src/screens/CreateFoodScreen';
 import FoodDetailScreen from './src/screens/FoodDetailScreen';
 import MealsScreen from './src/screens/Meals/MealsScreen';
-import PreviousDailyExerciseEntriesScreen
-  from './src/screens/PreviousDailyExercises/PreviousDailyExerciseEntriesScreen';
 import PreviousDailyMealEntriesScreen from './src/screens/PreviousDailyMealEntriesScreen';
 import WorkoutsScreen from './src/screens/Workouts/WorkoutsScreen';
 import WorkoutTemplateDetailScreen from './src/screens/TemplateDetail';
@@ -41,6 +39,7 @@ import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import DebugScreen from "./src/screens/debug/DebugScreen";
 import CreateTemplateScreen from "./src/screens/CreateTemplate";
 import SearchExercisesScreen from "./src/screens/SearchExercises";
+import PreviousWorkoutEntries from "./src/screens/PreviousWorkoutEntries";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -253,7 +252,7 @@ const App = () => {
           <Stack.Screen
             name={Screens.PREVIOUS_DAILY_EXERCISE_ENTRIES}
             options={{ title: PREVIOUS_WORKOUTS_TITLE }}
-            component={PreviousDailyExerciseEntriesScreen}
+            component={PreviousWorkoutEntries}
           />
 
         </Stack.Navigator>
