@@ -47,8 +47,13 @@ class AccountService {
             return Promise.reject(authError);
         }
     }
-    logOutUser() {
-        auth().signOut();
+
+    getCurrentUser() {
+        return auth().currentUser;
+    }
+
+    async logOutUser() {
+        await auth().signOut();
     }
 
     deleteUser(onDeleted: () => void, onError: (error: Error) => void) {

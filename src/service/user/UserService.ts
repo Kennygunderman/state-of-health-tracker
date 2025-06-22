@@ -23,7 +23,7 @@ interface RemoteDailyMealEntry {
 
 // This is horrible, what was i thinking
 class UserService {
-    async saveUserData(account: Account, store: LocalStore, onDataSynced: () => void, onError: (error: string) => void) {
+    async saveUserData(account: Account, store: LocalStore) {
         try {
             await firestore().collection('user').doc(account.id).set(
                 {
@@ -50,10 +50,8 @@ class UserService {
 
             await this.saveDailyMealEntries(account, store.dailyMealEntries.map, store.meals.map);
 
-            onDataSynced();
         } catch (error: any) {
             console.log('sync err', error);
-            onError(error);
         }
     }
 

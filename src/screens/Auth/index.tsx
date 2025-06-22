@@ -11,13 +11,15 @@ import Screens from "../../constants/Screens";
 import { Subject } from "rxjs";
 import { useStyleTheme } from "../../styles/Theme";
 
-import * as SplashScreen from "expo-splash-screen";
 import styles from "./index.styled";
 
 export const AuthSubject$ = new Subject<AuthEvent>();
 
 const RootAuthScreen = () => {
-  const { replace, push } = useNavigation<Navigation>();
+  const {
+    replace,
+    push
+  } = useNavigation<Navigation>();
 
   const theme = useStyleTheme();
 
@@ -27,7 +29,6 @@ const RootAuthScreen = () => {
 
   useEffect(() => {
     if (isRendered) {
-      SplashScreen.hideAsync();
       initAuth();
     }
   }, [isRendered]);
