@@ -39,7 +39,7 @@ const AccountScreen = () => {
     const lastWeightEntry = useSelector<LocalStore, string>((state: LocalStore) => getLastRecordedWeightSelector(state));
     const dailyMealEntries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, 10_000));
 
-    const { userEmail, authStatus: authorizationStatus } = useAuthStore()
+    const { userEmail, isAuthed } = useAuthStore();
     const { totalSummaries } = useWorkoutSummariesStore()
 
     const iconSize = 24;
@@ -124,7 +124,7 @@ const AccountScreen = () => {
                 icon={<Ionicons name="document" size={iconSize} color={iconColor} />}
                 onPressOverride={openPrivacyPolicy}
             />
-            {authorizationStatus === authStatus.Authed && <DeleteAccountListItem />}
+            {isAuthed && <DeleteAccountListItem />}
         </>
     );
 

@@ -30,6 +30,7 @@ import { Text, useStyleTheme } from '../styles/Theme';
 import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
 import { Navigation } from "../navigation/types";
 import useAuthStore from "../store/auth/useAuthStore";
+import { authStatus } from "../data/types/authStatus";
 
 interface Props {
   readonly authType: 'register' | 'log-in';
@@ -38,7 +39,10 @@ interface Props {
 const AuthForm = (props: Props) => {
   const { authType } = props;
 
-  const { goBack, push } = useNavigation<Navigation>();
+  const {
+    goBack,
+    push
+  } = useNavigation<Navigation>();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,9 +51,7 @@ const AuthForm = (props: Props) => {
   const [showPasswordError, setShowPasswordError] = useState(false);
   const [showConfirmPasswordError, setShowConfirmPasswordError] = useState(false);
 
-  const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
-
-  const { loginUser } = useAuthStore();
+  const { isAttemptingAuth, loginUser } = useAuthStore();
 
   const dispatch = useThunkDispatch();
 
@@ -88,7 +90,7 @@ const AuthForm = (props: Props) => {
     setConfirmPassword(text);
   };
 
-  const onRegisterPressed = () => {
+  const handleAuth = () => {
     if (validate()) {
       if (authType === 'register') {
         dispatch(registerUser(email, password));
@@ -140,8 +142,9 @@ const AuthForm = (props: Props) => {
             )}
           <PrimaryButton
             style={{ marginTop: Spacing.LARGE }}
+            isLoading={isAttemptingAuth}
             label={authType === 'register' ? AUTH_REGISTER_BUTTON_TEXT : AUTH_LOG_IN_BUTTON_TEXT}
-            onPress={onRegisterPressed}
+            onPress={handleAuth}
           />
           {authType === 'log-in'
             && (
@@ -165,7 +168,6 @@ const AuthForm = (props: Props) => {
             )}
         </View>
       </KeyboardAwareScrollView>
-      {authStatus === AuthStatus.SYNCING && <LoadingOverlay/>}
     </>
   );
 };
