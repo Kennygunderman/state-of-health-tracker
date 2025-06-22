@@ -62,6 +62,7 @@ export const PROTEIN_LABEL = 'protein';
 export const CARBS_LABEL = 'carbs';
 export const FAT_LABEL = 'fat';
 export const MACROS_TITLE = 'Macros';
+export const WORKOUTS_TITLE = 'Workouts';
 export const YOUR_EXERCISES_HEADER = 'Your Exercises';
 export const EXERCISES_HEADER = 'Exercises';
 export const TEMPLATES_HEADER = 'Templates';

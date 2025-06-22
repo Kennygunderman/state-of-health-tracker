@@ -4,18 +4,15 @@ import { authStatus, AuthStatus } from "../../data/types/authStatus";
 import auth from "@react-native-firebase/auth";
 import accountService from "../../service/auth/AccountService";
 import userService from "../../service/user/UserService";
-import LocalStore from "../LocalStore";
-import { storeUserId } from "../../service/auth/userStorage";
-import CrashUtility from "../../utility/CrashUtility";
 import { AuthError, AuthErrorPathEnum } from "../user/models/AuthError";
 import { decodeAuthError } from "../../service/auth/AuthErrorEnum";
 import { LOG_IN_USER } from "../user/UserActions";
-import { AuthErrorSubject$ } from "../../navigation/HomeTabs";
+import { AuthErrorSubject$ } from "../../screens/Auth";
 
 export type AuthState = {
   userId: string | null;
   userEmail: string | null;
-  authStatus: AuthStatus | null;
+  authStatus: AuthStatus;
   initAuth: () => void;
   // passing in dispatch here is a temp workaround while I
   // remove redux from the app
@@ -26,7 +23,7 @@ const useAuthStore = create<AuthState>()(
   immer((set) => ({
     userId: null,
     userEmail: null,
-    authStatus: null,
+    authStatus: authStatus.Pending,
     initAuth: () => {
       const user = auth().currentUser;
       set({

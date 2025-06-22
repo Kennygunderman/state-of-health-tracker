@@ -1,4 +1,5 @@
 export default {
+    RootAuth: 'RootAuth',
     MEALS: 'Meals',
     WORKOUTS: 'Workouts',
     ADD_FOOD: 'Add Food',

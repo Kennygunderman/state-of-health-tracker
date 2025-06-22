@@ -1,73 +1,20 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStyleTheme } from '../styles/Theme';
 import Screens from '../constants/Screens';
-import { MACROS_TITLE, OKAY_BUTTON_TEXT } from '../constants/Strings';
+import { MACROS_TITLE, WORKOUTS_TITLE } from '../constants/Strings';
 
 import MealsStack from './MealsStack';
 import WorkoutsStack from './WorkoutsStack';
 import AccountScreen from '../screens/Account/AccountScreen';
 import DebugScreen from '../screens/debug/DebugScreen';
-import { useIsFocused, useNavigation } from "@react-navigation/native";
-import { Navigation } from "./types";
-import useAuthStore from "../store/auth/useAuthStore";
-import { authStatus } from "../data/types/authStatus";
-import { AuthError } from "../store/user/models/AuthError";
-import { Subject } from "rxjs";
-import { Alert, View } from "react-native";
-
-export const AuthErrorSubject$ = new Subject<AuthError>()
 
 const Tab = createBottomTabNavigator();
 
 const HomeTabs = () => {
   const theme = useStyleTheme();
-
-  const { push } = useNavigation<Navigation>();
-
-  const isFocused = useIsFocused();
-
-  const {
-    authStatus: status,
-    initAuth
-  } = useAuthStore();
-
-  useEffect(() => {
-    if (isFocused) {
-      initAuth();
-    }
-  }, [isFocused]);
-
-  useEffect(() => {
-    const subscription = AuthErrorSubject$.subscribe((error: AuthError) => {
-      Alert.alert(
-        error.errorPath,
-        error.errorMessage,
-        [
-          {
-            text: OKAY_BUTTON_TEXT,
-          },
-        ],
-      );
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (status === authStatus.Unauthed) {
-
-      // setTimeout(() => {
-        push('Auth', { screen: Screens.LOG_IN });
-      // }, 500)
-    } else if (status === authStatus.Authed) {
-      console.log('WE AUTHED')
-    }
-  }, [status]);
 
   const macrosIcon = (color: string) => (
     <FontAwesome5 name="utensils" size={16} color={color} style={{ marginBottom: -3 }}/>
@@ -90,8 +37,8 @@ const HomeTabs = () => {
       sceneContainerStyle={{ backgroundColor: theme.colors.background }}
       screenOptions={({ route }) => ({
         tabBarIcon: ({ color }) => {
-          if (route.name === Screens.MEALS) return macrosIcon(color);
-          if (route.name === Screens.WORKOUTS) return barbellIcon(color);
+          if (route.name === 'MealsStack') return macrosIcon(color);
+          if (route.name === 'WorkoutsStack') return barbellIcon(color);
           if (route.name === Screens.ACCOUNT) return accountIcon(color);
           if (route.name === Screens.DEBUG) return debugIcon(color);
         },
@@ -104,8 +51,8 @@ const HomeTabs = () => {
         },
       })}
     >
-      <Tab.Screen name={Screens.MEALS} component={MealsStack} options={{ title: MACROS_TITLE }}/>
-      <Tab.Screen name={Screens.WORKOUTS} component={WorkoutsStack}/>
+      <Tab.Screen name={'MealsStack'} component={MealsStack} options={{ title: MACROS_TITLE }}/>
+      <Tab.Screen name={'WorkoutsStack'} component={WorkoutsStack} options={{title: WORKOUTS_TITLE}}/>
       <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen}/>
       <Tab.Screen name={Screens.DEBUG} component={DebugScreen}/>
     </Tab.Navigator>

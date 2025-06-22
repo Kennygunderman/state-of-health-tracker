@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
-  AppState, LogBox, StatusBar, TouchableOpacity,
+  AppState, LogBox, StatusBar, TouchableOpacity, View,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { Provider } from 'react-redux';
@@ -17,6 +17,7 @@ import { getCurrentDate } from './src/utility/DateUtility';
 import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import AuthStack from "./src/navigation/AuthStack";
 import HomeTabs from "./src/navigation/HomeTabs";
+import { authStatus } from "./src/data/types/authStatus";
 
 const Stack = createNativeStackNavigator();
 
@@ -46,9 +47,11 @@ const App = () => {
     <Provider store={store}>
       <StatusBar barStyle="light-content"/>
       <AppStateChanged/>
-      <NavigationContainer theme={darkTheme}>
+      <NavigationContainer
+        theme={darkTheme}
+      >
         <Stack.Navigator
-          initialRouteName={'Home'}
+          initialRouteName={'Auth'}
           screenOptions={({ navigation }) => ({
             headerLeft: () => (
               <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -67,6 +70,7 @@ const App = () => {
             name="Auth"
             component={AuthStack}
             options={{
+              title: '',
               gestureEnabled: false,
               headerShown: false,
               presentation: "modal"

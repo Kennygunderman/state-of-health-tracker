@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Screens from '../constants/Screens';
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "./types";
+import RootAuthScreen from "../screens/Auth";
 
 const Stack = createNativeStackNavigator();
 
@@ -39,6 +40,8 @@ const AuthStack = () => {
         headerShadowVisible: false,
       })}
     >
+
+      <Stack.Screen name={Screens.RootAuth} component={RootAuthScreen} options={{ headerShown: false}}/>
       <Stack.Screen name={Screens.LOG_IN} component={LogInScreen}/>
       <Stack.Screen name={Screens.REGISTER} component={RegisterScreen}/>
     </Stack.Navigator>

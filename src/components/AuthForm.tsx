@@ -25,7 +25,7 @@ import { useThunkDispatch } from '../store';
 import LocalStore from '../store/LocalStore';
 import Account from '../store/user/models/Account';
 import AuthStatus from '../store/user/models/AuthStatus';
-import { logInUser, registerUser } from '../store/user/UserActions';
+import { registerUser } from '../store/user/UserActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
 import { Navigation } from "../navigation/types";
@@ -48,15 +48,8 @@ const AuthForm = (props: Props) => {
   const [showConfirmPasswordError, setShowConfirmPasswordError] = useState(false);
 
   const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
-  const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
 
   const { loginUser } = useAuthStore();
-
-  useEffect(() => {
-    if (account) {
-      goBack();
-    }
-  }, [account]);
 
   const dispatch = useThunkDispatch();
 
