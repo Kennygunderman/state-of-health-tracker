@@ -1,4 +1,4 @@
-import Unique from '../../models/Unique';
+import Unique from '../../../data/models/Unique';
 
 export default interface Account extends Unique {
     name?: string | null;

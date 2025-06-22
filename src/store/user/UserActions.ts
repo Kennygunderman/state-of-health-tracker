@@ -7,7 +7,6 @@ import { decodeAuthError } from '../../service/auth/AuthErrorEnum';
 import userService from '../../service/user/UserService';
 import CrashUtility from '../../utility/CrashUtility';
 import { isDateOlderThanADay } from '../../utility/DateUtility';
-import { setExerciseEntriesSynced } from '../dailyExerciseEntries/DailyExerciseActions';
 import { setMealEntriesSynced } from '../dailyMealEntries/DailyMealEntriesActions';
 import LocalStore from '../LocalStore';
 import { removeUserId, storeUserId } from "../../service/auth/userStorage";
@@ -63,7 +62,6 @@ export function registerUser(email: string, password: string) {
                         dispatch(setUserAccount(account));
                         dispatch(setAuthError(undefined));
                         dispatch(setMealEntriesSynced());
-                        dispatch(setExerciseEntriesSynced());
                     },
                     (error) => {
                         // If this error happens, the user has registered but their account data is not synced to the server.
@@ -189,7 +187,6 @@ export function syncUserData() {
             getState(),
             () => {
                 dispatch(setMealEntriesSynced());
-                dispatch(setExerciseEntriesSynced());
                 dispatch(updateLastSynced(Date.now()));
             },
             (error) => {

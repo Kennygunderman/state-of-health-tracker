@@ -6,6 +6,7 @@ import { WorkoutSummary } from "../../data/models/WorkoutSummary";
 export type WorkoutSummariesState = {
   currentPage: number;
   summaries: WorkoutSummary[];
+  totalSummaries: number;
   isFetching: boolean;
   canFetchMore: boolean;
   fetchSummaries: () => Promise<void>;
@@ -14,6 +15,7 @@ export type WorkoutSummariesState = {
 const useWorkoutSummariesStore = create<WorkoutSummariesState>()(
   immer((set, get) => ({
     summaries: [],
+    totalSummaries: 0,
     currentPage: 1,
     canFetchMore: true,
     isFetching: false,
@@ -26,6 +28,7 @@ const useWorkoutSummariesStore = create<WorkoutSummariesState>()(
 
         set((state) => {
           state.summaries.push(...summaries);
+          state.totalSummaries = pagination.total;
         });
 
         if (currentPage < pagination.totalPages) {

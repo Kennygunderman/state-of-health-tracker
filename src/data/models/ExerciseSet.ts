@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import Unique from '../../store/models/Unique';
+import Unique from './Unique';
 
 export interface ExerciseSet extends Unique {
     reps?: number;

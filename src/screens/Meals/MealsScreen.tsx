@@ -33,7 +33,7 @@ import FoodItem from '../../store/food/models/FoodItem';
 import LocalStore from '../../store/LocalStore';
 import { addMeal, deleteMealFood } from '../../store/meals/MealsActions';
 import { createMeal, Meal } from '../../store/meals/models/Meal';
-import Unique from '../../store/models/Unique';
+import Unique from '../../data/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';

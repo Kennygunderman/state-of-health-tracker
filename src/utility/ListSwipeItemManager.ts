@@ -1,5 +1,5 @@
 import { Swipeable } from 'react-native-gesture-handler';
-import Unique from '../store/models/Unique';
+import Unique from '../data/models/Unique';
 
 export default class ListSwipeItemManager {
     private prevOpenedRow: Swipeable | null = null;

@@ -26,7 +26,7 @@ import {
 import { DailyExercise } from '../../data/models/DailyExercise';
 import { ExerciseSet } from '../../data/models/ExerciseSet';
 import LocalStore from '../../store/LocalStore';
-import Unique from '../../store/models/Unique';
+import Unique from '../../data/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';

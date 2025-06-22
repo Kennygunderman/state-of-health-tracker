@@ -24,10 +24,8 @@ import {
     ACCOUNT_TOTAL_DAYS_MACROS_LIST_ITEM,
     ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM,
     ACCOUNT_WELCOME_TEXT,
-    LBS_LABEL,
     OKAY_BUTTON_TEXT,
 } from '../../constants/Strings';
-import { DailyExerciseEntry, getPreviousDailyExerciseEntriesSelector } from '../../selectors/ExercisesSelector';
 import { DailyMealEntry, getPreviousDailyMealEntriesSelector } from '../../selectors/MealsSelector';
 import { getLastRecordedWeightSelector } from '../../selectors/UserInfoSelector';
 import LocalStore from '../../store/LocalStore';
@@ -37,6 +35,7 @@ import AuthStatus from '../../store/user/models/AuthStatus';
 import { setAuthStatus } from '../../store/user/UserActions';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay, isDateLessThan2SecondsOld } from '../../utility/DateUtility';
+import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
 
 const AccountScreen = () => {
     const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
@@ -44,11 +43,12 @@ const AccountScreen = () => {
     const targetWorkouts = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetWorkouts);
     const lastWeightEntry = useSelector<LocalStore, string>((state: LocalStore) => getLastRecordedWeightSelector(state));
     const dailyMealEntries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, 10_000));
-    const dailyExerciseEntries = useSelector<LocalStore, DailyExerciseEntry[]>((state: LocalStore) => getPreviousDailyExerciseEntriesSelector(state, 10_000));
 
     const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
     const authStatus = useSelector<LocalStore, AuthStatus>((state: LocalStore) => state.user.authStatus);
     const authError = useSelector<LocalStore, AuthError | undefined>((state: LocalStore) => state.user.authError);
+
+    const { totalSummaries } = useWorkoutSummariesStore()
 
     const dispatch = useDispatch();
 
@@ -135,7 +135,7 @@ const AccountScreen = () => {
             <AccountListItem
                 type="info"
                 clickable={false}
-                text={ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM + dailyExerciseEntries.length}
+                text={ACCOUNT_TOTAL_DAYS_WORKOUTS_LIST_ITEM + totalSummaries}
                 icon={<Ionicons name="barbell" size={iconSize} color={iconColor} />}
             />
         </>

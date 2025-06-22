@@ -4,10 +4,8 @@ import { useDispatch } from 'react-redux';
 import { applyMiddleware, combineReducers, legacy_createStore as createStore } from 'redux';
 import { createMigrate, persistReducer, persistStore } from 'redux-persist';
 import thunk, { ThunkDispatch } from 'redux-thunk';
-import { dailyExerciseEntriesReducer } from './dailyExerciseEntries/DailyExerciseEntriesReducer';
 import { addDailyMealEntry } from './dailyMealEntries/DailyMealEntriesActions';
 import { dailyMealEntriesReducer } from './dailyMealEntries/DailyMealEntriesReducer';
-import { exercisesReducer } from './exercises/ExercisesReducer';
 import { foodReducer } from './food/FoodReducer';
 import initialState from './initialState';
 import LocalStore from './LocalStore';
@@ -26,8 +24,6 @@ const appReducer = combineReducers({
     meals: mealsReducer,
     food: foodReducer,
     dailyMealEntries: dailyMealEntriesReducer,
-    exercises: exercisesReducer,
-    dailyExerciseEntries: dailyExerciseEntriesReducer,
 });
 
 const rootReducer = (state: any, action: Action<any>) => {
@@ -54,8 +50,6 @@ const persistConfig = {
         'meals',
         'food',
         'dailyMealEntries',
-        'exercises',
-        'dailyExerciseEntries',
     ],
     migrate: createMigrate(migrations, { debug: false }),
 };
