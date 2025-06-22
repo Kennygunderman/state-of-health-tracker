@@ -2,11 +2,9 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { fetchWorkoutSummaries } from '../../service/workouts/fetchWorkoutSummaries';
 import { WorkoutSummary } from "../../data/models/WorkoutSummary";
-import { Pagination } from "../../data/models/Pagination";
 
 export type WorkoutSummariesState = {
   currentPage: number;
-  paginationData: Pagination | null;
   summaries: WorkoutSummary[];
   isFetching: boolean;
   canFetchMore: boolean;
@@ -17,7 +15,6 @@ const useWorkoutSummariesStore = create<WorkoutSummariesState>()(
   immer((set, get) => ({
     summaries: [],
     currentPage: 1,
-    paginationData: null,
     canFetchMore: true,
     isFetching: false,
     fetchSummaries: async () => {
@@ -29,7 +26,6 @@ const useWorkoutSummariesStore = create<WorkoutSummariesState>()(
 
         set((state) => {
           state.summaries.push(...summaries);
-          state.paginationData = pagination;
         });
 
         if (currentPage < pagination.totalPages) {
