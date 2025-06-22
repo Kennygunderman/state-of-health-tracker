@@ -9,6 +9,7 @@ const Endpoints = {
   SaveWorkout: `${baseApiUrl}/workout`,
   WeeklyWorkoutSummary: `${baseApiUrl}/workouts/weekly-summary/7`,
   ExerciseTemplates: `${baseApiUrl}/templates`,
+  User: `${baseApiUrl}/user`,
 }
 
 export default Endpoints;

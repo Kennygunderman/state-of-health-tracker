@@ -1,4 +1,4 @@
-import Account from './models/Account';
+import User from '../../data/models/User';
 import { AuthError, AuthErrorPathEnum } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
 import { DELETE_ACCOUNT_ERROR, LOGOUT_ACCOUNT_ERROR } from '../../constants/Strings';
@@ -25,7 +25,7 @@ export function setAuthStatus(authStatus: AuthStatus) {
     };
 }
 
-function setUserAccount(account: Account) {
+function setUserAccount(account: User) {
     return {
         payload: account,
         type: SET_USER_ACCOUNT,

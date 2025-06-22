@@ -9,13 +9,13 @@ import {
   LOG_OUT_CONFIRM_MODAL_HEADER,
 } from '../../../constants/Strings';
 import LocalStore from '../../../store/LocalStore';
-import Account from '../../../store/user/models/Account';
+import User from '../../../data/models/User';
 import { useStyleTheme } from '../../../styles/Theme';
 import useAuthStore from "../../../store/auth/useAuthStore";
 
 const AuthListItem = () => {
 
-  const account = useSelector<LocalStore, Account | undefined>((state: LocalStore) => state.user.account);
+  const account = useSelector<LocalStore, User | undefined>((state: LocalStore) => state.user.account);
   const currentState = useSelector<LocalStore, LocalStore>((state: LocalStore) => state);
 
   const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);

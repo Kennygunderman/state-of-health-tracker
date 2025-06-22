@@ -10,7 +10,7 @@ import { MEALS_INITIAL_STATE } from '../../store/meals/MealsReducer';
 import { MealMap } from '../../store/meals/MealsState';
 import { Meal } from '../../store/meals/models/Meal';
 import { USER_INITIAL_STATE } from '../../store/user/initialState';
-import Account from '../../store/user/models/Account';
+import User from '../../data/models/User';
 import { USER_INFO_INITIAL_STATE } from '../../store/userInfo/UserInfoReducer';
 import { getCurrentDate } from '../../utility/DateUtility';
 
@@ -23,7 +23,7 @@ interface RemoteDailyMealEntry {
 
 // This is horrible, what was i thinking
 class UserService {
-    async saveUserData(account: Account, store: LocalStore) {
+    async saveUserData(account: User, store: LocalStore) {
         try {
             await firestore().collection('user').doc(account.id).set(
                 {
@@ -55,7 +55,7 @@ class UserService {
         }
     }
 
-    async saveDailyMealEntries(account: Account, dailyMealEntryMap: DailyMealEntryMap, mealMap: MealMap) {
+    async saveDailyMealEntries(account: User, dailyMealEntryMap: DailyMealEntryMap, mealMap: MealMap) {
         const dailyEntries: RemoteDailyMealEntry[] = [];
         Object.keys(dailyMealEntryMap).forEach((key) => {
             const dailyEntry = dailyMealEntryMap[key];

@@ -1,29 +1,28 @@
-import { AxiosRequestConfig } from "axios";
 import * as io from 'io-ts'
-import httpRequest, { HttpResponse } from "./httpRequest";
+import httpRequest, { HttpRequestOptions, HttpResponse } from "./httpRequest";
 
 export function httpGet<T>(
   url: string,
   decoder: io.Type<T>,
-  config?: AxiosRequestConfig
+  options?: HttpRequestOptions,
 ): Promise<HttpResponse<T>  | null> {
-  return httpRequest('GET', url, decoder, config, {})
+  return httpRequest('GET', url, decoder, options, {})
 }
 
 export function httpDelete<T>(
   url: string,
   decoder: io.Type<T>,
-  config?: AxiosRequestConfig
+  options?: HttpRequestOptions,
 ): Promise<HttpResponse<T> | null> {
-  return httpRequest('DELETE', url, decoder, config, {});
+  return httpRequest('DELETE', url, decoder, options, {});
 }
 
 export function httpPost<T>(
   url: string,
   decoder: io.Type<T>,
   body?: any,
-  config?: AxiosRequestConfig,
+  options?: HttpRequestOptions,
 ): Promise<HttpResponse<T>  | null> {
-  return httpRequest('POST', url, decoder, config, body)
+  return httpRequest('POST', url, decoder, options, body)
 }
 

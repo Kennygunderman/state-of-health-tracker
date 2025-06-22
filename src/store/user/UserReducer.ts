@@ -1,5 +1,5 @@
 import { USER_INITIAL_STATE } from './initialState';
-import Account from './models/Account';
+import User from '../../data/models/User';
 import { AuthError } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
 import {
@@ -7,7 +7,7 @@ import {
 } from './UserActions';
 import { UserState } from './UserState';
 
-function setUserAccount(state: UserState, action: Action<Account>): UserState {
+function setUserAccount(state: UserState, action: Action<User>): UserState {
     const account = action.payload;
 
     if (!account) {

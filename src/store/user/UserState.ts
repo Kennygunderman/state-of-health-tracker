@@ -1,9 +1,9 @@
-import Account from './models/Account';
+import User from '../../data/models/User';
 import { AuthError } from './models/AuthError';
 import AuthStatus from './models/AuthStatus';
 
 export interface UserState {
-    account?: Account;
+    account?: User;
     authError?: AuthError;
     lastDataSync: number;
     authStatus: AuthStatus;

@@ -9,26 +9,30 @@ export interface HttpResponse<T> {
   status: number;
 }
 
+export interface HttpRequestOptions {
+  useUserId?: boolean;
+}
+
 async function httpRequest<T>(
   method: Method,
   url: string,
   decoder: io.Type<T>,
-  config: AxiosRequestConfig = {},
+  options: HttpRequestOptions = { useUserId: true },
   body?: any
 ): Promise<HttpResponse<T>> {
 
-  const userId = await getUserId()
-  if (!userId) {
-    const error = new Error('userId is required for HTTP requests')
-    CrashUtility.recordError(error)
-    throw error
-  }
+  const conf: AxiosRequestConfig = {}
+  if (options.useUserId) {
+    const userId = await getUserId();
+    if (!userId) {
+      const error = new Error('userId is required for HTTP request: ' + url);
+      CrashUtility.recordError(error)
+      throw error
+    }
 
-  const conf: AxiosRequestConfig = {
-    headers: {
+    conf.headers = {
       'x-user-id': userId,
-    },
-    ...config
+    }
   }
 
   const axiosConfig: AxiosRequestConfig = {

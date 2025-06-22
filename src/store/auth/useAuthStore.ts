@@ -24,7 +24,7 @@ export type AuthState = {
 };
 
 const useAuthStore = create<AuthState>()(
-  immer((set, get) => ({
+  immer((set) => ({
     userId: null,
     userEmail: null,
     isAuthed: false,
@@ -136,6 +136,7 @@ const useAuthStore = create<AuthState>()(
      // await userService.saveUserData(account, reduxStore);
 
       //TODO: clear stores
+      //TODO: clear offline storage (workouts)
 
 
       set({
