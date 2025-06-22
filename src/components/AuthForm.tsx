@@ -28,6 +28,7 @@ import AuthStatus from '../store/user/models/AuthStatus';
 import { logInUser, registerUser } from '../store/user/UserActions';
 import { Text, useStyleTheme } from '../styles/Theme';
 import { isValidEmail, isValidPassword } from '../utility/AccountUtility';
+import { Navigation } from "../navigation/types";
 
 interface Props {
   readonly authType: 'register' | 'log-in';
@@ -36,7 +37,7 @@ interface Props {
 const AuthForm = (props: Props) => {
   const { authType } = props;
 
-  const { goBack, push } = useNavigation<NativeStackNavigationProp<ParamListBase>>();
+  const { goBack, push } = useNavigation<Navigation>();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

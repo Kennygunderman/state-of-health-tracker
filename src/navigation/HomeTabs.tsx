@@ -12,7 +12,8 @@ import AccountScreen from '../screens/Account/AccountScreen';
 import DebugScreen from '../screens/debug/DebugScreen';
 import { useNavigation } from "@react-navigation/native";
 import { Navigation } from "./types";
-import { getUserId } from "../service/auth/userStorage";
+import useAuthStore from "../store/auth/useAuthStore";
+import { authStatus } from "../data/types/authStatus";
 
 const Tab = createBottomTabNavigator();
 
@@ -21,13 +22,15 @@ const HomeTabs = () => {
 
   const { push } = useNavigation<Navigation>();
 
+  const { authStatus: status, initAuth } = useAuthStore();
+
   useEffect(() => {
-    getUserId().then((id) => {
-      if (!id) {
-        push('Auth', { screen: Screens.LOG_IN });
-      }
-    })
+    initAuth();
   }, []);
+
+  useEffect(() => {
+    if (status === authStatus.Unauthed) push('Auth', { screen: Screens.LOG_IN });
+  }, [status]);
 
   const macrosIcon = (color: string) => (
     <FontAwesome5 name="utensils" size={16} color={color} style={{ marginBottom: -3 }} />

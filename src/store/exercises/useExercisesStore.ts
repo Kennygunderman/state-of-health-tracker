@@ -4,7 +4,6 @@ import { fetchExercises } from "../../service/exercises/fetchExercises";
 import { CreateExercisePayload, Exercise } from "../../data/models/Exercise";
 import { CreateExerciseEvent, CreateExerciseEventSubject$ } from "../../screens/CreateExercise";
 import { createExercise } from "../../service/exercises/createExercise";
-import { combineExerciseNameType } from "../../utility/combineExerciseNameType";
 import { deleteExercise } from "../../service/exercises/deleteExercise";
 import { ExerciseScreenUpdateSubject$ } from "../../screens/AddExercise";
 import useExerciseTemplateStore from "../exerciseTemplates/useExerciseTemplateStore";
