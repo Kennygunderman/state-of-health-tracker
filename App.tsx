@@ -17,7 +17,7 @@ import { getCurrentDate } from './src/utility/DateUtility';
 import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import AuthStack from "./src/navigation/AuthStack";
 import HomeTabs from "./src/navigation/HomeTabs";
-import { authStatus } from "./src/data/types/authStatus";
+import useAuthStore from "./src/store/auth/useAuthStore";
 
 const Stack = createNativeStackNavigator();
 
@@ -43,6 +43,17 @@ const AppStateChanged = () => {
 };
 
 const App = () => {
+
+  const { isAuthed } = useAuthStore();
+
+  const backButton = (onPress: () => void) => {
+    return (
+      <TouchableOpacity onPress={onPress}>
+        <Ionicons name="chevron-back" size={24} color={useStyleTheme().colors.white}/>
+      </TouchableOpacity>
+    )
+  }
+
   return (
     <Provider store={store}>
       <StatusBar barStyle="light-content"/>
@@ -50,34 +61,45 @@ const App = () => {
       <NavigationContainer
         theme={darkTheme}
       >
-        <Stack.Navigator
-          initialRouteName={'Auth'}
-          screenOptions={({ navigation }) => ({
-            headerLeft: () => (
-              <TouchableOpacity onPress={() => navigation.goBack()}>
-                <Ionicons name="chevron-back" size={24} color={useStyleTheme().colors.white}/>
-              </TouchableOpacity>
-            )
-          })}
-        >
-          <Stack.Screen
-            name="Home"
-            component={HomeTabs}
-            options={{ animation: 'fade', headerShown: false }}
-          />
+        {
+          !isAuthed ? (
+            <Stack.Navigator
+              initialRouteName={'Auth'}
+              screenOptions={({ navigation }) => ({
+                headerLeft: () => backButton(() => navigation.goBack()),
+              })}
+            >
+              <Stack.Screen
+                name="Auth"
+                component={AuthStack}
+                options={{
+                  title: '',
+                  gestureEnabled: false,
+                  headerShown: false,
+                  presentation: "modal"
+                }}
+              />
 
-          <Stack.Screen
-            name="Auth"
-            component={AuthStack}
-            options={{
-              title: '',
-              gestureEnabled: false,
-              headerShown: false,
-              presentation: "modal"
-            }}
-          />
+            </Stack.Navigator>
+          ) : (
+            <Stack.Navigator
+              initialRouteName={'Home'}
+              screenOptions={({ navigation }) => ({
+                headerLeft: () => backButton(() => navigation.goBack()),
+              })}
+            >
+              <Stack.Screen
+                name="Home"
+                component={HomeTabs}
+                options={{
+                  animation: 'fade',
+                  headerShown: false
+                }}
+              />
+            </Stack.Navigator>
+          )
+        }
 
-        </Stack.Navigator>
         <GlobalBottomSheet/>
         <Toast
           config={ToastConfig}
