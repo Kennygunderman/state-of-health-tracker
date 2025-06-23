@@ -1,11 +1,15 @@
 import React, {useEffect, useState} from 'react'
+
 import {FlatList, ListRenderItemInfo, View} from 'react-native'
-import {useNavigation} from '@react-navigation/native'
-import {Exercise} from '../../data/models/Exercise'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
-import SearchBar from '../../components/SearchBar'
-import ListItem from '../../components/ListItem'
-import PrimaryButton from '../../components/PrimaryButton'
+import {Subject} from 'rxjs'
+
+import ExerciseTypeChip from '@components/ExerciseTypeChip'
+import ListItem from '@components/ListItem'
+import LoadingOverlay from '@components/LoadingOverlay'
+import PrimaryButton from '@components/PrimaryButton'
+import SearchBar from '@components/SearchBar'
+import {showToast} from '@components/toast/util/ShowToast'
+import Spacing from '@constants/Spacing'
 import {
   CREATE_TEMPLATE_NO_EXERCISES,
   NEXT_BUTTON_TEXT,
@@ -14,17 +18,15 @@ import {
   TOAST_TEMPLATE_CREATED,
   TOAST_TEMPLATE_CREATION_ERROR
 } from '@constants/Strings'
-import ExerciseTypeChip from '../../components/ExerciseTypeChip'
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {useNavigation} from '@react-navigation/native'
+import {Text, useStyleTheme} from '@theme/Theme'
+import {Exercise} from '@data/models/Exercise'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
-import styles from './index.styled'
-import {Text, useStyleTheme} from '../../styles/Theme'
-import Spacing from '@constants/Spacing'
 import CreateTemplateModal from './components/CreateTemplateModal'
-import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
-import {Subject} from 'rxjs'
-import {showToast} from '@components/toast/util/ShowToast'
-import LoadingOverlay from '../../components/LoadingOverlay'
-import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
+import styles from './index.styled'
 
 export const CreateTemplateEventSubject$ = new Subject<{
   success: boolean
@@ -80,11 +82,7 @@ const CreateTemplateScreen = () => {
       isSwipeable={false}
       leftRightMargin={Spacing.MEDIUM}
       title={item.name}
-      backgroundColor={
-        selectedExercises.includes(item)
-          ? theme.colors.tertiary
-          : theme.colors.background
-      }
+      backgroundColor={selectedExercises.includes(item) ? theme.colors.tertiary : theme.colors.background}
       subtitle={item.exerciseBodyPart}
       chip={<ExerciseTypeChip exerciseType={item.exerciseType} />}
       onPress={() => {
@@ -125,29 +123,15 @@ const CreateTemplateScreen = () => {
         handleCreate={handleCreate}
       />
 
-      <SearchBar
-        placeholder={SEARCH_EXERCISES_PLACEHOLDER}
-        onSearchTextChanged={onSearchTextChanged}
-      />
+      <SearchBar placeholder={SEARCH_EXERCISES_PLACEHOLDER} onSearchTextChanged={onSearchTextChanged} />
       <FlatList
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         initialNumToRender={10}
-        data={[
-          ...selectedExercises,
-          ...exercises.filter(e => !selectedExercises.includes(e))
-        ]}
-        ListHeaderComponent={
-          <Text style={styles.headerText}>
-            {SELECT_EXERCISES_FOR_TEMPLATE_TITLE}
-          </Text>
-        }
+        data={[...selectedExercises, ...exercises.filter(e => !selectedExercises.includes(e))]}
+        ListHeaderComponent={<Text style={styles.headerText}>{SELECT_EXERCISES_FOR_TEMPLATE_TITLE}</Text>}
         ListFooterComponent={
-          <PrimaryButton
-            style={styles.footerButton}
-            label={NEXT_BUTTON_TEXT}
-            onPress={onNextPressed}
-          />
+          <PrimaryButton style={styles.footerButton} label={NEXT_BUTTON_TEXT} onPress={onNextPressed} />
         }
         renderItem={renderItem}
       />

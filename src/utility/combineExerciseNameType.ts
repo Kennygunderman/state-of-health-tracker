@@ -1,10 +1,10 @@
-import { ExerciseTypeEnum } from "../data/models/Exercise";
+import {ExerciseTypeEnum} from '@data/models/Exercise'
 
 export function combineExerciseNameType(exerciseName: string, exerciseType: ExerciseTypeEnum | string): string {
-  let name: string = exerciseName;
+  let name: string = exerciseName
   if (exerciseType !== ExerciseTypeEnum.OTHER) {
-    name += ` (${exerciseType})`;
+    name += ` (${exerciseType})`
   }
 
-  return name;
+  return name
 }

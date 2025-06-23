@@ -1,6 +1,7 @@
-import { StyleSheet } from "react-native";
-import FontSize from "../../../../constants/FontSize";
-import Spacing from "../../../../constants/Spacing";
+import {StyleSheet} from 'react-native'
+
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
 
 export default StyleSheet.create({
   title: {
@@ -14,7 +15,7 @@ export default StyleSheet.create({
   deleteText: {
     marginLeft: Spacing.X_SMALL,
     fontWeight: '600',
-    alignSelf: "center",
+    alignSelf: 'center',
     fontSize: FontSize.H2
-  },
+  }
 })

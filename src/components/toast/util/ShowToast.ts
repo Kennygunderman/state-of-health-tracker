@@ -1,6 +1,5 @@
-import * as Haptics from 'expo-haptics';
-import Toast from 'react-native-toast-message';
-
+import * as Haptics from 'expo-haptics'
+import Toast from 'react-native-toast-message'
 const TOAST_LENGTH = 3_000;
 export const showToast = (type: 'success' | 'error', text1: string, text2?: string) => {
     Toast.show({

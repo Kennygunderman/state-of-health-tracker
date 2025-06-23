@@ -1,82 +1,80 @@
-import React from 'react';
-import { FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
-import { FlatList, ListRenderItemInfo } from 'react-native';
-import BestSetChip from './components/BestSetChip';
-import Chip from '../../components/Chip';
-import PreviousEntryListItem, { EmptyState } from '../../components/PreviousEntryListItem';
-import Spacing from '../../constants/Spacing';
+import React from 'react'
+
+import {FlatList, ListRenderItemInfo} from 'react-native'
+
+import Chip from '@components/Chip'
+import LoadingOverlay from '@components/LoadingOverlay'
+import PreviousEntryListItem, {EmptyState} from '@components/PreviousEntryListItem'
+import Spacing from '@constants/Spacing'
 import {
   BEST_SET_LABEL,
   EXERCISE_LABEL,
   LBS_LABEL,
   PREVIOUS_WORKOUTS_ENTRIES_EMPTY_BODY,
   PREVIOUS_WORKOUTS_ENTRIES_EMPTY_TITLE,
-  SETS_LABEL,
-} from '../../constants/Strings';
-import { Screen, useStyleTheme } from '../../styles/Theme';
-import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
-import { WorkoutSummary } from "../../data/models/WorkoutSummary";
-import { formatDateUTC } from "../../utility/DateUtility";
-import LoadingOverlay from "../../components/LoadingOverlay";
+  SETS_LABEL
+} from '@constants/Strings'
+import {FontAwesome5, MaterialCommunityIcons} from '@expo/vector-icons'
+import {Screen, useStyleTheme} from '@theme/Theme'
+import {WorkoutSummary} from '@data/models/WorkoutSummary'
+import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
 
-import styles from './index.styled';
+import {formatDateUTC} from '../../utility/DateUtility'
+
+import BestSetChip from './components/BestSetChip'
+import styles from './index.styled'
 
 const PreviousWorkoutEntries = () => {
-
-  const {
-    isFetching,
-    summaries,
-    fetchSummaries
-  } = useWorkoutSummariesStore();
+  const {isFetching, summaries, fetchSummaries} = useWorkoutSummariesStore()
 
   if (summaries.length === 0) {
     return (
       <EmptyState
-        icon={(
+        icon={
           <MaterialCommunityIcons
             style={styles.icon}
             name="weight-lifter"
             size={230}
             color={useStyleTheme().colors.secondary}
           />
-        )}
+        }
         title={PREVIOUS_WORKOUTS_ENTRIES_EMPTY_TITLE}
         body={PREVIOUS_WORKOUTS_ENTRIES_EMPTY_BODY}
       />
-    );
+    )
   }
 
-  const renderItem = ({ item }: ListRenderItemInfo<WorkoutSummary>) => (
+  const renderItem = ({item}: ListRenderItemInfo<WorkoutSummary>) => (
     <PreviousEntryListItem
       column1Label={EXERCISE_LABEL}
       column2Label={BEST_SET_LABEL}
       subItems={item.exercises}
       day={formatDateUTC(item.day)}
-      headerChip={(
+      headerChip={
         <Chip
           style={styles.chipContainer}
           label={`${item.totalWeight} ${LBS_LABEL}`}
-          icon={(
+          icon={
             <FontAwesome5
               name="weight-hanging"
               size={14}
               color={useStyleTheme().colors.secondaryLighter}
               style={{
-                marginRight: Spacing.XX_SMALL,
+                marginRight: Spacing.XX_SMALL
               }}
             />
-          )}
+          }
         />
-      )}
-      getChipForItem={(entry) => (<BestSetChip weight={entry?.bestSet?.weight} reps={entry?.bestSet?.reps}/>)}
-      getTitleForItem={(entry) => entry.exercise.name}
-      getSubtitleForItem={(entry) => `${entry.setsCompleted.toString()} ${SETS_LABEL}`}
+      }
+      getChipForItem={entry => <BestSetChip weight={entry?.bestSet?.weight} reps={entry?.bestSet?.reps} />}
+      getTitleForItem={entry => entry.exercise.name}
+      getSubtitleForItem={entry => `${entry.setsCompleted.toString()} ${SETS_LABEL}`}
     />
-  );
+  )
 
   return (
     <>
-      {isFetching && <LoadingOverlay/>}
+      {isFetching && <LoadingOverlay />}
       <Screen>
         <FlatList
           style={styles.list}
@@ -87,7 +85,7 @@ const PreviousWorkoutEntries = () => {
         />
       </Screen>
     </>
-  );
-};
+  )
+}
 
-export default PreviousWorkoutEntries;
+export default PreviousWorkoutEntries

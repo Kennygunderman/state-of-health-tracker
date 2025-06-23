@@ -1,6 +1,7 @@
-import { StyleSheet } from 'react-native'
-import Spacing from "../../constants/Spacing";
-import FontSize from "../../constants/FontSize";
+import {StyleSheet} from 'react-native'
+
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
 
 export default StyleSheet.create({
   listFooter: {
@@ -11,22 +12,22 @@ export default StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginLeft: Spacing.MEDIUM,
-    marginRight: Spacing.MEDIUM,
+    marginRight: Spacing.MEDIUM
   },
   sectionHeaderText: {
     marginLeft: Spacing.X_SMALL,
     fontSize: FontSize.H1,
-    fontWeight: 'bold',
+    fontWeight: 'bold'
   },
   emptyText: {
     fontWeight: '200',
     paddingHorizontal: Spacing.MEDIUM,
     textAlign: 'center',
-    alignSelf: 'center',
+    alignSelf: 'center'
   },
   createButton: {
     alignSelf: 'flex-end',
     marginTop: Spacing.MEDIUM,
-    marginBottom: Spacing.MEDIUM,
-  },
+    marginBottom: Spacing.MEDIUM
+  }
 })

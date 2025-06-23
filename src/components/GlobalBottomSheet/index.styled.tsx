@@ -1,12 +1,12 @@
-import { StyleSheet } from 'react-native';
+import {StyleSheet} from 'react-native'
 
 export default StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.1)'
   },
   backdropTouchableArea: {
-    flex: 1,
+    flex: 1
   },
   sheetShadow: {
     shadowColor: '#000',
@@ -16,9 +16,9 @@ export default StyleSheet.create({
     },
     shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 10, // Android shadow
+    elevation: 10 // Android shadow
   },
   sheetContent: {
-    padding: 20,
-  },
-});
+    padding: 20
+  }
+})

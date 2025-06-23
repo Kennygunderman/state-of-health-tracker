@@ -1,4 +1,4 @@
 export interface WeeklyWorkoutSummary {
-    startOfWeek: string;
-    completedWorkouts: number;
+  startOfWeek: string
+  completedWorkouts: number
 }

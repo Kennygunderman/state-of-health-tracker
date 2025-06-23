@@ -1,6 +1,7 @@
-import { StyleSheet } from 'react-native';
-import BorderRadius from '../../../../constants/BorderRadius';
-import Spacing from '../../../../constants/Spacing';
+import {StyleSheet} from 'react-native'
+
+import BorderRadius from '@constants/BorderRadius'
+import Spacing from '@constants/Spacing'
 
 export default StyleSheet.create({
   container: {
@@ -11,18 +12,18 @@ export default StyleSheet.create({
     padding: Spacing.X_SMALL,
     marginTop: Spacing.XX_SMALL,
     marginBottom: Spacing.XX_SMALL,
-    marginHorizontal: Spacing.SMALL,
+    marginHorizontal: Spacing.SMALL
   },
   textContainer: {
-    flex: 1,
+    flex: 1
   },
   title: {
     fontWeight: 'bold',
     marginLeft: 10,
-    marginRight: Spacing.XX_SMALL,
+    marginRight: Spacing.XX_SMALL
   },
   subtitle: {
     fontWeight: '200',
-    marginLeft: 10,
-  },
-});
+    marginLeft: 10
+  }
+})

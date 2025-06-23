@@ -63,6 +63,8 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "fast-glob": "^3.3.3",
+    "ts-morph": "^26.0.0",
     "@babel/core": "^7.20.0",
     "@react-native/eslint-config": "^0.80.0",
     "@types/lodash": "^4.14.199",

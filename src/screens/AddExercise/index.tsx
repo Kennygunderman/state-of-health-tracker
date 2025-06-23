@@ -1,89 +1,85 @@
-import React, { useEffect, useState } from "react";
-import useExercisesStore from "../../store/exercises/useExercisesStore";
-import { SectionList, SectionListRenderItem, View } from "react-native";
+import React, {useEffect, useState} from 'react'
+
+import {SectionList, SectionListRenderItem, View} from 'react-native'
+import {Subject} from 'rxjs'
+
+import LoadingOverlay from '@components/LoadingOverlay'
+import SecondaryButton from '@components/SecondaryButton'
+import {showToast} from '@components/toast/util/ShowToast'
+import Screens from '@constants/Screens'
 import {
   CREATE_EXERCISE_BUTTON_TEXT,
   CREATE_TEMPLATE_BUTTON_TEXT,
-  EXERCISES_HEADER,
   NO_EXERCISES_ADDED_TEXT,
   NO_TEMPLATES_ADDED_TEXT,
-  TEMPLATES_HEADER, YOUR_EXERCISES_HEADER,
-} from "../../constants/Strings";
-import {
-  Exercise,
-  isExerciseObject,
-} from "../../data/models/Exercise";
-import ExerciseListItem from "./components/ExerciseListItem";
-import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
-import TemplateListItem from "./components/TemplateListItem";
-import { ExerciseTemplate } from "../../data/models/ExerciseTemplate";
-import styles from "./index.styled";
-import SecondaryButton from "../../components/SecondaryButton";
-import { Text } from "../../styles/Theme";
-import ExerciseSearchBarButton from "./components/SearchBarButton";
-import { useNavigation } from "@react-navigation/native";
-import { Navigation } from "../../navigation/types";
-import Screens from "../../constants/Screens";
-import LoadingOverlay from "../../components/LoadingOverlay";
-import { Subject } from "rxjs";
-import { showToast } from "../../components/toast/util/ShowToast";
+  TEMPLATES_HEADER,
+  YOUR_EXERCISES_HEADER
+} from '@constants/Strings'
+import {useNavigation} from '@react-navigation/native'
+import {Text} from '@theme/Theme'
 
-type SectionItem = Exercise | ExerciseTemplate;
+import {Exercise, isExerciseObject} from '@data/models/Exercise'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+
+import {Navigation} from '../../navigation/types'
+import ExerciseListItem from './components/ExerciseListItem'
+import ExerciseSearchBarButton from './components/SearchBarButton'
+import TemplateListItem from './components/TemplateListItem'
+import styles from './index.styled'
+
+type SectionItem = Exercise | ExerciseTemplate
 
 interface Section {
-  title: string;
-  data: SectionItem[];
+  title: string
+  data: SectionItem[]
 }
 
 export const ExerciseScreenUpdateSubject$ = new Subject<{
-  isUpdating: boolean,
+  isUpdating: boolean
   updatePayload?: {
-    success: boolean,
-    message: string,
+    success: boolean
+    message: string
     message2?: string
   }
-}>();
+}>()
 
 const AddExerciseScreen = () => {
+  const {push} = useNavigation<Navigation>()
 
-  const { push } = useNavigation<Navigation>()
-
-  const { templates } = useExerciseTemplateStore();
-  const { exercises } = useExercisesStore();
+  const {templates} = useExerciseTemplateStore()
+  const {exercises} = useExercisesStore()
 
   const sections: Section[] = [
     {
       title: TEMPLATES_HEADER,
-      data: templates,
+      data: templates
     },
     {
       title: YOUR_EXERCISES_HEADER,
-      data: exercises,
-    },
-  ];
+      data: exercises
+    }
+  ]
 
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false)
   useEffect(() => {
     const sub = ExerciseScreenUpdateSubject$.subscribe({
-      next: ({ isUpdating, updatePayload }) => {
-        setIsUpdating(isUpdating);
+      next: ({isUpdating, updatePayload}) => {
+        setIsUpdating(isUpdating)
         if (updatePayload) {
-          showToast(
-            updatePayload.success ? 'success' : 'error',
-            updatePayload.message,
-            updatePayload?.message2
-          );
+          showToast(updatePayload.success ? 'success' : 'error', updatePayload.message, updatePayload?.message2)
         }
       }
     })
 
     return () => {
-      sub.unsubscribe();
+      sub.unsubscribe()
     }
-  }, []);
+  }, [])
 
   const renderHeader = (section: Section) => {
-    const isEmpty = section.data.length === 0;
+    const isEmpty = section.data.length === 0
 
     const button =
       section.title === YOUR_EXERCISES_HEADER ? (
@@ -102,14 +98,13 @@ const AddExerciseScreen = () => {
             push(Screens.CREATE_TEMPLATE)
           }}
         />
-      );
+      )
 
-    const emptyText =
-      isEmpty
-        ? section.title === YOUR_EXERCISES_HEADER
-          ? NO_EXERCISES_ADDED_TEXT
-          : NO_TEMPLATES_ADDED_TEXT
-        : undefined;
+    const emptyText = isEmpty
+      ? section.title === YOUR_EXERCISES_HEADER
+        ? NO_EXERCISES_ADDED_TEXT
+        : NO_TEMPLATES_ADDED_TEXT
+      : undefined
 
     return (
       <>
@@ -119,30 +114,28 @@ const AddExerciseScreen = () => {
         </View>
         {emptyText && <Text style={styles.emptyText}>{emptyText}</Text>}
       </>
-    );
-  };
+    )
+  }
 
-  const renderItem: SectionListRenderItem<SectionItem> = ({ item }) => {
-    return isExerciseObject(item)
-      ? <ExerciseListItem exercise={item}/>
-      : <TemplateListItem template={item}/>
-  };
+  const renderItem: SectionListRenderItem<SectionItem> = ({item}) => {
+    return isExerciseObject(item) ? <ExerciseListItem exercise={item} /> : <TemplateListItem template={item} />
+  }
 
   return (
     <>
-      {isUpdating && <LoadingOverlay/>}
+      {isUpdating && <LoadingOverlay />}
       <SectionList<SectionItem, Section>
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         sections={sections}
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={ExerciseSearchBarButton}
-        ListFooterComponent={<View style={styles.listFooter}/>}
-        renderSectionHeader={({ section }) => renderHeader(section)}
+        ListFooterComponent={<View style={styles.listFooter} />}
+        renderSectionHeader={({section}) => renderHeader(section)}
         renderItem={renderItem}
       />
     </>
-  );
-};
+  )
+}
 
-export default AddExerciseScreen;
+export default AddExerciseScreen

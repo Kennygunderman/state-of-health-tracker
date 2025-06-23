@@ -1,49 +1,54 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Subject } from 'rxjs';
-import { ReactNode } from 'react';
-import { View, TouchableWithoutFeedback } from 'react-native';
-import BottomSheet from '@gorhom/bottom-sheet';
+import React, {useEffect, useState, useCallback, useRef} from 'react'
+import {ReactNode} from 'react'
 
-import { useStyleTheme } from "../../styles/Theme";
-import styles from './index.styled';
+import {View, TouchableWithoutFeedback} from 'react-native'
+import {Subject} from 'rxjs'
+
+import BottomSheet from '@gorhom/bottom-sheet'
+import {useStyleTheme} from '@theme/Theme'
+
+import styles from './index.styled'
 
 interface BottomSheetEvent {
-  action: 'open' | 'close';
-  content?: ReactNode;
+  action: 'open' | 'close'
+  content?: ReactNode
 }
 
-export const BottomSheetSubject$ = new Subject<BottomSheetEvent>();
+export const BottomSheetSubject$ = new Subject<BottomSheetEvent>()
 
 export const openGlobalBottomSheet = (content: ReactNode) => {
-  BottomSheetSubject$.next({ action: 'open', content });
-};
+  BottomSheetSubject$.next({
+    action: 'open',
+    content
+  })
+}
 
 export const closeGlobalBottomSheet = () => {
-  BottomSheetSubject$.next({ action: 'close' });
-};
+  BottomSheetSubject$.next({action: 'close'})
+}
 
 const GlobalBottomSheet = () => {
-  const theme = useStyleTheme();
-  const sheetRef = useRef<BottomSheet>(null);
+  const theme = useStyleTheme()
+  const sheetRef = useRef<BottomSheet>(null)
 
-  const [content, setContent] = useState<ReactNode>(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [content, setContent] = useState<ReactNode>(null)
+  const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
-    const sub = BottomSheetSubject$.subscribe(({ action, content }) => {
+    const sub = BottomSheetSubject$.subscribe(({action, content}) => {
       if (action === 'open') {
-        setContent(content || null);
-        sheetRef.current?.expand();
-        setIsOpen(true);
+        setContent(content || null)
+        sheetRef.current?.expand()
+        setIsOpen(true)
       } else {
-        setIsOpen(false);
+        setIsOpen(false)
         setContent(null)
-        sheetRef.current?.close();
+        sheetRef.current?.close()
       }
-    });
+    })
 
-    return () => sub.unsubscribe();
-  }, []);
+    return () => sub.unsubscribe()
+  }, [])
 
   return (
     <>
@@ -60,17 +65,14 @@ const GlobalBottomSheet = () => {
         index={-1}
         snapPoints={['25%']}
         enablePanDownToClose
-        handleIndicatorStyle={{ backgroundColor: theme.colors.white }}
-        backgroundStyle={{ backgroundColor: theme.colors.background }}
+        handleIndicatorStyle={{backgroundColor: theme.colors.white}}
+        backgroundStyle={{backgroundColor: theme.colors.background}}
         style={styles.sheetShadow}
-        onClose={closeGlobalBottomSheet}
-      >
-        <View style={styles.sheetContent}>
-          {content}
-        </View>
+        onClose={closeGlobalBottomSheet}>
+        <View style={styles.sheetContent}>{content}</View>
       </BottomSheet>
     </>
-  );
-};
+  )
+}
 
-export default GlobalBottomSheet;
+export default GlobalBottomSheet

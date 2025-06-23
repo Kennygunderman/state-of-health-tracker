@@ -1,34 +1,30 @@
-import { USER_INITIAL_STATE } from './initialState';
-
-import {
-    UPDATE_LAST_SYNCED,
-} from './UserActions';
-import { UserState } from './UserState';
-
+import {USER_INITIAL_STATE} from './initialState'
+import {UPDATE_LAST_SYNCED} from './UserActions'
+import {UserState} from './UserState'
 
 function updateLastSynced(state: UserState, action: Action<number>): UserState {
-    const syncedDate = action.payload;
+  const syncedDate = action.payload
 
-    if (!syncedDate) {
-        return state;
-    }
+  if (!syncedDate) {
+    return state
+  }
 
-    return {
-        ...state,
-        lastDataSync: syncedDate,
-    };
+  return {
+    ...state,
+    lastDataSync: syncedDate
+  }
 }
 
 const userReducerMap = {
-    [UPDATE_LAST_SYNCED]: updateLastSynced,
-};
+  [UPDATE_LAST_SYNCED]: updateLastSynced
+}
 
 export function userReducer(state = USER_INITIAL_STATE, action: Action<any>): UserState {
-    const reducer = userReducerMap[action.type];
+  const reducer = userReducerMap[action.type]
 
-    if (!reducer) {
-        return state;
-    }
+  if (!reducer) {
+    return state
+  }
 
-    return reducer(state, action);
+  return reducer(state, action)
 }
