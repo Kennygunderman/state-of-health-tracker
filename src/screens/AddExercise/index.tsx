@@ -10,7 +10,6 @@ import Screens from '@constants/Screens'
 import {
   CREATE_EXERCISE_BUTTON_TEXT,
   CREATE_TEMPLATE_BUTTON_TEXT,
-  EXERCISES_HEADER,
   NO_EXERCISES_ADDED_TEXT,
   NO_TEMPLATES_ADDED_TEXT,
   TEMPLATES_HEADER,
@@ -19,12 +18,12 @@ import {
 import {useNavigation} from '@react-navigation/native'
 import {Text} from '@theme/Theme'
 
-import {Exercise, isExerciseObject} from '../../data/models/Exercise'
-import {ExerciseTemplate} from '../../data/models/ExerciseTemplate'
-import {Navigation} from '../../navigation/types'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
+import {Exercise, isExerciseObject} from '@data/models/Exercise'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
+import {Navigation} from '../../navigation/types'
 import ExerciseListItem from './components/ExerciseListItem'
 import ExerciseSearchBarButton from './components/SearchBarButton'
 import TemplateListItem from './components/TemplateListItem'

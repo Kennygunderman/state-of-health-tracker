@@ -16,8 +16,8 @@ import {MaterialCommunityIcons} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
 
 import {useThunkDispatch} from '../../../store'
-import {addMeal, updateMealName} from '../../../store/meals/MealsActions'
-import {createMeal} from '../../../store/meals/models/Meal'
+import {addMeal, updateMealName} from '@store/meals/MealsActions'
+import {createMeal} from '@store/meals/models/Meal'
 
 export enum MealAction {
   ADD,

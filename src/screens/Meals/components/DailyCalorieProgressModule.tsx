@@ -22,8 +22,8 @@ import Shadow from '@theme/Shadow'
 import {Text, useStyleTheme} from '@theme/Theme'
 
 import {getTotalsForDaySelector, Totals} from '../../../selectors/MealsSelector'
-import LocalStore from '../../../store/LocalStore'
-import useUserData from '../../../store/userData/useUserData'
+import LocalStore from '@store/LocalStore'
+import useUserData from '@store/userData/useUserData'
 
 const DailyCalorieProgressModule = () => {
   const radius = 30

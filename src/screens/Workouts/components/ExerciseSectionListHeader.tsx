@@ -3,8 +3,8 @@ import React, {useState} from 'react'
 import SectionListHeader from '@components/SectionListHeader'
 import {ADD_SET_BUTTON_TEXT} from '@constants/Strings'
 
-import {DailyExercise} from '../../../data/models/DailyExercise'
-import useDailyWorkoutEntryStore from '../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {DailyExercise} from '@data/models/DailyExercise'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 
 import ExerciseListItemDropdown from './ExerciseListItemDropdown'
 

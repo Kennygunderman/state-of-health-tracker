@@ -1,4 +1,4 @@
-import {AuthError} from '../../store/user/models/AuthError'
+import {AuthError} from '@store/user/models/AuthError'
 
 import {AuthStatus} from './authStatus'
 

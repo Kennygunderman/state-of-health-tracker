@@ -2,14 +2,13 @@ import React, {useState} from 'react'
 
 import BaseInputModalProps from '@components/dialog/BaseInputModalProps'
 import InputModal from '@components/dialog/InputModal'
+import {Exercise} from '@data/models/Exercise'
 import {
   TEMPLATE_MODAL_BUTTON_TEXT,
   TEMPLATE_MODAL_ERROR_TEXT,
   TEMPLATE_MODAL_PLACEHOLDER,
   TEMPLATE_MODAL_TITLE
 } from '@constants/Strings'
-
-import {Exercise} from '../../../../data/models/Exercise'
 
 interface Props extends BaseInputModalProps {
   exercises: Exercise[]

@@ -6,11 +6,11 @@ import {useSelector} from 'react-redux'
 import BarGraph, {BAR_GRAPH_MAX_HEIGHT} from '@components/BarGraph'
 import {CALORIES_LABEL, DAILY_CURRENT_TEXT, DAILY_GOAL_TEXT} from '@constants/Strings'
 import {useStyleTheme} from '@theme/Theme'
+import LocalStore from '@store/LocalStore'
+import {useSessionStore} from '@store/session/useSessionStore'
+import useUserData from '@store/userData/useUserData'
 
 import {DayTotals, getTotalsForWeekSelector} from '../../../selectors/MealsSelector'
-import LocalStore from '../../../store/LocalStore'
-import {useSessionStore} from '../../../store/session/useSessionStore'
-import useUserData from '../../../store/userData/useUserData'
 import {formatDateToMonthDay} from '../../../utility/DateUtility'
 
 const WeeklyCalorieProgressGraphModule = () => {

@@ -10,8 +10,8 @@ import {useNavigation} from '@react-navigation/native'
 import DeleteExerciseBottomSheet from '@screens/AddExercise/components/DeleteExerciseBottomSheet'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {Exercise} from '../../../../data/models/Exercise'
-import useDailyWorkoutEntryStore from '../../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {Exercise} from '@data/models/Exercise'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 
 import styles from './index.styled'
 

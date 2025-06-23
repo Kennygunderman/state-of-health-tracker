@@ -9,8 +9,7 @@ import {
 } from '@constants/Strings'
 import {Ionicons} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
-
-import useAuthStore from '../../../store/auth/useAuthStore'
+import useAuthStore from '@store/auth/useAuthStore'
 
 import AccountListItem from './AccountListItem'
 

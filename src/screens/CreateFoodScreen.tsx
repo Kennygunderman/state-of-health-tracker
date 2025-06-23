@@ -27,9 +27,9 @@ import {
 } from '@constants/Strings'
 import {MaterialCommunityIcons} from '@expo/vector-icons'
 import {Screen, Text, useStyleTheme} from '@theme/Theme'
+import {addFood} from '@store/food/FoodActions'
+import {createFood, createMacros} from '@store/food/models/FoodItem'
 
-import {addFood} from '../store/food/FoodActions'
-import {createFood, createMacros} from '../store/food/models/FoodItem'
 import {isNumber} from '../utility/TextUtility'
 
 const CreateFoodScreen = ({navigation, route}: any) => {

@@ -11,9 +11,8 @@ import {
 } from '@constants/Strings'
 import {MaterialCommunityIcons} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
-
-import useAuthStore from '../../../store/auth/useAuthStore'
-import LocalStore from '../../../store/LocalStore'
+import useAuthStore from '@store/auth/useAuthStore'
+import LocalStore from '@store/LocalStore'
 
 import AccountListItem from './AccountListItem'
 

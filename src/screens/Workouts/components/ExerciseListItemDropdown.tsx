@@ -18,8 +18,8 @@ import {
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {DailyExercise} from '../../../data/models/DailyExercise'
-import useDailyWorkoutEntryStore from '../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {DailyExercise} from '@data/models/DailyExercise'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 
 interface Props {
   readonly isVisible: boolean

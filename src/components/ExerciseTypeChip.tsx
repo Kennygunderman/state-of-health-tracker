@@ -6,7 +6,7 @@ import BorderRadius from '@constants/BorderRadius'
 import {Ionicons, MaterialCommunityIcons, FontAwesome5, Entypo} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
 
-import {ExerciseTypeEnum} from '../data/models/Exercise'
+import {ExerciseTypeEnum} from '@data/models/Exercise'
 
 interface Props {
   exerciseType: ExerciseTypeEnum

@@ -5,12 +5,12 @@ import {ScrollView} from 'react-native'
 import PrimaryButton from '@components/PrimaryButton'
 import {Text} from '@theme/Theme'
 
-import offlineWorkoutStorageService from '../../service/workouts/OfflineWorkoutStorageService'
-import useDailyWorkoutEntryStore from '../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
-import useWeeklyWorkoutSummariesStore from '../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
-import useWorkoutSummariesStore from '../../store/workoutSummaries/useWorkoutSummariesStore'
+import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
+import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
 
 const DebugScreen = () => {
   const {currentWorkoutDay} = useDailyWorkoutEntryStore()

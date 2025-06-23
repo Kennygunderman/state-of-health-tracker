@@ -15,12 +15,12 @@ import {
 import {useNavigation} from '@react-navigation/native'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {Exercise} from '../../data/models/Exercise'
-import {Navigation} from '../../navigation/types'
-import useDailyWorkoutEntryStore from '../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
+import {Exercise} from '@data/models/Exercise'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
+import {Navigation} from '../../navigation/types'
 import styles from './index.styled'
 
 const WorkoutTemplateDetailScreen = () => {

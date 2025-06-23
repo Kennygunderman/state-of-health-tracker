@@ -11,8 +11,8 @@ import {
 } from '@constants/Strings'
 import {useStyleTheme} from '@theme/Theme'
 
-import useUserData from '../../../store/userData/useUserData'
-import useWeeklyWorkoutSummariesStore from '../../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
+import useUserData from '@store/userData/useUserData'
+import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
 import {formatDateToMonthDay, getLast7Mondays} from '../../../utility/DateUtility'
 
 const WeeklyWorkoutsGraphModule = () => {

@@ -8,9 +8,9 @@ import {useNavigation} from '@react-navigation/native'
 import DeleteTemplateBottomSheet from '@screens/AddExercise/components/DeleteTemplateBottomSheet'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {ExerciseTemplate} from '../../../../data/models/ExerciseTemplate'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
 import {Navigation} from '../../../../navigation/types'
-import useExerciseTemplateStore from '../../../../store/exerciseTemplates/useExerciseTemplateStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
 import styles from './index.styled'
 

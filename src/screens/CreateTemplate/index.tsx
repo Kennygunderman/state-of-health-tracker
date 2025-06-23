@@ -18,13 +18,12 @@ import {
   TOAST_TEMPLATE_CREATED,
   TOAST_TEMPLATE_CREATION_ERROR
 } from '@constants/Strings'
-import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
+import {MaterialCommunityIcons} from '@expo/vector-icons'
 import {useNavigation} from '@react-navigation/native'
 import {Text, useStyleTheme} from '@theme/Theme'
-
-import {Exercise} from '../../data/models/Exercise'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
+import {Exercise} from '@data/models/Exercise'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
 import CreateTemplateModal from './components/CreateTemplateModal'
 import styles from './index.styled'

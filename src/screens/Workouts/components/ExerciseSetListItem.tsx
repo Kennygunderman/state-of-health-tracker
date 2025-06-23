@@ -11,9 +11,9 @@ import Spacing from '@constants/Spacing'
 import {LBS_LABEL, REPS_LABEL} from '@constants/Strings'
 import {Text, TextInput, useStyleTheme} from '@theme/Theme'
 
-import {Exercise} from '../../../data/models/Exercise'
-import {ExerciseSet} from '../../../data/models/ExerciseSet'
-import useDailyWorkoutEntryStore from '../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {Exercise} from '@data/models/Exercise'
+import {ExerciseSet} from '@data/models/ExerciseSet'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 
 interface Props {
   readonly exercise: Exercise

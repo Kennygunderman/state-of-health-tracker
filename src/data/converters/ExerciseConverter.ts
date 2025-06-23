@@ -1,4 +1,4 @@
-import {ExerciseBodyPartEnum, ExerciseTypeEnum} from '../models/Exercise'
+import {ExerciseBodyPartEnum, ExerciseTypeEnum} from '@data/models/Exercise'
 
 export const mapExerciseType = (type: string): ExerciseTypeEnum => {
   switch (type.toLowerCase()) {

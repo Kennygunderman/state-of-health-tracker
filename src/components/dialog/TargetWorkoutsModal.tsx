@@ -12,10 +12,10 @@ import {
   TOAST_TARGET_WORKOUTS_SET
 } from '@constants/Strings'
 import {useStyleTheme} from '@theme/Theme'
+import useUserData from '@store/userData/useUserData'
 
 import {isNumber} from '../../utility/TextUtility'
 import {showToast} from '../toast/util/ShowToast'
-import useUserData from '../../store/userData/useUserData'
 
 const TargetWorkoutsModal = (props: BaseInputModalProps) => {
   const {isVisible, onDismissed} = props

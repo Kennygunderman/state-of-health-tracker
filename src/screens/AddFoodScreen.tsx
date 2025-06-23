@@ -19,12 +19,12 @@ import {
   NO_FOOD_FOUND_EMPTY_TEXT
 } from '@constants/Strings'
 import {Text, useStyleTheme} from '@theme/Theme'
+import foodSearchService from '@service/food/FoodSearchService'
+import {deleteFood} from '@store/food/FoodActions'
+import FoodItem, {formatMacros} from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
 
 import {getFoodSelector} from '../selectors/FoodsSelector'
-import foodSearchService from '../service/food/FoodSearchService'
-import {deleteFood} from '../store/food/FoodActions'
-import FoodItem, {formatMacros} from '../store/food/models/FoodItem'
-import LocalStore from '../store/LocalStore'
 import ListSwipeItemManager from '../utility/ListSwipeItemManager'
 
 const AddFoodScreen = ({navigation, route}: any) => {

@@ -23,9 +23,10 @@ import {Ionicons} from '@expo/vector-icons'
 import {useNavigation} from '@react-navigation/native'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {CreateExercisePayload, ExerciseBodyPartEnum, ExerciseTypeEnum} from '../../data/models/Exercise'
+import {CreateExercisePayload, ExerciseBodyPartEnum, ExerciseTypeEnum} from '@data/models/Exercise'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+
 import {Navigation} from '../../navigation/types'
-import useExercisesStore from '../../store/exercises/useExercisesStore'
 import {combineExerciseNameType} from '../../utility/combineExerciseNameType'
 import {exerciseTypeValues, bodyPartValues} from '../../utility/exercisePickerItems'
 

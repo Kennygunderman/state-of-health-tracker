@@ -11,8 +11,8 @@ import {
 } from '@constants/Strings'
 import {FontAwesome5} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
+import useUserData from '@store/userData/useUserData'
 
-import useUserData from '../../store/userData/useUserData'
 import {isNumber} from '../../utility/TextUtility'
 
 import BaseModalProps from './BaseInputModalProps'

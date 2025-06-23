@@ -18,10 +18,10 @@ import {
 } from '@constants/Strings'
 import {useNavigation} from '@react-navigation/native'
 import {Text, useStyleTheme} from '@theme/Theme'
+import useAuthStore from '@store/auth/useAuthStore'
 
 import {Navigation} from '../navigation/types'
 import {useThunkDispatch} from '../store'
-import useAuthStore from '../store/auth/useAuthStore'
 import {isValidEmail, isValidPassword} from '../utility/AccountUtility'
 
 import PasswordTextInput from './PasswordTextInput'
@@ -42,8 +42,7 @@ const AuthForm = (props: Props) => {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showEmailError, setShowEmailError] = useState(false)
   const [showPasswordError, setShowPasswordError] = useState(false)
-  const [showConfirmPasswordError, setShowConfirmPasswordError] =
-    useState(false)
+  const [showConfirmPasswordError, setShowConfirmPasswordError] = useState(false)
 
   const {isAttemptingAuth, loginUser, registerUser} = useAuthStore()
 
@@ -135,11 +134,7 @@ const AuthForm = (props: Props) => {
           <PrimaryButton
             style={{marginTop: Spacing.LARGE}}
             isLoading={isAttemptingAuth}
-            label={
-              authType === 'register'
-                ? AUTH_REGISTER_BUTTON_TEXT
-                : AUTH_LOG_IN_BUTTON_TEXT
-            }
+            label={authType === 'register' ? AUTH_REGISTER_BUTTON_TEXT : AUTH_LOG_IN_BUTTON_TEXT}
             onPress={handleAuth}
           />
           {authType === 'log-in' && (

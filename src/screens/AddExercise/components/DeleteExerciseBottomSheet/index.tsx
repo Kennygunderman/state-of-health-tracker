@@ -13,8 +13,8 @@ import {
 import {Ionicons} from '@expo/vector-icons'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {Exercise} from '../../../../data/models/Exercise'
-import useExercisesStore from '../../../../store/exercises/useExercisesStore'
+import {Exercise} from '@data/models/Exercise'
+import useExercisesStore from '@store/exercises/useExercisesStore'
 
 import styles from './index.styled'
 

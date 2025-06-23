@@ -8,7 +8,7 @@ import Spacing from '@constants/Spacing'
 import {DAILY_WORKOUT_TITLE} from '@constants/Strings'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {useSessionStore} from '../../../../store/session/useSessionStore'
+import {useSessionStore} from '@store/session/useSessionStore'
 import {formatDayMonthDay} from '../../../../utility/DateUtility'
 
 import styles from './index.styled'

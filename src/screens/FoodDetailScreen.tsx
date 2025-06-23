@@ -29,11 +29,11 @@ import {
   UPDATE_SERVINGS_BUTTON_TEXT
 } from '@constants/Strings'
 import {Text, useStyleTheme} from '@theme/Theme'
+import {addFood} from '@store/food/FoodActions'
+import FoodItem, {convertFoodItemToLocal} from '@store/food/models/FoodItem'
+import {updateMealFood, updateMealFoodItemServings} from '@store/meals/MealsActions'
 
 import {useThunkDispatch} from '../store'
-import {addFood} from '../store/food/FoodActions'
-import FoodItem, {convertFoodItemToLocal} from '../store/food/models/FoodItem'
-import {updateMealFood, updateMealFoodItemServings} from '../store/meals/MealsActions'
 
 export interface FoodDetailRouteParams {
   path: 'update' | 'add'

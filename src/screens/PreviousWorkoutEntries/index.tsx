@@ -16,9 +16,9 @@ import {
 } from '@constants/Strings'
 import {FontAwesome5, MaterialCommunityIcons} from '@expo/vector-icons'
 import {Screen, useStyleTheme} from '@theme/Theme'
+import {WorkoutSummary} from '@data/models/WorkoutSummary'
+import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
 
-import {WorkoutSummary} from '../../data/models/WorkoutSummary'
-import useWorkoutSummariesStore from '../../store/workoutSummaries/useWorkoutSummariesStore'
 import {formatDateUTC} from '../../utility/DateUtility'
 
 import BestSetChip from './components/BestSetChip'

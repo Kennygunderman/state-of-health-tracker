@@ -16,10 +16,10 @@ import {
 } from '@constants/Strings'
 import {MaterialCommunityIcons} from '@expo/vector-icons'
 import {Screen, useStyleTheme} from '@theme/Theme'
+import {formatMacros} from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
 
 import {DailyMealEntry, getPreviousDailyMealEntriesSelector} from '../selectors/MealsSelector'
-import {formatMacros} from '../store/food/models/FoodItem'
-import LocalStore from '../store/LocalStore'
 
 const PreviousDailyMealEntriesScreen = () => {
   const loadBatchIncrement = 20

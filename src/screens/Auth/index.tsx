@@ -8,11 +8,11 @@ import {OKAY_BUTTON_TEXT} from '@constants/Strings'
 import {useNavigation} from '@react-navigation/native'
 import {useStyleTheme} from '@theme/Theme'
 
-import {AuthEvent, authEventType} from '../../data/types/authEvent'
-import {authStatus} from '../../data/types/authStatus'
-import {Navigation} from '../../navigation/types'
-import useAuthStore from '../../store/auth/useAuthStore'
+import {AuthEvent, authEventType} from '@data/types/authEvent'
+import {authStatus} from '@data/types/authStatus'
+import useAuthStore from '@store/auth/useAuthStore'
 
+import {Navigation} from '../../navigation/types'
 import styles from './index.styled'
 
 export const AuthSubject$ = new Subject<AuthEvent>()
