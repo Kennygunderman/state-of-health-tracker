@@ -70,8 +70,9 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
         </Text>
       </View>
 
-      {subItems.map((item: T) => (
+      {subItems.map((item: T, i) => (
         <View
+          key={i}
           style={{
             backgroundColor: useStyleTheme().colors.tertiary,
             borderRadius: BorderRadius.SECTION,
