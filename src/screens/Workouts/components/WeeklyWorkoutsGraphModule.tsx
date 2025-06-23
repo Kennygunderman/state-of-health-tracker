@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { TextStyle, View, ViewStyle } from 'react-native';
-import { useSelector } from 'react-redux';
 import BarGraph from '../../../components/BarGraph';
 import TargetWorkoutsModal from '../../../components/dialog/TargetWorkoutsModal';
 import {
@@ -8,7 +7,6 @@ import {
   WEEKLY_WORKOUTS_GRAPH_LABEL2,
   WEEKLY_WORKOUTS_GRAPH_TITLE,
 } from '../../../constants/Strings';
-import LocalStore from '../../../store/LocalStore';
 import { useStyleTheme } from '../../../styles/Theme';
 import { formatDateToMonthDay, getLast7Mondays } from '../../../utility/DateUtility';
 import useWeeklyWorkoutSummariesStore from '../../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore';
@@ -16,13 +14,13 @@ import useUserData from "../../../store/userData/useUserData";
 
 const WeeklyWorkoutsGraphModule = () => {
 
+  const [isInputModalVisible, setIsInputModalVisible] = useState(false);
+
   const { targetWorkouts } = useUserData();
+  const { weeklySummaries } = useWeeklyWorkoutSummariesStore();
 
   const targetWorkoutsPerWeek = Math.max(targetWorkouts, 1);
 
-  const { weeklySummaries } = useWeeklyWorkoutSummariesStore();
-
-  const [isInputModalVisible, setIsInputModalVisible] = useState(false);
 
   const presentTargetWorkoutsModal = () => {
     setIsInputModalVisible(true);
@@ -83,6 +81,7 @@ const WeeklyWorkoutsGraphModule = () => {
         isVisible={isInputModalVisible}
         onDismissed={() => setIsInputModalVisible(false)}
       />
+      <View>
       <BarGraph
         title={WEEKLY_WORKOUTS_GRAPH_TITLE}
         label1={WEEKLY_WORKOUTS_GRAPH_LABEL1 + targetWorkoutsPerWeek}
@@ -101,6 +100,7 @@ const WeeklyWorkoutsGraphModule = () => {
         getXAxisLabelStyle={xAxisLabelStyle}
         onLabelsPressed={presentTargetWorkoutsModal}
       />
+      </View>
     </>
   );
 };

@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import WorkoutsScreen from '../screens/Workouts/WorkoutsScreen';
+import WorkoutsScreen from '../screens/Workouts';
 import CreateExerciseScreen from '../screens/CreateExercise';
 import CreateTemplateScreen from '../screens/CreateTemplate';
 import SearchExercisesScreen from '../screens/SearchExercises';
