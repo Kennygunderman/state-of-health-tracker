@@ -1,8 +1,8 @@
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
-import {WorkoutSummary} from '../../data/models/WorkoutSummary'
-import {fetchWorkoutSummaries} from '../../service/workouts/fetchWorkoutSummaries'
+import {WorkoutSummary} from '@data/models/WorkoutSummary'
+import {fetchWorkoutSummaries} from '@service/workouts/fetchWorkoutSummaries'
 
 export type WorkoutSummariesState = {
   currentPage: number

@@ -1,7 +1,7 @@
-import {addMealToDailyEntry, SET_DAILY_MEALS_HAS_SYNCED_FALSE} from '../dailyMealEntries/DailyMealEntriesActions'
-import FoodItem from '../food/models/FoodItem'
-import LocalStore from '../LocalStore'
-import {useSessionStore} from '../session/useSessionStore'
+import {addMealToDailyEntry, SET_DAILY_MEALS_HAS_SYNCED_FALSE} from '@store/dailyMealEntries/DailyMealEntriesActions'
+import FoodItem from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
+import {useSessionStore} from '@store/session/useSessionStore'
 
 import {Meal} from './models/Meal'
 

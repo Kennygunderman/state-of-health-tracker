@@ -1,8 +1,8 @@
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
-import {WeeklyWorkoutSummary} from '../../data/models/WeeklyWorkoutSummary'
-import {fetchWeeklyWorkoutSummaries} from '../../service/workouts/fetchWeeklyWorkoutSummaries'
+import {WeeklyWorkoutSummary} from '@data/models/WeeklyWorkoutSummary'
+import {fetchWeeklyWorkoutSummaries} from '@service/workouts/fetchWeeklyWorkoutSummaries'
 
 export type WeeklyWorkoutSummariesState = {
   isLoadingSummaries: boolean

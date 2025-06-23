@@ -1,15 +1,15 @@
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
-import {createDailyExercise, DailyExercise} from '../../data/models/DailyExercise'
-import {Exercise} from '../../data/models/Exercise'
-import {createSet} from '../../data/models/ExerciseSet'
-import {createWorkoutDay, WorkoutDay} from '../../data/models/WorkoutDay'
-import {getUserId} from '../../service/auth/userStorage'
-import {fetchWorkoutForDay} from '../../service/workouts/fetchWorkoutForDay'
-import offlineWorkoutStorageService from '../../service/workouts/OfflineWorkoutStorageService'
-import syncOfflineWorkouts from '../../service/workouts/syncOfflineWorkouts'
-import {useSessionStore} from '../session/useSessionStore'
+import {createDailyExercise, DailyExercise} from '@data/models/DailyExercise'
+import {Exercise} from '@data/models/Exercise'
+import {createSet} from '@data/models/ExerciseSet'
+import {createWorkoutDay, WorkoutDay} from '@data/models/WorkoutDay'
+import {getUserId} from '@service/auth/userStorage'
+import {fetchWorkoutForDay} from '@service/workouts/fetchWorkoutForDay'
+import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
+import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
+import {useSessionStore} from '@store/session/useSessionStore'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null

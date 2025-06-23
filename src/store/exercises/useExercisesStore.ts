@@ -2,14 +2,13 @@ import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
 import {DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS} from '@constants/Strings'
+import {CreateExercisePayload, Exercise} from '@data/models/Exercise'
 import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
 import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
-
-import {CreateExercisePayload, Exercise} from '../../data/models/Exercise'
-import {createExercise} from '../../service/exercises/createExercise'
-import {deleteExercise} from '../../service/exercises/deleteExercise'
-import {fetchExercises} from '../../service/exercises/fetchExercises'
-import useExerciseTemplateStore from '../exerciseTemplates/useExerciseTemplateStore'
+import {createExercise} from '@service/exercises/createExercise'
+import {deleteExercise} from '@service/exercises/deleteExercise'
+import {fetchExercises} from '@service/exercises/fetchExercises'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
 export type ExercisesState = {
   exercises: Exercise[]

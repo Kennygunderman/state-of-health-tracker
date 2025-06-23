@@ -2,13 +2,12 @@ import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
 import {DELETE_TEMPLATE_ERROR, DELETE_TEMPLATE_SUCCESS} from '@constants/Strings'
+import {CreateExerciseTemplatePayload, ExerciseTemplate} from '@data/models/ExerciseTemplate'
 import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
 import {CreateTemplateEventSubject$} from '@screens/CreateTemplate'
-
-import {CreateExerciseTemplatePayload, ExerciseTemplate} from '../../data/models/ExerciseTemplate'
-import {createTemplate} from '../../service/exercises/createTemplate'
-import {deleteTemplate} from '../../service/exercises/deleteTemplate'
-import {fetchTemplates} from '../../service/exercises/fetchTemplates'
+import {createTemplate} from '@service/exercises/createTemplate'
+import {deleteTemplate} from '@service/exercises/deleteTemplate'
+import {fetchTemplates} from '@service/exercises/fetchTemplates'
 
 export type ExerciseTemplateState = {
   templates: ExerciseTemplate[]

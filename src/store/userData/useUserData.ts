@@ -1,7 +1,7 @@
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 
-import {zustandAsyncStorage} from '../zustandAsyncStorage'
+import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
 
 type UserDataStore = {
   currentWeight: number

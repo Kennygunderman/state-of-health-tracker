@@ -1,4 +1,4 @@
-import FoodItem from '../food/models/FoodItem'
+import FoodItem from '@store/food/models/FoodItem'
 
 import {
   ADD_MEAL,

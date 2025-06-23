@@ -1,6 +1,6 @@
-import userService from '../../service/user/UserService'
-import {setMealEntriesSynced} from '../dailyMealEntries/DailyMealEntriesActions'
-import LocalStore from '../LocalStore'
+import userService from '@service/user/UserService'
+import {setMealEntriesSynced} from '@store/dailyMealEntries/DailyMealEntriesActions'
+import LocalStore from '@store/LocalStore'
 
 export const LOG_IN_USER: string = 'LOG_IN_USER'
 export const LOG_OUT_USER: string = 'LOG_OUT_USER'

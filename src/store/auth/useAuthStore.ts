@@ -1,18 +1,17 @@
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 
+import {authEventType} from '@data/types/authEvent'
+import {authStatus} from '@data/types/authStatus'
 import {AuthSubject$} from '@screens/Auth'
-
-import {authEventType} from '../../data/types/authEvent'
-import {authStatus} from '../../data/types/authStatus'
-import {decodeAuthError} from '../../service/auth/AuthErrorEnum'
-import authService from '../../service/auth/AuthService'
-import {removeUserId, storeUserId} from '../../service/auth/userStorage'
-import userService from '../../service/user/UserService'
-import offlineWorkoutStorageService from '../../service/workouts/OfflineWorkoutStorageService'
-import LocalStore from '../LocalStore'
-import {AuthError, AuthErrorPathEnum} from '../user/models/AuthError'
-import {LOG_IN_USER, LOG_OUT_USER} from '../user/UserActions'
+import {decodeAuthError} from '@service/auth/AuthErrorEnum'
+import authService from '@service/auth/AuthService'
+import {removeUserId,storeUserId} from '@service/auth/userStorage'
+import userService from '@service/user/UserService'
+import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
+import LocalStore from '@store/LocalStore'
+import {AuthError,AuthErrorPathEnum} from '@store/user/models/AuthError'
+import {LOG_IN_USER,LOG_OUT_USER} from '@store/user/UserActions'
 
 export type AuthState = {
   userId: string | null
