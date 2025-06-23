@@ -2,9 +2,10 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {CreateUserPayload} from '../../data/models/User'
+import {CreateUserPayload} from '@data/models/User'
+import {httpPost} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpPost} from '../http/httpUtil'
 
 const VoidResponse = io.unknown
 

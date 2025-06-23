@@ -2,9 +2,10 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {WeeklyWorkoutSummary} from '../../data/models/WeeklyWorkoutSummary'
+import {WeeklyWorkoutSummary} from '@data/models/WeeklyWorkoutSummary'
+import {httpGet} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpGet} from '../http/httpUtil'
 
 const WeeklyWorkoutSummaryResponse = io.type({
   startOfWeek: io.string,

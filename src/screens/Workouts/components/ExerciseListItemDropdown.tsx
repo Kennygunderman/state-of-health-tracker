@@ -3,7 +3,6 @@ import React, {useEffect, useState} from 'react'
 import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
 import Modal from 'react-native-modal'
-import {useDispatch} from 'react-redux'
 
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import ReorganizeModal from '@components/dialog/ReorganizeModal'
@@ -39,8 +38,6 @@ const ExerciseListItemDropdown = (props: Props) => {
 
   const [isReorgModalVisible, setIsReorgModalVisible] = useState(false)
   const [doReorg, setDoReorg] = useState(false)
-
-  const dispatch = useDispatch()
 
   const cancel = () => {
     onDropdownCancel?.(false)

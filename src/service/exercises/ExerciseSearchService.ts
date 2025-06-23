@@ -1,6 +1,7 @@
 import exercises from '../../assets/exercises'
-import {mapExerciseBodyPart, mapExerciseType} from '../../data/converters/ExerciseConverter'
-import {CreateExercisePayload} from '../../data/models/Exercise'
+import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
+import {CreateExercisePayload} from '@data/models/Exercise'
+
 import {capitalizeFirstLetterOfEveryWord} from '../../utility/TextUtility'
 
 class ExerciseSearchService {

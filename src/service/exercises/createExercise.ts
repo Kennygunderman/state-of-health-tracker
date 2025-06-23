@@ -2,10 +2,11 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {mapExerciseBodyPart, mapExerciseType} from '../../data/converters/ExerciseConverter'
-import {CreateExercisePayload, Exercise} from '../../data/models/Exercise'
+import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
+import {CreateExercisePayload, Exercise} from '@data/models/Exercise'
+import {httpPost} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpPost} from '../http/httpUtil'
 
 const ExerciseResponse = io.type({
   id: io.string,

@@ -2,10 +2,11 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {Pagination} from '../../data/models/Pagination'
-import {WorkoutSummary} from '../../data/models/WorkoutSummary'
+import {Pagination} from '@data/models/Pagination'
+import {WorkoutSummary} from '@data/models/WorkoutSummary'
+import {httpGet} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpGet} from '../http/httpUtil'
 
 const BestSetResponse = io.type({
   weight: io.number,

@@ -1,11 +1,11 @@
 import {createSelector, ParametricSelector, Selector} from 'reselect'
 
-import {DailyMealEntryMap} from '../store/dailyMealEntries/DailyMealEntriesState'
-import {Macros} from '../store/food/models/FoodItem'
-import LocalStore from '../store/LocalStore'
-import {MealMap} from '../store/meals/MealsState'
-import {Meal} from '../store/meals/models/Meal'
-import {useSessionStore} from '../store/session/useSessionStore'
+import {DailyMealEntryMap} from '@store/dailyMealEntries/DailyMealEntriesState'
+import {Macros} from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
+import {MealMap} from '@store/meals/MealsState'
+import {Meal} from '@store/meals/models/Meal'
+import {useSessionStore} from '@store/session/useSessionStore'
 import {formatDate} from '../utility/DateUtility'
 
 export interface MealEntry {

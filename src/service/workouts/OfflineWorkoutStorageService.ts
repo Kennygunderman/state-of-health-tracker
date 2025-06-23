@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system'
 
-import {WorkoutDay} from '../../data/models/WorkoutDay'
+import {WorkoutDay} from '@data/models/WorkoutDay'
 import {compareIsoDateStrings} from '../../utility/DateUtility'
 
 const OFFLINE_FILE_PATH = `${FileSystem.documentDirectory}unsynced-workouts.json`

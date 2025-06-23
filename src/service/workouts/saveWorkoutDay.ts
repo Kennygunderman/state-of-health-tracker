@@ -2,9 +2,10 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {WorkoutDay} from '../../data/models/WorkoutDay'
+import {WorkoutDay} from '@data/models/WorkoutDay'
+import {httpPost} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpPost} from '../http/httpUtil'
 
 const VoidResponse = io.unknown // Accepts any response (even empty)
 

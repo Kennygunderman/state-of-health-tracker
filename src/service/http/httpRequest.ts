@@ -2,8 +2,9 @@ import axios, {AxiosRequestConfig, Method} from 'axios'
 import {isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 
+import {getUserId} from '@service/auth/userStorage'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {getUserId} from '../auth/userStorage'
 
 export interface HttpResponse<T> {
   data: T

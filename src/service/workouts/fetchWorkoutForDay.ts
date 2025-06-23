@@ -1,10 +1,11 @@
 import * as io from 'io-ts'
 
-import {mapExerciseBodyPart, mapExerciseType} from '../../data/converters/ExerciseConverter'
-import {WorkoutDay} from '../../data/models/WorkoutDay'
+import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
+import {WorkoutDay} from '@data/models/WorkoutDay'
+import {getUserId} from '@service/auth/userStorage'
+import {httpGet} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {getUserId} from '../auth/userStorage'
-import {httpGet} from '../http/httpUtil'
 
 const ExerciseSetResponse = io.type({
   id: io.string,

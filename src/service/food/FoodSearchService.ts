@@ -5,8 +5,8 @@ import {Errors} from 'io-ts'
 import {isNil} from 'lodash'
 
 import {USDA_BASE_URL, USDA_FOOD_API_KEY} from '@env'
+import FoodItem, {caloriesFromMacros, Macros} from '@store/food/models/FoodItem'
 
-import FoodItem, {caloriesFromMacros, Macros} from '../../store/food/models/FoodItem'
 import CrashUtility from '../../utility/CrashUtility'
 import {capitalizeFirstLetterOfEveryWord} from '../../utility/TextUtility'
 

@@ -2,9 +2,10 @@ import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
 
-import {ExerciseTemplate} from '../../data/models/ExerciseTemplate'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
+import {httpGet} from '@service/http/httpUtil'
+
 import CrashUtility from '../../utility/CrashUtility'
-import {httpGet} from '../http/httpUtil'
 
 const ExerciseTemplateResponse = io.type({
   id: io.string,
