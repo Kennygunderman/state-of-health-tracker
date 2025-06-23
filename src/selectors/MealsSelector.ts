@@ -61,7 +61,6 @@ function getPreviousDailyMealEntries(loadBatch: number, dailyMealEntriesMap: Dai
 
     days.sort((a, b) => Date.parse(b) - Date.parse(a))
         .filter((day) => day !== currentDay)
-        .slice(0, loadBatch)
         .forEach((day) => {
             const meals = getMealsForDay(day, dailyMealEntriesMap, mealMap);
             let totalCalories = 0;
@@ -105,7 +104,7 @@ function getPreviousDailyMealEntries(loadBatch: number, dailyMealEntriesMap: Dai
             entries.push(entry);
         });
 
-    return entries;
+    return entries.slice(0, loadBatch);
 }
 
 export const getPreviousDailyMealEntriesSelector: ParametricSelector<LocalStore, number, DailyMealEntry[]> = createSelector(
