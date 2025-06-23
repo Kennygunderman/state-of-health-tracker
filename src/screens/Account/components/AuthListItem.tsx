@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import AccountListItem from './AccountListItem';
 import ConfirmModal from '../../../components/dialog/ConfirmModal';
 import {
@@ -14,6 +14,7 @@ import useAuthStore from "../../../store/auth/useAuthStore";
 
 const AuthListItem = () => {
 
+  const dispatch = useDispatch();
   const currentState = useSelector<LocalStore, LocalStore>((state: LocalStore) => state);
 
   const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
@@ -30,7 +31,7 @@ const AuthListItem = () => {
         onConfirmPressed={() => {
           setIsConfirmModalVisible(false);
           if (isAuthed) {
-            logoutUser();
+            logoutUser(dispatch, currentState);
           }
         }}
         onCancel={() => {

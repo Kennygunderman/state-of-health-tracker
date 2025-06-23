@@ -14,6 +14,7 @@ import 'react-native-get-random-values';
 import { migrations } from './migrations';
 import { userReducer } from './user/UserReducer';
 import { getCurrentDate } from '../utility/DateUtility';
+import { LOG_IN_USER, LOG_OUT_USER } from "./user/UserActions";
 
 const appReducer = combineReducers({
     user: userReducer,
@@ -23,6 +24,16 @@ const appReducer = combineReducers({
 });
 
 const rootReducer = (state: any, action: Action<any>) => {
+    if (action.type === LOG_IN_USER) {
+        if (action.payload) {
+            return appReducer(action.payload, action);
+        }
+    }
+
+    if (action.type === LOG_OUT_USER) {
+        return appReducer(initialState, action);
+    }
+
     return appReducer(state, action);
 };
 

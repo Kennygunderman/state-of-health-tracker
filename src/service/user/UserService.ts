@@ -10,7 +10,6 @@ import { MEALS_INITIAL_STATE } from '../../store/meals/MealsReducer';
 import { MealMap } from '../../store/meals/MealsState';
 import { Meal } from '../../store/meals/models/Meal';
 import { USER_INITIAL_STATE } from '../../store/user/initialState';
-import { getCurrentDate } from '../../utility/DateUtility';
 
 interface RemoteDailyMealEntry {
     id: string;
@@ -22,6 +21,7 @@ interface RemoteDailyMealEntry {
 // This is horrible, what was i thinking
 class UserService {
     async saveUserData(userId: string, store: LocalStore) {
+        console.log('attempting to save user data', userId, store);
         try {
             await firestore().collection('user').doc(userId).set(
                 {
@@ -36,6 +36,8 @@ class UserService {
             );
 
             await this.saveDailyMealEntries(userId, store.dailyMealEntries.map, store.meals.map);
+
+            console.log('User data saved successfully');
 
         } catch (error: any) {
             console.log('sync err', error);
@@ -135,14 +137,11 @@ class UserService {
                 return this.handleLegacyMigration(user);
             }
 
-            const userInfo = await this.fetchUserDoc('userInfo', userId);
             const { mealMap, dailyMealEntryMap } = await this.fetchMealEntries(userId);
 
             const store: LocalStore = {
                 //@ts-ignore
                 user: user ?? USER_INITIAL_STATE,
-                // @ts-ignore
-                userInfo: userInfo ? { ...userInfo, currentDate: getCurrentDate() } : USER_INFO_INITIAL_STATE,
                 // @ts-ignore
                 food: await this.fetchUserDoc('userFood', userId) ?? FOOD_INITIAL_STATE,
                 meals: { map: mealMap },

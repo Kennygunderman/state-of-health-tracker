@@ -22,10 +22,9 @@ LogBox.ignoreAllLogs(true);
 
 const AppStateChanged = () => {
   const dispatch = useThunkDispatch();
+  const { userId, isAuthed } = useAuthStore();
 
   async function onApplicationStateChange(appState: string) {
-    const { userId, isAuthed } = useAuthStore();
-
     if (appState === 'active') {
       if (isAuthed && userId) {
         dispatch(syncUserData(userId));
