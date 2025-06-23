@@ -10,7 +10,7 @@ import MealsScreen from '@screens/Meals/MealsScreen'
 import PreviousDailyMealEntriesScreen from '@screens/PreviousDailyMealEntriesScreen'
 
 import Screens from '@constants/Screens'
-import {MACROS_TITLE, NEW_FOOD_ITEM_TEXT, PREVIOUS_ENTRIES_TITLE, QUICK_ADD_FOOD_SCREEN_TITLE} from '@constants/Strings'
+import {NEW_FOOD_ITEM_TEXT, PREVIOUS_ENTRIES_TITLE, QUICK_ADD_FOOD_SCREEN_TITLE} from '@constants/Strings'
 
 const Stack = createNativeStackNavigator()
 
