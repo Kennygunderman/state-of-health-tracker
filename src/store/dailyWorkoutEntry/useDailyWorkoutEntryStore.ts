@@ -2,13 +2,13 @@ import {createDailyExercise, DailyExercise} from '@data/models/DailyExercise'
 import {Exercise} from '@data/models/Exercise'
 import {createSet} from '@data/models/ExerciseSet'
 import {createWorkoutDay, WorkoutDay} from '@data/models/WorkoutDay'
-import {getUserId} from '@service/auth/userStorage'
 import {fetchWorkoutForDay} from '@service/workouts/fetchWorkoutForDay'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 import {useSessionStore} from '@store/session/useSessionStore'
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
+import useAuthStore from '@store/auth/useAuthStore'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -42,9 +42,14 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
         set({isInitializing: true})
         await syncOfflineWorkouts()
         const today = useSessionStore.getState().sessionStartDate
+        const userId = useAuthStore.getState().userId
 
         try {
-          const workout = await fetchWorkoutForDay(today)
+          if (!userId) {
+            throw new Error('User ID not found')
+          }
+
+          const workout = await fetchWorkoutForDay(userId, today)
 
           workout.synced = true
           await offlineWorkoutStorageService.save(workout)
@@ -56,9 +61,6 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           let localWorkout = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
 
           if (!localWorkout) {
-            // if no remote workout, create a new offline copy
-            const userId = await getUserId()
-
             localWorkout = createWorkoutDay(userId ?? '', today)
             await offlineWorkoutStorageService.save(localWorkout)
           }

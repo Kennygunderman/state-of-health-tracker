@@ -1,7 +1,8 @@
 import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
 import {WorkoutDay} from '@data/models/WorkoutDay'
-import {getUserId} from '@service/auth/userStorage'
 import {httpGet} from '@service/http/httpUtil'
+import Endpoints from '@constants/Endpoints'
+
 import * as io from 'io-ts'
 
 import CrashUtility from '../../utility/CrashUtility'
@@ -33,14 +34,13 @@ const WorkoutDayResponse = io.type({
   dailyExercises: io.array(DailyExerciseResponse)
 })
 
-export async function fetchWorkoutForDay(isoDayStamp: string): Promise<WorkoutDay> {
+export async function fetchWorkoutForDay(userId: string, isoDayStamp: string): Promise<WorkoutDay> {
   try {
-    const response = await httpGet(`http://192.168.4.104:3000/api/workouts/${isoDayStamp}`, WorkoutDayResponse)
+    const response = await httpGet(`${Endpoints.Workout}${isoDayStamp}`, WorkoutDayResponse)
 
     const data = response?.data
-    const userId = await getUserId()
 
-    if (!response || !data || !userId) throw new Error('Error fetching workout for day')
+    if (!response || !data) throw new Error('Error fetching workout for day')
 
     return {
       id: data.id,

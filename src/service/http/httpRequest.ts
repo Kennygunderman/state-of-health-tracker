@@ -1,5 +1,7 @@
-import {getUserId} from '@service/auth/userStorage'
 import axios, {AxiosRequestConfig, Method} from 'axios'
+
+import {getBearerToken} from '@service/auth/getBearerToken'
+
 import {isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 
@@ -11,30 +13,30 @@ export interface HttpResponse<T> {
 }
 
 export interface HttpRequestOptions {
-  useUserId?: boolean
+  useAuth?: boolean
 }
 
 async function httpRequest<T>(
   method: Method,
   url: string,
   decoder: io.Type<T>,
-  options: HttpRequestOptions = {useUserId: true},
+  options: HttpRequestOptions = {useAuth: true},
   body?: any
 ): Promise<HttpResponse<T>> {
   const conf: AxiosRequestConfig = {}
 
-  if (options.useUserId) {
-    const userId = await getUserId()
+  if (options.useAuth) {
+    const token = await getBearerToken()
 
-    if (!userId) {
-      const error = new Error('userId is required for HTTP request: ' + url)
+    if (!token) {
+      const error = new Error('Bearer token is required for HTTP request: ' + url)
 
       CrashUtility.recordError(error)
       throw error
     }
 
     conf.headers = {
-      'x-user-id': userId
+      Authorization: `Bearer ${token}`
     }
   }
 

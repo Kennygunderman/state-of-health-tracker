@@ -2,7 +2,6 @@ import {authEventType} from '@data/types/authEvent'
 import {authStatus} from '@data/types/authStatus'
 import {decodeAuthError} from '@service/auth/AuthErrorEnum'
 import authService from '@service/auth/AuthService'
-import {removeUserId, storeUserId} from '@service/auth/userStorage'
 import userService from '@service/user/UserService'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import LocalStore from '@store/LocalStore'
@@ -45,10 +44,6 @@ const useAuthStore = create<AuthState>()(
         isAuthed: isAuthed
       })
 
-      if (userId) {
-        storeUserId(userId)
-      }
-
       AuthSubject$.next({
         type: authEventType.Status,
         status: isAuthed ? authStatus.Authed : authStatus.Unauthed
@@ -73,7 +68,6 @@ const useAuthStore = create<AuthState>()(
           isAuthed: true
         })
 
-        await storeUserId(user.id)
         AuthSubject$.next({
           type: authEventType.Status,
           status: authStatus.Authed
@@ -107,7 +101,6 @@ const useAuthStore = create<AuthState>()(
           isAuthed: true
         })
 
-        await storeUserId(account.id)
         AuthSubject$.next({
           type: authEventType.Status,
           status: authStatus.Authed
@@ -141,7 +134,6 @@ const useAuthStore = create<AuthState>()(
       })
 
       await authService.logOutUser()
-      await removeUserId()
       await offlineWorkoutStorageService.clear()
       //TODO: reset other zustand stores (exercises, workouts, etc.)
 
@@ -153,7 +145,6 @@ const useAuthStore = create<AuthState>()(
     },
     deleteUser: async () => {
       await authService.deleteCurrentUser()
-      await removeUserId()
       await offlineWorkoutStorageService.clear()
       //TODO: reset other zustand stores (exercises, workouts, etc.)
 
