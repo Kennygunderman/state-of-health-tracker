@@ -1,6 +1,6 @@
 import React from 'react'
 
-import {Dimensions, View} from 'react-native'
+import {Dimensions, SafeAreaView, View} from 'react-native'
 
 import {useSessionStore} from '@store/session/useSessionStore'
 import {Text, useStyleTheme} from '@theme/Theme'
@@ -40,7 +40,7 @@ const WorkoutsSkeleton = () => {
   )
 
   return (
-    <>
+    <SafeAreaView>
       <Text style={styles.dateText}>{formatDayMonthDay(useSessionStore.getState().sessionStartDate)}</Text>
 
       <Text style={styles.workoutTitle}>{DAILY_WORKOUT_TITLE}</Text>
@@ -117,7 +117,7 @@ const WorkoutsSkeleton = () => {
 
         <View style={{marginBottom: Spacing.MEDIUM}} />
       </View>
-    </>
+    </SafeAreaView>
   )
 }
 
