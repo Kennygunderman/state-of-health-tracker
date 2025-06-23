@@ -1,11 +1,11 @@
-import Unique from './Unique';
+import Unique from './Unique'
 
 export default interface User extends Unique {
-    email: string;
-    name?: string | null;
+  email: string
+  name?: string | null
 }
 
 export interface CreateUserPayload {
-    userId: string;
-    email: string;
+  userId: string
+  email: string
 }

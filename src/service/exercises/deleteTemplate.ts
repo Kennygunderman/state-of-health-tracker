@@ -1,24 +1,23 @@
-import * as io from 'io-ts';
-import { httpDelete } from '../http/httpUtil';
-import CrashUtility from '../../utility/CrashUtility';
-import Endpoints from '../../constants/Endpoints';
+import * as io from 'io-ts'
 
-const VoidResponse = io.unknown;
+import Endpoints from '@constants/Endpoints'
+
+import CrashUtility from '../../utility/CrashUtility'
+import {httpDelete} from '../http/httpUtil'
+
+const VoidResponse = io.unknown
 
 export async function deleteTemplate(templateId: string): Promise<boolean> {
   try {
-    const response = await httpDelete(
-      `${Endpoints.Template}${templateId}`,
-      VoidResponse
-    );
+    const response = await httpDelete(`${Endpoints.Template}${templateId}`, VoidResponse)
 
     if (response?.status !== 204) {
-      throw new Error(`Unexpected response status: ${response?.status}`);
+      throw new Error(`Unexpected response status: ${response?.status}`)
     }
 
-    return true;
+    return true
   } catch (error) {
-    CrashUtility.recordError(error);
-    throw error;
+    CrashUtility.recordError(error)
+    throw error
   }
 }

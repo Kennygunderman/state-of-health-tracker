@@ -1,24 +1,23 @@
-import { StyleSheet } from 'react-native';
+import {StyleSheet} from 'react-native'
 
-import Shadow from "../../../../styles/Shadow";
-import Spacing from "../../../../constants/Spacing";
-import borderRadius from "../../../../constants/BorderRadius";
-import { BAR_GRAPH_MAX_HEIGHT } from "../../../../components/BarGraph";
-import FontSize from "../../../../constants/FontSize";
-
+import {BAR_GRAPH_MAX_HEIGHT} from '@components/BarGraph'
+import borderRadius from '@constants/BorderRadius'
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
+import Shadow from '@theme/Shadow'
 
 export default StyleSheet.create({
   dateText: {
     fontWeight: 'bold',
     marginTop: Spacing.MEDIUM,
     marginLeft: Spacing.LARGE,
-    marginBottom: Spacing.SMALL,
+    marginBottom: Spacing.SMALL
   },
   workoutTitle: {
     fontSize: FontSize.H1,
     fontWeight: 'bold',
     margin: Spacing.MEDIUM,
-    marginLeft: Spacing.LARGE,
+    marginLeft: Spacing.LARGE
   },
   graphContainer: {
     ...Shadow.CARD,
@@ -26,22 +25,22 @@ export default StyleSheet.create({
     borderWidth: 1,
     borderRadius: borderRadius.SECTION,
     padding: Spacing.MEDIUM,
-    marginBottom: Spacing.MEDIUM,
+    marginBottom: Spacing.MEDIUM
   },
   graphArea: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    height: BAR_GRAPH_MAX_HEIGHT,
+    height: BAR_GRAPH_MAX_HEIGHT
   },
   yAxisContainer: {
     justifyContent: 'space-between',
-    marginRight: 12,
+    marginRight: 12
   },
   xAxisContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginLeft: 12,
-    flex: 1,
+    flex: 1
   },
   barContainer: {
     alignItems: 'center',
@@ -50,25 +49,25 @@ export default StyleSheet.create({
   contentContainer: {
     borderRadius: borderRadius.SECTION,
     padding: Spacing.MEDIUM,
-    marginBottom: Spacing.SMALL,
+    marginBottom: Spacing.SMALL
   },
   exerciseItemContainer: {
     marginHorizontal: Spacing.MEDIUM,
     borderWidth: 1,
     borderRadius: borderRadius.SECTION,
 
-    marginBottom: Spacing.MEDIUM,
+    marginBottom: Spacing.MEDIUM
   },
   horizontalRowContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-between'
   },
   topButtonContainers: {
-    paddingHorizontal: Spacing.SMALL,
+    paddingHorizontal: Spacing.SMALL
   },
   exerciseSetContainer: {
     alignSelf: 'center',
     borderRadius: borderRadius.SECTION,
     margin: Spacing.XX_SMALL
   }
-});
+})

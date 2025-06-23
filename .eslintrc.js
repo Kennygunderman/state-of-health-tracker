@@ -33,7 +33,7 @@ module.exports = {
     'import/ignore': ['react-native']
   },
   rules: {
-    'prettier/prettier': 'error',
+    'prettier/prettier': ['error', require('./prettier.config')],
     'react/no-direct-mutation-state': 'error',
     'react/jsx-uses-vars': 'error',
     'no-undef': 'error',
@@ -50,28 +50,68 @@ module.exports = {
     'unused-imports/no-unused-imports': 'error',
     'unused-imports/no-unused-vars': [
       'warn',
-      { vars: 'all', varsIgnorePattern: '^_', args: 'after-used', argsIgnorePattern: '^_' }
+      {
+        vars: 'all',
+        varsIgnorePattern: '^_',
+        args: 'after-used',
+        argsIgnorePattern: '^_'
+      }
     ],
     'import/order': [
       'error',
       {
         'newlines-between': 'always',
         pathGroups: [
-          { pattern: 'react', group: 'builtin', position: 'before' },
-          { pattern: 'react-dom', group: 'builtin', position: 'before' },
-          { pattern: 'react-native', group: 'builtin', position: 'before' },
-          { pattern: '@screens/**', group: 'internal', position: 'before' },
-          { pattern: '@components/**', group: 'internal', position: 'before' },
-          { pattern: '@constants/**', group: 'internal', position: 'before' },
-          { pattern: '@services/**', group: 'internal', position: 'before' },
-          { pattern: '@types/**', group: 'internal', position: 'before' }
+          {
+            pattern: 'react',
+            group: 'builtin',
+            position: 'before'
+          },
+          {
+            pattern: 'react-dom',
+            group: 'builtin',
+            position: 'before'
+          },
+          {
+            pattern: 'react-native',
+            group: 'builtin',
+            position: 'before'
+          },
+          {
+            pattern: '@screens/**',
+            group: 'internal',
+            position: 'before'
+          },
+          {
+            pattern: '@components/**',
+            group: 'internal',
+            position: 'before'
+          },
+          {
+            pattern: '@constants/**',
+            group: 'internal',
+            position: 'before'
+          },
+          {
+            pattern: '@services/**',
+            group: 'internal',
+            position: 'before'
+          },
+          {
+            pattern: '@types/**',
+            group: 'internal',
+            position: 'before'
+          }
         ],
         pathGroupsExcludedImportTypes: ['react'],
         groups: [
           ['builtin', 'external', 'type'],
           ['sibling', 'object', 'internal', 'parent', 'index']
         ],
-        alphabetize: { order: 'asc', caseInsensitive: true }
+        alphabetize: {
+          order: 'asc',
+          caseInsensitive: true
+        }
       }
     ],
     'padding-line-between-statements': [
@@ -95,4 +135,4 @@ module.exports = {
     'import/no-named-as-default': 'off',
     'import/no-unresolved': 'off'
   }
-} 
+}

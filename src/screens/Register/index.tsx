@@ -1,10 +1,7 @@
-import React from 'react';
-import AuthForm from '../../components/AuthForm';
+import React from 'react'
 
-const RegisterScreen = ({ navigation }: any) => (
-    <AuthForm
-        authType="register"
-    />
-);
+import AuthForm from '@components/AuthForm'
 
-export default RegisterScreen;
+const RegisterScreen = () => <AuthForm authType="register" />
+
+export default RegisterScreen

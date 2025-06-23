@@ -1,51 +1,51 @@
-import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import LogInScreen from '../screens/Login';
-import RegisterScreen from '../screens/Register';
-import { TouchableOpacity } from 'react-native';
-import { useStyleTheme } from '../styles/Theme';
-import { Ionicons } from '@expo/vector-icons';
+import React from 'react'
 
-import Screens from '../constants/Screens';
-import { useNavigation } from "@react-navigation/native";
-import { Navigation } from "./types";
-import RootAuthScreen from "../screens/Auth";
+import {TouchableOpacity} from 'react-native'
 
-const Stack = createNativeStackNavigator();
+import Screens from '@constants/Screens'
+import {Ionicons} from '@expo/vector-icons'
+import {useNavigation} from '@react-navigation/native'
+import {createNativeStackNavigator} from '@react-navigation/native-stack'
+import RootAuthScreen from '@screens/Auth'
+import LogInScreen from '@screens/Login'
+import RegisterScreen from '@screens/Register'
+import {useStyleTheme} from '@theme/Theme'
+
+import {Navigation} from './types'
+
+const Stack = createNativeStackNavigator()
 
 const AuthStack = () => {
-  const theme = useStyleTheme();
-  const { goBack, push } = useNavigation<Navigation>();
+  const theme = useStyleTheme()
+  const {goBack, push} = useNavigation<Navigation>()
 
   const onBackPressed = () => {
-    goBack();
+    goBack()
     setTimeout(() => {
-      push('Auth', { screen: Screens.LOG_IN });
-    }, 300);
+      push('Auth', {screen: Screens.LOG_IN})
+    }, 300)
   }
 
   return (
     <Stack.Navigator
-      screenOptions={({ route }) => ({
+      screenOptions={({route}) => ({
         headerLeft: () =>
           route.name === Screens.REGISTER && (
             <TouchableOpacity onPress={onBackPressed}>
-              <Ionicons name="chevron-back" size={24} color={useStyleTheme().colors.white}/>
+              <Ionicons name="chevron-back" size={24} color={useStyleTheme().colors.white} />
             </TouchableOpacity>
           ),
         headerStyle: {
-          backgroundColor: theme.colors.background,
+          backgroundColor: theme.colors.background
         },
         headerTintColor: theme.colors.white,
-        headerShadowVisible: false,
-      })}
-    >
-
-      <Stack.Screen name={Screens.RootAuth} component={RootAuthScreen} options={{ headerShown: false}}/>
-      <Stack.Screen name={Screens.LOG_IN} component={LogInScreen}/>
-      <Stack.Screen name={Screens.REGISTER} component={RegisterScreen}/>
+        headerShadowVisible: false
+      })}>
+      <Stack.Screen name={Screens.RootAuth} component={RootAuthScreen} options={{headerShown: false}} />
+      <Stack.Screen name={Screens.LOG_IN} component={LogInScreen} />
+      <Stack.Screen name={Screens.REGISTER} component={RegisterScreen} />
     </Stack.Navigator>
-  );
-};
+  )
+}
 
-export default AuthStack;
+export default AuthStack

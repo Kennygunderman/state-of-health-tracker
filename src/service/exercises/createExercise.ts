@@ -1,29 +1,25 @@
-import * as io from 'io-ts';
-import { httpPost } from '../http/httpUtil';
-import CrashUtility from '../../utility/CrashUtility';
-import Endpoints from '../../constants/Endpoints';
-import { CreateExercisePayload, Exercise } from "../../data/models/Exercise";
-import { mapExerciseBodyPart, mapExerciseType } from "../../data/converters/ExerciseConverter";
+import * as io from 'io-ts'
+
+import Endpoints from '@constants/Endpoints'
+
+import {mapExerciseBodyPart, mapExerciseType} from '../../data/converters/ExerciseConverter'
+import {CreateExercisePayload, Exercise} from '../../data/models/Exercise'
+import CrashUtility from '../../utility/CrashUtility'
+import {httpPost} from '../http/httpUtil'
 
 const ExerciseResponse = io.type({
   id: io.string,
   name: io.string,
   exerciseType: io.string,
-  exerciseBodyPart: io.string,
-});
+  exerciseBodyPart: io.string
+})
 
-export async function createExercise(
-  payload: CreateExercisePayload
-): Promise<Exercise> {
+export async function createExercise(payload: CreateExercisePayload): Promise<Exercise> {
   try {
-    const response = await httpPost(
-      Endpoints.Exercise,
-      ExerciseResponse,
-      payload
-    );
+    const response = await httpPost(Endpoints.Exercise, ExerciseResponse, payload)
 
     if (!response || !response.data) {
-      throw new Error('Invalid response when creating exercise');
+      throw new Error('Invalid response when creating exercise')
     }
 
     return {
@@ -31,10 +27,10 @@ export async function createExercise(
       name: response.data.name,
       exerciseType: mapExerciseType(response.data.exerciseType),
       exerciseBodyPart: mapExerciseBodyPart(response.data.exerciseBodyPart),
-      latestCompletedSets: [],
+      latestCompletedSets: []
     }
   } catch (error) {
-    CrashUtility.recordError(error);
-    throw error;
+    CrashUtility.recordError(error)
+    throw error
   }
 }

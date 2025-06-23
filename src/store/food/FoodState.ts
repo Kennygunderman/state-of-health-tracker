@@ -1,5 +1,5 @@
-import FoodItem from './models/FoodItem';
+import FoodItem from './models/FoodItem'
 
 export default interface FoodState {
-    foods: FoodItem[];
+  foods: FoodItem[]
 }

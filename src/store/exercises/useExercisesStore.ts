@@ -1,13 +1,15 @@
-import { create } from 'zustand'
-import { immer } from 'zustand/middleware/immer'
-import { fetchExercises } from "../../service/exercises/fetchExercises";
-import { CreateExercisePayload, Exercise } from "../../data/models/Exercise";
-import { CreateExerciseEvent, CreateExerciseEventSubject$ } from "../../screens/CreateExercise";
-import { createExercise } from "../../service/exercises/createExercise";
-import { deleteExercise } from "../../service/exercises/deleteExercise";
-import { ExerciseScreenUpdateSubject$ } from "../../screens/AddExercise";
-import useExerciseTemplateStore from "../exerciseTemplates/useExerciseTemplateStore";
-import { DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS } from "../../constants/Strings";
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
+
+import {DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS} from '@constants/Strings'
+import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
+import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
+
+import {CreateExercisePayload, Exercise} from '../../data/models/Exercise'
+import {createExercise} from '../../service/exercises/createExercise'
+import {deleteExercise} from '../../service/exercises/deleteExercise'
+import {fetchExercises} from '../../service/exercises/fetchExercises'
+import useExerciseTemplateStore from '../exerciseTemplates/useExerciseTemplateStore'
 
 export type ExercisesState = {
   exercises: Exercise[]
@@ -23,69 +25,70 @@ const useExercisesStore = create<ExercisesState>()(
   immer((set, get) => ({
     exercises: [],
     findExercise: (name: string, type: string) => {
-      const exercises = get().exercises;
-      return exercises.find(
-        e => e.name === name && e.exerciseType === type
-      );
+      const exercises = get().exercises
+      return exercises.find(e => e.name === name && e.exerciseType === type)
     },
     getExercises: (exerciseIds: string[]) => {
       const exercises = get().exercises
       return exercises.filter(exercise => exerciseIds.includes(exercise.id))
     },
     getFilterExercises: (filter: string) => {
-      const exercises = get().exercises;
-      if (!filter) return exercises;
+      const exercises = get().exercises
+      if (!filter) return exercises
 
-      return exercises.filter(exercise =>
-        exercise.name.toLowerCase().includes(filter.toLowerCase()) ||
-        exercise.exerciseType.toLowerCase().includes(filter.toLowerCase()) ||
-        exercise.exerciseBodyPart.toLowerCase().includes(filter.toLowerCase())
-      );
+      return exercises.filter(
+        exercise =>
+          exercise.name.toLowerCase().includes(filter.toLowerCase()) ||
+          exercise.exerciseType.toLowerCase().includes(filter.toLowerCase()) ||
+          exercise.exerciseBodyPart.toLowerCase().includes(filter.toLowerCase())
+      )
     },
     fetchExercises: async () => {
       try {
-        const exercises = await fetchExercises();
+        const exercises = await fetchExercises()
 
-        set((state) => {
+        set(state => {
           state.exercises = exercises
         })
-
       } catch (error) {
         // gracefully handle the error
       }
     },
     createExercise: async (exercise: CreateExercisePayload) => {
-      const { exercises, findExercise } = get();
+      const {exercises, findExercise} = get()
       const existingExercise = findExercise(exercise.name, exercise.exerciseType)
       if (existingExercise) {
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Exists,
           payload: exercise
-        });
-        return;
+        })
+        return
       }
 
       try {
-       const exerciseCreated = await createExercise(exercise);
-       set({ exercises: [...exercises, exerciseCreated]});
+        const exerciseCreated = await createExercise(exercise)
+        set({exercises: [...exercises, exerciseCreated]})
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Created,
           payload: exercise
-        });
+        })
       } catch (error) {
-        CreateExerciseEventSubject$.next({ event: CreateExerciseEvent.Error, payload: exercise });
+        CreateExerciseEventSubject$.next({
+          event: CreateExerciseEvent.Error,
+          payload: exercise
+        })
       }
     },
     deleteExercise: async (exerciseId: string) => {
       try {
-        ExerciseScreenUpdateSubject$.next({ isUpdating: true });
-        await deleteExercise(exerciseId);
+        ExerciseScreenUpdateSubject$.next({isUpdating: true})
+        await deleteExercise(exerciseId)
 
-        set((state) => {
-          state.exercises = state.exercises.filter(exercise => exercise.id !== exerciseId);
-        });
+        set(state => {
+          state.exercises = state.exercises.filter(exercise => exercise.id !== exerciseId)
+        })
 
-        useExerciseTemplateStore.getState().removeExerciseFromAllTemplates(exerciseId);
+        useExerciseTemplateStore.getState().removeExerciseFromAllTemplates(exerciseId)
 
         ExerciseScreenUpdateSubject$.next({
           isUpdating: false,
@@ -107,4 +110,4 @@ const useExercisesStore = create<ExercisesState>()(
   }))
 )
 
-export default useExercisesStore;
+export default useExercisesStore

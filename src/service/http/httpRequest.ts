@@ -1,37 +1,37 @@
-import axios, { AxiosRequestConfig, Method } from 'axios'
+import axios, {AxiosRequestConfig, Method} from 'axios'
+import {isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
-import { isLeft } from 'fp-ts/lib/Either'
-import CrashUtility from "../../utility/CrashUtility";
-import { getUserId } from "../auth/userStorage";
+
+import CrashUtility from '../../utility/CrashUtility'
+import {getUserId} from '../auth/userStorage'
 
 export interface HttpResponse<T> {
-  data: T;
-  status: number;
+  data: T
+  status: number
 }
 
 export interface HttpRequestOptions {
-  useUserId?: boolean;
+  useUserId?: boolean
 }
 
 async function httpRequest<T>(
   method: Method,
   url: string,
   decoder: io.Type<T>,
-  options: HttpRequestOptions = { useUserId: true },
+  options: HttpRequestOptions = {useUserId: true},
   body?: any
 ): Promise<HttpResponse<T>> {
-
   const conf: AxiosRequestConfig = {}
   if (options.useUserId) {
-    const userId = await getUserId();
+    const userId = await getUserId()
     if (!userId) {
-      const error = new Error('userId is required for HTTP request: ' + url);
+      const error = new Error('userId is required for HTTP request: ' + url)
       CrashUtility.recordError(error)
       throw error
     }
 
     conf.headers = {
-      'x-user-id': userId,
+      'x-user-id': userId
     }
   }
 
@@ -57,8 +57,8 @@ async function httpRequest<T>(
 
   return {
     data: decoded.right,
-    status: response.status,
+    status: response.status
   }
 }
 
-export default httpRequest;
+export default httpRequest

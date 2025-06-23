@@ -1,41 +1,43 @@
-import React, { useState } from "react";
+import React, {useState} from 'react'
 
-import { Text, useStyleTheme } from "../../../../styles/Theme";
-import styles from "./index.styled";
-import { Exercise } from "../../../../data/models/Exercise";
-import { Ionicons } from "@expo/vector-icons";
-import { TouchableOpacity, View } from "react-native";
+import {TouchableOpacity, View} from 'react-native'
+
+import ConfirmModal from '@components/dialog/ConfirmModal'
+import {closeGlobalBottomSheet} from '@components/GlobalBottomSheet'
 import {
   DELETE_BUTTON_TEXT,
   DELETE_EXERCISE_MODAL_BODY,
   DELETE_EXERCISE_MODAL_TITLE,
   stringWithParameters
-} from "../../../../constants/Strings";
-import ConfirmModal from "../../../../components/dialog/ConfirmModal";
-import { closeGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
-import useExercisesStore from "../../../../store/exercises/useExercisesStore";
+} from '@constants/Strings'
+import {Ionicons} from '@expo/vector-icons'
+import {Text, useStyleTheme} from '@theme/Theme'
+
+import {Exercise} from '../../../../data/models/Exercise'
+import useExercisesStore from '../../../../store/exercises/useExercisesStore'
+
+import styles from './index.styled'
 
 interface Props {
-  readonly exercise: Exercise;
+  readonly exercise: Exercise
 }
 
-const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
+const DeleteExerciseBottomSheet = ({exercise}: Props) => {
+  const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false)
 
-  const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
-
-  const { deleteExercise } = useExercisesStore();
+  const {deleteExercise} = useExercisesStore()
 
   const handleDeletePressed = () => {
-    setIsConfirmModalVisible(true);
+    setIsConfirmModalVisible(true)
   }
 
   const closeSheet = () => {
     closeGlobalBottomSheet()
-    setIsConfirmModalVisible(false);
+    setIsConfirmModalVisible(false)
   }
 
   const onConfirmedPressed = () => {
-    deleteExercise(exercise.id);
+    deleteExercise(exercise.id)
     closeSheet()
   }
 
@@ -49,13 +51,11 @@ const DeleteExerciseBottomSheet = ({ exercise }: Props) => {
         onCancel={closeSheet}
       />
       <View>
-        <Text style={styles.title} numberOfLines={2}>{exercise.name}</Text>
-        <TouchableOpacity
-          onPress={handleDeletePressed}
-          activeOpacity={0.7}
-          style={styles.deleteContainer}
-        >
-          <Ionicons name="trash-bin-outline" size={20} color={useStyleTheme().colors.error}/>
+        <Text style={styles.title} numberOfLines={2}>
+          {exercise.name}
+        </Text>
+        <TouchableOpacity onPress={handleDeletePressed} activeOpacity={0.7} style={styles.deleteContainer}>
+          <Ionicons name="trash-bin-outline" size={20} color={useStyleTheme().colors.error} />
           <Text style={styles.deleteText}>{DELETE_BUTTON_TEXT}</Text>
         </TouchableOpacity>
       </View>

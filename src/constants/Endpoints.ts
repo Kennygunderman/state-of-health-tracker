@@ -1,4 +1,4 @@
-const baseApiUrl = "http://192.168.4.104:3000/api";
+const baseApiUrl = 'http://192.168.4.104:3000/api'
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
@@ -9,7 +9,7 @@ const Endpoints = {
   SaveWorkout: `${baseApiUrl}/workout`,
   WeeklyWorkoutSummary: `${baseApiUrl}/workouts/weekly-summary/7`,
   ExerciseTemplates: `${baseApiUrl}/templates`,
-  User: `${baseApiUrl}/user`,
+  User: `${baseApiUrl}/user`
 }
 
-export default Endpoints;
+export default Endpoints

@@ -1,28 +1,32 @@
-import { create } from 'zustand';
-import { immer } from 'zustand/middleware/immer';
-import { fetchWeeklyWorkoutSummaries } from '../../service/workouts/fetchWeeklyWorkoutSummaries';
-import { WeeklyWorkoutSummary } from '../../data/models/WeeklyWorkoutSummary';
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
+
+import {WeeklyWorkoutSummary} from '../../data/models/WeeklyWorkoutSummary'
+import {fetchWeeklyWorkoutSummaries} from '../../service/workouts/fetchWeeklyWorkoutSummaries'
 
 export type WeeklyWorkoutSummariesState = {
-  isLoadingSummaries: boolean;
-  weeklySummaries: WeeklyWorkoutSummary[];
-  fetchWeeklySummaries: () => Promise<void>;
-};
+  isLoadingSummaries: boolean
+  weeklySummaries: WeeklyWorkoutSummary[]
+  fetchWeeklySummaries: () => Promise<void>
+}
 
 const useWeeklyWorkoutSummariesStore = create<WeeklyWorkoutSummariesState>()(
-  immer((set) => ({
+  immer(set => ({
     isLoadingSummaries: false,
     weeklySummaries: [],
     fetchWeeklySummaries: async () => {
       try {
-        set({ isLoadingSummaries: true });
-        const summaries = await fetchWeeklyWorkoutSummaries();
-        set({ weeklySummaries: summaries, isLoadingSummaries: false });
+        set({isLoadingSummaries: true})
+        const summaries = await fetchWeeklyWorkoutSummaries()
+        set({
+          weeklySummaries: summaries,
+          isLoadingSummaries: false
+        })
       } catch (error) {
-        set({ isLoadingSummaries: false });
+        set({isLoadingSummaries: false})
       }
-    },
+    }
   }))
-);
+)
 
-export default useWeeklyWorkoutSummariesStore;
+export default useWeeklyWorkoutSummariesStore

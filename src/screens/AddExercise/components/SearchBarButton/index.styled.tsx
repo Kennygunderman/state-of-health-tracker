@@ -1,20 +1,21 @@
-import { Dimensions, StyleSheet } from 'react-native';
-import { SEARCH_BAR_HEIGHT } from "../../../../components/SearchBar";
-import Spacing from "../../../../constants/Spacing";
-import { useStyleTheme } from "../../../../styles/Theme";
+import {Dimensions, StyleSheet} from 'react-native'
 
-const windowHeight = Dimensions.get('window').height;
+import {SEARCH_BAR_HEIGHT} from '@components/SearchBar'
+import Spacing from '@constants/Spacing'
+import {useStyleTheme} from '@theme/Theme'
+
+const windowHeight = Dimensions.get('window').height
 
 export default StyleSheet.create({
   touchable: {
     width: '100%',
-    height: SEARCH_BAR_HEIGHT,
+    height: SEARCH_BAR_HEIGHT
   },
   container: {
     flexDirection: 'row',
     justifyContent: 'center',
     width: '100%',
-    height: SEARCH_BAR_HEIGHT,
+    height: SEARCH_BAR_HEIGHT
   },
   innerContainer: {
     alignSelf: 'center',
@@ -23,19 +24,19 @@ export default StyleSheet.create({
     width: '90%',
     paddingVertical: 10,
     paddingHorizontal: Spacing.MEDIUM,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   icon: {
-    marginRight: Spacing.MEDIUM,
+    marginRight: Spacing.MEDIUM
   },
   placeholder: {
-    fontSize: 16,
+    fontSize: 16
   },
   searchBarBackground: {
     width: '100%',
     height: windowHeight,
     position: 'absolute',
     bottom: 0,
-    marginBottom: 0,
+    marginBottom: 0
   }
-});
+})

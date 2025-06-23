@@ -1,50 +1,48 @@
-import React from 'react';
-import { TouchableOpacity, View } from 'react-native';
-import styles from './index.styled';
-import { Text, useStyleTheme } from '../../../../styles/Theme';
-import { ExerciseTemplate } from "../../../../data/models/ExerciseTemplate";
-import useExerciseTemplateStore from "../../../../store/exerciseTemplates/useExerciseTemplateStore";
-import { useNavigation } from "@react-navigation/native";
-import { Navigation } from "../../../../navigation/types";
-import Screens from "../../../../constants/Screens";
-import { openGlobalBottomSheet } from "../../../../components/GlobalBottomSheet";
-import DeleteTemplateBottomSheet from "../DeleteTemplateBottomSheet";
+import React from 'react'
+
+import {TouchableOpacity, View} from 'react-native'
+
+import {openGlobalBottomSheet} from '@components/GlobalBottomSheet'
+import Screens from '@constants/Screens'
+import {useNavigation} from '@react-navigation/native'
+import DeleteTemplateBottomSheet from '@screens/AddExercise/components/DeleteTemplateBottomSheet'
+import {Text, useStyleTheme} from '@theme/Theme'
+
+import {ExerciseTemplate} from '../../../../data/models/ExerciseTemplate'
+import {Navigation} from '../../../../navigation/types'
+import useExerciseTemplateStore from '../../../../store/exerciseTemplates/useExerciseTemplateStore'
+
+import styles from './index.styled'
 
 interface Props {
-  template: ExerciseTemplate;
+  template: ExerciseTemplate
 }
 
-const TemplateListItem = ({ template }: Props) => {
-  const theme = useStyleTheme();
+const TemplateListItem = ({template}: Props) => {
+  const theme = useStyleTheme()
 
-  const { push } =useNavigation<Navigation>()
-  const { setSelectedTemplate } = useExerciseTemplateStore();
+  const {push} = useNavigation<Navigation>()
+  const {setSelectedTemplate} = useExerciseTemplateStore()
 
   const onPress = () => {
-    setSelectedTemplate(template);
+    setSelectedTemplate(template)
     push(Screens.WORKOUT_TEMPLATE_DETAIL)
-  };
+  }
 
   const onLongPress = () => {
     openGlobalBottomSheet(<DeleteTemplateBottomSheet template={template} />)
   }
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.5}
-      delayPressIn={50}
-      onLongPress={onLongPress}
-      onPress={onPress}
-    >
+    <TouchableOpacity activeOpacity={0.5} delayPressIn={50} onLongPress={onLongPress} onPress={onPress}>
       <View
         style={[
           styles.container,
           {
             backgroundColor: theme.colors.background,
-            borderColor: theme.colors.border,
-          },
-        ]}
-      >
+            borderColor: theme.colors.border
+          }
+        ]}>
         <View style={styles.textContainer}>
           <Text style={styles.title} numberOfLines={1}>
             {template.name}
@@ -55,7 +53,7 @@ const TemplateListItem = ({ template }: Props) => {
         </View>
       </View>
     </TouchableOpacity>
-  );
-};
+  )
+}
 
-export default TemplateListItem;
+export default TemplateListItem

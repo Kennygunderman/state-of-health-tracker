@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react'
+
 import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
 import DraggableFlatList, {
@@ -6,17 +7,18 @@ import DraggableFlatList, {
   ScaleDecorator
 } from 'react-native-draggable-flatlist'
 import Modal from 'react-native-modal'
-import BorderRadius from '../../constants/BorderRadius'
-import FontSize from '../../constants/FontSize'
-import Spacing from '../../constants/Spacing'
+
+import PrimaryButton from '@components/PrimaryButton'
+import BorderRadius from '@constants/BorderRadius'
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
 import {
   CANCEL_BUTTON_TEXT,
   CONFIRM_BUTTON_TEXT,
   REORG_MODAL_BODY
 } from '@constants/Strings'
-import Shadow from '../../styles/Shadow'
+import Shadow from '@theme/Shadow'
 import {Text, useStyleTheme} from '@theme/Theme'
-import PrimaryButton from '../PrimaryButton'
 
 interface Props<T> {
   readonly isVisible: boolean
