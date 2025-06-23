@@ -106,7 +106,7 @@ const AddExerciseScreen = () => {
 
     const emptyText =
       isEmpty
-        ? section.title === EXERCISES_HEADER
+        ? section.title === YOUR_EXERCISES_HEADER
           ? NO_EXERCISES_ADDED_TEXT
           : NO_TEMPLATES_ADDED_TEXT
         : undefined;

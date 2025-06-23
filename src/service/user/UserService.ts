@@ -21,7 +21,7 @@ interface RemoteDailyMealEntry {
 // This is horrible, what was i thinking
 class UserService {
     async saveUserData(userId: string, store: LocalStore) {
-        console.log('attempting to save user data', userId, store);
+        console.log('attempting to save user data', userId);
         try {
             await firestore().collection('user').doc(userId).set(
                 {

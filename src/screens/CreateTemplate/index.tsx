@@ -7,6 +7,7 @@ import SearchBar from '../../components/SearchBar';
 import ListItem from '../../components/ListItem';
 import PrimaryButton from '../../components/PrimaryButton';
 import {
+  CREATE_TEMPLATE_NO_EXERCISES,
   NEXT_BUTTON_TEXT,
   SEARCH_EXERCISES_PLACEHOLDER,
   SELECT_EXERCISES_FOR_TEMPLATE_TITLE, TOAST_TEMPLATE_CREATED, TOAST_TEMPLATE_CREATION_ERROR,
@@ -21,6 +22,7 @@ import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseT
 import { Subject } from "rxjs";
 import { showToast } from "../../components/toast/util/ShowToast";
 import LoadingOverlay from "../../components/LoadingOverlay";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 export const CreateTemplateEventSubject$ = new Subject<{ success: boolean, message: string }>()
 
@@ -54,6 +56,23 @@ const CreateTemplateScreen = () => {
       sub.unsubscribe();
     }
   }, []);
+
+  if (exercises.length === 0) {
+
+    return (
+      <>
+        <MaterialCommunityIcons
+          style={styles.emptyIcon}
+          name="kettlebell"
+          size={100}
+          color={useStyleTheme().colors.white}
+        />
+        <Text style={styles.emptyText}>
+          {CREATE_TEMPLATE_NO_EXERCISES}
+        </Text>
+      </>
+    )
+  }
 
 
   const renderItem = ({ item }: ListRenderItemInfo<Exercise>) => (

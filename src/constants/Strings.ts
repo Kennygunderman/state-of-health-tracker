@@ -156,8 +156,8 @@ export const DELETE_ACCOUNT_ERROR = 'Unable to delete your account at this time.
 export const LOGOUT_ACCOUNT_ERROR = 'Unable to log out at this time. Please check your connection and try again.';
 export const TOAST_TEMPLATE_CREATED = 'Template created!';
 export const TOAST_TEMPLATE_CREATION_ERROR = 'Error creating template. Please check your connection and try again.';
-export const NO_EXERCISES_ADDED_TEXT = 'No exercises added. Tap \'+ Create Exercise\' to get started';
-export const NO_TEMPLATES_ADDED_TEXT = 'No templates added. Tap \'+ Create Template\' to get started';
+export const NO_EXERCISES_ADDED_TEXT = 'No exercises added. Tap \'+ Create Exercise\' to get started, or search for exercises using the search bar.';
+export const NO_TEMPLATES_ADDED_TEXT = 'No templates added. Tap \'+ Create Template\' to get started.';
 export const SELECT_EXERCISES_FOR_TEMPLATE_TITLE = 'Select Exercises';
 export const TEMPLATE_YOUR_EXERCISES = 'Your Exercises';
 export const TEMPLATE_MODAL_PLACEHOLDER = 'Ex: Chest Day';
@@ -174,6 +174,7 @@ export const DELETE_TEMPLATE_SUCCESS = 'Template deleted!';
 export const DELETE_TEMPLATE_ERROR = 'Error deleting template. Please check your connection and try again.';
 export const SEARCH_ADD_EXERCISE_ERROR = 'Error adding exercise. Please check your connection and try again.';
 export const SEARCH_ADD_EXERCISE_SUCCESS = 'Exercise Added';
+export const CREATE_TEMPLATE_NO_EXERCISES = 'To create a template, you must first add exercises to your list. Tap \'+ Add Exercise\' on the previous screen to get started.';
 
 
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {

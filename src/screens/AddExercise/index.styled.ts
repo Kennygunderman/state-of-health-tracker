@@ -20,6 +20,7 @@ export default StyleSheet.create({
   },
   emptyText: {
     fontWeight: '200',
+    paddingHorizontal: Spacing.MEDIUM,
     textAlign: 'center',
     alignSelf: 'center',
   },
