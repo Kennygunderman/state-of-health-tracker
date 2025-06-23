@@ -39,6 +39,7 @@ import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSum
 import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore";
 import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
 import { useSessionStore } from "../../store/session/useSessionStore";
+import WorkoutsSkeleton from "./components/WorkoutsSkeleton";
 
 interface Section extends Unique {
   dailyExercise: DailyExercise;
@@ -48,10 +49,7 @@ interface Section extends Unique {
 const listSwipeItemManager = new ListSwipeItemManager();
 
 const WorkoutsScreen = () => {
-
   const navigation = useNavigation<Navigation>()
-
-  const { sessionStartDate } = useSessionStore();
 
   const {
     initCurrentWorkoutDay,
@@ -59,10 +57,11 @@ const WorkoutsScreen = () => {
     currentWorkoutDay,
     deleteSet
   } = useDailyWorkoutEntryStore();
-  const { fetchExercises  } = useExercisesStore();
+  const { isLoadingSummaries, fetchWeeklySummaries } = useWeeklyWorkoutSummariesStore();
+  const { fetchExercises } = useExercisesStore();
   const { fetchSummaries } = useWorkoutSummariesStore();
-  const { fetchWeeklySummaries } = useWeeklyWorkoutSummariesStore();
   const { fetchTemplates } = useExerciseTemplateStore();
+  const { sessionStartDate } = useSessionStore();
 
   useEffect(() => {
     initCurrentWorkoutDay();
@@ -71,6 +70,8 @@ const WorkoutsScreen = () => {
     fetchTemplates();
     fetchWeeklySummaries();
   }, []);
+
+  if (isInitializing || isLoadingSummaries) return <WorkoutsSkeleton />
 
   const dailyExercises = currentWorkoutDay?.dailyExercises ?? [];
   const sections: Section[] = dailyExercises.map((dailyExercise) => ({
@@ -81,41 +82,39 @@ const WorkoutsScreen = () => {
 
   listSwipeItemManager.setRows(dailyExercises);
 
-  const renderExercisesSection = () => {
-    return (
-      <>
-        <View style={styles.exerciseHeaderContainer}>
-          <Text style={styles.exerciseHeaderText}>{YOUR_EXERCISES_HEADER}</Text>
-          <SecondaryButton
-            style={styles.addButton}
-            label={ADD_EXERCISE_BUTTON_TEXT}
-            onPress={() => navigation.push(Screens.ADD_EXERCISE)}
-          />
-        </View>
-        {dailyExercises.length === 0 && (
-          <EmptyState
-            icon={(
-              <Ionicons
-                style={styles.emptyIcon}
-                name="barbell"
-                size={200}
-                color={useStyleTheme().colors.secondary}
-              />
-            )}
-            title={EMPTY_DAILY_WORKOUT_TITLE}
-            body={EMPTY_DAILY_WORKOUT_BODY}
-          />
-          )}
-      </>
-    )
-  }
-
   const renderHeader = () => (
     <>
       <Text style={styles.dateText}>{formatDayMonthDay(sessionStartDate)}</Text>
       <Text style={styles.workoutTitle}>{DAILY_WORKOUT_TITLE}</Text>
       <WeeklyWorkoutsGraphModule/>
-      {isInitializing ? <LoadingOverlay style={styles.loadingIndicator} /> : renderExercisesSection()}
+      {
+        isInitializing
+          ? <LoadingOverlay style={styles.loadingIndicator}/>
+          : <>
+            <View style={styles.exerciseHeaderContainer}>
+              <Text style={styles.exerciseHeaderText}>{YOUR_EXERCISES_HEADER}</Text>
+              <SecondaryButton
+                style={styles.addButton}
+                label={ADD_EXERCISE_BUTTON_TEXT}
+                onPress={() => navigation.push(Screens.ADD_EXERCISE)}
+              />
+            </View>
+            {dailyExercises.length === 0 && (
+              <EmptyState
+                icon={(
+                  <Ionicons
+                    style={styles.emptyIcon}
+                    name="barbell"
+                    size={200}
+                    color={useStyleTheme().colors.secondary}
+                  />
+                )}
+                title={EMPTY_DAILY_WORKOUT_TITLE}
+                body={EMPTY_DAILY_WORKOUT_BODY}
+              />
+            )}
+          </>
+      }
     </>
   );
 
@@ -134,24 +133,7 @@ const WorkoutsScreen = () => {
     />
   );
 
-  const renderEmptySetState = () => (
-    <SectionListFooter>
-      <View/>
-    </SectionListFooter>
-  );
-
-  const renderSectionItemFooter = (dailyExercise: DailyExercise) => {
-    if (dailyExercise.sets.length === 0) {
-      return renderEmptySetState();
-    }
-    return <SectionListFooter/>;
-  };
-
-  const renderItem: SectionListRenderItem<ExerciseSet, Section> = ({
-  item,
-  section,
-  index
-}) => (
+  const renderItem: SectionListRenderItem<ExerciseSet, Section> = ({ item, section, index }) => (
     <ExerciseSetListItem
       exercise={section.dailyExercise.exercise}
       set={item}
@@ -177,7 +159,7 @@ const WorkoutsScreen = () => {
           ListFooterComponent={renderFooter()}
           renderItem={renderItem}
           renderSectionHeader={({ section }) => renderSectionItemHeader(section.dailyExercise)}
-          renderSectionFooter={({ section }) => renderSectionItemFooter(section.dailyExercise)}
+          renderSectionFooter={() => <SectionListFooter/>}
         />
       </KeyboardAvoidingView>
     </SafeAreaView>
