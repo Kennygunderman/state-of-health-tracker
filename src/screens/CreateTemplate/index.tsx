@@ -1,64 +1,67 @@
-import React, { useEffect, useState } from 'react';
-import { FlatList, ListRenderItemInfo, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { Exercise } from '../../data/models/Exercise';
-import useExercisesStore from '../../store/exercises/useExercisesStore';
-import SearchBar from '../../components/SearchBar';
-import ListItem from '../../components/ListItem';
-import PrimaryButton from '../../components/PrimaryButton';
+import React, {useEffect, useState} from 'react'
+import {FlatList, ListRenderItemInfo, View} from 'react-native'
+import {useNavigation} from '@react-navigation/native'
+import {Exercise} from '../../data/models/Exercise'
+import useExercisesStore from '../../store/exercises/useExercisesStore'
+import SearchBar from '../../components/SearchBar'
+import ListItem from '../../components/ListItem'
+import PrimaryButton from '../../components/PrimaryButton'
 import {
   CREATE_TEMPLATE_NO_EXERCISES,
   NEXT_BUTTON_TEXT,
   SEARCH_EXERCISES_PLACEHOLDER,
-  SELECT_EXERCISES_FOR_TEMPLATE_TITLE, TOAST_TEMPLATE_CREATED, TOAST_TEMPLATE_CREATION_ERROR,
-} from '../../constants/Strings';
-import ExerciseTypeChip from '../../components/ExerciseTypeChip';
+  SELECT_EXERCISES_FOR_TEMPLATE_TITLE,
+  TOAST_TEMPLATE_CREATED,
+  TOAST_TEMPLATE_CREATION_ERROR
+} from '@constants/Strings'
+import ExerciseTypeChip from '../../components/ExerciseTypeChip'
 
-import styles from "./index.styled";
-import { Text, useStyleTheme } from "../../styles/Theme";
-import Spacing from "../../constants/Spacing";
-import CreateTemplateModal from "./components/CreateTemplateModal";
-import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
-import { Subject } from "rxjs";
-import { showToast } from "../../components/toast/util/ShowToast";
-import LoadingOverlay from "../../components/LoadingOverlay";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import styles from './index.styled'
+import {Text, useStyleTheme} from '../../styles/Theme'
+import Spacing from '@constants/Spacing'
+import CreateTemplateModal from './components/CreateTemplateModal'
+import useExerciseTemplateStore from '../../store/exerciseTemplates/useExerciseTemplateStore'
+import {Subject} from 'rxjs'
+import {showToast} from '@components/toast/util/ShowToast'
+import LoadingOverlay from '../../components/LoadingOverlay'
+import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
 
-export const CreateTemplateEventSubject$ = new Subject<{ success: boolean, message: string }>()
+export const CreateTemplateEventSubject$ = new Subject<{
+  success: boolean
+  message: string
+}>()
 
 const CreateTemplateScreen = () => {
+  const theme = useStyleTheme()
+  const {goBack} = useNavigation()
 
-  const theme = useStyleTheme();
-  const { goBack } = useNavigation();
+  const {getFilterExercises} = useExercisesStore()
+  const {createTemplate} = useExerciseTemplateStore()
 
-  const { getFilterExercises } = useExercisesStore();
-  const { createTemplate } = useExerciseTemplateStore();
-
-  const [exercises, setExercises] = useState<Exercise[]>(getFilterExercises(''));
-  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [exercises, setExercises] = useState<Exercise[]>(getFilterExercises(''))
+  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([])
+  const [isModalVisible, setIsModalVisible] = useState(false)
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false)
 
   useEffect(() => {
     const sub = CreateTemplateEventSubject$.subscribe({
-      next: ({ success, message }) => {
+      next: ({success, message}) => {
         if (success) {
-          goBack();
-          showToast('success', TOAST_TEMPLATE_CREATED, message);
+          goBack()
+          showToast('success', TOAST_TEMPLATE_CREATED, message)
         } else {
           showToast('error', TOAST_TEMPLATE_CREATION_ERROR)
         }
-        setIsCreatingTemplate(false);
+        setIsCreatingTemplate(false)
       }
     })
 
     return () => {
-      sub.unsubscribe();
+      sub.unsubscribe()
     }
-  }, []);
+  }, [])
 
   if (exercises.length === 0) {
-
     return (
       <>
         <MaterialCommunityIcons
@@ -67,34 +70,35 @@ const CreateTemplateScreen = () => {
           size={100}
           color={useStyleTheme().colors.white}
         />
-        <Text style={styles.emptyText}>
-          {CREATE_TEMPLATE_NO_EXERCISES}
-        </Text>
+        <Text style={styles.emptyText}>{CREATE_TEMPLATE_NO_EXERCISES}</Text>
       </>
     )
   }
 
-
-  const renderItem = ({ item }: ListRenderItemInfo<Exercise>) => (
+  const renderItem = ({item}: ListRenderItemInfo<Exercise>) => (
     <ListItem
       isSwipeable={false}
       leftRightMargin={Spacing.MEDIUM}
       title={item.name}
-      backgroundColor={selectedExercises.includes(item) ? theme.colors.tertiary : theme.colors.background}
+      backgroundColor={
+        selectedExercises.includes(item)
+          ? theme.colors.tertiary
+          : theme.colors.background
+      }
       subtitle={item.exerciseBodyPart}
-      chip={<ExerciseTypeChip exerciseType={item.exerciseType}/>}
+      chip={<ExerciseTypeChip exerciseType={item.exerciseType} />}
       onPress={() => {
         if (selectedExercises.includes(item)) {
-          setSelectedExercises(prev => prev.filter((e) => e.id !== item.id));
+          setSelectedExercises(prev => prev.filter(e => e.id !== item.id))
         } else {
-          setSelectedExercises(prev => [...prev, item]);
+          setSelectedExercises(prev => [...prev, item])
         }
       }}
     />
-  );
+  )
 
   const onNextPressed = () => {
-    if (selectedExercises.length > 0) setIsModalVisible(true);
+    if (selectedExercises.length > 0) setIsModalVisible(true)
   }
 
   const onSearchTextChanged = (filter: string) => {
@@ -102,12 +106,12 @@ const CreateTemplateScreen = () => {
   }
 
   const handleCreate = (name: string, tagline: string) => {
-    setIsModalVisible(false);
-    setIsCreatingTemplate(true);
+    setIsModalVisible(false)
+    setIsCreatingTemplate(true)
     createTemplate({
       name,
       tagline,
-      exerciseIds: selectedExercises.map((e) => e.id)
+      exerciseIds: selectedExercises.map(e => e.id)
     })
   }
 
@@ -121,14 +125,22 @@ const CreateTemplateScreen = () => {
         handleCreate={handleCreate}
       />
 
-      <SearchBar placeholder={SEARCH_EXERCISES_PLACEHOLDER} onSearchTextChanged={onSearchTextChanged}/>
+      <SearchBar
+        placeholder={SEARCH_EXERCISES_PLACEHOLDER}
+        onSearchTextChanged={onSearchTextChanged}
+      />
       <FlatList
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         initialNumToRender={10}
-        data={[...selectedExercises, ...exercises.filter((e) => !selectedExercises.includes(e))]}
+        data={[
+          ...selectedExercises,
+          ...exercises.filter(e => !selectedExercises.includes(e))
+        ]}
         ListHeaderComponent={
-          <Text style={styles.headerText}>{SELECT_EXERCISES_FOR_TEMPLATE_TITLE}</Text>
+          <Text style={styles.headerText}>
+            {SELECT_EXERCISES_FOR_TEMPLATE_TITLE}
+          </Text>
         }
         ListFooterComponent={
           <PrimaryButton
@@ -140,7 +152,7 @@ const CreateTemplateScreen = () => {
         renderItem={renderItem}
       />
     </View>
-  );
-};
+  )
+}
 
-export default CreateTemplateScreen;
+export default CreateTemplateScreen

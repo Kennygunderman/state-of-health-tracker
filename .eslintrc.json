@@ -7,7 +7,9 @@
     "extends": [
         "plugin:react/recommended",
         "airbnb",
-        "airbnb-typescript"
+        "airbnb-typescript",
+        "plugin:@typescript-eslint/recommended",
+        "prettier"
     ],
     "parserOptions": {
         "ecmaVersion": "latest",
@@ -16,9 +18,12 @@
     },
     "plugins": [
         "react",
-        "react-native"
+        "react-native",
+        "@typescript-eslint",
+        "prettier"
     ],
     "rules": {
+        "prettier/prettier": "error",
         "react/function-component-definition": ["error", {
             "namedComponents": "arrow-function",
             "unnamedComponents": "arrow-function"
@@ -29,11 +34,14 @@
         "react/jsx-boolean-value": [0],
         "react/jsx-props-no-spreading": [0],
         "@typescript-eslint/indent": ["error", 4],
+        "@typescript-eslint/explicit-function-return-type": "off",
+        "@typescript-eslint/explicit-module-boundary-types": "off",
+        "@typescript-eslint/no-explicit-any": "warn",
         "consistent-return": "off",
-        "max-len": "off",
+        "max-len": ["error", { "code": 100, "ignoreStrings": true, "ignoreTemplateLiterals": true }],
         "no-plusplus": "off",
         "no-unused-vars": "off",
-        "@typescript-eslint/no-unused-vars": "off",
+        "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
         "@typescript-eslint/default-param-last": "off",
         "no-param-reassign": "off",
         "no-nested-ternary": "off",
@@ -50,6 +58,31 @@
                         "pattern": "react",
                         "group": "external",
                         "position": "before"
+                    },
+                    {
+                        "pattern": "@screens/**",
+                        "group": "internal",
+                        "position": "after"
+                    },
+                    {
+                        "pattern": "@components/**",
+                        "group": "internal",
+                        "position": "after"
+                    },
+                    {
+                        "pattern": "@constants/**",
+                        "group": "internal",
+                        "position": "after"
+                    },
+                    {
+                        "pattern": "@services/**",
+                        "group": "internal",
+                        "position": "after"
+                    },
+                    {
+                        "pattern": "@types/**",
+                        "group": "internal",
+                        "position": "after"
                     }
                 ],
                 "pathGroupsExcludedImportTypes": ["react"],
