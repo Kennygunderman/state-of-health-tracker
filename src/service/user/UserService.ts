@@ -10,10 +10,7 @@ import { MEALS_INITIAL_STATE } from '../../store/meals/MealsReducer';
 import { MealMap } from '../../store/meals/MealsState';
 import { Meal } from '../../store/meals/models/Meal';
 import { USER_INITIAL_STATE } from '../../store/user/initialState';
-import User from '../../data/models/User';
-import { USER_INFO_INITIAL_STATE } from '../../store/userInfo/UserInfoReducer';
 import { getCurrentDate } from '../../utility/DateUtility';
-import { useSessionStore } from "../../store/session/useSessionStore";
 
 interface RemoteDailyMealEntry {
     id: string;
@@ -24,39 +21,28 @@ interface RemoteDailyMealEntry {
 
 // This is horrible, what was i thinking
 class UserService {
-    async saveUserData(account: User, store: LocalStore) {
+    async saveUserData(userId: string, store: LocalStore) {
         try {
-            await firestore().collection('user').doc(account.id).set(
+            await firestore().collection('user').doc(userId).set(
                 {
-                    account: {
-                        ...store.user.account,
-                    },
                     lastDataSync: store?.user?.lastDataSync ?? 0,
                 },
             );
 
-            await firestore().collection('userInfo').doc(account.id).set(
-                {
-                    targetCalories: store.userInfo.targetCalories,
-                    targetWorkouts: store.userInfo.targetWorkouts,
-                    dateWeightMap: store.userInfo.dateWeightMap,
-                },
-            );
-
-            await firestore().collection('userFood').doc(account.id).set(
+            await firestore().collection('userFood').doc(userId).set(
                 {
                     ...store.food,
                 },
             );
 
-            await this.saveDailyMealEntries(account, store.dailyMealEntries.map, store.meals.map);
+            await this.saveDailyMealEntries(userId, store.dailyMealEntries.map, store.meals.map);
 
         } catch (error: any) {
             console.log('sync err', error);
         }
     }
 
-    async saveDailyMealEntries(account: User, dailyMealEntryMap: DailyMealEntryMap, mealMap: MealMap) {
+    async saveDailyMealEntries(userId: string, dailyMealEntryMap: DailyMealEntryMap, mealMap: MealMap) {
         const dailyEntries: RemoteDailyMealEntry[] = [];
         Object.keys(dailyMealEntryMap).forEach((key) => {
             const dailyEntry = dailyMealEntryMap[key];
@@ -64,7 +50,7 @@ class UserService {
                 const entry: RemoteDailyMealEntry = {
                     id: dailyEntry.id,
                     date: key,
-                    userId: account.id,
+                    userId,
                     meals: [],
                 };
                 const mealIds = dailyEntry?.mealIds;
@@ -134,7 +120,6 @@ class UserService {
 
         return {
             user: legacyUserData?.user ?? USER_INITIAL_STATE,
-            userInfo: legacyUserData ? { ...legacyUserData.userInfo, currentDate: useSessionStore.getState().sessionStartDate } : USER_INFO_INITIAL_STATE,
             food: legacyUserData?.food ?? FOOD_INITIAL_STATE,
             meals: legacyUserData?.meals ?? MEALS_INITIAL_STATE,
             dailyMealEntries: newMealEntryMap ? { map: newMealEntryMap } : DAILY_MEAL_ENTRIES_INITIAL_STATE,

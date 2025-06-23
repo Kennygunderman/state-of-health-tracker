@@ -7,6 +7,5 @@ export default interface LocalStore {
     meals: MealsState;
     food: FoodState;
     dailyMealEntries: DailyMealEntriesState;
-    userInfo: UserInfoState;
     user: UserState;
 }

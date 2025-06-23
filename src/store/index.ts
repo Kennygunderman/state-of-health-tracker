@@ -12,31 +12,17 @@ import LocalStore from './LocalStore';
 import { mealsReducer } from './meals/MealsReducer';
 import 'react-native-get-random-values';
 import { migrations } from './migrations';
-import { LOG_IN_USER, LOG_OUT_USER } from './user/UserActions';
 import { userReducer } from './user/UserReducer';
-import { setCurrentDate } from './userInfo/UserInfoActions';
-import { userInfoReducer } from './userInfo/UserInfoReducer';
 import { getCurrentDate } from '../utility/DateUtility';
 
 const appReducer = combineReducers({
     user: userReducer,
-    userInfo: userInfoReducer,
     meals: mealsReducer,
     food: foodReducer,
     dailyMealEntries: dailyMealEntriesReducer,
 });
 
 const rootReducer = (state: any, action: Action<any>) => {
-    if (action.type === LOG_IN_USER) {
-        if (action.payload) {
-            return appReducer(action.payload, action);
-        }
-    }
-
-    if (action.type === LOG_OUT_USER) {
-        return appReducer(initialState, action);
-    }
-
     return appReducer(state, action);
 };
 
@@ -46,7 +32,6 @@ const persistConfig = {
     version: 3,
     whitelist: [
         'user',
-        'userInfo',
         'meals',
         'food',
         'dailyMealEntries',
@@ -65,9 +50,7 @@ const store = createStore(
 );
 
 persistStore(store, null, () => {
-    const currentDate = getCurrentDate();
-    store.dispatch(setCurrentDate(currentDate));
-    store.dispatch(addDailyMealEntry(currentDate));
+    store.dispatch(addDailyMealEntry(getCurrentDate()));
 });
 
 type AppAction = ReturnType<typeof store.dispatch>;

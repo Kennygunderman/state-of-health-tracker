@@ -3,17 +3,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import {
-  AppState, LogBox, StatusBar, TouchableOpacity, View,
+  AppState, LogBox, StatusBar, TouchableOpacity,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { Provider } from 'react-redux';
 import ToastConfig from './src/components/toast/ToastConfig';
 import store, { useThunkDispatch } from './src/store';
-import { addDailyMealEntry } from './src/store/dailyMealEntries/DailyMealEntriesActions';
 import { syncUserData } from './src/store/user/UserActions';
-import { setCurrentDate } from './src/store/userInfo/UserInfoActions';
 import { darkTheme, useStyleTheme } from './src/styles/Theme';
-import { getCurrentDate } from './src/utility/DateUtility';
 import GlobalBottomSheet from "./src/components/GlobalBottomSheet";
 import AuthStack from "./src/navigation/AuthStack";
 import HomeTabs from "./src/navigation/HomeTabs";
@@ -27,15 +24,14 @@ const AppStateChanged = () => {
   const dispatch = useThunkDispatch();
 
   async function onApplicationStateChange(appState: string) {
+    const { userId, isAuthed } = useAuthStore();
+
     if (appState === 'active') {
-      const currentDate = getCurrentDate();
-      dispatch(setCurrentDate(currentDate));
-      dispatch(addDailyMealEntry(currentDate));
-      dispatch(syncUserData());
+      if (isAuthed && userId) {
+        dispatch(syncUserData(userId));
+      }
     }
   }
-
-  dispatch(syncUserData());
 
   AppState.addEventListener('change', onApplicationStateChange);
   // eslint-disable-next-line react/jsx-no-useless-fragment
