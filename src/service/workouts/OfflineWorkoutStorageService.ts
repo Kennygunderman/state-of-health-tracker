@@ -1,6 +1,6 @@
+import {WorkoutDay} from '@data/models/WorkoutDay'
 import * as FileSystem from 'expo-file-system'
 
-import {WorkoutDay} from '@data/models/WorkoutDay'
 import {compareIsoDateStrings} from '../../utility/DateUtility'
 
 const OFFLINE_FILE_PATH = `${FileSystem.documentDirectory}unsynced-workouts.json`
@@ -12,6 +12,7 @@ class OfflineWorkoutStorageService {
   private async withLock(task: () => Promise<void>) {
     if (this.isLocked) {
       console.log('[OfflineStorage] Write in progress, skipping.')
+
       return
     }
 
@@ -26,12 +27,15 @@ class OfflineWorkoutStorageService {
   async readAll(): Promise<WorkoutDay[]> {
     try {
       const fileInfo = await FileSystem.getInfoAsync(OFFLINE_FILE_PATH)
+
       if (!fileInfo.exists) return []
 
       const content = await FileSystem.readAsStringAsync(OFFLINE_FILE_PATH)
+
       return JSON.parse(content || '[]')
     } catch (error) {
       console.error('Failed to read offline workouts:', error)
+
       return []
     }
   }
@@ -45,6 +49,7 @@ class OfflineWorkoutStorageService {
       updated.push(workoutDay)
 
       const json = JSON.stringify(updated)
+
       await FileSystem.writeAsStringAsync(TEMP_FILE_PATH, json)
       await FileSystem.moveAsync({
         from: TEMP_FILE_PATH,
@@ -56,6 +61,7 @@ class OfflineWorkoutStorageService {
   async clear(): Promise<void> {
     await this.withLock(async () => {
       const fileInfo = await FileSystem.getInfoAsync(OFFLINE_FILE_PATH)
+
       if (fileInfo.exists) {
         await FileSystem.deleteAsync(OFFLINE_FILE_PATH)
       }
@@ -68,6 +74,7 @@ class OfflineWorkoutStorageService {
       const unsyncedOnly = allWorkouts.filter(w => !w.synced)
 
       const json = JSON.stringify(unsyncedOnly)
+
       await FileSystem.writeAsStringAsync(TEMP_FILE_PATH, json)
       await FileSystem.moveAsync({
         from: TEMP_FILE_PATH,
@@ -81,9 +88,11 @@ class OfflineWorkoutStorageService {
   async findLocalWorkoutByDate(date: string): Promise<WorkoutDay | null> {
     const workouts = await this.readAll()
     const workout = workouts.find(w => compareIsoDateStrings(w.date, date))
+
     return workout || null
   }
 }
 
 const offlineWorkoutStorageService = new OfflineWorkoutStorageService()
+
 export default offlineWorkoutStorageService

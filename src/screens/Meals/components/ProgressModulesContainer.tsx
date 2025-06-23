@@ -2,8 +2,9 @@ import React, {useState} from 'react'
 
 import {Dimensions, ScrollView, View} from 'react-native'
 
-import Spacing from '@constants/Spacing'
 import {useStyleTheme} from '@theme/Theme'
+
+import Spacing from '@constants/Spacing'
 
 import DailyCalorieProgressModule from './DailyCalorieProgressModule'
 import WeeklyCalorieProgressGraphModule from './WeekCalorieProgressGraphModule'
@@ -15,9 +16,11 @@ const ProgressModulesContainer = () => {
 
   const getIndicator = (pageNumber: number) => {
     let color = useStyleTheme().colors.secondary
+
     if (pageNumber === currentPage) {
       color = useStyleTheme().colors.secondaryLighter
     }
+
     return (
       <View
         style={{
@@ -43,8 +46,10 @@ const ProgressModulesContainer = () => {
           setCurrentPage(Math.round(event.nativeEvent.contentOffset.x / screenWidth))
         }}>
         <DailyCalorieProgressModule />
+
         <WeeklyCalorieProgressGraphModule />
       </ScrollView>
+
       <View
         style={{
           flexDirection: 'row',
@@ -52,6 +57,7 @@ const ProgressModulesContainer = () => {
           marginTop: Spacing.SMALL
         }}>
         {getIndicator(0)}
+
         {getIndicator(1)}
       </View>
     </>

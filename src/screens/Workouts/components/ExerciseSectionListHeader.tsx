@@ -1,10 +1,11 @@
 import React, {useState} from 'react'
 
-import SectionListHeader from '@components/SectionListHeader'
-import {ADD_SET_BUTTON_TEXT} from '@constants/Strings'
-
 import {DailyExercise} from '@data/models/DailyExercise'
 import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+
+import SectionListHeader from '@components/SectionListHeader'
+
+import {ADD_SET_BUTTON_TEXT} from '@constants/Strings'
 
 import ExerciseListItemDropdown from './ExerciseListItemDropdown'
 
@@ -37,6 +38,7 @@ const ExerciseSectionListHeader = (props: Props) => {
   return (
     <>
       {dropdown()}
+
       <SectionListHeader
         key={dailyExercise.id}
         title={dailyExercise.exercise.name}

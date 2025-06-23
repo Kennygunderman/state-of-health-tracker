@@ -1,14 +1,16 @@
 import React from 'react'
 
 import {TextStyle, ViewStyle} from 'react-native'
-import {useSelector} from 'react-redux'
 
-import BarGraph, {BAR_GRAPH_MAX_HEIGHT} from '@components/BarGraph'
-import {CALORIES_LABEL, DAILY_CURRENT_TEXT, DAILY_GOAL_TEXT} from '@constants/Strings'
-import {useStyleTheme} from '@theme/Theme'
 import LocalStore from '@store/LocalStore'
 import {useSessionStore} from '@store/session/useSessionStore'
 import useUserData from '@store/userData/useUserData'
+import {useStyleTheme} from '@theme/Theme'
+import {useSelector} from 'react-redux'
+
+import BarGraph, {BAR_GRAPH_MAX_HEIGHT} from '@components/BarGraph'
+
+import {CALORIES_LABEL, DAILY_CURRENT_TEXT, DAILY_GOAL_TEXT} from '@constants/Strings'
 
 import {DayTotals, getTotalsForWeekSelector} from '../../../selectors/MealsSelector'
 import {formatDateToMonthDay} from '../../../utility/DateUtility'
@@ -26,8 +28,10 @@ const WeeklyCalorieProgressGraphModule = () => {
 
   const yAxisLabels = (): string[] => {
     const values = []
+
     for (let i = 5; i > 0; i--) {
       const oneFifth = targetCalories * 0.2
+
       values.push(`${Math.round(oneFifth * i)}`)
     }
 
@@ -37,6 +41,7 @@ const WeeklyCalorieProgressGraphModule = () => {
   const getHeightFromCalories = (calories: number): number => {
     if (!targetCalories || targetCalories === 0) return 0
     const height = (calories / targetCalories) * BAR_GRAPH_MAX_HEIGHT
+
     if (height > BAR_GRAPH_MAX_HEIGHT) {
       return BAR_GRAPH_MAX_HEIGHT
     }
@@ -47,6 +52,7 @@ const WeeklyCalorieProgressGraphModule = () => {
   const getBarHeightForLabel = (label: string) => {
     for (let i = 0; i < totals.length; i++) {
       const dayTotals = totals[i]
+
       if (formatDateToMonthDay(dayTotals.day) === label) {
         return getHeightFromCalories(dayTotals.totals.calories)
       }

@@ -2,13 +2,15 @@ import React, {useState} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import {Ionicons} from '@expo/vector-icons'
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import TargetCaloriesModal from '@components/dialog/TargetCaloriesModal'
 import TargetWorkoutsModal from '@components/dialog/TargetWorkoutsModal'
 import WeightEntryModal from '@components/dialog/WeightEntryModal'
 import HorizontalDivider from '@components/HorizontalDivider'
+
 import Spacing from '@constants/Spacing'
-import {Ionicons} from '@expo/vector-icons'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   readonly clickable?: boolean
@@ -47,6 +49,7 @@ const AccountListItem = (props: Props) => {
   return (
     <>
       {getModalForType()}
+
       <TouchableOpacity
         activeOpacity={clickable ? 0.25 : 1}
         onPress={() => {
@@ -62,6 +65,7 @@ const AccountListItem = (props: Props) => {
         }}>
         <View style={{flexDirection: 'row'}}>
           {icon}
+
           <Text
             style={{
               alignSelf: 'center',
@@ -70,10 +74,12 @@ const AccountListItem = (props: Props) => {
             {text}
           </Text>
         </View>
+
         {clickable && (
           <Ionicons name="chevron-forward" size={iconSize} color={iconColor} style={{alignSelf: 'flex-start'}} />
         )}
       </TouchableOpacity>
+
       <HorizontalDivider />
     </>
   )

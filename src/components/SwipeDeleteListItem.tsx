@@ -1,11 +1,11 @@
 import React from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {Animated, TouchableOpacity, ViewProps} from 'react-native'
-import {GestureHandlerRootView, Swipeable} from 'react-native-gesture-handler'
 
 import {Ionicons} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
+import {GestureHandlerRootView, Swipeable} from 'react-native-gesture-handler'
 
 interface Props extends ViewProps {
   readonly deleteIconRightMargin?: number

@@ -2,17 +2,19 @@ import React, {useState} from 'react'
 
 import {TextStyle, View, ViewStyle} from 'react-native'
 
+import useUserData from '@store/userData/useUserData'
+import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
+import {useStyleTheme} from '@theme/Theme'
+
 import BarGraph from '@components/BarGraph'
 import TargetWorkoutsModal from '@components/dialog/TargetWorkoutsModal'
+
 import {
   WEEKLY_WORKOUTS_GRAPH_LABEL1,
   WEEKLY_WORKOUTS_GRAPH_LABEL2,
   WEEKLY_WORKOUTS_GRAPH_TITLE
 } from '@constants/Strings'
-import {useStyleTheme} from '@theme/Theme'
 
-import useUserData from '@store/userData/useUserData'
-import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
 import {formatDateToMonthDay, getLast7Mondays} from '../../../utility/DateUtility'
 
 const WeeklyWorkoutsGraphModule = () => {
@@ -28,6 +30,7 @@ const WeeklyWorkoutsGraphModule = () => {
   }
 
   const weekWorkoutsCompletedMap: {[label: string]: number} = {}
+
   weeklySummaries.forEach(summary => {
     weekWorkoutsCompletedMap[summary.startOfWeek] = summary.completedWorkouts
   })
@@ -39,6 +42,7 @@ const WeeklyWorkoutsGraphModule = () => {
 
     Object.keys(weekWorkoutsCompletedMap).forEach(key => {
       const numWorkouts = weekWorkoutsCompletedMap[key]
+
       if (numWorkouts > mostWorkoutsFromWeek) {
         mostWorkoutsFromWeek = numWorkouts
       }
@@ -46,6 +50,7 @@ const WeeklyWorkoutsGraphModule = () => {
 
     const labels = []
     const compare = Math.max(mostWorkoutsFromWeek, targetWorkoutsPerWeek)
+
     for (let i = 0; i < compare; i++) {
       labels.push(`${i + 1}`)
     }
@@ -59,6 +64,7 @@ const WeeklyWorkoutsGraphModule = () => {
     let opacity = currentWeek === label ? 1 : 0.5
 
     const didHitTarget = weekWorkoutsCompletedMap[label] >= targetWorkoutsPerWeek
+
     if (didHitTarget) {
       backgroundColor = useStyleTheme().colors.success
       opacity = 1
@@ -77,6 +83,7 @@ const WeeklyWorkoutsGraphModule = () => {
   return (
     <>
       <TargetWorkoutsModal isVisible={isInputModalVisible} onDismissed={() => setIsInputModalVisible(false)} />
+
       <View>
         <BarGraph
           title={WEEKLY_WORKOUTS_GRAPH_TITLE}

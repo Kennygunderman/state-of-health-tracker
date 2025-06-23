@@ -1,5 +1,5 @@
 import React from 'react'
-import {DefaultTheme} from '@react-navigation/native'
+
 import {
   SafeAreaView,
   Text as DefaultText,
@@ -8,7 +8,10 @@ import {
   TextProps,
   ViewProps
 } from 'react-native'
+
+import {DefaultTheme} from '@react-navigation/native'
 import {ColorSchemeName} from 'react-native/Libraries/Utilities/Appearance'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
@@ -61,6 +64,7 @@ export function useStyleTheme(colorTheme: string | ColorSchemeName = 'dark'): Th
 
 export const Screen = (props: ViewProps) => {
   const {...otherProps} = props
+
   return (
     <SafeAreaView
       style={{
@@ -74,11 +78,13 @@ export const Screen = (props: ViewProps) => {
 
 export const Text = (props: TextProps) => {
   const {style, ...otherProps} = props
+
   return <DefaultText style={[{color: useStyleTheme().colors.text}, style]} {...otherProps} />
 }
 
 export const TextInput = (props: TextInputProps) => {
   const {style, editable = true, numberOfLines = 1, maxLength = 24, ...otherProps} = props
+
   return (
     <DefaultTextInput
       keyboardAppearance="dark"

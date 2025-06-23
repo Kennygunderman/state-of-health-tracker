@@ -1,8 +1,7 @@
+import {getUserId} from '@service/auth/userStorage'
 import axios, {AxiosRequestConfig, Method} from 'axios'
 import {isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
-
-import {getUserId} from '@service/auth/userStorage'
 
 import CrashUtility from '../../utility/CrashUtility'
 
@@ -23,10 +22,13 @@ async function httpRequest<T>(
   body?: any
 ): Promise<HttpResponse<T>> {
   const conf: AxiosRequestConfig = {}
+
   if (options.useUserId) {
     const userId = await getUserId()
+
     if (!userId) {
       const error = new Error('userId is required for HTTP request: ' + url)
+
       CrashUtility.recordError(error)
       throw error
     }
@@ -52,6 +54,7 @@ async function httpRequest<T>(
 
   if (isLeft(decoded)) {
     const error = Error(`Decoding failed for ${method} ${url}: ${JSON.stringify(decoded.left)}`)
+
     CrashUtility.recordError(error)
     throw error
   }

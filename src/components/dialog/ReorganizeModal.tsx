@@ -1,24 +1,19 @@
 import React, {useEffect, useState} from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
-import DraggableFlatList, {
-  RenderItemParams,
-  ScaleDecorator
-} from 'react-native-draggable-flatlist'
+
+import Shadow from '@theme/Shadow'
+import {Text, useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
+import DraggableFlatList, {RenderItemParams, ScaleDecorator} from 'react-native-draggable-flatlist'
 import Modal from 'react-native-modal'
 
 import PrimaryButton from '@components/PrimaryButton'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {
-  CANCEL_BUTTON_TEXT,
-  CONFIRM_BUTTON_TEXT,
-  REORG_MODAL_BODY
-} from '@constants/Strings'
-import Shadow from '@theme/Shadow'
-import {Text, useStyleTheme} from '@theme/Theme'
+import {CANCEL_BUTTON_TEXT, CONFIRM_BUTTON_TEXT, REORG_MODAL_BODY} from '@constants/Strings'
 
 interface Props<T> {
   readonly isVisible: boolean
@@ -45,11 +40,7 @@ const ReorganizeModal = <T extends object>(props: Props<T>) => {
 
   const renderItem = ({item, drag, isActive}: RenderItemParams<T>) => (
     <ScaleDecorator>
-      <TouchableOpacity
-        activeOpacity={0.75}
-        delayLongPress={50}
-        onLongPress={drag}
-        disabled={isActive}>
+      <TouchableOpacity activeOpacity={0.75} delayLongPress={50} onLongPress={drag} disabled={isActive}>
         <Text
           style={{
             textAlign: 'center',
@@ -105,12 +96,14 @@ const ReorganizeModal = <T extends object>(props: Props<T>) => {
             }}>
             {REORG_MODAL_BODY}
           </Text>
+
           <DraggableFlatList
             data={listData}
             onDragEnd={({data}) => setListData(data)}
             keyExtractor={item => getTitleForItem(item)}
             renderItem={renderItem}
           />
+
           <View
             style={{
               flexDirection: 'row',
@@ -127,6 +120,7 @@ const ReorganizeModal = <T extends object>(props: Props<T>) => {
                 onCancel?.()
               }}
             />
+
             <PrimaryButton
               width="48%"
               style={{

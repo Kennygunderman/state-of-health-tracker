@@ -1,7 +1,13 @@
 import React, {useCallback, useEffect, useState} from 'react'
 
-import _, {debounce} from 'lodash'
 import {Dimensions, FlatList, ListRenderItemInfo, View} from 'react-native'
+
+import foodSearchService from '@service/food/FoodSearchService'
+import {deleteFood} from '@store/food/FoodActions'
+import FoodItem, {formatMacros} from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
+import {Text, useStyleTheme} from '@theme/Theme'
+import {debounce} from 'lodash'
 import {useDispatch, useSelector} from 'react-redux'
 
 import CalorieChip from '@components/CalorieChip'
@@ -9,6 +15,7 @@ import ListItem from '@components/ListItem'
 import LoadingOverlay from '@components/LoadingOverlay'
 import SearchBar, {SEARCH_BAR_HEIGHT} from '@components/SearchBar'
 import SecondaryButton from '@components/SecondaryButton'
+
 import FontSize from '@constants/FontSize'
 import Screens from '@constants/Screens'
 import Spacing from '@constants/Spacing'
@@ -18,11 +25,6 @@ import {
   SEARCH_FOODS_PLACEHOLDER,
   NO_FOOD_FOUND_EMPTY_TEXT
 } from '@constants/Strings'
-import {Text, useStyleTheme} from '@theme/Theme'
-import foodSearchService from '@service/food/FoodSearchService'
-import {deleteFood} from '@store/food/FoodActions'
-import FoodItem, {formatMacros} from '@store/food/models/FoodItem'
-import LocalStore from '@store/LocalStore'
 
 import {getFoodSelector} from '../selectors/FoodsSelector'
 import ListSwipeItemManager from '../utility/ListSwipeItemManager'
@@ -52,6 +54,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
         foodSearchService.searchBrandedFoods(text, batch, (foods: FoodItem[]) => {
           setIsLoading(false)
           const filtered = foods.filter(rf => localFoodItems.find(lf => rf.id !== lf.id))
+
           setFoodItems([...localItems, ...filtered])
         })
       },
@@ -109,6 +112,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
     const emptyStateContainerHeight = 150
     const isSearchTextEmpty = searchText !== ''
     const areFoodItemsEmpty = foodItems.length === 0
+
     return (
       <>
         <View
@@ -121,6 +125,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
             marginBottom: areFoodItemsEmpty ? emptyStateTopMargin + 64 : 0
           }}
         />
+
         <SearchBar
           onSearchTextChanged={searchString => {
             setSetSearchText(searchString)
@@ -130,6 +135,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
           }}
           placeholder={SEARCH_FOODS_PLACEHOLDER}
         />
+
         {areFoodItemsEmpty && (
           <View
             style={{
@@ -146,7 +152,9 @@ const AddFoodScreen = ({navigation, route}: any) => {
               }}>
               {NO_FOOD_FOUND_EMPTY_TEXT}
             </Text>
+
             {isSearchTextEmpty && <Text>{`'${searchText}'`}</Text>}
+
             {renderNewFoodItemButton()}
           </View>
         )}
@@ -170,6 +178,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
         }}>
         {FOOD_ITEMS_HEADER}
       </Text>
+
       {renderNewFoodItemButton()}
     </View>
   )
@@ -177,6 +186,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
   const renderItem = ({item, index}: ListRenderItemInfo<FoodItem>) => (
     <>
       {index === 0 && renderFoodItemsHeader()}
+
       <ListItem
         isSwipeable={item.source === 'local'}
         leftRightMargin={Spacing.MEDIUM}
@@ -219,6 +229,7 @@ const AddFoodScreen = ({navigation, route}: any) => {
           }
         }}
       />
+
       {isLoading && <LoadingOverlay style={{marginTop: SEARCH_BAR_HEIGHT}} />}
     </>
   )

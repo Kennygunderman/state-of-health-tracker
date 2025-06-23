@@ -2,9 +2,10 @@ import React from 'react'
 
 import {StyleProp, View, ViewStyle} from 'react-native'
 
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import BorderRadius from '@constants/BorderRadius'
 import Spacing from '@constants/Spacing'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   label: string
@@ -14,6 +15,7 @@ interface Props {
 
 const Chip = (props: Props) => {
   const {label, icon, style} = props
+
   return (
     <View
       style={[
@@ -28,6 +30,7 @@ const Chip = (props: Props) => {
         style
       ]}>
       {icon && icon}
+
       <Text>{label}</Text>
     </View>
   )

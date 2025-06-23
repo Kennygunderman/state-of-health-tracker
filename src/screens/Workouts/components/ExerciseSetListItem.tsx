@@ -1,19 +1,20 @@
 import React, {useEffect, useState} from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
-import BouncyCheckbox from 'react-native-bouncy-checkbox'
-import {Swipeable} from 'react-native-gesture-handler'
-
-import SwipeDeleteListItem from '@components/SwipeDeleteListItem'
-import BorderRadius from '@constants/BorderRadius'
-import Spacing from '@constants/Spacing'
-import {LBS_LABEL, REPS_LABEL} from '@constants/Strings'
-import {Text, TextInput, useStyleTheme} from '@theme/Theme'
 
 import {Exercise} from '@data/models/Exercise'
 import {ExerciseSet} from '@data/models/ExerciseSet'
 import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {Text, TextInput, useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
+import BouncyCheckbox from 'react-native-bouncy-checkbox'
+import {Swipeable} from 'react-native-gesture-handler'
+
+import SwipeDeleteListItem from '@components/SwipeDeleteListItem'
+
+import BorderRadius from '@constants/BorderRadius'
+import Spacing from '@constants/Spacing'
+import {LBS_LABEL, REPS_LABEL} from '@constants/Strings'
 
 interface Props {
   readonly exercise: Exercise
@@ -52,6 +53,7 @@ const ExerciseSetListItem = (props: Props) => {
 
   const completeSetChecked = (isChecked: boolean) => {
     let weight
+
     if (weightText !== '') {
       weight = parseInt(weightText, 10)
     } else {
@@ -62,6 +64,7 @@ const ExerciseSetListItem = (props: Props) => {
     }
 
     let reps
+
     if (repsText !== '') {
       reps = parseInt(repsText, 10)
     } else {
@@ -76,6 +79,7 @@ const ExerciseSetListItem = (props: Props) => {
 
     if (weight === undefined || reps === undefined) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+
       return
     }
 
@@ -111,6 +115,7 @@ const ExerciseSetListItem = (props: Props) => {
             }}>
             {LBS_LABEL}
           </Text>
+
           <Text
             style={{
               width: 80,
@@ -119,6 +124,7 @@ const ExerciseSetListItem = (props: Props) => {
             }}>
             {REPS_LABEL}
           </Text>
+
           <View
             style={{
               width: 25,
@@ -128,6 +134,7 @@ const ExerciseSetListItem = (props: Props) => {
           />
         </View>
       )}
+
       <SwipeDeleteListItem
         deleteIconRightMargin={Spacing.MEDIUM}
         swipeableRef={swipeableRef}
@@ -167,6 +174,7 @@ const ExerciseSetListItem = (props: Props) => {
             }}
             keyboardType="number-pad"
           />
+
           <TextInput
             selectTextOnFocus={true}
             value={repsText}
@@ -187,6 +195,7 @@ const ExerciseSetListItem = (props: Props) => {
             }}
             keyboardType="number-pad"
           />
+
           <TouchableOpacity
             style={{
               width: 30,
@@ -205,6 +214,7 @@ const ExerciseSetListItem = (props: Props) => {
           </TouchableOpacity>
         </View>
       </SwipeDeleteListItem>
+
       <View
         style={{
           position: 'absolute',
@@ -216,6 +226,7 @@ const ExerciseSetListItem = (props: Props) => {
           borderRightColor: useStyleTheme().colors.border
         }}
       />
+
       <View
         style={{
           position: 'absolute',

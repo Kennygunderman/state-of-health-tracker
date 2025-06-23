@@ -1,12 +1,14 @@
 import React from 'react'
 
-import Screens from '@constants/Screens'
-import {MACROS_TITLE, WORKOUTS_TITLE} from '@constants/Strings'
 import {FontAwesome5, Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs'
+import {useStyleTheme} from '@theme/Theme'
+
 import AccountScreen from '@screens/Account/AccountScreen'
 import DebugScreen from '@screens/debug/DebugScreen'
-import {useStyleTheme} from '@theme/Theme'
+
+import Screens from '@constants/Screens'
+import {MACROS_TITLE, WORKOUTS_TITLE} from '@constants/Strings'
 
 import MealsStack from './MealsStack'
 import WorkoutsStack from './WorkoutsStack'
@@ -49,8 +51,11 @@ const HomeTabs = () => {
         }
       })}>
       <Tab.Screen name={'MealsStack'} component={MealsStack} options={{title: MACROS_TITLE}} />
+
       <Tab.Screen name={'WorkoutsStack'} component={WorkoutsStack} options={{title: WORKOUTS_TITLE}} />
+
       <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen} />
+
       <Tab.Screen name={Screens.DEBUG} component={DebugScreen} />
     </Tab.Navigator>
   )

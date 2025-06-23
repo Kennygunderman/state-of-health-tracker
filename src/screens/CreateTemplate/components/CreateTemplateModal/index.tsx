@@ -1,8 +1,10 @@
 import React, {useState} from 'react'
 
+import {Exercise} from '@data/models/Exercise'
+
 import BaseInputModalProps from '@components/dialog/BaseInputModalProps'
 import InputModal from '@components/dialog/InputModal'
-import {Exercise} from '@data/models/Exercise'
+
 import {
   TEMPLATE_MODAL_BUTTON_TEXT,
   TEMPLATE_MODAL_ERROR_TEXT,
@@ -26,6 +28,7 @@ const CreateTemplateModal = (props: Props) => {
   const onCreatePressed = () => {
     if (name.length === 0) {
       setShowError(true)
+
       return
     }
 

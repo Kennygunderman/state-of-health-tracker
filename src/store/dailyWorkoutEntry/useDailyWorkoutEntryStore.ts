@@ -1,6 +1,3 @@
-import {create} from 'zustand'
-import {immer} from 'zustand/middleware/immer'
-
 import {createDailyExercise, DailyExercise} from '@data/models/DailyExercise'
 import {Exercise} from '@data/models/Exercise'
 import {createSet} from '@data/models/ExerciseSet'
@@ -10,6 +7,8 @@ import {fetchWorkoutForDay} from '@service/workouts/fetchWorkoutForDay'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -27,6 +26,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
   immer((set, get) => {
     const persist = async () => {
       const state = get()
+
       if (state.currentWorkoutDay) {
         await offlineWorkoutStorageService.save({
           ...state.currentWorkoutDay,
@@ -45,6 +45,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
 
         try {
           const workout = await fetchWorkoutForDay(today)
+
           workout.synced = true
           await offlineWorkoutStorageService.save(workout)
           set({
@@ -53,9 +54,11 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           })
         } catch (error) {
           let localWorkout = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+
           if (!localWorkout) {
             // if no remote workout, create a new offline copy
             const userId = await getUserId()
+
             localWorkout = createWorkoutDay(userId ?? '', today)
             await offlineWorkoutStorageService.save(localWorkout)
           }
@@ -71,10 +74,12 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
 
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           if (workout.dailyExercises.some(e => e.exercise.name === exercise.name)) {
             wasAdded = false
+
             return
           }
 
@@ -89,9 +94,11 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       deleteDailyExercise: dailyExerciseId => {
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           const filtered = workout.dailyExercises.filter(e => e.id !== dailyExerciseId)
+
           workout.dailyExercises = filtered.map((e, index) => ({
             ...e,
             order: index + 1
@@ -104,6 +111,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       updateDailyExercises: dailyExercises => {
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           // Reset order based on new position in array
@@ -118,9 +126,11 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       addSet: exercise => {
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           const target = workout.dailyExercises.find(e => e.exercise.name === exercise.name)
+
           if (!target) return
 
           target.sets.push(createSet())
@@ -132,10 +142,12 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       completeSet: (exercise, setId, isCompleted, weight, reps) => {
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           const entry = workout.dailyExercises.find(e => e.exercise.name === exercise.name)
           const setItem = entry?.sets.find(s => s.id === setId)
+
           if (!setItem) return
 
           setItem.completed = isCompleted
@@ -151,9 +163,11 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       deleteSet: (exercise, setId) => {
         set(state => {
           const workout = state.currentWorkoutDay
+
           if (!workout) return
 
           const entry = workout.dailyExercises.find(e => e.exercise.name === exercise.name)
+
           if (!entry) return
 
           entry.sets = entry.sets.filter(s => s.id !== setId)

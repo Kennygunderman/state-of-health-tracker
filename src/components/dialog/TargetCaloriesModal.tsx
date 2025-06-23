@@ -1,6 +1,11 @@
 import React, {useEffect, useState} from 'react'
 
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import useUserData from '@store/userData/useUserData'
+import {useStyleTheme} from '@theme/Theme'
+
 import {showToast} from '@components/toast/util/ShowToast'
+
 import {
   TARGET_CALORIE_MODAL_BODY,
   TARGET_CALORIE_MODAL_BUTTON,
@@ -8,14 +13,10 @@ import {
   TARGET_CALORIE_MODAL_TITLE,
   TOAST_TARGET_CALORIES_SET
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {useStyleTheme} from '@theme/Theme'
-import useUserData from '@store/userData/useUserData'
-
-import {isNumber} from '../../utility/TextUtility'
 
 import BaseInputModalProps from './BaseInputModalProps'
 import InputModal from './InputModal'
+import {isNumber} from '../../utility/TextUtility'
 
 const TargetCaloriesModal = (props: BaseInputModalProps) => {
   const {isVisible, onDismissed} = props
@@ -32,6 +33,7 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
   const onPrimaryButtonPressed = () => {
     if (!isNumber(value) || parseInt(value, 10) <= 0) {
       setShowError(true)
+
       return
     }
 

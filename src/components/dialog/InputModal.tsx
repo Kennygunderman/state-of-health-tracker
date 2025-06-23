@@ -1,16 +1,18 @@
 import React, {useEffect} from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
-import Modal from 'react-native-modal'
 
-import PrimaryButton from '@components/PrimaryButton'
-import BorderRadius from '@constants//BorderRadius'
-import FontSize from '@constants/FontSize'
-import Spacing from '@constants/Spacing'
 import {Ionicons} from '@expo/vector-icons'
 import Shadow from '@theme/Shadow'
 import {Text, TextInput, useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
+import Modal from 'react-native-modal'
+
+import PrimaryButton from '@components/PrimaryButton'
+
+import BorderRadius from '@constants//BorderRadius'
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
 
 interface Props {
   isVisible: boolean
@@ -76,12 +78,7 @@ const InputModal = (props: Props) => {
           alignSelf: 'center'
         }}>
         <TouchableOpacity onPress={onCancel}>
-          <Ionicons
-            name="close"
-            size={24}
-            color={useStyleTheme().colors.white}
-            style={{alignSelf: 'flex-end'}}
-          />
+          <Ionicons name="close" size={24} color={useStyleTheme().colors.white} style={{alignSelf: 'flex-end'}} />
         </TouchableOpacity>
 
         <Text
@@ -93,7 +90,9 @@ const InputModal = (props: Props) => {
           }}>
           {title}
         </Text>
+
         {icon && icon}
+
         {subtitle && (
           <Text
             style={{
@@ -106,6 +105,7 @@ const InputModal = (props: Props) => {
             {subtitle}
           </Text>
         )}
+
         <TextInput
           placeholder={placeholder}
           returnKeyType="done"
@@ -114,6 +114,7 @@ const InputModal = (props: Props) => {
           keyboardType={keyboardType}
           maxLength={maxInputLength}
         />
+
         {showError && (
           <Text
             style={{
@@ -126,11 +127,8 @@ const InputModal = (props: Props) => {
             {errorMessage}
           </Text>
         )}
-        <PrimaryButton
-          style={{marginTop: Spacing.MEDIUM}}
-          label={buttonText}
-          onPress={onButtonPressed}
-        />
+
+        <PrimaryButton style={{marginTop: Spacing.MEDIUM}} label={buttonText} onPress={onButtonPressed} />
       </View>
     </Modal>
   )

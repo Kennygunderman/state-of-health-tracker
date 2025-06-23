@@ -1,6 +1,6 @@
-import {PickerItem} from '@components/Picker'
-
 import {ExerciseBodyPartEnum, ExerciseTypeEnum} from '@data/models/Exercise'
+
+import {PickerItem} from '@components/Picker'
 
 export const exerciseTypeValues: PickerItem[] = [
   {

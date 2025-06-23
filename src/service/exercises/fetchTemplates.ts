@@ -1,9 +1,8 @@
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
+import {httpGet} from '@service/http/httpUtil'
 import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
-
-import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
-import {httpGet} from '@service/http/httpUtil'
 
 import CrashUtility from '../../utility/CrashUtility'
 

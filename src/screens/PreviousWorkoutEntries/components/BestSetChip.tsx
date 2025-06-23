@@ -1,6 +1,7 @@
 import React from 'react'
 
 import Chip from '@components/Chip'
+
 import Spacing from '@constants/Spacing'
 import {LBS_LABEL} from '@constants/Strings'
 

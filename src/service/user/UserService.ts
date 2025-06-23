@@ -1,7 +1,6 @@
 import firestore from '@react-native-firebase/firestore'
 import {collection, doc} from '@react-native-firebase/firestore/lib/modular'
 import {getDocs, query} from '@react-native-firebase/firestore/lib/modular/query'
-
 import {DAILY_MEAL_ENTRIES_INITIAL_STATE} from '@store/dailyMealEntries/DailyMealEntriesReducer'
 import {DailyMealEntryMap} from '@store/dailyMealEntries/DailyMealEntriesState'
 import {createDailyMealEntry, DailyMealEntry} from '@store/dailyMealEntries/models/DailyMealEntry'
@@ -48,8 +47,10 @@ class UserService {
 
   async saveDailyMealEntries(userId: string, dailyMealEntryMap: DailyMealEntryMap, mealMap: MealMap) {
     const dailyEntries: RemoteDailyMealEntry[] = []
+
     Object.keys(dailyMealEntryMap).forEach(key => {
       const dailyEntry = dailyMealEntryMap[key]
+
       if (dailyEntry?.hasSynced !== true && dailyEntry?.id) {
         const entry: RemoteDailyMealEntry = {
           id: dailyEntry.id,
@@ -58,9 +59,11 @@ class UserService {
           meals: []
         }
         const mealIds = dailyEntry?.mealIds
+
         if (mealIds) {
           mealIds.forEach(mealId => {
             const meal = mealMap[mealId]
+
             if (meal) {
               entry.meals.push(meal)
             }
@@ -75,6 +78,7 @@ class UserService {
 
     dailyEntries.forEach(entry => {
       const docRef = doc(firestore(), 'dailyMealEntries', entry.id)
+
       batch.set(docRef, entry)
     })
 
@@ -83,6 +87,7 @@ class UserService {
 
   async fetchUserDoc(path: string, userId: string) {
     const snap = await firestore().collection(path).doc(userId).get()
+
     return snap.data()
   }
 
@@ -92,11 +97,14 @@ class UserService {
 
     const dailyMealEntryMap: DailyMealEntryMap = {}
     const mealMap: MealMap = {}
+
     mealEntriesQuerySnapshot.docs.forEach(d => {
       const data = d.data()
       const {date, id, meals} = data
+
       if (id && date && meals) {
         const mealIds = meals.map((meal: Meal) => meal.id)
+
         dailyMealEntryMap[date] = {
           id,
           userId,
@@ -121,6 +129,7 @@ class UserService {
   handleLegacyMigration(legacyUserData: any): LocalStore {
     const mealEntryMap = legacyUserData.dailyMealEntries.map
     const newMealEntryMap: {[date: string]: DailyMealEntry} = {}
+
     Object.keys(mealEntryMap).forEach(dateKey => {
       newMealEntryMap[dateKey] = createDailyMealEntry(mealEntryMap[dateKey])
     })
@@ -138,6 +147,7 @@ class UserService {
       const user = await this.fetchUserDoc('user', userId)
 
       const isLegacyUser = user && 'user' in user && 'userInfo' in user
+
       if (isLegacyUser) {
         return this.handleLegacyMigration(user)
       }
@@ -162,4 +172,5 @@ class UserService {
 }
 
 const userService = new UserService()
+
 export default userService

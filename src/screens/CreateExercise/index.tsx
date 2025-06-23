@@ -1,6 +1,12 @@
 import React, {useEffect, useState} from 'react'
 
 import {View} from 'react-native'
+
+import {CreateExercisePayload, ExerciseBodyPartEnum, ExerciseTypeEnum} from '@data/models/Exercise'
+import {Ionicons} from '@expo/vector-icons'
+import {useNavigation} from '@react-navigation/native'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import {Text, useStyleTheme} from '@theme/Theme'
 import {Subject} from 'rxjs'
 
 import LoadingOverlay from '@components/LoadingOverlay'
@@ -8,6 +14,7 @@ import Picker from '@components/Picker'
 import PrimaryButton from '@components/PrimaryButton'
 import TextInputWithHeader from '@components/TextInputWithHeader'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import {
   CREATE_EXERCISE_BODY_PART_PICKER_HEADER,
   CREATE_EXERCISE_BUTTON_TEXT,
@@ -19,18 +26,11 @@ import {
   TOAST_ALREADY_EXISTS,
   TOAST_EXERCISE_CREATED
 } from '@constants/Strings'
-import {Ionicons} from '@expo/vector-icons'
-import {useNavigation} from '@react-navigation/native'
-import {Text, useStyleTheme} from '@theme/Theme'
 
-import {CreateExercisePayload, ExerciseBodyPartEnum, ExerciseTypeEnum} from '@data/models/Exercise'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-
+import styles, {createExerciseMaxPickerWidth} from './index.styled'
 import {Navigation} from '../../navigation/types'
 import {combineExerciseNameType} from '../../utility/combineExerciseNameType'
 import {exerciseTypeValues, bodyPartValues} from '../../utility/exercisePickerItems'
-
-import styles, {createExerciseMaxPickerWidth} from './index.styled'
 
 export enum CreateExerciseEvent {
   Created = 'created',
@@ -85,6 +85,7 @@ const CreateExerciseScreen = () => {
   const onCreateExercisePressed = () => {
     if (exerciseNameText === '') {
       setShowExerciseNameError(true)
+
       return
     }
 
@@ -99,6 +100,7 @@ const CreateExerciseScreen = () => {
   return (
     <>
       {isCreatingExercise && <LoadingOverlay />}
+
       <Ionicons style={styles.icon} name="md-barbell" size={128} color={theme.colors.secondary} />
 
       <View style={styles.inputContainer}>
@@ -116,6 +118,7 @@ const CreateExerciseScreen = () => {
       <View style={styles.pickerRow}>
         <View style={styles.pickerColumn}>
           <Text style={styles.pickerHeader}>{CREATE_EXERCISE_EXERCISE_TYPE_PICKER_HEADER}</Text>
+
           <Picker
             initialValue={exerciseType}
             items={exerciseTypeValues}
@@ -126,6 +129,7 @@ const CreateExerciseScreen = () => {
 
         <View style={styles.pickerColumn}>
           <Text style={styles.pickerHeader}>{CREATE_EXERCISE_BODY_PART_PICKER_HEADER}</Text>
+
           <Picker
             initialValue={bodyPart}
             items={bodyPartValues}

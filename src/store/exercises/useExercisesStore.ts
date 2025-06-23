@@ -1,14 +1,15 @@
-import {create} from 'zustand'
-import {immer} from 'zustand/middleware/immer'
-
-import {DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS} from '@constants/Strings'
 import {CreateExercisePayload, Exercise} from '@data/models/Exercise'
-import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
-import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
 import {createExercise} from '@service/exercises/createExercise'
 import {deleteExercise} from '@service/exercises/deleteExercise'
 import {fetchExercises} from '@service/exercises/fetchExercises'
 import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
+
+import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
+import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
+
+import {DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS} from '@constants/Strings'
 
 export type ExercisesState = {
   exercises: Exercise[]
@@ -25,14 +26,17 @@ const useExercisesStore = create<ExercisesState>()(
     exercises: [],
     findExercise: (name: string, type: string) => {
       const exercises = get().exercises
+
       return exercises.find(e => e.name === name && e.exerciseType === type)
     },
     getExercises: (exerciseIds: string[]) => {
       const exercises = get().exercises
+
       return exercises.filter(exercise => exerciseIds.includes(exercise.id))
     },
     getFilterExercises: (filter: string) => {
       const exercises = get().exercises
+
       if (!filter) return exercises
 
       return exercises.filter(
@@ -56,16 +60,19 @@ const useExercisesStore = create<ExercisesState>()(
     createExercise: async (exercise: CreateExercisePayload) => {
       const {exercises, findExercise} = get()
       const existingExercise = findExercise(exercise.name, exercise.exerciseType)
+
       if (existingExercise) {
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Exists,
           payload: exercise
         })
+
         return
       }
 
       try {
         const exerciseCreated = await createExercise(exercise)
+
         set({exercises: [...exercises, exerciseCreated]})
         CreateExerciseEventSubject$.next({
           event: CreateExerciseEvent.Created,

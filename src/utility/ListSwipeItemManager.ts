@@ -1,6 +1,5 @@
-import {Swipeable} from 'react-native-gesture-handler'
-
 import Unique from '@data/models/Unique'
+import {Swipeable} from 'react-native-gesture-handler'
 
 export default class ListSwipeItemManager {
   private prevOpenedRow: Swipeable | null = null
@@ -10,6 +9,7 @@ export default class ListSwipeItemManager {
   constructor(uniques: Unique[] = []) {
     this.swipeableRows = uniques.reduce((prev: any, curr) => {
       prev[curr.id] = []
+
       return prev
     }, {})
   }
@@ -17,6 +17,7 @@ export default class ListSwipeItemManager {
   public setRows(uniques: Unique[]) {
     this.swipeableRows = uniques.reduce((prev: any, curr) => {
       prev[curr.id] = []
+
       return prev
     }, {})
   }

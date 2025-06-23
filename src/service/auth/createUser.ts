@@ -1,9 +1,8 @@
+import {CreateUserPayload} from '@data/models/User'
+import {httpPost} from '@service/http/httpUtil'
 import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
-
-import {CreateUserPayload} from '@data/models/User'
-import {httpPost} from '@service/http/httpUtil'
 
 import CrashUtility from '../../utility/CrashUtility'
 

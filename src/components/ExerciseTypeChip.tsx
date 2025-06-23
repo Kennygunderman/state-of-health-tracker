@@ -2,11 +2,11 @@ import React from 'react'
 
 import {View} from 'react-native'
 
-import BorderRadius from '@constants/BorderRadius'
+import {ExerciseTypeEnum} from '@data/models/Exercise'
 import {Ionicons, MaterialCommunityIcons, FontAwesome5, Entypo} from '@expo/vector-icons'
 import {useStyleTheme} from '@theme/Theme'
 
-import {ExerciseTypeEnum} from '@data/models/Exercise'
+import BorderRadius from '@constants/BorderRadius'
 
 interface Props {
   exerciseType: ExerciseTypeEnum

@@ -2,9 +2,15 @@ import React from 'react'
 
 import {FlatList, ListRenderItemInfo} from 'react-native'
 
+import {WorkoutSummary} from '@data/models/WorkoutSummary'
+import {FontAwesome5, MaterialCommunityIcons} from '@expo/vector-icons'
+import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
+import {Screen, useStyleTheme} from '@theme/Theme'
+
 import Chip from '@components/Chip'
 import LoadingOverlay from '@components/LoadingOverlay'
 import PreviousEntryListItem, {EmptyState} from '@components/PreviousEntryListItem'
+
 import Spacing from '@constants/Spacing'
 import {
   BEST_SET_LABEL,
@@ -14,15 +20,10 @@ import {
   PREVIOUS_WORKOUTS_ENTRIES_EMPTY_TITLE,
   SETS_LABEL
 } from '@constants/Strings'
-import {FontAwesome5, MaterialCommunityIcons} from '@expo/vector-icons'
-import {Screen, useStyleTheme} from '@theme/Theme'
-import {WorkoutSummary} from '@data/models/WorkoutSummary'
-import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
-
-import {formatDateUTC} from '../../utility/DateUtility'
 
 import BestSetChip from './components/BestSetChip'
 import styles from './index.styled'
+import {formatDateUTC} from '../../utility/DateUtility'
 
 const PreviousWorkoutEntries = () => {
   const {isFetching, summaries, fetchSummaries} = useWorkoutSummariesStore()
@@ -75,6 +76,7 @@ const PreviousWorkoutEntries = () => {
   return (
     <>
       {isFetching && <LoadingOverlay />}
+
       <Screen>
         <FlatList
           style={styles.list}

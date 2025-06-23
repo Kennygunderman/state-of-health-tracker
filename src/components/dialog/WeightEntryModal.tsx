@@ -1,6 +1,11 @@
 import React, {useState} from 'react'
 
+import {FontAwesome5} from '@expo/vector-icons'
+import useUserData from '@store/userData/useUserData'
+import {useStyleTheme} from '@theme/Theme'
+
 import {showToast} from '@components/toast/util/ShowToast'
+
 import Spacing from '@constants/Spacing'
 import {
   CURRENT_WEIGHT_MODAL_BODY,
@@ -9,14 +14,10 @@ import {
   CURRENT_WEIGHT_MODAL_TITLE,
   TOAST_WEIGHT_UPDATED
 } from '@constants/Strings'
-import {FontAwesome5} from '@expo/vector-icons'
-import {useStyleTheme} from '@theme/Theme'
-import useUserData from '@store/userData/useUserData'
-
-import {isNumber} from '../../utility/TextUtility'
 
 import BaseModalProps from './BaseInputModalProps'
 import InputModal from './InputModal'
+import {isNumber} from '../../utility/TextUtility'
 
 const WeightEntryModal = (props: BaseModalProps) => {
   const {isVisible, onDismissed} = props
@@ -28,8 +29,10 @@ const WeightEntryModal = (props: BaseModalProps) => {
 
   const onPrimaryButtonPressed = () => {
     const intVal = parseInt(value, 10)
+
     if (!isNumber(value) || intVal === 0) {
       setShowError(true)
+
       return
     }
 

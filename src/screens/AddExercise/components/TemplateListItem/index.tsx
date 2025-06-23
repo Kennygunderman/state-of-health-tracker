@@ -2,17 +2,19 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {openGlobalBottomSheet} from '@components/GlobalBottomSheet'
-import Screens from '@constants/Screens'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
 import {useNavigation} from '@react-navigation/native'
-import DeleteTemplateBottomSheet from '@screens/AddExercise/components/DeleteTemplateBottomSheet'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 import {Text, useStyleTheme} from '@theme/Theme'
 
-import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
-import {Navigation} from '../../../../navigation/types'
-import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import DeleteTemplateBottomSheet from '@screens/AddExercise/components/DeleteTemplateBottomSheet'
+
+import {openGlobalBottomSheet} from '@components/GlobalBottomSheet'
+
+import Screens from '@constants/Screens'
 
 import styles from './index.styled'
+import {Navigation} from '../../../../navigation/types'
 
 interface Props {
   template: ExerciseTemplate
@@ -47,6 +49,7 @@ const TemplateListItem = ({template}: Props) => {
           <Text style={styles.title} numberOfLines={1}>
             {template.name}
           </Text>
+
           <Text style={styles.subtitle} numberOfLines={1}>
             {template.tagline}
           </Text>

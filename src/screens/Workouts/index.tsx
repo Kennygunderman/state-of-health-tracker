@@ -2,11 +2,26 @@ import React, {useEffect} from 'react'
 
 import {KeyboardAvoidingView, SafeAreaView, SectionList, SectionListRenderItem, View} from 'react-native'
 
+
+import {DailyExercise} from '@data/models/DailyExercise'
+import {ExerciseSet} from '@data/models/ExerciseSet'
+import Unique from '@data/models/Unique'
+import {Ionicons} from '@expo/vector-icons'
+import {useNavigation} from '@react-navigation/native'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import {useSessionStore} from '@store/session/useSessionStore'
+import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
+import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import LoadingOverlay from '@components/LoadingOverlay'
 import {EmptyState} from '@components/PreviousEntryListItem'
 import PrimaryButton from '@components/PrimaryButton'
 import SecondaryButton from '@components/SecondaryButton'
 import {SectionListFooter} from '@components/SectionListHeader'
+
 import Screens from '@constants/Screens'
 import {
   ADD_EXERCISE_BUTTON_TEXT,
@@ -16,29 +31,15 @@ import {
   VIEW_PREVIOUS_WORKOUTS_BUTTON_TEXT,
   YOUR_EXERCISES_HEADER
 } from '@constants/Strings'
-import {Ionicons} from '@expo/vector-icons'
-import {useNavigation} from '@react-navigation/native'
-import {Text, useStyleTheme} from '@theme/Theme'
-
-import {DailyExercise} from '@data/models/DailyExercise'
-import {ExerciseSet} from '@data/models/ExerciseSet'
-import Unique from '@data/models/Unique'
-import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
-import {useSessionStore} from '@store/session/useSessionStore'
-import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
-import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
-
-import {Navigation} from '../../navigation/types'
-import {formatDayMonthDay} from '../../utility/DateUtility'
-import ListSwipeItemManager from '../../utility/ListSwipeItemManager'
 
 import ExerciseSectionListHeader from './components/ExerciseSectionListHeader'
 import ExerciseSetListItem from './components/ExerciseSetListItem'
 import WeeklyWorkoutsGraphModule from './components/WeeklyWorkoutsGraphModule'
 import WorkoutsSkeleton from './components/WorkoutsSkeleton'
 import styles from './index.styled'
+import {Navigation} from '../../navigation/types'
+import {formatDayMonthDay} from '../../utility/DateUtility'
+import ListSwipeItemManager from '../../utility/ListSwipeItemManager'
 
 interface Section extends Unique {
   dailyExercise: DailyExercise
@@ -79,20 +80,25 @@ const WorkoutsScreen = () => {
   const renderHeader = () => (
     <>
       <Text style={styles.dateText}>{formatDayMonthDay(sessionStartDate)}</Text>
+
       <Text style={styles.workoutTitle}>{DAILY_WORKOUT_TITLE}</Text>
+
       <WeeklyWorkoutsGraphModule />
+
       {isInitializing ? (
         <LoadingOverlay style={styles.loadingIndicator} />
       ) : (
         <>
           <View style={styles.exerciseHeaderContainer}>
             <Text style={styles.exerciseHeaderText}>{YOUR_EXERCISES_HEADER}</Text>
+
             <SecondaryButton
               style={styles.addButton}
               label={ADD_EXERCISE_BUTTON_TEXT}
               onPress={() => navigation.push(Screens.ADD_EXERCISE)}
             />
           </View>
+
           {dailyExercises.length === 0 && (
             <EmptyState
               icon={

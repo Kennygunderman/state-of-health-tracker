@@ -1,6 +1,5 @@
-import {v4 as uuidv4} from 'uuid'
-
 import Unique from '@data/models/Unique'
+import {v4 as uuidv4} from 'uuid'
 
 export interface DailyMealEntry extends Unique {
   userId?: string

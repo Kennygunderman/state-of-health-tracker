@@ -1,11 +1,17 @@
 import React, {useState} from 'react'
 
 import {FlatList, ListRenderItemInfo} from 'react-native'
+
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {formatMacros} from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
+import {Screen, useStyleTheme} from '@theme/Theme'
 import {useSelector} from 'react-redux'
 
 import CalorieChip from '@components/CalorieChip'
 import Chip from '@components/Chip'
 import PreviousEntryListItem, {EmptyState} from '@components/PreviousEntryListItem'
+
 import Spacing from '@constants/Spacing'
 import {
   CAL_LABEL,
@@ -14,10 +20,6 @@ import {
   PREVIOUS_MEAL_ENTRIES_EMPTY_BODY,
   PREVIOUS_MEAL_ENTRIES_EMPTY_TITLE
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {Screen, useStyleTheme} from '@theme/Theme'
-import {formatMacros} from '@store/food/models/FoodItem'
-import LocalStore from '@store/LocalStore'
 
 import {DailyMealEntry, getPreviousDailyMealEntriesSelector} from '../selectors/MealsSelector'
 

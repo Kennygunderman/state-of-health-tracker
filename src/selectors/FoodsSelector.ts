@@ -1,7 +1,6 @@
-import {createSelector, ParametricSelector} from 'reselect'
-
 import FoodItem from '@store/food/models/FoodItem'
 import LocalStore from '@store/LocalStore'
+import {createSelector, ParametricSelector} from 'reselect'
 
 function getFood(batch: number, filter: string, foods: FoodItem[]): FoodItem[] {
   const items = [...foods].reverse()

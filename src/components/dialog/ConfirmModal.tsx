@@ -1,16 +1,18 @@
 import React, {useEffect} from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {View} from 'react-native'
+
+import Shadow from '@theme/Shadow'
+import {Text, useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
 import Modal from 'react-native-modal'
 
 import PrimaryButton from '@components/PrimaryButton'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
 import {CANCEL_BUTTON_TEXT, DELETE_BUTTON_TEXT} from '@constants/Strings'
-import Shadow from '@theme/Shadow'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   confirmationTitle: string
@@ -74,6 +76,7 @@ const ConfirmModal = (props: Props) => {
             }}>
             {confirmationTitle}
           </Text>
+
           <Text
             style={{
               marginTop: Spacing.MEDIUM,
@@ -81,6 +84,7 @@ const ConfirmModal = (props: Props) => {
             }}>
             {confirmationBody}
           </Text>
+
           <View
             style={{
               flexDirection: 'row',
@@ -97,6 +101,7 @@ const ConfirmModal = (props: Props) => {
                 onCancel()
               }}
             />
+
             <PrimaryButton
               width="48%"
               style={{

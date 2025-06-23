@@ -1,6 +1,15 @@
 import React, {useEffect, useState} from 'react'
 
 import {SafeAreaView, SectionList, SectionListRenderItem, View} from 'react-native'
+
+import Unique from '@data/models/Unique'
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import FoodItem from '@store/food/models/FoodItem'
+import LocalStore from '@store/LocalStore'
+import {addMeal, deleteMealFood} from '@store/meals/MealsActions'
+import {createMeal, Meal} from '@store/meals/models/Meal'
+import {useSessionStore} from '@store/session/useSessionStore'
+import {Text, useStyleTheme} from '@theme/Theme'
 import {useSelector} from 'react-redux'
 
 import CalorieChip from '@components/CalorieChip'
@@ -8,6 +17,7 @@ import ListItem from '@components/ListItem'
 import PrimaryButton from '@components/PrimaryButton'
 import SecondaryButton from '@components/SecondaryButton'
 import SectionListHeader, {SectionListFooter} from '@components/SectionListHeader'
+
 import FontSize from '@constants/FontSize'
 import Screens from '@constants/Screens'
 import Spacing from '@constants/Spacing'
@@ -23,22 +33,13 @@ import {
   VIEW_PREVIOUS_ENTRIES_BUTTON_TEXT,
   YOUR_MEALS_HEADER
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {Text, useStyleTheme} from '@theme/Theme'
-import Unique from '@data/models/Unique'
-import FoodItem from '@store/food/models/FoodItem'
-import LocalStore from '@store/LocalStore'
-import {addMeal, deleteMealFood} from '@store/meals/MealsActions'
-import {createMeal, Meal} from '@store/meals/models/Meal'
-import {useSessionStore} from '@store/session/useSessionStore'
 
+import AddUpdateMealInputDialog, {MealAction} from './components/AddUpdateMealInputDialog'
+import ProgressModulesContainer from './components/ProgressModulesContainer'
 import {getMealsForDaySelector} from '../../selectors/MealsSelector'
 import {useThunkDispatch} from '../../store'
 import {formatDayMonthDay} from '../../utility/DateUtility'
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager'
-
-import AddUpdateMealInputDialog, {MealAction} from './components/AddUpdateMealInputDialog'
-import ProgressModulesContainer from './components/ProgressModulesContainer'
 
 interface Section extends Unique {
   meal: Meal
@@ -72,6 +73,7 @@ const MealsScreen = ({navigation}: any) => {
       const breakfast = createMeal(BREAKFAST_MEAL_NAME, [])
       const lunch = createMeal(LUNCH_MEAL_NAME, [])
       const dinner = createMeal(DINNER_MEAL_NAME, [])
+
       dispatch(addMeal(breakfast))
       dispatch(addMeal(lunch))
       dispatch(addMeal(dinner))
@@ -111,6 +113,7 @@ const MealsScreen = ({navigation}: any) => {
         }}>
         {formatDayMonthDay(sessionStartDate)}
       </Text>
+
       <Text
         style={{
           fontSize: FontSize.H1,
@@ -120,7 +123,9 @@ const MealsScreen = ({navigation}: any) => {
         }}>
         {DAILY_CALORIE_INTAKE_TITLE}
       </Text>
+
       <ProgressModulesContainer />
+
       <View
         style={{
           flexDirection: 'row',
@@ -136,6 +141,7 @@ const MealsScreen = ({navigation}: any) => {
           }}>
           {YOUR_MEALS_HEADER}
         </Text>
+
         <SecondaryButton
           style={{alignSelf: 'flex-end'}}
           label={ADD_MEAL_BUTTON_TEXT}
@@ -180,7 +186,9 @@ const MealsScreen = ({navigation}: any) => {
   const renderMealEmptyState = () => (
     <SectionListFooter>
       <MaterialCommunityIcons name="pot-steam" size={96} color={useStyleTheme().colors.secondary} />
+
       <Text style={{fontWeight: 'bold'}}>{EMPTY_MEAL_TITLE}</Text>
+
       <Text
         style={{
           fontWeight: '200',
@@ -195,6 +203,7 @@ const MealsScreen = ({navigation}: any) => {
     if (meal.food.length === 0) {
       return renderMealEmptyState()
     }
+
     return <SectionListFooter />
   }
 
@@ -233,6 +242,7 @@ const MealsScreen = ({navigation}: any) => {
         }}
         onChangeText={setMealInputModalMealName}
       />
+
       <SectionList
         style={{
           width: '100%',

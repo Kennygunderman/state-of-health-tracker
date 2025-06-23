@@ -1,8 +1,8 @@
 import React, {useEffect, useState} from 'react'
 
 import {MaterialCommunityIcons} from '@expo/vector-icons'
-import BaseInputModalProps from './BaseInputModalProps'
-import InputModal from './InputModal'
+import useUserData from '@store/userData/useUserData'
+import {useStyleTheme} from '@theme/Theme'
 
 import {
   TARGET_WORKOUTS_MODAL_BODY,
@@ -11,9 +11,9 @@ import {
   TARGET_WORKOUTS_MODAL_TITLE,
   TOAST_TARGET_WORKOUTS_SET
 } from '@constants/Strings'
-import {useStyleTheme} from '@theme/Theme'
-import useUserData from '@store/userData/useUserData'
 
+import BaseInputModalProps from './BaseInputModalProps'
+import InputModal from './InputModal'
 import {isNumber} from '../../utility/TextUtility'
 import {showToast} from '../toast/util/ShowToast'
 
@@ -31,8 +31,10 @@ const TargetWorkoutsModal = (props: BaseInputModalProps) => {
 
   const onPrimaryButtonPressed = () => {
     const intVal = parseInt(value, 10)
+
     if (!isNumber(value) || intVal === 0 || intVal > 7) {
       setShowError(true)
+
       return
     }
 

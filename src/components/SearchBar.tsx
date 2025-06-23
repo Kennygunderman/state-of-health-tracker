@@ -2,9 +2,10 @@ import React, {useEffect, useState} from 'react'
 
 import {Keyboard, TouchableOpacity, View} from 'react-native'
 
-import Spacing from '@constants/Spacing'
 import {Ionicons} from '@expo/vector-icons'
 import {TextInput, useStyleTheme} from '@theme/Theme'
+
+import Spacing from '@constants/Spacing'
 
 interface Props {
   placeholder?: string
@@ -55,6 +56,7 @@ const SearchBar = (props: Props) => {
           size={20}
           color={useStyleTheme().colors.secondary}
         />
+
         <TextInput
           maxLength={100}
           style={{
@@ -66,6 +68,7 @@ const SearchBar = (props: Props) => {
           onChangeText={setSearchText}
           placeholder={placeholder}
         />
+
         {searchText !== '' && (
           <TouchableOpacity
             style={{

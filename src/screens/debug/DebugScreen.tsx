@@ -2,15 +2,15 @@ import {useEffect, useState} from 'react'
 
 import {ScrollView} from 'react-native'
 
-import PrimaryButton from '@components/PrimaryButton'
-import {Text} from '@theme/Theme'
-
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 import useExercisesStore from '@store/exercises/useExercisesStore'
 import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 import useWeeklyWorkoutSummariesStore from '@store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore'
 import useWorkoutSummariesStore from '@store/workoutSummaries/useWorkoutSummariesStore'
+import {Text} from '@theme/Theme'
+
+import PrimaryButton from '@components/PrimaryButton'
 
 const DebugScreen = () => {
   const {currentWorkoutDay} = useDailyWorkoutEntryStore()
@@ -37,6 +37,7 @@ const DebugScreen = () => {
           })
         }}
       />
+
       {/* <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Templates:</Text> */}
       {/* <Text style={{ marginBottom: 20 }}> */}
       {/*   {JSON.stringify(templates, null, 2)} */}

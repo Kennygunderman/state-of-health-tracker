@@ -1,11 +1,11 @@
-import React, {useEffect, useState, useCallback, useRef} from 'react'
+import React, {useEffect, useState, useRef} from 'react'
 import {ReactNode} from 'react'
 
 import {View, TouchableWithoutFeedback} from 'react-native'
-import {Subject} from 'rxjs'
 
 import BottomSheet from '@gorhom/bottom-sheet'
 import {useStyleTheme} from '@theme/Theme'
+import {Subject} from 'rxjs'
 
 import styles from './index.styled'
 

@@ -1,10 +1,9 @@
-import * as io from 'io-ts'
-
-import Endpoints from '@constants/Endpoints'
-
 import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
 import {Exercise} from '@data/models/Exercise'
 import {httpGet} from '@service/http/httpUtil'
+import * as io from 'io-ts'
+
+import Endpoints from '@constants/Endpoints'
 
 import CrashUtility from '../../utility/CrashUtility'
 

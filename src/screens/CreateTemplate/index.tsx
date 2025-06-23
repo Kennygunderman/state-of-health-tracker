@@ -1,6 +1,13 @@
 import React, {useEffect, useState} from 'react'
 
 import {FlatList, ListRenderItemInfo, View} from 'react-native'
+
+import {Exercise} from '@data/models/Exercise'
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {useNavigation} from '@react-navigation/native'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import {Text, useStyleTheme} from '@theme/Theme'
 import {Subject} from 'rxjs'
 
 import ExerciseTypeChip from '@components/ExerciseTypeChip'
@@ -9,6 +16,7 @@ import LoadingOverlay from '@components/LoadingOverlay'
 import PrimaryButton from '@components/PrimaryButton'
 import SearchBar from '@components/SearchBar'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import Spacing from '@constants/Spacing'
 import {
   CREATE_TEMPLATE_NO_EXERCISES,
@@ -18,12 +26,6 @@ import {
   TOAST_TEMPLATE_CREATED,
   TOAST_TEMPLATE_CREATION_ERROR
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {useNavigation} from '@react-navigation/native'
-import {Text, useStyleTheme} from '@theme/Theme'
-import {Exercise} from '@data/models/Exercise'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
 
 import CreateTemplateModal from './components/CreateTemplateModal'
 import styles from './index.styled'
@@ -72,6 +74,7 @@ const CreateTemplateScreen = () => {
           size={100}
           color={useStyleTheme().colors.white}
         />
+
         <Text style={styles.emptyText}>{CREATE_TEMPLATE_NO_EXERCISES}</Text>
       </>
     )
@@ -116,6 +119,7 @@ const CreateTemplateScreen = () => {
   return (
     <View style={styles.container}>
       {isCreatingTemplate && <LoadingOverlay />}
+
       <CreateTemplateModal
         isVisible={isModalVisible}
         exercises={selectedExercises}
@@ -124,6 +128,7 @@ const CreateTemplateScreen = () => {
       />
 
       <SearchBar placeholder={SEARCH_EXERCISES_PLACEHOLDER} onSearchTextChanged={onSearchTextChanged} />
+
       <FlatList
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"

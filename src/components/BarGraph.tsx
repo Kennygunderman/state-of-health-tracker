@@ -1,17 +1,12 @@
 import React from 'react'
 
-import {
-  Dimensions,
-  TextStyle,
-  TouchableOpacity,
-  View,
-  ViewStyle
-} from 'react-native'
+import {Dimensions, TextStyle, TouchableOpacity, View, ViewStyle} from 'react-native'
+
+import Shadow from '@theme/Shadow'
+import {Text, useStyleTheme} from '@theme/Theme'
 
 import borderRadius from '@constants/BorderRadius'
 import Spacing from '@constants/Spacing'
-import Shadow from '@theme/Shadow'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   readonly barType?: 'solid' | 'increment'
@@ -74,6 +69,7 @@ const BarGraph = (props: Props) => {
           {value}
         </Text>
       ))}
+
       <Text
         style={{
           textAlign: 'right',
@@ -102,8 +98,10 @@ const BarGraph = (props: Props) => {
 
   const xAxisBar = (label: string) => {
     const bars = []
+
     if (barType === 'increment') {
       const incrementItemHeight = graphHeight / yAxisMaxValue - 3
+
       for (let i = 0; i < getNumberOfItemsForLabel(label); i++) {
         bars.push(xAxisBarBlock(incrementItemHeight, label))
       }
@@ -111,9 +109,10 @@ const BarGraph = (props: Props) => {
 
     return (
       <View key={label} style={{marginTop: 'auto'}}>
-        {barType === 'solid' &&
-          xAxisBarBlock(getBarHeightForLabel(label), label)}
+        {barType === 'solid' && xAxisBarBlock(getBarHeightForLabel(label), label)}
+
         {barType === 'increment' && bars}
+
         <Text
           style={[
             {
@@ -148,6 +147,7 @@ const BarGraph = (props: Props) => {
         height: 200
       }}>
       {yAxis()}
+
       {xAxis()}
     </View>
   )
@@ -174,6 +174,7 @@ const BarGraph = (props: Props) => {
         }}>
         {title}
       </Text>
+
       <TouchableOpacity
         style={{
           position: 'absolute',
@@ -192,6 +193,7 @@ const BarGraph = (props: Props) => {
           }}>
           {label1}
         </Text>
+
         <Text
           style={{
             alignSelf: 'flex-end',
@@ -202,6 +204,7 @@ const BarGraph = (props: Props) => {
           {label2}
         </Text>
       </TouchableOpacity>
+
       {graph()}
     </View>
   )

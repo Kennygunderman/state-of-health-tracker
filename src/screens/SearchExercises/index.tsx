@@ -1,28 +1,30 @@
 import React, {useCallback, useEffect, useState} from 'react'
 
-import {debounce} from 'lodash'
 import {FlatList, ListRenderItemInfo, View} from 'react-native'
+
+import {mapExerciseType} from '@data/converters/ExerciseConverter'
+import {CreateExercisePayload} from '@data/models/Exercise'
+import {useNavigation} from '@react-navigation/native'
+import exerciseSearchService from '@service/exercises/ExerciseSearchService'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import {useStyleTheme} from '@theme/Theme'
+import {debounce} from 'lodash'
+
+import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
 
 import ExerciseTypeChip from '@components/ExerciseTypeChip'
 import ListItem from '@components/ListItem'
 import LoadingOverlay from '@components/LoadingOverlay'
 import SearchBar from '@components/SearchBar'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import Spacing from '@constants/Spacing'
 import {SEARCH_ADD_EXERCISE_ERROR, SEARCH_ADD_EXERCISE_SUCCESS, SEARCH_EXERCISES_PLACEHOLDER} from '@constants/Strings'
-import {useNavigation} from '@react-navigation/native'
-import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
-import {useStyleTheme} from '@theme/Theme'
-
-import {mapExerciseType} from '@data/converters/ExerciseConverter'
-import {CreateExercisePayload} from '@data/models/Exercise'
-import exerciseSearchService from '@service/exercises/ExerciseSearchService'
-import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-
-import {Navigation} from '../../navigation/types'
 
 import styles from './index.styled'
+import {Navigation} from '../../navigation/types'
+
 const LoadBatchSize = 50
 
 const SearchExercisesScreen = () => {
@@ -40,6 +42,7 @@ const SearchExercisesScreen = () => {
   const debouncedSearch = useCallback(
     debounce((filter: string) => {
       const searchResults = exerciseSearchService.searchExercises(filter, LoadBatchSize * 2)
+
       setResults(searchResults.slice(0, LoadBatchSize))
       setBatchCount(1)
     }, 300),
@@ -51,6 +54,7 @@ const SearchExercisesScreen = () => {
       next: ({event, payload}) => {
         if (event === CreateExerciseEvent.Created || event === CreateExerciseEvent.Exists) {
           const exercise = findExercise(payload.name, payload.exerciseType)
+
           if (exercise) {
             showToast('success', SEARCH_ADD_EXERCISE_SUCCESS, payload.name)
             addDailyExercise(exercise)
@@ -62,6 +66,7 @@ const SearchExercisesScreen = () => {
         setIsCreatingExercise(false)
       }
     })
+
     return () => {
       sub.unsubscribe()
     }
@@ -69,6 +74,7 @@ const SearchExercisesScreen = () => {
 
   useEffect(() => {
     debouncedSearch(searchText)
+
     return debouncedSearch.cancel
   }, [searchText, debouncedSearch])
 
@@ -76,6 +82,7 @@ const SearchExercisesScreen = () => {
     const nextBatch = batchCount + 1
     const end = nextBatch * LoadBatchSize
     const moreResults = exerciseSearchService.searchExercises(searchText, end)
+
     setResults(moreResults)
     setBatchCount(nextBatch)
   }
@@ -100,7 +107,9 @@ const SearchExercisesScreen = () => {
   return (
     <View style={styles.container}>
       {isCreatingExercise && <LoadingOverlay />}
+
       <SearchBar placeholder={SEARCH_EXERCISES_PLACEHOLDER} onSearchTextChanged={setSearchText} />
+
       <FlatList
         style={styles.listContainer}
         keyboardShouldPersistTaps="always"

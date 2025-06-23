@@ -1,7 +1,6 @@
-import CrashUtility from '../../utility/CrashUtility'
-
 import offlineWorkoutStorageService from './OfflineWorkoutStorageService'
 import {saveWorkoutDay} from './saveWorkoutDay'
+import CrashUtility from '../../utility/CrashUtility'
 
 const syncOfflineWorkouts = async () => {
   try {
@@ -10,6 +9,7 @@ const syncOfflineWorkouts = async () => {
     for (const workout of workouts) {
       if (workout.synced) continue
       const success = await saveWorkoutDay(workout)
+
       if (success) {
         workout.synced = true
         await offlineWorkoutStorageService.save(workout)

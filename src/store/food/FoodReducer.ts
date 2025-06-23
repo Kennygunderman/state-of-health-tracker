@@ -10,6 +10,7 @@ function addFood(state: FoodState, action: Action<FoodItem>): FoodState {
   }
 
   const foods = [...state.foods]
+
   foods.push(foodItem)
 
   return {
@@ -27,6 +28,7 @@ function deleteFood(state: FoodState, action: Action<string>): FoodState {
 
   const foods = [...state.foods]
   const indexToDelete = foods.findIndex(value => value.id === foodItemId)
+
   foods.splice(indexToDelete, 1)
 
   return {

@@ -2,14 +2,16 @@ import React from 'react'
 
 import {TouchableOpacity} from 'react-native'
 
-import Screens from '@constants/Screens'
 import {Ionicons} from '@expo/vector-icons'
 import {useNavigation} from '@react-navigation/native'
 import {createNativeStackNavigator} from '@react-navigation/native-stack'
+import {useStyleTheme} from '@theme/Theme'
+
 import RootAuthScreen from '@screens/Auth'
 import LogInScreen from '@screens/Login'
 import RegisterScreen from '@screens/Register'
-import {useStyleTheme} from '@theme/Theme'
+
+import Screens from '@constants/Screens'
 
 import {Navigation} from './types'
 
@@ -42,7 +44,9 @@ const AuthStack = () => {
         headerShadowVisible: false
       })}>
       <Stack.Screen name={Screens.RootAuth} component={RootAuthScreen} options={{headerShown: false}} />
+
       <Stack.Screen name={Screens.LOG_IN} component={LogInScreen} />
+
       <Stack.Screen name={Screens.REGISTER} component={RegisterScreen} />
     </Stack.Navigator>
   )

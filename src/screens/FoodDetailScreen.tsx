@@ -1,13 +1,19 @@
 import React, {useEffect, useState} from 'react'
 
-import {isNil} from 'lodash'
 import {Dimensions, ScrollView, TouchableOpacity, View} from 'react-native'
+
+import {addFood} from '@store/food/FoodActions'
+import FoodItem, {convertFoodItemToLocal} from '@store/food/models/FoodItem'
+import {updateMealFood, updateMealFoodItemServings} from '@store/meals/MealsActions'
+import {Text, useStyleTheme} from '@theme/Theme'
+import {isNil} from 'lodash'
 import Svg, {Circle} from 'react-native-svg'
 
 import Chip from '@components/Chip'
 import Picker, {PickerItem} from '@components/Picker'
 import PrimaryButton from '@components/PrimaryButton'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
 import {
@@ -28,10 +34,6 @@ import {
   TOAST_MEAL_UPDATED,
   UPDATE_SERVINGS_BUTTON_TEXT
 } from '@constants/Strings'
-import {Text, useStyleTheme} from '@theme/Theme'
-import {addFood} from '@store/food/FoodActions'
-import FoodItem, {convertFoodItemToLocal} from '@store/food/models/FoodItem'
-import {updateMealFood, updateMealFoodItemServings} from '@store/meals/MealsActions'
 
 import {useThunkDispatch} from '../store'
 
@@ -55,8 +57,10 @@ const FoodDetailScreen = ({navigation, route}: any) => {
       value: 0
     }
   ]
+
   for (let i = 0; i < 50; i++) {
     const val = i + 1
+
     servingItems.push({
       label: `${val}`,
       value: val
@@ -145,6 +149,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
     }
 
     const servings = servingsNumber + servingsFraction
+
     dispatch(updateMealFoodItemServings(mealId, foodItem.id, servings))
     showToast('success', `${mealName} ${TOAST_MEAL_UPDATED}`, `${foodItem.name}, ${SERVINGS_TEXT} ${servings}`)
 
@@ -157,11 +162,13 @@ const FoodDetailScreen = ({navigation, route}: any) => {
     }
 
     const servingsToAdd = servingsNumber + servingsFraction
+
     if (foodItem.source === 'remote') {
       const localFoodItem = convertFoodItemToLocal({
         ...foodItem,
         servings: servingsToAdd
       })
+
       dispatch(updateMealFood(mealId, localFoodItem))
       dispatch(
         addFood({
@@ -193,6 +200,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
 
   const circleSliceLength = (macro: number) => {
     const percentage = (macro / totalCalories) * 100
+
     return circumference - (circumference * percentage) / 100
   }
 
@@ -246,6 +254,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
           marginBottom: Spacing.X_LARGE
         }}>
         {dot(color)}
+
         {label(text)}
       </View>
     )
@@ -257,7 +266,9 @@ const FoodDetailScreen = ({navigation, route}: any) => {
           marginLeft: Spacing.LARGE
         }}>
         {keyItem(useStyleTheme().colors.secondaryLighter, PROTEIN_LABEL)}
+
         {keyItem(useStyleTheme().colors.white, CARBS_LABEL)}
+
         {keyItem(useStyleTheme().colors.accentColor, FAT_LABEL)}
       </View>
     )
@@ -275,6 +286,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
         }}>
         {foodItem?.name ?? ''}
       </Text>
+
       {foodItem?.description && (
         <Text
           style={{
@@ -287,6 +299,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
           {`${foodItem.description}`}
         </Text>
       )}
+
       <Text
         style={{
           marginTop: Spacing.XX_SMALL,
@@ -296,6 +309,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
         }}>
         {`${foodItem?.calories ?? 0} ${CALORIES_LABEL} ${PER_SERVINGS_LABEL}`}
       </Text>
+
       <View>
         <View
           style={{
@@ -321,11 +335,16 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               {percentageText}
             </Text>
           </View>
+
           {circle(0, 0, useStyleTheme().colors.border)}
+
           {circle(circleSliceLength(proteinCals), 0, useStyleTheme().colors.secondaryLighter, proteinWidth)}
+
           {circle(circleSliceLength(carbCals), proteinAngle, useStyleTheme().colors.white, carbWidth)}
+
           {circle(circleSliceLength(fatCals), fatAngle, useStyleTheme().colors.accentColor, fatWidth)}
         </View>
+
         <View
           style={{
             marginTop: 48,
@@ -340,6 +359,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
             activeOpacity={0.5}
             onPress={() => {
               const width = proteinWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth
+
               setProteinWidth(width)
               setSelectedSlice(width === selectedSliceWidth ? 'protein' : 'none')
               setCarbWidth(deselectedSliceWidth)
@@ -355,10 +375,12 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               label={`${foodItem?.macros.protein ?? 0} ${G_PROTEIN_LABEL}`}
             />
           </TouchableOpacity>
+
           <TouchableOpacity
             activeOpacity={0.5}
             onPress={() => {
               const width = carbWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth
+
               setCarbWidth(width)
               setSelectedSlice(width === selectedSliceWidth ? 'carbs' : 'none')
               setProteinWidth(deselectedSliceWidth)
@@ -374,10 +396,12 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               label={`${foodItem?.macros.carbs ?? 0} ${G_CARBS_LABEL}`}
             />
           </TouchableOpacity>
+
           <TouchableOpacity
             activeOpacity={0.5}
             onPress={() => {
               const width = fatWidth === deselectedSliceWidth ? selectedSliceWidth : deselectedSliceWidth
+
               setFatWidth(width)
               setSelectedSlice(width === selectedSliceWidth ? 'fat' : 'none')
               setCarbWidth(deselectedSliceWidth)
@@ -395,7 +419,9 @@ const FoodDetailScreen = ({navigation, route}: any) => {
           </TouchableOpacity>
         </View>
       </View>
+
       {chartKey()}
+
       <View
         style={{
           right: 0,
@@ -415,6 +441,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               }}>
               {SERVINGS_LABEL}
             </Text>
+
             <Picker
               placeholder={`${servingsNumber}`}
               initialValue={servingsNumber}
@@ -425,6 +452,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               }}
             />
           </View>
+
           <View style={{width: maxPickerWidth * 0.48}}>
             <Text
               style={{
@@ -433,6 +461,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
               }}>
               {FRACTION_LABEL}
             </Text>
+
             <Picker
               placeholder={SELECT_A_FRACTION_PLACEHOLDER_TEXT}
               initialValue={servingsFraction}
@@ -445,6 +474,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
           </View>
         </View>
       </View>
+
       <PrimaryButton
         style={{
           marginTop: Spacing.X_LARGE,
@@ -467,6 +497,7 @@ const FoodDetailScreen = ({navigation, route}: any) => {
             }}>
             {INGREDIENTS_LABEL}
           </Text>
+
           <Text
             style={{
               zIndex: -1,

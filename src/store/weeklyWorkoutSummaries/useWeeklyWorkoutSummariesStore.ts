@@ -1,8 +1,7 @@
-import {create} from 'zustand'
-import {immer} from 'zustand/middleware/immer'
-
 import {WeeklyWorkoutSummary} from '@data/models/WeeklyWorkoutSummary'
 import {fetchWeeklyWorkoutSummaries} from '@service/workouts/fetchWeeklyWorkoutSummaries'
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
 
 export type WeeklyWorkoutSummariesState = {
   isLoadingSummaries: boolean
@@ -18,6 +17,7 @@ const useWeeklyWorkoutSummariesStore = create<WeeklyWorkoutSummariesState>()(
       try {
         set({isLoadingSummaries: true})
         const summaries = await fetchWeeklyWorkoutSummaries()
+
         set({
           weeklySummaries: summaries,
           isLoadingSummaries: false

@@ -1,7 +1,7 @@
-const {Project} = require('ts-morph')
-const path = require('path')
 const fg = require('fast-glob')
 const fs = require('fs')
+const path = require('path')
+const {Project} = require('ts-morph')
 
 const aliasMap = {
   '@screens': 'src/screens',
@@ -25,8 +25,10 @@ function getAliasPath(importPath, sourceFilePath) {
 
   for (const [alias, target] of Object.entries(aliasMap)) {
     const absTarget = path.resolve(target)
+
     if (absPath.startsWith(absTarget)) {
       const relative = path.relative(absTarget, absPath)
+
       return `${alias}/${relative.replace(/\\/g, '/')}`
     }
   }
@@ -85,6 +87,7 @@ if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
 
   for (const file of sourceFiles) {
     const imports = file.getImportDeclarations()
+
     if (imports.length === 0) continue
 
     const reactImports = []
@@ -102,6 +105,7 @@ if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
         localRelativeImports.push(imp)
       } else if (isDeepRelative(module)) {
         const alias = getAliasPath(module, file.getFilePath())
+
         if (alias) {
           imp.setModuleSpecifier(alias)
           aliasedImports.push(imp)

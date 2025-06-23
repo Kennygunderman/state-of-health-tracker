@@ -1,11 +1,12 @@
 import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
+
+import {Text, useStyleTheme} from '@theme/Theme'
 import {Swipeable} from 'react-native-gesture-handler'
 
 import BorderRadius from '@constants/BorderRadius'
 import Spacing from '@constants/Spacing'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 import SwipeDeleteListItem from './SwipeDeleteListItem'
 
@@ -86,6 +87,7 @@ const ListItem = (props: Props) => {
                 numberOfLines={1}>
                 {title}
               </Text>
+
               <Text
                 style={{
                   fontWeight: '200',
@@ -95,6 +97,7 @@ const ListItem = (props: Props) => {
                 {subtitle}
               </Text>
             </View>
+
             <View
               style={{
                 top: 0,
@@ -106,6 +109,7 @@ const ListItem = (props: Props) => {
           </View>
         </TouchableOpacity>
       </SwipeDeleteListItem>
+
       {showLeftBorder && (
         <View
           style={{
@@ -119,6 +123,7 @@ const ListItem = (props: Props) => {
           }}
         />
       )}
+
       {showRightBorder && (
         <View
           style={{

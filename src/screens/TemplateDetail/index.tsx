@@ -2,26 +2,27 @@ import React from 'react'
 
 import {FlatList, ListRenderItemInfo} from 'react-native'
 
+import {Exercise} from '@data/models/Exercise'
+import {useNavigation} from '@react-navigation/native'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import ExerciseTypeChip from '@components/ExerciseTypeChip'
 import ListItem from '@components/ListItem'
 import PrimaryButton from '@components/PrimaryButton'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import {
   stringWithParameters,
   TEMPLATE_START,
   TOAST_TEMPLATE_EXERCISES_ADDED,
   TOAST_TEMPLATE_EXERCISES_ADDED_BODY
 } from '@constants/Strings'
-import {useNavigation} from '@react-navigation/native'
-import {Text, useStyleTheme} from '@theme/Theme'
 
-import {Exercise} from '@data/models/Exercise'
-import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
-
-import {Navigation} from '../../navigation/types'
 import styles from './index.styled'
+import {Navigation} from '../../navigation/types'
 
 const WorkoutTemplateDetailScreen = () => {
   const {pop} = useNavigation<Navigation>()

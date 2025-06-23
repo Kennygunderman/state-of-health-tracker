@@ -15,11 +15,13 @@ function addDailyMealEntry(state: DailyMealEntriesState, action: Action<string>)
   }
 
   const doesExist = state.map[date] !== undefined
+
   if (doesExist) {
     return {
       ...state
     }
   }
+
   return {
     ...state,
     map: {
@@ -44,6 +46,7 @@ function addMealToDailyEntry(
   }
 
   const doesExist = state.map[date] !== undefined
+
   if (doesExist) {
     return {
       ...state,
@@ -88,6 +91,7 @@ function setMealHasSyncedFalse(state: DailyMealEntriesState, action: Action<stri
 
 function setMealEntriesSynced(state: DailyMealEntriesState, action: Action<boolean>) {
   const updatedMap: DailyMealEntryMap = {}
+
   Object.keys(state.map).forEach(key => {
     updatedMap[key] = {
       ...state.map[key],

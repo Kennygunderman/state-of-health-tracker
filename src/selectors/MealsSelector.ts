@@ -1,11 +1,11 @@
-import {createSelector, ParametricSelector, Selector} from 'reselect'
-
 import {DailyMealEntryMap} from '@store/dailyMealEntries/DailyMealEntriesState'
 import {Macros} from '@store/food/models/FoodItem'
 import LocalStore from '@store/LocalStore'
 import {MealMap} from '@store/meals/MealsState'
 import {Meal} from '@store/meals/models/Meal'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {createSelector, ParametricSelector, Selector} from 'reselect'
+
 import {formatDate} from '../utility/DateUtility'
 
 export interface MealEntry {
@@ -33,8 +33,10 @@ export interface DayTotals {
 function getMealsForDay(day: string, dailyMealEntriesMap: DailyMealEntryMap, mealMap: MealMap): Meal[] {
   const meals: Meal[] = []
   const mealIds = dailyMealEntriesMap[day]?.mealIds
+
   Object.keys(mealMap).forEach(key => {
     const meal = mealMap[key]
+
     if (mealIds && mealIds.includes(meal.id)) {
       meals.push(meal)
     }
@@ -132,6 +134,7 @@ function getTotalsForMeals(meals: Meal[]): Totals {
     carbs: 0,
     fat: 0
   }
+
   meals.forEach(meal => {
     if (meal.food.length === 0) {
       return
@@ -162,6 +165,7 @@ function getTotalsForWeek(dailyEntryMap: DailyMealEntryMap, mealMap: MealMap): D
   for (let i = 7; i > 0; i--) {
     const day = formatDate(Date.now() - 1000 * 60 * 60 * 24 * (i - 1))
     const meals = getMealsForDay(day, dailyEntryMap, mealMap)
+
     dayTotals.push({
       day,
       totals: getTotalsForMeals(meals)

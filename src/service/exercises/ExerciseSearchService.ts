@@ -1,7 +1,7 @@
-import exercises from '../../assets/exercises'
 import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
 import {CreateExercisePayload} from '@data/models/Exercise'
 
+import exercises from '../../assets/exercises'
 import {capitalizeFirstLetterOfEveryWord} from '../../utility/TextUtility'
 
 class ExerciseSearchService {
@@ -22,6 +22,7 @@ class ExerciseSearchService {
           const name = exercise.name.toLowerCase()
           const muscleGroup = exercise.muscleGroup.toLowerCase()
           const type = exercise.type.toLowerCase()
+
           return name.includes(normalizedTerm) || muscleGroup.includes(normalizedTerm) || type.includes(normalizedTerm)
         })
 
@@ -32,4 +33,5 @@ class ExerciseSearchService {
 }
 
 const exerciseSearchService = new ExerciseSearchService()
+
 export default exerciseSearchService

@@ -1,13 +1,14 @@
-import {create} from 'zustand'
-import {immer} from 'zustand/middleware/immer'
-
-import {DELETE_TEMPLATE_ERROR, DELETE_TEMPLATE_SUCCESS} from '@constants/Strings'
 import {CreateExerciseTemplatePayload, ExerciseTemplate} from '@data/models/ExerciseTemplate'
-import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
-import {CreateTemplateEventSubject$} from '@screens/CreateTemplate'
 import {createTemplate} from '@service/exercises/createTemplate'
 import {deleteTemplate} from '@service/exercises/deleteTemplate'
 import {fetchTemplates} from '@service/exercises/fetchTemplates'
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
+
+import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
+import {CreateTemplateEventSubject$} from '@screens/CreateTemplate'
+
+import {DELETE_TEMPLATE_ERROR, DELETE_TEMPLATE_SUCCESS} from '@constants/Strings'
 
 export type ExerciseTemplateState = {
   templates: ExerciseTemplate[]
@@ -33,6 +34,7 @@ const useExerciseTemplateStore = create<ExerciseTemplateState>()(
     fetchTemplates: async () => {
       try {
         const templates = await fetchTemplates()
+
         set({templates})
       } catch (error) {
         // no-op, gracefully handle errors
@@ -40,8 +42,10 @@ const useExerciseTemplateStore = create<ExerciseTemplateState>()(
     },
     createTemplate: async (template: CreateExerciseTemplatePayload) => {
       const {templates} = get()
+
       try {
         const templatedCreated = await createTemplate(template)
+
         set({templates: [...templates, templatedCreated]})
         CreateTemplateEventSubject$.next({
           success: true,
@@ -60,6 +64,7 @@ const useExerciseTemplateStore = create<ExerciseTemplateState>()(
         await deleteTemplate(templateId)
 
         const {templates} = get()
+
         set({templates: templates.filter(template => template.id !== templateId)})
         ExerciseScreenUpdateSubject$.next({
           isUpdating: false,

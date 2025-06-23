@@ -1,17 +1,17 @@
-import {create} from 'zustand'
-import {immer} from 'zustand/middleware/immer'
-
 import {authEventType} from '@data/types/authEvent'
 import {authStatus} from '@data/types/authStatus'
-import {AuthSubject$} from '@screens/Auth'
 import {decodeAuthError} from '@service/auth/AuthErrorEnum'
 import authService from '@service/auth/AuthService'
-import {removeUserId,storeUserId} from '@service/auth/userStorage'
+import {removeUserId, storeUserId} from '@service/auth/userStorage'
 import userService from '@service/user/UserService'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import LocalStore from '@store/LocalStore'
-import {AuthError,AuthErrorPathEnum} from '@store/user/models/AuthError'
-import {LOG_IN_USER,LOG_OUT_USER} from '@store/user/UserActions'
+import {AuthError, AuthErrorPathEnum} from '@store/user/models/AuthError'
+import {LOG_IN_USER, LOG_OUT_USER} from '@store/user/UserActions'
+import {create} from 'zustand'
+import {immer} from 'zustand/middleware/immer'
+
+import {AuthSubject$} from '@screens/Auth'
 
 export type AuthState = {
   userId: string | null
@@ -38,6 +38,7 @@ const useAuthStore = create<AuthState>()(
       const user = authService.getCurrentUser()
       const isAuthed = user !== null
       const userId = user?.uid
+
       set({
         userId,
         userEmail: user?.email || null,
@@ -61,6 +62,7 @@ const useAuthStore = create<AuthState>()(
         // this god awful implementation will be removed once redux is gone
         // and everything is fully migrated to postgres
         const data = await userService.fetchUserData(user.id)
+
         dispatch({
           payload: data,
           type: LOG_IN_USER
@@ -99,6 +101,7 @@ const useAuthStore = create<AuthState>()(
       set({isAttemptingAuth: true})
       try {
         const account = await authService.registerUser(email, password)
+
         set({
           userEmail: account.email,
           isAuthed: true
@@ -131,6 +134,7 @@ const useAuthStore = create<AuthState>()(
     logoutUser: async (dispatch: Function, state: LocalStore) => {
       // this is a temp workaround while I remove redux from the app
       const {userId} = get()
+
       if (userId) await userService.saveUserData(userId, state)
       dispatch({
         type: LOG_OUT_USER

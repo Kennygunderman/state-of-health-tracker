@@ -2,17 +2,18 @@ import React from 'react'
 
 import {View} from 'react-native'
 
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props<T> {
   readonly subItems: T[]
   readonly day: string
   readonly headerChip: JSX.Element
-  readonly column1Label: String
-  readonly column2Label: String
+  readonly column1Label: string
+  readonly column2Label: string
   readonly getChipForItem: (item: T) => JSX.Element
   readonly getTitleForItem: (item: T) => string
   readonly getSubtitleForItem: (item: T) => string
@@ -40,7 +41,9 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
         }}>
         {day}
       </Text>
+
       <View style={{flexDirection: 'row'}}>{headerChip}</View>
+
       <View
         style={{
           marginTop: Spacing.MEDIUM,
@@ -56,6 +59,7 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
           }}>
           {column1Label}
         </Text>
+
         <Text
           style={{
             marginRight: Spacing.X_SMALL,
@@ -78,6 +82,7 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
             paddingBottom: Spacing.XX_SMALL
           }}>
           <Text style={{fontWeight: 'bold'}}>{getTitleForItem(item)}</Text>
+
           <Text
             style={{
               marginTop: Spacing.XX_SMALL,
@@ -85,6 +90,7 @@ const PreviousEntryListItem = <T extends object>(props: Props<T>) => {
             }}>
             {getSubtitleForItem(item)}
           </Text>
+
           {getChipForItem(item)}
         </View>
       ))}
@@ -102,9 +108,11 @@ interface EmptyStateProps {
 
 export const EmptyState = (props: EmptyStateProps) => {
   const {icon, title, body} = props
+
   return (
     <>
       {icon}
+
       <Text
         style={{
           fontSize: FontSize.H1,
@@ -114,6 +122,7 @@ export const EmptyState = (props: EmptyStateProps) => {
         }}>
         {title}
       </Text>
+
       <Text
         style={{
           marginTop: Spacing.MEDIUM,

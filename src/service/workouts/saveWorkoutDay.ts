@@ -1,9 +1,8 @@
+import {WorkoutDay} from '@data/models/WorkoutDay'
+import {httpPost} from '@service/http/httpUtil'
 import * as io from 'io-ts'
 
 import Endpoints from '@constants/Endpoints'
-
-import {WorkoutDay} from '@data/models/WorkoutDay'
-import {httpPost} from '@service/http/httpUtil'
 
 import CrashUtility from '../../utility/CrashUtility'
 
@@ -21,6 +20,7 @@ export async function saveWorkoutDay(workoutDay: WorkoutDay): Promise<boolean> {
   } catch (error) {
     CrashUtility.recordError(error)
     console.error('Failed to save workout day:', error)
+
     return false
   }
 }

@@ -2,10 +2,11 @@ import React from 'react'
 
 import {TouchableOpacity, View, ViewProps} from 'react-native'
 
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 import SecondaryButton from './SecondaryButton'
 

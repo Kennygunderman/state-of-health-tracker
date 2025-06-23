@@ -1,6 +1,10 @@
 import React, {useState} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
+
+import {useNavigation} from '@react-navigation/native'
+import useAuthStore from '@store/auth/useAuthStore'
+import {Text, useStyleTheme} from '@theme/Theme'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 
 import Screens from '@constants/Screens'
@@ -16,17 +20,13 @@ import {
   AUTH_NO_ACCOUNT_BUTTON_TEXT,
   AUTH_REGISTER_BUTTON_TEXT
 } from '@constants/Strings'
-import {useNavigation} from '@react-navigation/native'
-import {Text, useStyleTheme} from '@theme/Theme'
-import useAuthStore from '@store/auth/useAuthStore'
-
-import {Navigation} from '../navigation/types'
-import {useThunkDispatch} from '../store'
-import {isValidEmail, isValidPassword} from '../utility/AccountUtility'
 
 import PasswordTextInput from './PasswordTextInput'
 import PrimaryButton from './PrimaryButton'
 import TextInputWithHeader from './TextInputWithHeader'
+import {Navigation} from '../navigation/types'
+import {useThunkDispatch} from '../store'
+import {isValidEmail, isValidPassword} from '../utility/AccountUtility'
 
 interface Props {
   readonly authType: 'register' | 'log-in'
@@ -50,6 +50,7 @@ const AuthForm = (props: Props) => {
 
   const validate = (): boolean => {
     let isValid = true
+
     if (!isValidEmail(email)) {
       setShowEmailError(true)
       isValid = false
@@ -57,11 +58,13 @@ const AuthForm = (props: Props) => {
 
     if (!isValidPassword(password)) {
       setShowPasswordError(true)
+
       return false
     }
 
     if (authType === 'register' && password !== confirmPassword) {
       setShowConfirmPasswordError(true)
+
       return false
     }
 
@@ -112,6 +115,7 @@ const AuthForm = (props: Props) => {
             errorMessage={AUTH_FORM_EMAIL_ERROR}
             showError={showEmailError}
           />
+
           <PasswordTextInput
             header={AUTH_FORM_PASSWORD_HEADER}
             value={password}
@@ -131,12 +135,14 @@ const AuthForm = (props: Props) => {
               secureTextEntry={true}
             />
           )}
+
           <PrimaryButton
             style={{marginTop: Spacing.LARGE}}
             isLoading={isAttemptingAuth}
             label={authType === 'register' ? AUTH_REGISTER_BUTTON_TEXT : AUTH_LOG_IN_BUTTON_TEXT}
             onPress={handleAuth}
           />
+
           {authType === 'log-in' && (
             <TouchableOpacity
               onPress={() => {

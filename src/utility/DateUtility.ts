@@ -1,4 +1,5 @@
 import {format, isMonday} from 'date-fns'
+
 // returns current date as Ex: September 28, 2023
 export const getCurrentDate = () => format(Date.now(), 'MMMM dd, yyyy')
 
@@ -22,6 +23,7 @@ export const compareIsoDateStrings = (a: string, b: string): boolean => {
   try {
     const [y1, m1, d1] = a.split('T')[0].split('-')
     const [y2, m2, d2] = b.split('T')[0].split('-')
+
     return y1 === y2 && m1 === m2 && d1 === d2
   } catch {
     return false
@@ -36,6 +38,7 @@ export const getLast7Mondays = () => {
   const last7Mondays = []
   let daysAgo = 0
   let mostRecentMonday = Date.now()
+
   while (!isMonday(mostRecentMonday)) {
     daysAgo++
     mostRecentMonday = Date.now() - ONE_DAY_MS * daysAgo

@@ -2,11 +2,12 @@ import React from 'react'
 
 import {StyleProp, TouchableOpacity, View, ViewStyle} from 'react-native'
 
+import {AntDesign} from '@expo/vector-icons'
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {AntDesign} from '@expo/vector-icons'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   label?: string
@@ -32,6 +33,7 @@ const SecondaryButton = (props: Props) => {
           style
         ]}>
         <AntDesign name="plus" size={24} color={useStyleTheme().colors.white} />
+
         {label && (
           <Text
             style={{

@@ -1,19 +1,19 @@
 import {useEffect, useState} from 'react'
 
 import {Alert, View, Image} from 'react-native'
+
+import {AuthEvent, authEventType} from '@data/types/authEvent'
+import {authStatus} from '@data/types/authStatus'
+import {useNavigation} from '@react-navigation/native'
+import useAuthStore from '@store/auth/useAuthStore'
+import {useStyleTheme} from '@theme/Theme'
 import {Subject} from 'rxjs'
 
 import Screens from '@constants/Screens'
 import {OKAY_BUTTON_TEXT} from '@constants/Strings'
-import {useNavigation} from '@react-navigation/native'
-import {useStyleTheme} from '@theme/Theme'
 
-import {AuthEvent, authEventType} from '@data/types/authEvent'
-import {authStatus} from '@data/types/authStatus'
-import useAuthStore from '@store/auth/useAuthStore'
-
-import {Navigation} from '../../navigation/types'
 import styles from './index.styled'
+import {Navigation} from '../../navigation/types'
 
 export const AuthSubject$ = new Subject<AuthEvent>()
 

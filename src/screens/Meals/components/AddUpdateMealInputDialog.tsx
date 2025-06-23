@@ -1,7 +1,13 @@
 import React, {useState} from 'react'
 
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {addMeal, updateMealName} from '@store/meals/MealsActions'
+import {createMeal} from '@store/meals/models/Meal'
+import {useStyleTheme} from '@theme/Theme'
+
 import InputModal from '@components/dialog/InputModal'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import {
   ADD_MEAL_BUTTON_TEXT,
   ADD_MEAL_PLACEHOLDER_TEXT,
@@ -12,12 +18,8 @@ import {
   TOAST_ADDED,
   TOAST_MEAL_UPDATED
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {useStyleTheme} from '@theme/Theme'
 
 import {useThunkDispatch} from '../../../store'
-import {addMeal, updateMealName} from '@store/meals/MealsActions'
-import {createMeal} from '@store/meals/models/Meal'
 
 export enum MealAction {
   ADD,
@@ -48,11 +50,13 @@ const AddUpdateMealInputDialog = (props: Props) => {
   const onAddUpdatePressed = () => {
     if (inputMealName === '') {
       setShowError(true)
+
       return
     }
 
     if (action === MealAction.ADD) {
       const meal = createMeal(inputMealName, [])
+
       dispatch(addMeal(meal))
       showToast('success', `${inputMealName} ${TOAST_ADDED}`)
       closeDialog()

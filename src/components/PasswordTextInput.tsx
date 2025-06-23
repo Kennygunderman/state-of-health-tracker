@@ -10,6 +10,7 @@ import TextInputWithHeader, {TextInputProps} from './TextInputWithHeader'
 const PasswordTextInput = (props: TextInputProps) => {
   const {secureTextEntry} = props
   const [secureEntry, setSecureEntry] = useState(secureTextEntry)
+
   return (
     <>
       <TouchableOpacity
@@ -30,6 +31,7 @@ const PasswordTextInput = (props: TextInputProps) => {
           color={useStyleTheme().colors.white}
         />
       </TouchableOpacity>
+
       <TextInputWithHeader {...props} secureTextEntry={secureEntry} />
     </>
   )

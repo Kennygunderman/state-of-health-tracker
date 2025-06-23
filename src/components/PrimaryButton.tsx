@@ -2,10 +2,11 @@ import React from 'react'
 
 import {ActivityIndicator, StyleProp, TouchableOpacity, View, ViewStyle} from 'react-native'
 
+import {Text, useStyleTheme} from '@theme/Theme'
+
 import BorderRadius from '@constants/BorderRadius'
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {Text, useStyleTheme} from '@theme/Theme'
 
 interface Props {
   label: string

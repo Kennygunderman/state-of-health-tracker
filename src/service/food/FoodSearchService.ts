@@ -1,11 +1,10 @@
+import {USDA_BASE_URL, USDA_FOOD_API_KEY} from '@env'
+import FoodItem, {caloriesFromMacros, Macros} from '@store/food/models/FoodItem'
 import axios from 'axios'
 import {Either, isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 import {Errors} from 'io-ts'
 import {isNil} from 'lodash'
-
-import {USDA_BASE_URL, USDA_FOOD_API_KEY} from '@env'
-import FoodItem, {caloriesFromMacros, Macros} from '@store/food/models/FoodItem'
 
 import CrashUtility from '../../utility/CrashUtility'
 import {capitalizeFirstLetterOfEveryWord} from '../../utility/TextUtility'
@@ -80,14 +79,17 @@ class FoodSearchService implements IFoodSearchService {
       .then(({data}: {data: any}) => {
         const decode = (decoded: object) => SearchFoodResponse.decode(decoded)
         const decodedData: Either<Errors, any> = decode(data)
+
         if (isLeft(decodedData)) {
           // decode failed
           CrashUtility.recordError(Error(`Error searching foods ${decodedData.left}`))
           onFetched([])
+
           return
         }
 
         const foodItems: FoodItem[] = []
+
         decodedData.right.foods.forEach((foodResponse: any) => {
           if (
             !isNil(foodResponse.fdcId) &&
@@ -99,6 +101,7 @@ class FoodSearchService implements IFoodSearchService {
             !isNil(foodResponse.foodNutrients)
           ) {
             let servingSize = ''
+
             if (!isNil(foodResponse.householdServingFullText) && foodResponse.householdServingFullText !== '') {
               servingSize = `(${capitalizeFirstLetterOfEveryWord(foodResponse.householdServingFullText)})`
             } else if (!isNil(foodResponse.servingSize) && !isNil(foodResponse.servingSizeUnit)) {
@@ -183,10 +186,12 @@ class FoodSearchService implements IFoodSearchService {
         if (isLeft(decodedData)) {
           // decode failed
           CrashUtility.recordError(Error(`Error fetching food data ${decodedData.left}`))
+
           return
         }
 
         const foodData = decodedData.right
+
         if (
           !isNil(foodData.fdcId) &&
           !isNil(foodData.brandName) &&
@@ -194,6 +199,7 @@ class FoodSearchService implements IFoodSearchService {
           !isNil(foodData.description)
         ) {
           let servingSize = ''
+
           if (!isNil(foodData.householdServingFullText) && foodData.householdServingFullText !== '') {
             servingSize = `(${capitalizeFirstLetterOfEveryWord(foodData.householdServingFullText)})`
           } else if (!isNil(foodData.servingSize) && !isNil(foodData.servingSizeUnit)) {
@@ -226,4 +232,5 @@ class FoodSearchService implements IFoodSearchService {
 }
 
 const foodSearchService = new FoodSearchService() as IFoodSearchService
+
 export default foodSearchService

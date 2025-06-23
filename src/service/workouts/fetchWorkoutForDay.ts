@@ -1,9 +1,8 @@
-import * as io from 'io-ts'
-
 import {mapExerciseBodyPart, mapExerciseType} from '@data/converters/ExerciseConverter'
 import {WorkoutDay} from '@data/models/WorkoutDay'
 import {getUserId} from '@service/auth/userStorage'
 import {httpGet} from '@service/http/httpUtil'
+import * as io from 'io-ts'
 
 import CrashUtility from '../../utility/CrashUtility'
 

@@ -1,6 +1,7 @@
 import React, {useEffect} from 'react'
 
 import {View, StyleSheet, ViewStyle} from 'react-native'
+
 import LinearGradient from 'react-native-linear-gradient'
 import Animated, {useSharedValue, useAnimatedStyle, withTiming, withRepeat} from 'react-native-reanimated'
 

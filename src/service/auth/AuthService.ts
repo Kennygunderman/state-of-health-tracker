@@ -1,6 +1,5 @@
-import auth, {FirebaseAuthTypes} from '@react-native-firebase/auth'
-
 import User, {CreateUserPayload} from '@data/models/User'
+import auth, {FirebaseAuthTypes} from '@react-native-firebase/auth'
 import {AuthErrorPathEnum} from '@store/user/models/AuthError'
 
 import {decodeAuthError} from './AuthErrorEnum'
@@ -12,14 +11,17 @@ class AuthService {
       userId: '',
       email: ''
     }
+
     try {
       const {user} = await auth().createUserWithEmailAndPassword(email, password)
+
       registeredUser = {
         userId: user.uid,
         email: user.email ?? ''
       }
     } catch (e) {
       const error = e as FirebaseAuthTypes.NativeFirebaseAuthError
+
       throw {
         errorPath: AuthErrorPathEnum.REGISTRATION,
         errorDate: Date.now(),
@@ -46,6 +48,7 @@ class AuthService {
     try {
       const userCredential = await auth().signInWithEmailAndPassword(email, password)
       const {user} = userCredential
+
       return {
         id: user.uid,
         name: user.displayName,
@@ -53,6 +56,7 @@ class AuthService {
       }
     } catch (e) {
       const error = e as FirebaseAuthTypes.NativeFirebaseAuthError
+
       throw {
         errorPath: AuthErrorPathEnum.LOGIN,
         errorDate: Date.now(),
@@ -76,4 +80,5 @@ class AuthService {
 }
 
 const authService = new AuthService()
+
 export default authService

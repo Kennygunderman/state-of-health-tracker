@@ -1,6 +1,11 @@
 import React, {useEffect, useState} from 'react'
 
 import {Dimensions, View} from 'react-native'
+
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {addFood} from '@store/food/FoodActions'
+import {createFood, createMacros} from '@store/food/models/FoodItem'
+import {Screen, Text, useStyleTheme} from '@theme/Theme'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {useDispatch} from 'react-redux'
 
@@ -8,6 +13,7 @@ import Picker, {PickerItem} from '@components/Picker'
 import PrimaryButton from '@components/PrimaryButton'
 import TextInputWithHeader from '@components/TextInputWithHeader'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import Spacing from '@constants/Spacing'
 import {
   CREATE_FOOD_CALORIES_ERROR_TEXT,
@@ -25,10 +31,6 @@ import {
   SERVING_TYPE_LABEL,
   TOAST_FOOD_ITEM_CREATED
 } from '@constants/Strings'
-import {MaterialCommunityIcons} from '@expo/vector-icons'
-import {Screen, Text, useStyleTheme} from '@theme/Theme'
-import {addFood} from '@store/food/FoodActions'
-import {createFood, createMacros} from '@store/food/models/FoodItem'
 
 import {isNumber} from '../utility/TextUtility'
 
@@ -89,8 +91,10 @@ const CreateFoodScreen = ({navigation, route}: any) => {
   ]
 
   const servingAmountItems: PickerItem[] = []
+
   for (let i = 0; i < 50; i++) {
     const val = i + 1
+
     servingAmountItems.push({
       label: `${val}`,
       value: val
@@ -113,6 +117,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
     // 1g of carbs = 4 cal
     // 1g of fat = 9 cal
     const totalCalories = proteinInt * 4 + carbsInt * 4 + fatInt * 9
+
     setCalories(totalCalories.toString())
   }, [protein, fat, carbs])
 
@@ -122,6 +127,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
     setShowCarbsError(carbs === '')
     setShowFatError(fat === '')
     setShowCaloriesError(calories === '')
+
     return !(foodName === '' || protein === '' || carbs === '' || fat === '' || calories === '')
   }
 
@@ -129,10 +135,12 @@ const CreateFoodScreen = ({navigation, route}: any) => {
     if (validate()) {
       const macros = createMacros(protein, carbs, fat)
       let name = foodName
+
       if (servingType !== servingTypeDefaultValue) {
         name += ` (${servingAmount} ${servingType})`
       }
       const food = createFood(name, 1, calories, macros)
+
       dispatch(addFood(food))
       showToast('success', TOAST_FOOD_ITEM_CREATED, name)
 
@@ -155,6 +163,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
             paddingTop: Spacing.MEDIUM
           }}>
           <MaterialCommunityIcons name="food-variant" size={128} color={useStyleTheme().colors.secondary} />
+
           <TextInputWithHeader
             header={CREATE_FOOD_NAME_HEADER}
             value={foodName}
@@ -168,6 +177,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
               setFoodName(text)
             }}
           />
+
           <View
             style={{
               flexDirection: 'row',
@@ -186,6 +196,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
                 }}>
                 {SERVING_AMOUNT_LABEL}
               </Text>
+
               <Picker
                 disabled={servingType === servingTypeDefaultValue}
                 initialValue={servingAmountDefaultValue}
@@ -194,6 +205,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
                 onValueSet={setServingAmount}
               />
             </View>
+
             <View
               style={{
                 width: maxPickerWidth * 0.66,
@@ -207,6 +219,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
                 }}>
                 {SERVING_TYPE_LABEL}
               </Text>
+
               <Picker
                 initialValue={servingTypeDefaultValue}
                 items={servingTypeItems}
@@ -215,6 +228,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
               />
             </View>
           </View>
+
           <TextInputWithHeader
             header={CREATE_FOOD_PROTEIN_HEADER}
             keyboardType="numeric"
@@ -232,6 +246,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
               }
             }}
           />
+
           <TextInputWithHeader
             header={CREATE_FOOD_CARBS_HEADER}
             keyboardType="numeric"
@@ -249,6 +264,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
               }
             }}
           />
+
           <TextInputWithHeader
             header={CREATE_FOOD_FAT_HEADER}
             keyboardType="numeric"
@@ -266,6 +282,7 @@ const CreateFoodScreen = ({navigation, route}: any) => {
               }
             }}
           />
+
           <TextInputWithHeader
             header={CREATE_FOOD_CALORIES_HEADER}
             keyboardType="numeric"

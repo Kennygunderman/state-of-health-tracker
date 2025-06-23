@@ -48,6 +48,7 @@ function updateMealFood(state: MealsState, action: Action<{mealId: string; foodI
   if (foodItemIndex !== -1) {
     const food = [...meal.food]
     const updateFoodItem = {...meal.food[foodItemIndex]}
+
     updateFoodItem.servings += foodItem.servings
     food[foodItemIndex] = updateFoodItem
 
@@ -65,6 +66,7 @@ function updateMealFood(state: MealsState, action: Action<{mealId: string; foodI
     }
     // food doesn't exist, add it.
   }
+
   return {
     ...state,
     map: {
@@ -92,6 +94,7 @@ function deleteMealFood(state: MealsState, action: Action<{mealId: string; foodI
 
   const updatedMeal: Meal = {...meal}
   const updatedFood: FoodItem[] = [...meal.food]
+
   updatedFood.splice(indexToDelete, 1)
   updatedMeal.food = updatedFood
 
@@ -118,6 +121,7 @@ function updateMealName(state: MealsState, action: Action<{mealId: string; mealN
   }
 
   const meal = state.map[mealId]
+
   if (meal) {
     return {
       ...state,
@@ -160,6 +164,7 @@ function updateMealFoodItemServings(
   if (foodItemIndex !== -1) {
     const food = [...meal.food]
     const updatedFoodItem = {...meal.food[foodItemIndex]}
+
     updatedFoodItem.servings = servings
     food[foodItemIndex] = updatedFoodItem
 

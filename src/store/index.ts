@@ -1,13 +1,10 @@
 import 'react-native-get-random-values'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import {composeWithDevTools} from '@redux-devtools/extension'
 import {useDispatch} from 'react-redux'
 import {applyMiddleware, combineReducers, legacy_createStore as createStore} from 'redux'
 import {createMigrate, persistReducer, persistStore} from 'redux-persist'
 import thunk, {ThunkDispatch} from 'redux-thunk'
-
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import {composeWithDevTools} from '@redux-devtools/extension'
-
-import {getCurrentDate} from '../utility/DateUtility'
 
 import {addDailyMealEntry} from './dailyMealEntries/DailyMealEntriesActions'
 import {dailyMealEntriesReducer} from './dailyMealEntries/DailyMealEntriesReducer'
@@ -18,6 +15,7 @@ import {mealsReducer} from './meals/MealsReducer'
 import {migrations} from './migrations'
 import {LOG_IN_USER, LOG_OUT_USER} from './user/UserActions'
 import {userReducer} from './user/UserReducer'
+import {getCurrentDate} from '../utility/DateUtility'
 
 const appReducer = combineReducers({
   user: userReducer,
@@ -57,7 +55,9 @@ persistStore(store, null, () => {
 })
 
 type AppAction = ReturnType<typeof store.dispatch>
+
 export type IThunkDispatch = ThunkDispatch<LocalStore, any, AppAction>
+
 export const useThunkDispatch = () => useDispatch<IThunkDispatch>()
 
 export default store

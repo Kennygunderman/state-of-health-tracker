@@ -1,11 +1,17 @@
 import React, {useEffect, useState} from 'react'
 
-import * as Haptics from 'expo-haptics'
 import {TouchableOpacity, View} from 'react-native'
+
+import {DailyExercise} from '@data/models/DailyExercise'
+import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import {Text, useStyleTheme} from '@theme/Theme'
+import * as Haptics from 'expo-haptics'
 import Modal from 'react-native-modal'
 
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import ReorganizeModal from '@components/dialog/ReorganizeModal'
+
 import Spacing from '@constants/Spacing'
 import {
   DELETE_DAILY_EXERCISE_MODAL_BODY,
@@ -14,11 +20,6 @@ import {
   stringWithParameters,
   ORGANIZE_EXERCISES_BUTTON_TEXT
 } from '@constants/Strings'
-import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons'
-import {Text, useStyleTheme} from '@theme/Theme'
-
-import {DailyExercise} from '@data/models/DailyExercise'
-import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
 
 interface Props {
   readonly isVisible: boolean
@@ -110,6 +111,7 @@ const ExerciseListItemDropdown = (props: Props) => {
             }}
             onPress={dropdownDeleteItemPressed}>
             <Ionicons name="trash-bin-outline" size={24} color={useStyleTheme().colors.errorLight} />
+
             <Text
               style={{
                 fontWeight: 'bold',
@@ -118,6 +120,7 @@ const ExerciseListItemDropdown = (props: Props) => {
               {DELETE_EXERCISE_BUTTON_TEXT}
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={{
               marginTop: Spacing.XX_SMALL,
@@ -126,6 +129,7 @@ const ExerciseListItemDropdown = (props: Props) => {
             }}
             onPress={dropdownReorgItemPressed}>
             <MaterialCommunityIcons name="gesture-tap-hold" size={24} color={useStyleTheme().colors.white} />
+
             <Text
               style={{
                 fontWeight: 'bold',
@@ -167,7 +171,9 @@ const ExerciseListItemDropdown = (props: Props) => {
   return (
     <>
       {dropdownModal()}
+
       {confirmDeleteModal()}
+
       {reorganizeModal()}
     </>
   )

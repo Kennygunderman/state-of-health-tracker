@@ -1,11 +1,10 @@
 import {BREAKFAST_MEAL_NAME, DINNER_MEAL_NAME, LUNCH_MEAL_NAME} from '@constants/Strings'
 
-import {getCurrentDate} from '../utility/DateUtility'
-
 import {createDailyMealEntry} from './dailyMealEntries/models/DailyMealEntry'
 import {createFood} from './food/models/FoodItem'
 import LocalStore from './LocalStore'
 import {createMeal} from './meals/models/Meal'
+import {getCurrentDate} from '../utility/DateUtility'
 
 const initialMealBreakfast = createMeal(BREAKFAST_MEAL_NAME, [])
 const initialMealLunch = createMeal(LUNCH_MEAL_NAME, [])

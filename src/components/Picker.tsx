@@ -1,9 +1,9 @@
 import React, {useState} from 'react'
 
 import {Keyboard} from 'react-native'
-import DropDownPicker from 'react-native-dropdown-picker'
 
 import {useStyleTheme} from '@theme/Theme'
+import DropDownPicker from 'react-native-dropdown-picker'
 
 export interface PickerItem {
   label: string

@@ -2,9 +2,10 @@ import React from 'react'
 
 import {KeyboardTypeOptions} from 'react-native'
 
+import {Text, TextInput, useStyleTheme} from '@theme/Theme'
+
 import FontSize from '@constants/FontSize'
 import Spacing from '@constants/Spacing'
-import {Text, TextInput, useStyleTheme} from '@theme/Theme'
 
 export interface TextInputProps {
   header: string
@@ -14,7 +15,7 @@ export interface TextInputProps {
   maxLength?: number
   value?: string
   showError?: boolean
-  errorMessage?: String
+  errorMessage?: string
   secureTextEntry?: boolean
 }
 
@@ -30,6 +31,7 @@ const TextInputWithHeader = (props: TextInputProps) => {
     showError = false,
     secureTextEntry = false
   } = props
+
   return (
     <>
       <Text
@@ -43,6 +45,7 @@ const TextInputWithHeader = (props: TextInputProps) => {
         }}>
         {header}
       </Text>
+
       <TextInput
         returnKeyType="done"
         style={{
@@ -56,6 +59,7 @@ const TextInputWithHeader = (props: TextInputProps) => {
         value={value}
         secureTextEntry={secureTextEntry}
       />
+
       {showError && (
         <Text
           style={{

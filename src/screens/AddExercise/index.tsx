@@ -1,11 +1,19 @@
 import React, {useEffect, useState} from 'react'
 
 import {SectionList, SectionListRenderItem, View} from 'react-native'
+
+import {Exercise, isExerciseObject} from '@data/models/Exercise'
+import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
+import {useNavigation} from '@react-navigation/native'
+import useExercisesStore from '@store/exercises/useExercisesStore'
+import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
+import {Text} from '@theme/Theme'
 import {Subject} from 'rxjs'
 
 import LoadingOverlay from '@components/LoadingOverlay'
 import SecondaryButton from '@components/SecondaryButton'
 import {showToast} from '@components/toast/util/ShowToast'
+
 import Screens from '@constants/Screens'
 import {
   CREATE_EXERCISE_BUTTON_TEXT,
@@ -15,19 +23,12 @@ import {
   TEMPLATES_HEADER,
   YOUR_EXERCISES_HEADER
 } from '@constants/Strings'
-import {useNavigation} from '@react-navigation/native'
-import {Text} from '@theme/Theme'
 
-import {Exercise, isExerciseObject} from '@data/models/Exercise'
-import {ExerciseTemplate} from '@data/models/ExerciseTemplate'
-import useExercisesStore from '@store/exercises/useExercisesStore'
-import useExerciseTemplateStore from '@store/exerciseTemplates/useExerciseTemplateStore'
-
-import {Navigation} from '../../navigation/types'
 import ExerciseListItem from './components/ExerciseListItem'
 import ExerciseSearchBarButton from './components/SearchBarButton'
 import TemplateListItem from './components/TemplateListItem'
 import styles from './index.styled'
+import {Navigation} from '../../navigation/types'
 
 type SectionItem = Exercise | ExerciseTemplate
 
@@ -63,6 +64,7 @@ const AddExerciseScreen = () => {
   ]
 
   const [isUpdating, setIsUpdating] = useState(false)
+
   useEffect(() => {
     const sub = ExerciseScreenUpdateSubject$.subscribe({
       next: ({isUpdating, updatePayload}) => {
@@ -110,8 +112,10 @@ const AddExerciseScreen = () => {
       <>
         <View style={styles.sectionHeaderContainer}>
           <Text style={styles.sectionHeaderText}>{section.title}</Text>
+
           {button}
         </View>
+
         {emptyText && <Text style={styles.emptyText}>{emptyText}</Text>}
       </>
     )
@@ -124,6 +128,7 @@ const AddExerciseScreen = () => {
   return (
     <>
       {isUpdating && <LoadingOverlay />}
+
       <SectionList<SectionItem, Section>
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
