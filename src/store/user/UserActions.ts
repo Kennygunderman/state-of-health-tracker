@@ -47,24 +47,24 @@ export function updateLastSynced(date: number) {
 }
 
 export function deleteLoggedInUser() {
-    return async (dispatch: any, getState: () => LocalStore) => {
-        dispatch(setAuthStatus(AuthStatus.SYNCING));
-        authService.deleteUser(() => {
-            dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
-            dispatch({
-                type: LOG_OUT_USER, // Logout is handled in the root reducer
-            });
-        }, (error) => {
-            CrashUtility.recordError(Error(`${error}`));
-            dispatch(setAuthError({
-                errorPath: AuthErrorPathEnum.DELETE,
-                errorMessage: DELETE_ACCOUNT_ERROR,
-                errorDate: Date.now(),
-                errorCode: '',
-            }));
-            dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
-        });
-    };
+    // return async (dispatch: any, getState: () => LocalStore) => {
+    //     dispatch(setAuthStatus(AuthStatus.SYNCING));
+    //     authService.deleteUser(() => {
+    //         dispatch(setAuthStatus(AuthStatus.LOGGED_OUT));
+    //         dispatch({
+    //             type: LOG_OUT_USER, // Logout is handled in the root reducer
+    //         });
+    //     }, (error) => {
+    //         CrashUtility.recordError(Error(`${error}`));
+    //         dispatch(setAuthError({
+    //             errorPath: AuthErrorPathEnum.DELETE,
+    //             errorMessage: DELETE_ACCOUNT_ERROR,
+    //             errorDate: Date.now(),
+    //             errorCode: '',
+    //         }));
+    //         dispatch(setAuthStatus(AuthStatus.LOGGED_IN));
+    //     });
+    // };
 }
 
 export function syncUserData() {

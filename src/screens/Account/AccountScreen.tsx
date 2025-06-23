@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Linking, SafeAreaView, ScrollView,
@@ -24,20 +24,21 @@ import {
   ACCOUNT_WELCOME_TEXT,
 } from '../../constants/Strings';
 import { DailyMealEntry, getPreviousDailyMealEntriesSelector } from '../../selectors/MealsSelector';
-import { getLastRecordedWeightSelector } from '../../selectors/UserInfoSelector';
 import LocalStore from '../../store/LocalStore';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
 import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
 import useAuthStore from "../../store/auth/useAuthStore";
+import useUserData from "../../store/userData/useUserData";
 
 const AccountScreen = () => {
 
   const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
-  const targetCalories = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetCalories);
-  const targetWorkouts = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetWorkouts);
-  const lastWeightEntry = useSelector<LocalStore, string>((state: LocalStore) => getLastRecordedWeightSelector(state));
   const dailyMealEntries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, 10_000));
+
+  const { currentWeight } = useUserData();
+
+  const { targetWorkouts, targetCalories } = useUserData();
 
   const {
     userEmail,
@@ -88,7 +89,7 @@ const AccountScreen = () => {
       <HorizontalDivider/>
       <AccountListItem
         type="weight"
-        text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${lastWeightEntry}`}
+        text={`${ACCOUNT_CURRENT_WEIGHT_LIST_ITEM} ${currentWeight}`}
         icon={<FontAwesome5 name="weight" size={iconSize - 4} style={{ marginTop: 2 }} color={iconColor}/>}
       />
       <AccountListItem

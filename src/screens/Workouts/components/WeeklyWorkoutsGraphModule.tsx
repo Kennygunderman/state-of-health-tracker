@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TextStyle, ViewStyle } from 'react-native';
+import { TextStyle, View, ViewStyle } from 'react-native';
 import { useSelector } from 'react-redux';
 import BarGraph from '../../../components/BarGraph';
 import TargetWorkoutsModal from '../../../components/dialog/TargetWorkoutsModal';
@@ -12,11 +12,13 @@ import LocalStore from '../../../store/LocalStore';
 import { useStyleTheme } from '../../../styles/Theme';
 import { formatDateToMonthDay, getLast7Mondays } from '../../../utility/DateUtility';
 import useWeeklyWorkoutSummariesStore from '../../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore';
+import useUserData from "../../../store/userData/useUserData";
 
 const WeeklyWorkoutsGraphModule = () => {
-  const targetWorkoutsPerWeek = useSelector<LocalStore, number>(
-    (state: LocalStore) => state.userInfo.targetWorkouts
-  );
+
+  const { targetWorkouts } = useUserData();
+
+  const targetWorkoutsPerWeek = Math.max(targetWorkouts, 1);
 
   const { weeklySummaries } = useWeeklyWorkoutSummariesStore();
 
@@ -31,17 +33,19 @@ const WeeklyWorkoutsGraphModule = () => {
     weekWorkoutsCompletedMap[summary.startOfWeek] = summary.completedWorkouts;
   });
 
-  const xAxisLabels = getLast7Mondays().map((date) => formatDateToMonthDay(date));
+  const xAxisLabels = getLast7Mondays()
+    .map((date) => formatDateToMonthDay(date));
 
   const getYAxisBarLabels = () => {
     let mostWorkoutsFromWeek = 0;
 
-    Object.keys(weekWorkoutsCompletedMap).forEach((key) => {
-      const numWorkouts = weekWorkoutsCompletedMap[key];
-      if (numWorkouts > mostWorkoutsFromWeek) {
-        mostWorkoutsFromWeek = numWorkouts;
-      }
-    });
+    Object.keys(weekWorkoutsCompletedMap)
+      .forEach((key) => {
+        const numWorkouts = weekWorkoutsCompletedMap[key];
+        if (numWorkouts > mostWorkoutsFromWeek) {
+          mostWorkoutsFromWeek = numWorkouts;
+        }
+      });
 
     const labels = [];
     const compare = Math.max(mostWorkoutsFromWeek, targetWorkoutsPerWeek);

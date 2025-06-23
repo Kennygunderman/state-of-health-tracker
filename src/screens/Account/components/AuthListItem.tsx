@@ -9,18 +9,16 @@ import {
   LOG_OUT_CONFIRM_MODAL_HEADER,
 } from '../../../constants/Strings';
 import LocalStore from '../../../store/LocalStore';
-import User from '../../../data/models/User';
 import { useStyleTheme } from '../../../styles/Theme';
 import useAuthStore from "../../../store/auth/useAuthStore";
 
 const AuthListItem = () => {
 
-  const account = useSelector<LocalStore, User | undefined>((state: LocalStore) => state.user.account);
   const currentState = useSelector<LocalStore, LocalStore>((state: LocalStore) => state);
 
   const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
 
-  const { logoutUser } = useAuthStore();
+  const { isAuthed, logoutUser } = useAuthStore();
 
   return (
     <>
@@ -31,7 +29,7 @@ const AuthListItem = () => {
         isVisible={isConfirmModalVisible}
         onConfirmPressed={() => {
           setIsConfirmModalVisible(false);
-          if (account?.id) {
+          if (isAuthed) {
             logoutUser();
           }
         }}
@@ -41,10 +39,10 @@ const AuthListItem = () => {
       />
       <AccountListItem
         type="auth"
-        text={account ? ACCOUNT_LOG_OUT_LIST_ITEM : ACCOUNT_LOG_IN_LIST_ITEM}
+        text={isAuthed ? ACCOUNT_LOG_OUT_LIST_ITEM : ACCOUNT_LOG_IN_LIST_ITEM}
         icon={<MaterialCommunityIcons name="account" size={24} color={useStyleTheme().colors.white}/>}
         onPressOverride={() => {
-          if (account) {
+          if (isAuthed) {
             setIsConfirmModalVisible(true);
           }
         }}

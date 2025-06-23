@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
-import { useDispatch, useSelector } from 'react-redux';
 import BaseInputModalProps from './BaseInputModalProps';
 import InputModal from './InputModal';
 import {
@@ -11,16 +9,15 @@ import {
     TARGET_CALORIE_MODAL_TITLE,
     TOAST_TARGET_CALORIES_SET,
 } from '../../constants/Strings';
-import LocalStore from '../../store/LocalStore';
-import { setTargetCalories } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
 import { showToast } from '../toast/util/ShowToast';
+import useUserData from "../../store/userData/useUserData";
 
 const TargetCaloriesModal = (props: BaseInputModalProps) => {
     const { isVisible, onDismissed } = props;
 
-    const targetCalories = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetCalories);
+    const { setTargetCalories, targetCalories } = useUserData();
 
     const [value, setValue] = useState(targetCalories.toString());
     const [showError, setShowError] = useState(false);
@@ -28,8 +25,6 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
     useEffect(() => {
         setValue(targetCalories.toString());
     }, [targetCalories]);
-
-    const dispatch = useDispatch();
 
     const onPrimaryButtonPressed = () => {
         if (!isNumber(value) || parseInt(value, 10) <= 0) {
@@ -40,7 +35,7 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
         onDismissed();
         setShowError(false);
 
-        dispatch(setTargetCalories(parseInt(value, 10)));
+        setTargetCalories(parseInt(value, 10));
         showToast('success', TOAST_TARGET_CALORIES_SET, value);
     };
 

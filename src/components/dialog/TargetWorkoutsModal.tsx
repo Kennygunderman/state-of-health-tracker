@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
-import { useDispatch, useSelector } from 'react-redux';
 import BaseInputModalProps from './BaseInputModalProps';
 import InputModal from './InputModal';
 import {
@@ -9,25 +7,22 @@ import {
     TARGET_WORKOUTS_MODAL_BUTTON, TARGET_WORKOUTS_MODAL_ERROR,
     TARGET_WORKOUTS_MODAL_TITLE, TOAST_TARGET_WORKOUTS_SET,
 } from '../../constants/Strings';
-import LocalStore from '../../store/LocalStore';
-import { setTargetWorkouts } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
 import { showToast } from '../toast/util/ShowToast';
+import useUserData from "../../store/userData/useUserData";
 
 const TargetWorkoutsModal = (props: BaseInputModalProps) => {
     const { isVisible, onDismissed } = props;
 
-    const targetWorkoutsPerWeek = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetWorkouts);
+    const { setTargetWorkouts, targetWorkouts } = useUserData();
 
-    const [value, setValue] = useState(targetWorkoutsPerWeek.toString());
+    const [value, setValue] = useState(targetWorkouts.toString());
     const [showError, setShowError] = useState(false);
 
     useEffect(() => {
-        setValue(targetWorkoutsPerWeek.toString());
-    }, [targetWorkoutsPerWeek]);
-
-    const dispatch = useDispatch();
+        setValue(targetWorkouts.toString());
+    }, [targetWorkouts]);
 
     const onPrimaryButtonPressed = () => {
         const intVal = parseInt(value, 10);
@@ -39,7 +34,7 @@ const TargetWorkoutsModal = (props: BaseInputModalProps) => {
         onDismissed();
         setShowError(false);
 
-        dispatch(setTargetWorkouts(intVal));
+        setTargetWorkouts(intVal);
         showToast('success', TOAST_TARGET_WORKOUTS_SET, value);
     };
 

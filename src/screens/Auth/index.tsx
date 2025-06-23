@@ -50,7 +50,7 @@ const RootAuthScreen = () => {
           if (event.status === authStatus.Unauthed) {
             push('Auth', { screen: Screens.LOG_IN });
           } else if (event.status === authStatus.Authed) {
-            replace('Home');
+           replace('Home');
           }
         }
       }
