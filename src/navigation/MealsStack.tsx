@@ -25,7 +25,7 @@ const MealsStack = () => {
         headerTintColor: theme.colors.white,
         headerShadowVisible: false
       }}>
-      <Stack.Screen name={Screens.MEALS} component={MealsScreen} options={{title: MACROS_TITLE}} />
+      <Stack.Screen name={Screens.MEALS} component={MealsScreen} options={{headerShown: false}} />
 
       <Stack.Screen
         name={Screens.ADD_FOOD}

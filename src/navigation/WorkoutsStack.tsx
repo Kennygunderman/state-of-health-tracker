@@ -27,7 +27,7 @@ const WorkoutsStack = () => {
         headerTintColor: theme.colors.white,
         headerShadowVisible: false
       }}>
-      <Stack.Screen name={Screens.WORKOUTS} component={WorkoutsScreen} />
+      <Stack.Screen name={Screens.WORKOUTS} component={WorkoutsScreen} options={{headerShown: false}} />
 
       <Stack.Screen name={Screens.CREATE_EXERCISE} component={CreateExerciseScreen} />
 
