@@ -7,13 +7,13 @@ import {
     DELETE_ACCOUNT_CONFIRM_MODAL_HEADER, DELETE_ACCOUNT_LIST_ITEM,
     DELETE_BUTTON_TEXT,
 } from '../../../constants/Strings';
-import { useThunkDispatch } from '../../../store';
-import { deleteLoggedInUser } from '../../../store/user/UserActions';
 import { useStyleTheme } from '../../../styles/Theme';
+import useAuthStore from "../../../store/auth/useAuthStore";
 
 const DeleteAccountListItem = () => {
     const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
-    const dispatch = useThunkDispatch();
+
+    const { deleteUser } = useAuthStore();
 
     return (
         <>
@@ -23,7 +23,7 @@ const DeleteAccountListItem = () => {
                 confirmationBody={DELETE_ACCOUNT_CONFIRM_MODAL_BODY}
                 isVisible={isConfirmModalVisible}
                 onConfirmPressed={() => {
-                    dispatch(deleteLoggedInUser());
+                    deleteUser();
                     setIsConfirmModalVisible(false);
                 }}
                 onCancel={() => {

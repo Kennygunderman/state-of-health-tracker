@@ -24,6 +24,7 @@ export type AuthState = {
 
   // passing in dispatch here is a temp workaround while I remove redux from the app
   logoutUser: (dispatch: Function, state: LocalStore) => void;
+  deleteUser: () => void;
 };
 
 const useAuthStore = create<AuthState>()(
@@ -136,6 +137,18 @@ const useAuthStore = create<AuthState>()(
 
 
       await authService.logOutUser();
+      await removeUserId();
+      await offlineWorkoutStorageService.clear();
+      //TODO: reset other zustand stores (exercises, workouts, etc.)
+
+      set({
+        userId: null,
+        userEmail: null,
+        isAuthed: false
+      });
+    },
+    deleteUser: async () => {
+      await authService.deleteCurrentUser();
       await removeUserId();
       await offlineWorkoutStorageService.clear();
       //TODO: reset other zustand stores (exercises, workouts, etc.)
