@@ -13,6 +13,7 @@ import { USER_INITIAL_STATE } from '../../store/user/initialState';
 import User from '../../data/models/User';
 import { USER_INFO_INITIAL_STATE } from '../../store/userInfo/UserInfoReducer';
 import { getCurrentDate } from '../../utility/DateUtility';
+import { useSessionStore } from "../../store/session/useSessionStore";
 
 interface RemoteDailyMealEntry {
     id: string;
@@ -133,7 +134,7 @@ class UserService {
 
         return {
             user: legacyUserData?.user ?? USER_INITIAL_STATE,
-            userInfo: legacyUserData ? { ...legacyUserData.userInfo, currentDate: getCurrentDate() } : USER_INFO_INITIAL_STATE,
+            userInfo: legacyUserData ? { ...legacyUserData.userInfo, currentDate: useSessionStore.getState().sessionStartDate } : USER_INFO_INITIAL_STATE,
             food: legacyUserData?.food ?? FOOD_INITIAL_STATE,
             meals: legacyUserData?.meals ?? MEALS_INITIAL_STATE,
             dailyMealEntries: newMealEntryMap ? { map: newMealEntryMap } : DAILY_MEAL_ENTRIES_INITIAL_STATE,

@@ -5,6 +5,7 @@ import LocalStore from '../store/LocalStore';
 import { MealMap } from '../store/meals/MealsState';
 import { Meal } from '../store/meals/models/Meal';
 import { formatDate } from '../utility/DateUtility';
+import { useSessionStore } from "../store/session/useSessionStore";
 
 export interface MealEntry {
     mealCalories: number;
@@ -28,7 +29,8 @@ export interface DayTotals {
     totals: Totals;
 }
 
-function getMealsForDay(dailyMealEntriesMap: DailyMealEntryMap, day: string, mealMap: MealMap): Meal[] {
+function getMealsForDay(dailyMealEntriesMap: DailyMealEntryMap, mealMap: MealMap): Meal[] {
+    const day = useSessionStore.getState().sessionStartDate;
     const meals: Meal[] = [];
     const mealIds = dailyMealEntriesMap[day]?.mealIds;
     Object.keys(mealMap).forEach((key) => {
@@ -43,12 +45,12 @@ function getMealsForDay(dailyMealEntriesMap: DailyMealEntryMap, day: string, mea
 
 export const getMealsForDaySelector: Selector<LocalStore, Meal[]> = createSelector(
     (state: LocalStore) => state.dailyMealEntries.map,
-    (state: LocalStore) => state.userInfo.currentDate,
     (state: LocalStore) => state.meals.map,
     getMealsForDay,
 );
 
-function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dailyMealEntriesMap: DailyMealEntryMap, mealMap: MealMap): DailyMealEntry[] {
+function getPreviousDailyMealEntries(loadBatch: number, dailyMealEntriesMap: DailyMealEntryMap, mealMap: MealMap): DailyMealEntry[] {
+    const currentDay = useSessionStore.getState().sessionStartDate;
     const entries: DailyMealEntry[] = [];
 
     const days: string[] = [];
@@ -61,7 +63,7 @@ function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dail
         .filter((day) => day !== currentDay)
         .slice(0, loadBatch)
         .forEach((day) => {
-            const meals = getMealsForDay(dailyMealEntriesMap, day, mealMap);
+            const meals = getMealsForDay(dailyMealEntriesMap, mealMap);
             let totalCalories = 0;
             const mealEntries: MealEntry[] = [];
 
@@ -108,7 +110,6 @@ function getPreviousDailyMealEntries(loadBatch: number, currentDay: string, dail
 
 export const getPreviousDailyMealEntriesSelector: ParametricSelector<LocalStore, number, DailyMealEntry[]> = createSelector(
     (state: LocalStore, loadBatch: number) => loadBatch,
-    (state: LocalStore, _: number) => state.userInfo.currentDate,
     (state: LocalStore, _: number) => state.dailyMealEntries.map,
     (state: LocalStore, _: number) => state.meals.map,
     getPreviousDailyMealEntries,
@@ -146,7 +147,7 @@ function getTotalsForWeek(dailyEntryMap: DailyMealEntryMap, mealMap: MealMap): D
 
     for (let i = 7; i > 0; i--) {
         const day = formatDate(Date.now() - (1000 * 60 * 60 * 24 * (i - 1)));
-        const meals = getMealsForDay(dailyEntryMap, day, mealMap);
+        const meals = getMealsForDay(dailyEntryMap, mealMap);
         dayTotals.push({
             day,
             totals: getTotalsForMeals(meals),

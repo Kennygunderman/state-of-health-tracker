@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextStyle, View, ViewStyle } from 'react-native';
+import { TextStyle, ViewStyle } from 'react-native';
 import { useSelector } from 'react-redux';
 import BarGraph, { BAR_GRAPH_MAX_HEIGHT } from '../../../components/BarGraph';
 import {
@@ -10,13 +10,16 @@ import {
 import { DayTotals, getTotalsForWeekSelector } from '../../../selectors/MealsSelector';
 import LocalStore from '../../../store/LocalStore';
 import { useStyleTheme } from '../../../styles/Theme';
-import { formatDateToMonthDay, getCurrentDate } from '../../../utility/DateUtility';
+import { formatDateToMonthDay } from '../../../utility/DateUtility';
 import useUserData from "../../../store/userData/useUserData";
+import { useSessionStore } from "../../../store/session/useSessionStore";
 
 const WeeklyCalorieProgressGraphModule = () => {
-  const currentDay = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
   const totals = useSelector<LocalStore, DayTotals[]>((state: LocalStore) => getTotalsForWeekSelector(state));
-  const currentDayCaloriesConsumed = totals.find((dayTotal) => dayTotal.day === currentDay)?.totals.calories;
+
+  const { sessionStartDate } = useSessionStore();
+
+  const currentDayCaloriesConsumed = totals.find((dayTotal) => dayTotal.day === sessionStartDate)?.totals.calories;
 
   const xAxisLabels = totals.map((dayTotals) => formatDateToMonthDay(dayTotals.day));
 
@@ -53,7 +56,7 @@ const WeeklyCalorieProgressGraphModule = () => {
     return 0;
   };
 
-  const isCurrentDay = (label: string) => label === formatDateToMonthDay(currentDay === '' ? getCurrentDate() : currentDay);
+  const isCurrentDay = (label: string) => label === formatDateToMonthDay(sessionStartDate);
 
   const xAxisBarStyle = (label: string): ViewStyle => {
     const height = getBarHeightForLabel(label);

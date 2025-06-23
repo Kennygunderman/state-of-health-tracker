@@ -37,6 +37,7 @@ import Unique from '../../data/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager';
+import { useSessionStore } from "../../store/session/useSessionStore";
 
 interface Section extends Unique {
     meal: Meal;
@@ -47,7 +48,8 @@ const listSwipeItemManager = new ListSwipeItemManager();
 
 const MealsScreen = ({ navigation }: any) => {
     const meals = useSelector<LocalStore, Meal[]>((state: LocalStore) => getMealsForDaySelector(state));
-    const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
+
+    const { sessionStartDate } = useSessionStore();
 
     const sections: Section[] = meals.map((meal) => ({
         id: meal.id,
@@ -73,7 +75,7 @@ const MealsScreen = ({ navigation }: any) => {
             dispatch(addMeal(lunch));
             dispatch(addMeal(dinner));
         }
-    }, [currentDate]);
+    }, [sessionStartDate]);
 
     const presentMealNameInputModal = (mealAction: MealAction, mealName: string = '', updateId?: string) => {
         setMealInputModalVisible(true);
@@ -99,7 +101,7 @@ const MealsScreen = ({ navigation }: any) => {
                 marginBottom: Spacing.SMALL,
             }}
             >
-                {formatDayMonthDay(currentDate)}
+                {formatDayMonthDay(sessionStartDate)}
             </Text>
             <Text style={{
                 fontSize: FontSize.H1,

@@ -7,7 +7,6 @@ import {
   SectionListRenderItem,
   View,
 } from 'react-native';
-import { useSelector } from 'react-redux';
 import ExerciseSectionListHeader from './components/ExerciseSectionListHeader';
 import ExerciseSetListItem from './components/ExerciseSetListItem';
 import WeeklyWorkoutsGraphModule from './components/WeeklyWorkoutsGraphModule';
@@ -25,7 +24,6 @@ import {
 } from '../../constants/Strings';
 import { DailyExercise } from '../../data/models/DailyExercise';
 import { ExerciseSet } from '../../data/models/ExerciseSet';
-import LocalStore from '../../store/LocalStore';
 import Unique from '../../data/models/Unique';
 import { Text, useStyleTheme } from '../../styles/Theme';
 import { formatDayMonthDay } from '../../utility/DateUtility';
@@ -40,6 +38,7 @@ import useExercisesStore from "../../store/exercises/useExercisesStore";
 import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
 import useWeeklyWorkoutSummariesStore from "../../store/weeklyWorkoutSummaries/useWeeklyWorkoutSummariesStore";
 import useExerciseTemplateStore from "../../store/exerciseTemplates/useExerciseTemplateStore";
+import { useSessionStore } from "../../store/session/useSessionStore";
 
 interface Section extends Unique {
   dailyExercise: DailyExercise;
@@ -52,7 +51,7 @@ const WorkoutsScreen = () => {
 
   const navigation = useNavigation<Navigation>()
 
-  const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
+  const { sessionStartDate } = useSessionStore();
 
   const {
     initCurrentWorkoutDay,
@@ -113,7 +112,7 @@ const WorkoutsScreen = () => {
 
   const renderHeader = () => (
     <>
-      <Text style={styles.dateText}>{formatDayMonthDay(currentDate)}</Text>
+      <Text style={styles.dateText}>{formatDayMonthDay(sessionStartDate)}</Text>
       <Text style={styles.workoutTitle}>{DAILY_WORKOUT_TITLE}</Text>
       <WeeklyWorkoutsGraphModule/>
       {isInitializing ? <LoadingOverlay style={styles.loadingIndicator} /> : renderExercisesSection()}

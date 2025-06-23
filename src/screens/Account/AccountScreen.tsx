@@ -30,15 +30,14 @@ import { formatDayMonthDay } from '../../utility/DateUtility';
 import useWorkoutSummariesStore from "../../store/workoutSummaries/useWorkoutSummariesStore";
 import useAuthStore from "../../store/auth/useAuthStore";
 import useUserData from "../../store/userData/useUserData";
+import { useSessionStore } from "../../store/session/useSessionStore";
 
 const AccountScreen = () => {
 
-  const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
   const dailyMealEntries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, 10_000));
 
-  const { currentWeight } = useUserData();
-
-  const { targetWorkouts, targetCalories } = useUserData();
+  const { currentWeight, targetWorkouts, targetCalories } = useUserData();
+  const { sessionStartDate } = useSessionStore();
 
   const {
     userEmail,
@@ -144,7 +143,7 @@ const AccountScreen = () => {
         paddingBottom: Spacing.SMALL,
       }}
       >
-        {formatDayMonthDay(currentDate)}
+        {formatDayMonthDay(sessionStartDate)}
       </Text>
     </>
   );

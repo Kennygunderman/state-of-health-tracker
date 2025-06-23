@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { createWorkoutDay, WorkoutDay } from "../../data/models/WorkoutDay";
-import { getCurrentDateISO } from "../../utility/DateUtility";
 import { Exercise } from "../../data/models/Exercise";
 import { createDailyExercise, DailyExercise } from "../../data/models/DailyExercise";
 import { createSet } from "../../data/models/ExerciseSet";
@@ -9,6 +8,7 @@ import offlineWorkoutStorageService from "../../service/workouts/OfflineWorkoutS
 import syncOfflineWorkouts from "../../service/workouts/syncOfflineWorkouts";
 import { fetchWorkoutForDay } from "../../service/workouts/fetchWorkoutForDay";
 import { getUserId } from "../../service/auth/userStorage";
+import { useSessionStore } from "../session/useSessionStore";
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null;
@@ -46,7 +46,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       initCurrentWorkoutDay: async () => {
         set({ isInitializing: true });
         await syncOfflineWorkouts();
-        const today = getCurrentDateISO();
+        const today = useSessionStore.getState().sessionStartDate
 
         try {
           const workout = await fetchWorkoutForDay(today);
