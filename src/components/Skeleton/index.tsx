@@ -27,7 +27,7 @@ const Skeleton = ({
 
   useEffect(() => {
     shimmerTranslateX.value = withRepeat(
-      withTiming(width, { duration: 1200 }),
+      withTiming(width, { duration: 750 }),
       -1,
       false
     );
