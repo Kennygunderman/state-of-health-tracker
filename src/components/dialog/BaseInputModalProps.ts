@@ -1,4 +1,4 @@
 export default interface BaseInputModalProps {
-    isVisible: boolean;
-    onDismissed: () => void;
+  isVisible: boolean
+  onDismissed: () => void
 }
