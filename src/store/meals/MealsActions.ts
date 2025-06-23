@@ -2,6 +2,7 @@ import { Meal } from './models/Meal';
 import { addMealToDailyEntry, SET_DAILY_MEALS_HAS_SYNCED_FALSE } from '../dailyMealEntries/DailyMealEntriesActions';
 import FoodItem from '../food/models/FoodItem';
 import LocalStore from '../LocalStore';
+import { useSessionStore } from "../session/useSessionStore";
 
 export const ADD_MEAL: string = 'ADD_MEAL';
 export const UPDATE_MEAL_FOOD: string = 'UPDATE_MEAL_FOOD';
@@ -15,61 +16,61 @@ export function addMeal(meal: Meal) {
             payload: meal,
             type: ADD_MEAL,
         });
-        dispatch(addMealToDailyEntry(getState().userInfo.currentDate, meal.id));
+        dispatch(addMealToDailyEntry(useSessionStore.getState().sessionStartDate, meal.id));
     };
 }
 
 export function updateMealFood(mealId: string, foodItem: FoodItem) {
-    return async (dispatch: any, getState: () => LocalStore) => {
+    return async (dispatch: any) => {
         dispatch({
             payload: { mealId, foodItem },
             type: UPDATE_MEAL_FOOD,
         });
 
         dispatch({
-            payload: getState().userInfo.currentDate,
+            payload: useSessionStore.getState().sessionStartDate,
             type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
         });
     };
 }
 
 export function deleteMealFood(mealId: string, foodItemId: string) {
-    return async (dispatch: any, getState: () => LocalStore) => {
+    return async (dispatch: any) => {
         dispatch({
             payload: { mealId, foodItemId },
             type: DELETE_MEAL_FOOD,
         });
 
         dispatch({
-            payload: getState().userInfo.currentDate,
+            payload: useSessionStore.getState().sessionStartDate,
             type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
         });
     };
 }
 
 export function updateMealName(mealId: string, mealName: string) {
-    return async (dispatch: any, getState: () => LocalStore) => {
+    return async (dispatch: any) => {
         dispatch({
             payload: { mealId, mealName },
             type: UPDATE_MEAL_NAME,
         });
 
         dispatch({
-            payload: getState().userInfo.currentDate,
+            payload: useSessionStore.getState().sessionStartDate,
             type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
         });
     };
 }
 
 export function updateMealFoodItemServings(mealId: string, foodItemId: string, servings: number) {
-    return async (dispatch: any, getState: () => LocalStore) => {
+    return async (dispatch: any) => {
         dispatch({
             payload: { mealId, foodItemId, servings },
             type: UPDATE_MEAL_FOOD_ITEM_SERVINGS,
         });
 
         dispatch({
-            payload: getState().userInfo.currentDate,
+            payload: useSessionStore.getState().sessionStartDate,
             type: SET_DAILY_MEALS_HAS_SYNCED_FALSE,
         });
     };

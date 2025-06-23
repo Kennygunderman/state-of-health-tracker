@@ -16,6 +16,7 @@ const LoadingOverlay = (props: Props) => {
             opacity: 0.5,
             position: 'absolute',
             justifyContent: 'center',
+            zIndex: 1000
         }, style]}
         >
             <ActivityIndicator size="large" color={useStyleTheme().colors.secondaryLighter} />

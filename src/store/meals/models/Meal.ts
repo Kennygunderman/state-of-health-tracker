@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import FoodItem from '../../food/models/FoodItem';
-import Unique from '../../models/Unique';
+import Unique from '../../../data/models/Unique';
 
 export interface Meal extends Unique {
     createdDate: number;

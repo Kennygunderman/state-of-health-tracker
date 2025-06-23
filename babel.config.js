@@ -1,4 +1,4 @@
-module.exports = (api) => {
+module.exports = function (api) {
     api.cache(true);
     return {
         presets: ['babel-preset-expo'],
@@ -6,8 +6,15 @@ module.exports = (api) => {
             [
                 'module-resolver',
                 {
-                    extensions: ['.tsx', '.ts', '.js', '.json'],
-                },
+                    root: ['./'],
+                    alias: {
+                        '@screens': './src/screens',
+                        '@components': './src/components',
+                        '@constants': './src/constants',
+                        '@services': './src/services',
+                        '@types': './src/types'
+                    }
+                }
             ],
             'react-native-reanimated/plugin',
             [

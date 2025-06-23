@@ -1,25 +1,24 @@
 import React, { useState } from 'react';
-import { useDispatch } from 'react-redux';
 import ExerciseListItemDropdown from './ExerciseListItemDropdown';
 import SectionListHeader from '../../../components/SectionListHeader';
 import { ADD_SET_BUTTON_TEXT } from '../../../constants/Strings';
-import { addSet } from '../../../store/dailyExerciseEntries/DailyExerciseActions';
-import { DailyExercise } from '../../../store/dailyExerciseEntries/models/DailyExercise';
+import { DailyExercise } from '../../../data/models/DailyExercise';
+import useDailyWorkoutEntryStore from "../../../store/dailyWorkoutEntry/useDailyWorkoutEntryStore";
 
 interface Props {
-    currentDate: string;
     dailyExercise: DailyExercise;
     dailyExercisesToReorg: DailyExercise[];
 }
 
 const ExerciseSectionListHeader = (props: Props) => {
-    const { currentDate, dailyExercise, dailyExercisesToReorg } = props;
+    const { dailyExercise, dailyExercisesToReorg } = props;
 
     const [isDropdownVisible, setIsDropdownVisible] = useState(false);
     const [dropdownTopMargin, setDropdownTopMargin] = useState(0);
     const [dropdownDailyExercise, setDropdownDailyExercise] = useState<DailyExercise>();
 
-    const dispatch = useDispatch();
+    const { addSet } = useDailyWorkoutEntryStore();
+
 
     const dropdown = () => (
         <ExerciseListItemDropdown
@@ -48,7 +47,7 @@ const ExerciseSectionListHeader = (props: Props) => {
                 }}
                 buttonText={ADD_SET_BUTTON_TEXT}
                 onButtonPressed={() => {
-                    dispatch(addSet(currentDate, dailyExercise.exercise));
+                    addSet(dailyExercise.exercise);
                 }}
             />
         </>

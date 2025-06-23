@@ -20,6 +20,7 @@ import { getTotalsForDaySelector, Totals } from '../../../selectors/MealsSelecto
 import LocalStore from '../../../store/LocalStore';
 import Shadow from '../../../styles/Shadow';
 import { Text, useStyleTheme } from '../../../styles/Theme';
+import useUserData from "../../../store/userData/useUserData";
 
 const DailyCalorieProgressModule = () => {
     const radius = 30;
@@ -29,7 +30,8 @@ const DailyCalorieProgressModule = () => {
     const width = Dimensions.get('window').width - margin * 2;
 
     const totals = useSelector<LocalStore, Totals>((state: LocalStore) => getTotalsForDaySelector(state));
-    const targetCalories = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetCalories);
+
+    const { targetCalories } = useUserData();
 
     const [isInputModalVisible, setIsInputModalVisible] = useState(false);
 

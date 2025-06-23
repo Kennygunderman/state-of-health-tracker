@@ -1,4 +1,3 @@
-import { createDailyExerciseEntry, DailyExerciseEntry } from './dailyExerciseEntries/models/DailyExerciseEntry';
 import { createDailyMealEntry, DailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
 import CrashUtility from '../utility/CrashUtility';
 
@@ -29,19 +28,10 @@ const storageMigrationVersion3 = containAndLogMigrationError((state: any) => {
         newMealEntryMap[dateKey] = createDailyMealEntry(mealEntryMap[dateKey]);
     });
 
-    const exerciseEntryMap = state.dailyExerciseEntries.map;
-    const newExerciseEntryMap: { [date: string]: DailyExerciseEntry } = {};
-    Object.keys(exerciseEntryMap).forEach((dateKey) => {
-        newExerciseEntryMap[dateKey] = createDailyExerciseEntry(exerciseEntryMap[dateKey]);
-    });
-
     return ({
         ...state,
         dailyMealEntries: {
             map: newMealEntryMap,
-        },
-        dailyExerciseEntries: {
-            map: newExerciseEntryMap,
         },
     });
 });

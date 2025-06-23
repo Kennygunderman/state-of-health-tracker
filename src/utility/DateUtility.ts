@@ -3,7 +3,31 @@ import { format, isMonday } from 'date-fns';
 // returns current date as Ex: September 28, 2023
 export const getCurrentDate = () => format(Date.now(), 'MMMM dd, yyyy');
 
+export const getCurrentDateISO = () => format(new Date(), 'yyyy-MM-dd');
+
 export const formatDate = (date: number) => format(date, 'MMMM dd, yyyy');
+
+export const formatDateUTC = (isoDate: string) => {
+    const [year, month, day] = isoDate.split('T')[0].split('-');
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+    return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: '2-digit',
+        timeZone: 'UTC',
+    });
+};
+
+export const compareIsoDateStrings = (a: string, b: string): boolean => {
+    try {
+        const [y1, m1, d1] = a.split('T')[0].split('-');
+        const [y2, m2, d2] = b.split('T')[0].split('-');
+        return y1 === y2 && m1 === m2 && d1 === d2;
+    } catch {
+        return false;
+    }
+};
 
 export const formatDateToMonthDay = (date: string | number): string => format(new Date(date), 'M/d');
 

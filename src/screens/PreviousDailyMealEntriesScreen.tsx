@@ -23,7 +23,7 @@ const PreviousDailyMealEntriesScreen = () => {
 
     const entries = useSelector<LocalStore, DailyMealEntry[]>((state: LocalStore) => getPreviousDailyMealEntriesSelector(state, loadBatch));
 
-    if (entries.length === 0) {
+  if (entries.length === 0) {
         return (
             <EmptyState
                 icon={(

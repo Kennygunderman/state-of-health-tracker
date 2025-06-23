@@ -4,30 +4,23 @@ import { useDispatch } from 'react-redux';
 import { applyMiddleware, combineReducers, legacy_createStore as createStore } from 'redux';
 import { createMigrate, persistReducer, persistStore } from 'redux-persist';
 import thunk, { ThunkDispatch } from 'redux-thunk';
-import { dailyExerciseEntriesReducer } from './dailyExerciseEntries/DailyExerciseEntriesReducer';
 import { addDailyMealEntry } from './dailyMealEntries/DailyMealEntriesActions';
 import { dailyMealEntriesReducer } from './dailyMealEntries/DailyMealEntriesReducer';
-import { exercisesReducer } from './exercises/ExercisesReducer';
 import { foodReducer } from './food/FoodReducer';
 import initialState from './initialState';
 import LocalStore from './LocalStore';
 import { mealsReducer } from './meals/MealsReducer';
 import 'react-native-get-random-values';
 import { migrations } from './migrations';
-import { LOG_IN_USER, LOG_OUT_USER } from './user/UserActions';
 import { userReducer } from './user/UserReducer';
-import { setCurrentDate } from './userInfo/UserInfoActions';
-import { userInfoReducer } from './userInfo/UserInfoReducer';
 import { getCurrentDate } from '../utility/DateUtility';
+import { LOG_IN_USER, LOG_OUT_USER } from "./user/UserActions";
 
 const appReducer = combineReducers({
     user: userReducer,
-    userInfo: userInfoReducer,
     meals: mealsReducer,
     food: foodReducer,
     dailyMealEntries: dailyMealEntriesReducer,
-    exercises: exercisesReducer,
-    dailyExerciseEntries: dailyExerciseEntriesReducer,
 });
 
 const rootReducer = (state: any, action: Action<any>) => {
@@ -50,12 +43,9 @@ const persistConfig = {
     version: 3,
     whitelist: [
         'user',
-        'userInfo',
         'meals',
         'food',
         'dailyMealEntries',
-        'exercises',
-        'dailyExerciseEntries',
     ],
     migrate: createMigrate(migrations, { debug: false }),
 };
@@ -71,9 +61,7 @@ const store = createStore(
 );
 
 persistStore(store, null, () => {
-    const currentDate = getCurrentDate();
-    store.dispatch(setCurrentDate(currentDate));
-    store.dispatch(addDailyMealEntry(currentDate));
+    store.dispatch(addDailyMealEntry(getCurrentDate()));
 });
 
 type AppAction = ReturnType<typeof store.dispatch>;

@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useDispatch, useSelector } from 'react-redux';
 import BaseModalProps from './BaseInputModalProps';
 import InputModal from './InputModal';
 import Spacing from '../../constants/Spacing';
@@ -11,27 +10,18 @@ import {
     CURRENT_WEIGHT_MODAL_TITLE,
     TOAST_WEIGHT_UPDATED,
 } from '../../constants/Strings';
-import { getLastRecordedWeightSelector } from '../../selectors/UserInfoSelector';
-import LocalStore from '../../store/LocalStore';
-import { addWeightEntry } from '../../store/userInfo/UserInfoActions';
 import { useStyleTheme } from '../../styles/Theme';
 import { isNumber } from '../../utility/TextUtility';
 import { showToast } from '../toast/util/ShowToast';
+import useUserData from "../../store/userData/useUserData";
 
 const WeightEntryModal = (props: BaseModalProps) => {
     const { isVisible, onDismissed } = props;
 
-    const currentDate = useSelector<LocalStore, string>((state: LocalStore) => state.userInfo.currentDate);
-    const lastWeightEntry = useSelector<LocalStore, string>((state: LocalStore) => getLastRecordedWeightSelector(state));
+    const { setCurrentWeight, currentWeight } = useUserData();
 
-    const [value, setValue] = useState(lastWeightEntry);
+    const [value, setValue] = useState(currentWeight.toString());
     const [showError, setShowError] = useState(false);
-
-    useEffect(() => {
-        setValue(lastWeightEntry);
-    }, [lastWeightEntry]);
-
-    const dispatch = useDispatch();
 
     const onPrimaryButtonPressed = () => {
         const intVal = parseInt(value, 10);
@@ -43,7 +33,7 @@ const WeightEntryModal = (props: BaseModalProps) => {
         onDismissed();
         setShowError(false);
 
-        dispatch(addWeightEntry(currentDate, intVal));
+        setCurrentWeight(intVal);
         showToast('success', TOAST_WEIGHT_UPDATED, value);
     };
 
