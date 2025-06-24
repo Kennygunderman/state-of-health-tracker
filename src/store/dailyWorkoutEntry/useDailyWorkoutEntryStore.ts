@@ -41,7 +41,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       initCurrentWorkoutDay: async () => {
         set({isInitializing: true})
         await syncOfflineWorkouts()
-        const today = useSessionStore.getState().sessionStartDate
+        const today = useSessionStore.getState().sessionStartDateIso
         const userId = useAuthStore.getState().userId
 
         try {

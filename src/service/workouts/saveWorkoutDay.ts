@@ -19,7 +19,6 @@ export async function saveWorkoutDay(workoutDay: WorkoutDay): Promise<boolean> {
     return true
   } catch (error) {
     CrashUtility.recordError(error)
-    console.error('Failed to save workout day:', error)
 
     return false
   }
