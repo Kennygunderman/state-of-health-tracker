@@ -1,5 +1,4 @@
-// todo: buy a doamin and use https
-const baseApiUrl = 'http://31.97.139.7:3000/api'
+const baseApiUrl = 'https://stateofhealthapi.com/api'
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
