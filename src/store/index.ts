@@ -2,7 +2,7 @@ import 'react-native-get-random-values'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {composeWithDevTools} from '@redux-devtools/extension'
 import {useDispatch} from 'react-redux'
-import {applyMiddleware, combineReducers, legacy_createStore as createStore} from 'redux'
+import {applyMiddleware, combineReducers, legacy_createStore as createStore, AnyAction} from 'redux'
 import {createMigrate, persistReducer, persistStore} from 'redux-persist'
 import thunk, {ThunkDispatch} from 'redux-thunk'
 
@@ -24,7 +24,7 @@ const appReducer = combineReducers({
   dailyMealEntries: dailyMealEntriesReducer
 })
 
-const rootReducer = (state: any, action: Action<any>) => {
+const rootReducer = (state: any, action: AnyAction) => {
   if (action.type === LOG_IN_USER) {
     if (action.payload) {
       return appReducer(action.payload, action)

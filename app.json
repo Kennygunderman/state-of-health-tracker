@@ -34,14 +34,10 @@
             "swiftVersion": "5.9"
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-file-system"
     ],
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
-    },
     "web": {
       "favicon": "./assets/favicon.png"
     },
