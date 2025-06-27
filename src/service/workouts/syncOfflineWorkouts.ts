@@ -1,10 +1,11 @@
 import offlineWorkoutStorageService from './OfflineWorkoutStorageService'
 import {saveWorkoutDay} from './saveWorkoutDay'
 
-import CrashUtility from '../../utility/CrashUtility'
-import {compareIsoDateStrings} from '../../utility/DateUtility'
 import {updateWorkoutDay} from '@service/workouts/updateWorkoutDay'
 import {WorkoutDay} from '@data/models/WorkoutDay'
+
+import {isServerFailureError} from '../../utility/isServerFailureError'
+import {compareIsoDateStrings} from '../../utility/DateUtility'
 
 /**
  * Attempts to sync all unsynced workouts that are not from today.
@@ -36,6 +37,10 @@ export default async function syncOfflineWorkouts(todayISO: string) {
         })
       }
     } catch (err) {
+      if (!isServerFailureError(err)) {
+        return
+      }
+
       const attempts = (workout.syncAttempts ?? 0) + 1
 
       if (attempts >= 3) {
@@ -46,8 +51,6 @@ export default async function syncOfflineWorkouts(todayISO: string) {
           syncAttempts: attempts
         })
       }
-
-      CrashUtility.recordError(err)
     }
   }
 

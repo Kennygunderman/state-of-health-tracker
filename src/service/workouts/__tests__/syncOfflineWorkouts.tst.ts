@@ -1,9 +1,7 @@
-// Mocks
 import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import {saveWorkoutDay} from '@service/workouts/saveWorkoutDay'
 import {updateWorkoutDay} from '@service/workouts/updateWorkoutDay'
-import CrashUtility from '../../../utility/CrashUtility'
 
 jest.mock('@service/workouts/OfflineWorkoutStorageService', () => ({
   readAll: jest.fn(),
@@ -24,13 +22,17 @@ jest.mock('../../../utility/CrashUtility', () => ({
   recordError: jest.fn()
 }))
 
+jest.mock('../../../utility/isServerFailureError', () => ({
+  isServerFailureError: jest.fn()
+}))
+
 const mockReadAll = offlineWorkoutStorageService.readAll as jest.Mock
 const mockSave = offlineWorkoutStorageService.save as jest.Mock
 const mockDeleteByDate = offlineWorkoutStorageService.deleteByDate as jest.Mock
 const mockDeleteAllSynced = offlineWorkoutStorageService.deleteAllSynced as jest.Mock
 const mockSaveWorkoutDay = saveWorkoutDay as jest.Mock
 const mockUpdateWorkoutDay = updateWorkoutDay as jest.Mock
-const mockRecordError = CrashUtility.recordError as jest.Mock
+const mockIsServerFailureError = require('../../../utility/isServerFailureError').isServerFailureError as jest.Mock
 
 const TODAY_ISO = '2025-10-20'
 
@@ -75,6 +77,7 @@ describe('syncOfflineWorkouts', () => {
   test('increments syncAttempts on failure < 3', async () => {
     mockReadAll.mockResolvedValue([{date: '2025-10-19', synced: false, syncAttempts: 1}])
     mockSaveWorkoutDay.mockRejectedValue(new Error('fail'))
+    mockIsServerFailureError.mockReturnValue(true)
 
     await syncOfflineWorkouts(TODAY_ISO)
 
@@ -84,18 +87,28 @@ describe('syncOfflineWorkouts', () => {
       })
     )
     expect(mockDeleteByDate).not.toHaveBeenCalled()
-    expect(mockRecordError).toHaveBeenCalled()
   })
 
   test('deletes workout after 3 failed attempts', async () => {
     mockReadAll.mockResolvedValue([{date: '2025-10-19', synced: false, syncAttempts: 2}])
     mockSaveWorkoutDay.mockRejectedValue(new Error('fail'))
+    mockIsServerFailureError.mockReturnValue(true)
 
     await syncOfflineWorkouts(TODAY_ISO)
 
     expect(mockDeleteByDate).toHaveBeenCalledWith('2025-10-19')
     expect(mockSave).not.toHaveBeenCalled()
-    expect(mockRecordError).toHaveBeenCalled()
+  })
+
+  test('skips increment if error is not server failure', async () => {
+    mockReadAll.mockResolvedValue([{date: '2025-10-19', synced: false, syncAttempts: 1}])
+    mockSaveWorkoutDay.mockRejectedValue(new Error('offline'))
+    mockIsServerFailureError.mockReturnValue(false)
+
+    await syncOfflineWorkouts(TODAY_ISO)
+
+    expect(mockSave).not.toHaveBeenCalled()
+    expect(mockDeleteByDate).not.toHaveBeenCalled()
   })
 
   test('handles malformed date gracefully', async () => {
