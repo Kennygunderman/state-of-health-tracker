@@ -2,7 +2,9 @@ import offlineWorkoutStorageService from './OfflineWorkoutStorageService'
 import {saveWorkoutDay} from './saveWorkoutDay'
 
 import CrashUtility from '../../utility/CrashUtility'
-import {compareIsoDateStrings, formatDateUTC} from '../../utility/DateUtility'
+import {compareIsoDateStrings} from '../../utility/DateUtility'
+import {updateWorkoutDay} from '@service/workouts/updateWorkoutDay'
+import {WorkoutDay} from '@data/models/WorkoutDay'
 
 /**
  * Attempts to sync all unsynced workouts that are not from today.
@@ -19,9 +21,14 @@ export default async function syncOfflineWorkouts(todayISO: string) {
     if (workout.synced) continue
 
     try {
-      const saved = await saveWorkoutDay(workout)
+      let modifiedWorkout: WorkoutDay
+      if (workout.id) {
+        modifiedWorkout = await updateWorkoutDay(workout)
+      } else {
+        modifiedWorkout = await saveWorkoutDay(workout)
+      }
 
-      if (saved) {
+      if (modifiedWorkout) {
         await offlineWorkoutStorageService.save({
           ...workout,
           synced: true,
