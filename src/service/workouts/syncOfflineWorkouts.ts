@@ -38,7 +38,7 @@ export default async function syncOfflineWorkouts(todayISO: string) {
       }
     } catch (err) {
       if (!isServerFailureError(err)) {
-        return
+        continue
       }
 
       const attempts = (workout.syncAttempts ?? 0) + 1
