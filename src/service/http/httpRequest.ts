@@ -1,9 +1,8 @@
+import * as io from 'io-ts'
 import axios, {AxiosRequestConfig, Method} from 'axios'
+import {isLeft} from 'fp-ts/lib/Either'
 
 import {getBearerToken} from '@service/auth/getBearerToken'
-
-import {isLeft} from 'fp-ts/lib/Either'
-import * as io from 'io-ts'
 
 import CrashUtility from '../../utility/CrashUtility'
 
@@ -15,6 +14,34 @@ export interface HttpResponse<T> {
 export interface HttpRequestOptions {
   useAuth?: boolean
 }
+
+const axiosInstance = axios.create({
+  timeout: 25_000
+})
+
+axiosInstance.interceptors.response.use(
+  response => response,
+  async error => {
+    const originalRequest = error.config as AxiosRequestConfig & {_retry?: boolean}
+
+    if (error.response?.status === 401 && !originalRequest._retry && originalRequest.headers?.Authorization) {
+      originalRequest._retry = true
+
+      const token = await getBearerToken(true)
+      if (token) {
+        if (!originalRequest.headers) originalRequest.headers = {}
+        originalRequest.headers = {
+          ...originalRequest.headers,
+          Authorization: `Bearer ${token}`
+        }
+
+        return axiosInstance(originalRequest)
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 async function httpRequest<T>(
   method: Method,
@@ -50,7 +77,7 @@ async function httpRequest<T>(
     axiosConfig.data = body ?? {}
   }
 
-  const response = await axios.request(axiosConfig)
+  const response = await axiosInstance.request(axiosConfig)
 
   const decoded = decoder.decode(response.data)
 
