@@ -8,6 +8,7 @@ import SectionListHeader from '@components/SectionListHeader'
 import {ADD_SET_BUTTON_TEXT} from '@constants/Strings'
 
 import ExerciseListItemDropdown from './ExerciseListItemDropdown'
+import {combineExerciseNameType} from '../../../utility/combineExerciseNameType'
 
 interface Props {
   dailyExercise: DailyExercise
@@ -41,7 +42,7 @@ const ExerciseSectionListHeader = (props: Props) => {
 
       <SectionListHeader
         key={dailyExercise.id}
-        title={dailyExercise.exercise.name}
+        title={combineExerciseNameType(dailyExercise.exercise.name, dailyExercise.exercise.exerciseType)}
         onTitlePressed={(topMargin?: number) => {
           if (topMargin) {
             setDropdownTopMargin(topMargin)

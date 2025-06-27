@@ -67,20 +67,6 @@ const WorkoutsScreen = () => {
   }, [])
 
   if (isInitializing || isLoadingSummaries) return <WorkoutsSkeleton />
-  //
-  // return (
-  //   <PrimaryButton
-  //     style={{marginTop: 100}}
-  //     label={'Click for test'}
-  //     onPress={() => {
-  //       auth()
-  //         .currentUser?.getIdToken()
-  //         .then(t => {
-  //           console.log('Token:', t)
-  //         })
-  //     }}
-  //   />
-  // )
 
   const dailyExercises = currentWorkoutDay?.dailyExercises ?? []
   const sections: Section[] = dailyExercises.map(dailyExercise => ({
