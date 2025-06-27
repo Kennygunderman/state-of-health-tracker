@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 5.5.0"
+    "version": ">= 7.3.0"
   },
   "build": {
     "development": {
@@ -13,7 +13,13 @@
         "simulator": true
       }
     },
-    "production": {}
+    "production": {
+      "distribution": "store",
+      "ios": {
+        "resourceClass": "m-medium",
+        "image": "macos-sonoma-14.6-xcode-16.1"
+      }
+    }
   },
   "submit": {
     "production": {}

@@ -23,7 +23,7 @@ const DebugScreen = () => {
 
   useEffect(() => {
     offlineWorkoutStorageService.readAll().then(res => {
-      setOfflineWorkouts(res)
+      // setOfflineWorkouts(res)
     })
   }, [])
 
@@ -33,7 +33,7 @@ const DebugScreen = () => {
         label={'Refresh offline workouts'}
         onPress={() => {
           offlineWorkoutStorageService.readAll().then(res => {
-            setOfflineWorkouts(res)
+            // setOfflineWorkouts(res)
           })
         }}
       />
@@ -43,14 +43,12 @@ const DebugScreen = () => {
       {/*   {JSON.stringify(templates, null, 2)} */}
       {/* </Text> */}
 
-      {/* <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>Offline Workouts:</Text> */}
-      {/* <Text style={{ marginBottom: 20 }}> */}
-      {/*   {JSON.stringify(offlineWorkouts, null, 2)} */}
-      {/* </Text> */}
+      <Text style={{fontWeight: 'bold', marginBottom: 10}}>Offline Workouts:</Text>
+      <Text style={{marginBottom: 20}}>{JSON.stringify(offlineWorkouts, null, 2)}</Text>
 
-      <Text>
-        <Text style={{fontWeight: 'bold'}}>Current Workout Day:</Text> {JSON.stringify(currentWorkoutDay, null, 2)}
-      </Text>
+      {/* <Text> */}
+      {/*   <Text style={{fontWeight: 'bold'}}>Current Workout Day:</Text> {JSON.stringify(currentWorkoutDay, null, 2)} */}
+      {/* </Text> */}
     </ScrollView>
   )
 }

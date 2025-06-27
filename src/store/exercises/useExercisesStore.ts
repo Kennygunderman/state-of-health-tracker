@@ -10,6 +10,7 @@ import {ExerciseScreenUpdateSubject$} from '@screens/AddExercise'
 import {CreateExerciseEvent, CreateExerciseEventSubject$} from '@screens/CreateExercise'
 
 import {DELETE_EXERCISE_ERROR, DELETE_EXERCISE_SUCCESS} from '@constants/Strings'
+import useOfflineExercisesStore from '@store/exercises/useOfflineExercisesStore'
 
 export type ExercisesState = {
   exercises: Exercise[]
@@ -53,8 +54,12 @@ const useExercisesStore = create<ExercisesState>()(
         set(state => {
           state.exercises = exercises
         })
+
+        useOfflineExercisesStore.getState().setOfflineExercises(exercises)
       } catch (error) {
-        // gracefully handle the error
+        set(state => {
+          state.exercises = useOfflineExercisesStore.getState().offlineExercises
+        })
       }
     },
     createExercise: async (exercise: CreateExercisePayload) => {

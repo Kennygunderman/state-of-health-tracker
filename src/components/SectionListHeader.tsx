@@ -54,6 +54,7 @@ const SectionListHeader = (props: Props) => {
           style={{
             fontWeight: 'bold',
             fontSize: FontSize.H3,
+            marginRight: Spacing.SMALL,
             backgroundColor: useStyleTheme().colors.background
           }}>
           {title}

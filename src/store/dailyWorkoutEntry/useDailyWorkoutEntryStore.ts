@@ -1,14 +1,14 @@
 import {createDailyExercise, DailyExercise} from '@data/models/DailyExercise'
 import {Exercise} from '@data/models/Exercise'
 import {createSet} from '@data/models/ExerciseSet'
-import {createWorkoutDay, WorkoutDay} from '@data/models/WorkoutDay'
-import {fetchWorkoutForDay} from '@service/workouts/fetchWorkoutForDay'
+import {WorkoutDay} from '@data/models/WorkoutDay'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
-import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 import {useSessionStore} from '@store/session/useSessionStore'
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 import useAuthStore from '@store/auth/useAuthStore'
+import {syncWorkoutDay} from '@service/workouts/syncWorkoutDay'
+import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -30,6 +30,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       if (state.currentWorkoutDay) {
         await offlineWorkoutStorageService.save({
           ...state.currentWorkoutDay,
+          updatedAt: Date.now(),
           synced: false
         })
       }
@@ -40,35 +41,15 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       isInitializing: false,
       initCurrentWorkoutDay: async () => {
         set({isInitializing: true})
-        await syncOfflineWorkouts()
-        const today = useSessionStore.getState().sessionStartDate
+        const today = useSessionStore.getState().sessionStartDateIso
         const userId = useAuthStore.getState().userId
+        await syncOfflineWorkouts(today)
 
-        try {
-          if (!userId) {
-            throw new Error('User ID not found')
-          }
-
-          const workout = await fetchWorkoutForDay(userId, today)
-
-          workout.synced = true
-          await offlineWorkoutStorageService.save(workout)
-          set({
-            currentWorkoutDay: workout,
-            isInitializing: false
-          })
-        } catch (error) {
-          let localWorkout = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
-
-          if (!localWorkout) {
-            localWorkout = createWorkoutDay(userId ?? '', today)
-            await offlineWorkoutStorageService.save(localWorkout)
-          }
-          set({
-            currentWorkoutDay: localWorkout,
-            isInitializing: false
-          })
-        }
+        const syncedWorkout = await syncWorkoutDay(today, userId ?? '')
+        set({
+          currentWorkoutDay: syncedWorkout,
+          isInitializing: false
+        })
       },
 
       addDailyExercise: exercise => {
@@ -116,7 +97,6 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
 
           if (!workout) return
 
-          // Reset order based on new position in array
           workout.dailyExercises = dailyExercises.map((exercise, index) => ({
             ...exercise,
             order: index + 1

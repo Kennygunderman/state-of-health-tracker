@@ -101,7 +101,7 @@ const CreateExerciseScreen = () => {
     <>
       {isCreatingExercise && <LoadingOverlay />}
 
-      <Ionicons style={styles.icon} name="md-barbell" size={128} color={theme.colors.secondary} />
+      <Ionicons style={styles.icon} name="barbell" size={128} color={theme.colors.secondary} />
 
       <View style={styles.inputContainer}>
         <TextInputWithHeader

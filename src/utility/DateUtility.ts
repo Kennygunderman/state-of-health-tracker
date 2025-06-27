@@ -59,6 +59,4 @@ export const formatDayMonthDay = (date: string | number): string => {
   }
 }
 
-export const isDateLessThan2SecondsOld = (date: number) => Date.now() - date < 2_000
-
 export const isDateOlderThanADay = (date: number) => Date.now() - date > ONE_DAY_MS

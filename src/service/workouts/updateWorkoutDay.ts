@@ -3,15 +3,14 @@ import {WorkoutDay} from '@data/models/WorkoutDay'
 import {mapWorkoutDay} from '@data/converters/mapWorkoutDay'
 import {WorkoutDayResponse} from '@data/decoders/WorkoutDayDecoder'
 
-import {httpPost} from '@service/http/httpUtil'
-
+import {httpPut} from '@service/http/httpUtil'
 import CrashUtility from '../../utility/CrashUtility'
 
-export async function saveWorkoutDay(workoutDay: WorkoutDay): Promise<WorkoutDay> {
+export async function updateWorkoutDay(workoutDay: WorkoutDay): Promise<WorkoutDay> {
   try {
-    const response = await httpPost(Endpoints.Workout, WorkoutDayResponse, workoutDay)
+    const response = await httpPut(Endpoints.Workout + workoutDay.id, WorkoutDayResponse, workoutDay)
 
-    if (response?.status !== 201 || !response.data) {
+    if (response?.status !== 200 || !response.data) {
       throw new Error(`Unexpected response: status=${response?.status}`)
     }
 
@@ -22,7 +21,7 @@ export async function saveWorkoutDay(workoutDay: WorkoutDay): Promise<WorkoutDay
 
     return mappedWorkoutDay
   } catch (error) {
-    console.log('ERROR_SAVING', error)
+    console.log('ERROR_UPDATING', error)
     CrashUtility.recordError(error)
     throw error
   }

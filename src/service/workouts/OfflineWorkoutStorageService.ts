@@ -85,6 +85,23 @@ class OfflineWorkoutStorageService {
     })
   }
 
+  async deleteByDate(date: string): Promise<void> {
+    await this.withLock(async () => {
+      const allWorkouts = await this.readAll()
+      const remaining = allWorkouts.filter(w => !compareIsoDateStrings(w.date, date))
+
+      const json = JSON.stringify(remaining)
+
+      await FileSystem.writeAsStringAsync(TEMP_FILE_PATH, json)
+      await FileSystem.moveAsync({
+        from: TEMP_FILE_PATH,
+        to: OFFLINE_FILE_PATH
+      })
+
+      console.log(`Deleted workout with date ${date}`)
+    })
+  }
+
   async findLocalWorkoutByDate(date: string): Promise<WorkoutDay | null> {
     const workouts = await this.readAll()
     const workout = workouts.find(w => compareIsoDateStrings(w.date, date))

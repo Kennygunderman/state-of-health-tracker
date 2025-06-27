@@ -26,3 +26,12 @@ export function httpPost<T>(
 ): Promise<HttpResponse<T> | null> {
   return httpRequest('POST', url, decoder, options, body)
 }
+
+export function httpPut<T>(
+  url: string,
+  decoder: io.Type<T>,
+  body?: any,
+  options?: HttpRequestOptions
+): Promise<HttpResponse<T> | null> {
+  return httpRequest('PUT', url, decoder, options, body)
+}

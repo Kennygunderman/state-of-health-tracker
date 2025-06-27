@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
+    "types": ["jest"],
     "paths": {
       "@screens/*": ["src/screens/*"],
       "@components/*": ["src/components/*"],
