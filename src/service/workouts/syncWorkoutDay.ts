@@ -20,6 +20,8 @@ import {createWorkoutDay} from '@data/models/WorkoutDay'
  *
  * Returns the resolved workout object that should be used as the current state.
  * Supports offline capabilities and ensures there is always a workout available locally.
+ *
+ * Also - I'm keeping the console.logs because they are very useful for debugging.
  */
 export async function syncWorkoutDay(today: string, userId: string) {
   try {
