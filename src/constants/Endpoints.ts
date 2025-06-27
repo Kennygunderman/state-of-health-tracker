@@ -1,5 +1,4 @@
-// const baseApiUrl = 'https://stateofhealthapi.com/api'
-const baseApiUrl = 'http://localhost:3000/api'
+const baseApiUrl = 'https://stateofhealthapi.com/api'
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
