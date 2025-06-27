@@ -1,16 +1,13 @@
 import {createDailyExercise, DailyExercise} from '@data/models/DailyExercise'
 import {Exercise} from '@data/models/Exercise'
 import {createSet} from '@data/models/ExerciseSet'
-import {createWorkoutDay, WorkoutDay} from '@data/models/WorkoutDay'
-import {fetchWorkoutForDay} from '@service/workouts/fetchWorkoutForDay'
+import {WorkoutDay} from '@data/models/WorkoutDay'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
-import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 import {useSessionStore} from '@store/session/useSessionStore'
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 import useAuthStore from '@store/auth/useAuthStore'
-import {saveWorkoutDay} from '@service/workouts/saveWorkoutDay'
-import {updateWorkoutDay} from '@service/workouts/updateWorkoutDay'
+import {syncWorkoutDay} from '@service/workouts/syncWorkoutDay'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -43,7 +40,6 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       isInitializing: false,
       initCurrentWorkoutDay: async () => {
         set({isInitializing: true})
-        await syncOfflineWorkouts()
         const today = useSessionStore.getState().sessionStartDateIso
         const userId = useAuthStore.getState().userId
 
@@ -54,61 +50,11 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
           return
         }
 
-        try {
-          const remote = await fetchWorkoutForDay(today) // returns null if not found
-
-          if (remote) {
-            // 1a. Workout exists remotely - compare timestamps
-            const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
-
-            if (local && !local.synced && local.updatedAt > remote.updatedAt) {
-              const updated = await updateWorkoutDay(local)
-              set({currentWorkoutDay: updated})
-            } else {
-              await offlineWorkoutStorageService.save(remote) // sync remote -> local
-              set({currentWorkoutDay: remote})
-            }
-          } else {
-            // 1b. No workout exists remotely — create one
-            try {
-              const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
-
-              if (local) {
-                const newRemote = await saveWorkoutDay(local)
-                await offlineWorkoutStorageService.save(newRemote)
-                set({currentWorkoutDay: newRemote})
-              } else {
-                // fallback safety if somehow no local still exists
-                const newEmptyLocal = createWorkoutDay(userId, today)
-                await offlineWorkoutStorageService.save(newEmptyLocal)
-                set({currentWorkoutDay: newEmptyLocal})
-              }
-            } catch (error) {
-              // 1b-i. Failed to create remotely (probably offline) — go local
-              const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
-              if (local) {
-                set({currentWorkoutDay: local})
-              } else {
-                const newEmptyLocal = createWorkoutDay(userId, today) // no ID yet
-                await offlineWorkoutStorageService.save(newEmptyLocal)
-                set({currentWorkoutDay: newEmptyLocal})
-              }
-            }
-          }
-        } catch (error) {
-          // 2. Failed to fetch workout remotely (probably offline)
-          let local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
-
-          if (local) {
-            set({currentWorkoutDay: local})
-          } else {
-            const newEmptyLocal = createWorkoutDay(userId, today)
-            await offlineWorkoutStorageService.save(newEmptyLocal)
-            set({currentWorkoutDay: newEmptyLocal})
-          }
-        } finally {
-          set({isInitializing: false})
-        }
+        const syncedWorkout = await syncWorkoutDay(today, userId)
+        set({
+          currentWorkoutDay: syncedWorkout,
+          isInitializing: false
+        })
       },
 
       addDailyExercise: exercise => {
@@ -156,7 +102,6 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
 
           if (!workout) return
 
-          // Reset order based on new position in array
           workout.dailyExercises = dailyExercises.map((exercise, index) => ({
             ...exercise,
             order: index + 1
