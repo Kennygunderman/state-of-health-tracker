@@ -9,6 +9,8 @@ import {useSessionStore} from '@store/session/useSessionStore'
 import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 import useAuthStore from '@store/auth/useAuthStore'
+import {saveWorkoutDay} from '@service/workouts/saveWorkoutDay'
+import {updateWorkoutDay} from '@service/workouts/updateWorkoutDay'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -30,6 +32,7 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
       if (state.currentWorkoutDay) {
         await offlineWorkoutStorageService.save({
           ...state.currentWorkoutDay,
+          updatedAt: Date.now(),
           synced: false
         })
       }
@@ -45,29 +48,66 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
         const userId = useAuthStore.getState().userId
 
         try {
-          if (!userId) {
-            throw new Error('User ID not found')
-          }
-
-          const workout = await fetchWorkoutForDay(userId, today)
-
-          workout.synced = true
-          await offlineWorkoutStorageService.save(workout)
-          set({
-            currentWorkoutDay: workout,
-            isInitializing: false
-          })
+          if (!userId) throw new Error('User ID not found')
         } catch (error) {
-          let localWorkout = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+          set({isInitializing: false})
+          return
+        }
 
-          if (!localWorkout) {
-            localWorkout = createWorkoutDay(userId ?? '', today)
-            await offlineWorkoutStorageService.save(localWorkout)
+        try {
+          const remote = await fetchWorkoutForDay(today) // returns null if not found
+
+          if (remote) {
+            // 1a. Workout exists remotely - compare timestamps
+            const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+
+            if (local && !local.synced && local.updatedAt > remote.updatedAt) {
+              const updated = await updateWorkoutDay(local)
+              set({currentWorkoutDay: updated})
+            } else {
+              await offlineWorkoutStorageService.save(remote) // sync remote -> local
+              set({currentWorkoutDay: remote})
+            }
+          } else {
+            // 1b. No workout exists remotely — create one
+            try {
+              const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+
+              if (local) {
+                const newRemote = await saveWorkoutDay(local)
+                await offlineWorkoutStorageService.save(newRemote)
+                set({currentWorkoutDay: newRemote})
+              } else {
+                // fallback safety if somehow no local still exists
+                const newEmptyLocal = createWorkoutDay(userId, today)
+                await offlineWorkoutStorageService.save(newEmptyLocal)
+                set({currentWorkoutDay: newEmptyLocal})
+              }
+            } catch (error) {
+              // 1b-i. Failed to create remotely (probably offline) — go local
+              const local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+              if (local) {
+                set({currentWorkoutDay: local})
+              } else {
+                const newEmptyLocal = createWorkoutDay(userId, today) // no ID yet
+                await offlineWorkoutStorageService.save(newEmptyLocal)
+                set({currentWorkoutDay: newEmptyLocal})
+              }
+            }
           }
-          set({
-            currentWorkoutDay: localWorkout,
-            isInitializing: false
-          })
+        } catch (error) {
+          // 2. Failed to fetch workout remotely (probably offline)
+          let local = await offlineWorkoutStorageService.findLocalWorkoutByDate(today)
+
+          if (local) {
+            set({currentWorkoutDay: local})
+          } else {
+            const newEmptyLocal = createWorkoutDay(userId, today)
+            await offlineWorkoutStorageService.save(newEmptyLocal)
+            set({currentWorkoutDay: newEmptyLocal})
+          }
+        } finally {
+          set({isInitializing: false})
         }
       },
 

@@ -1,4 +1,5 @@
-const baseApiUrl = 'https://stateofhealthapi.com/api'
+// const baseApiUrl = 'https://stateofhealthapi.com/api'
+const baseApiUrl = 'http://localhost:3000/api'
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
@@ -6,7 +7,6 @@ const Endpoints = {
   Template: `${baseApiUrl}/template/`,
   Workout: `${baseApiUrl}/workout/`,
   WorkoutSummaries: `${baseApiUrl}/workouts/summary`,
-  SaveWorkout: `${baseApiUrl}/workout`,
   WeeklyWorkoutSummary: `${baseApiUrl}/workouts/weekly-summary/7`,
   ExerciseTemplates: `${baseApiUrl}/templates`,
   User: `${baseApiUrl}/user`
