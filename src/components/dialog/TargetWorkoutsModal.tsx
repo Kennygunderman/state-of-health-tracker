@@ -1,72 +1,74 @@
-import React, { useEffect, useState } from 'react';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
-import { useDispatch, useSelector } from 'react-redux';
-import BaseInputModalProps from './BaseInputModalProps';
-import InputModal from './InputModal';
+import React, {useEffect, useState} from 'react'
+
+import {MaterialCommunityIcons} from '@expo/vector-icons'
+import useUserData from '@store/userData/useUserData'
+import {useStyleTheme} from '@theme/Theme'
+
 import {
-    TARGET_WORKOUTS_MODAL_BODY,
-    TARGET_WORKOUTS_MODAL_BUTTON, TARGET_WORKOUTS_MODAL_ERROR,
-    TARGET_WORKOUTS_MODAL_TITLE, TOAST_TARGET_WORKOUTS_SET,
-} from '../../constants/Strings';
-import LocalStore from '../../store/LocalStore';
-import { setTargetWorkouts } from '../../store/userInfo/UserInfoActions';
-import { useStyleTheme } from '../../styles/Theme';
-import { isNumber } from '../../utility/TextUtility';
-import { showToast } from '../toast/util/ShowToast';
+  TARGET_WORKOUTS_MODAL_BODY,
+  TARGET_WORKOUTS_MODAL_BUTTON,
+  TARGET_WORKOUTS_MODAL_ERROR,
+  TARGET_WORKOUTS_MODAL_TITLE,
+  TOAST_TARGET_WORKOUTS_SET
+} from '@constants/Strings'
+
+import BaseInputModalProps from './BaseInputModalProps'
+import InputModal from './InputModal'
+import {isNumber} from '../../utility/TextUtility'
+import {showToast} from '../toast/util/ShowToast'
 
 const TargetWorkoutsModal = (props: BaseInputModalProps) => {
-    const { isVisible, onDismissed } = props;
+  const {isVisible, onDismissed} = props
 
-    const targetWorkoutsPerWeek = useSelector<LocalStore, number>((state: LocalStore) => state.userInfo.targetWorkouts);
+  const {setTargetWorkouts, targetWorkouts} = useUserData()
 
-    const [value, setValue] = useState(targetWorkoutsPerWeek.toString());
-    const [showError, setShowError] = useState(false);
+  const [value, setValue] = useState(targetWorkouts.toString())
+  const [showError, setShowError] = useState(false)
 
-    useEffect(() => {
-        setValue(targetWorkoutsPerWeek.toString());
-    }, [targetWorkoutsPerWeek]);
+  useEffect(() => {
+    setValue(targetWorkouts.toString())
+  }, [targetWorkouts])
 
-    const dispatch = useDispatch();
+  const onPrimaryButtonPressed = () => {
+    const intVal = parseInt(value, 10)
 
-    const onPrimaryButtonPressed = () => {
-        const intVal = parseInt(value, 10);
-        if (!isNumber(value) || intVal === 0 || intVal > 7) {
-            setShowError(true);
-            return;
-        }
+    if (!isNumber(value) || intVal === 0 || intVal > 7) {
+      setShowError(true)
 
-        onDismissed();
-        setShowError(false);
+      return
+    }
 
-        dispatch(setTargetWorkouts(intVal));
-        showToast('success', TOAST_TARGET_WORKOUTS_SET, value);
-    };
+    onDismissed()
+    setShowError(false)
 
-    return (
-        <InputModal
-            title={TARGET_WORKOUTS_MODAL_TITLE}
-            subtitle={TARGET_WORKOUTS_MODAL_BODY}
-            icon={(
-                <MaterialCommunityIcons
-                    style={{ alignSelf: 'center' }}
-                    name="weight-lifter"
-                    size={96}
-                    color={useStyleTheme().colors.secondaryLighter}
-                />
-            )}
-            value={value}
-            isVisible={isVisible}
-            onCancel={onDismissed}
-            buttonText={TARGET_WORKOUTS_MODAL_BUTTON}
-            onChangeText={setValue}
-            showError={showError}
-            errorMessage={TARGET_WORKOUTS_MODAL_ERROR}
-            keyboardType="number-pad"
-            maxInputLength={1}
-            onButtonPressed={onPrimaryButtonPressed}
+    setTargetWorkouts(intVal)
+    showToast('success', TOAST_TARGET_WORKOUTS_SET, value)
+  }
+
+  return (
+    <InputModal
+      title={TARGET_WORKOUTS_MODAL_TITLE}
+      subtitle={TARGET_WORKOUTS_MODAL_BODY}
+      icon={
+        <MaterialCommunityIcons
+          style={{alignSelf: 'center'}}
+          name="weight-lifter"
+          size={96}
+          color={useStyleTheme().colors.secondaryLighter}
         />
-    );
-};
+      }
+      value={value}
+      isVisible={isVisible}
+      onCancel={onDismissed}
+      buttonText={TARGET_WORKOUTS_MODAL_BUTTON}
+      onChangeText={setValue}
+      showError={showError}
+      errorMessage={TARGET_WORKOUTS_MODAL_ERROR}
+      keyboardType="number-pad"
+      maxInputLength={1}
+      onButtonPressed={onPrimaryButtonPressed}
+    />
+  )
+}
 
-export default TargetWorkoutsModal;
+export default TargetWorkoutsModal

@@ -1,4 +1,4 @@
 interface Action<P> {
-    type: string;
-    payload?: P;
+  type: string
+  payload?: P
 }

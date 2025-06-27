@@ -1,52 +1,45 @@
-import { createDailyExerciseEntry, DailyExerciseEntry } from './dailyExerciseEntries/models/DailyExerciseEntry';
-import { createDailyMealEntry, DailyMealEntry } from './dailyMealEntries/models/DailyMealEntry';
-import CrashUtility from '../utility/CrashUtility';
+import {createDailyMealEntry, DailyMealEntry} from './dailyMealEntries/models/DailyMealEntry'
+import CrashUtility from '../utility/CrashUtility'
 
-type Migration = (state: any) => any;
+type Migration = (state: any) => any
+
 function containAndLogMigrationError(migrationFn: Migration): Migration {
-    return (state: any) => {
-        try {
-            return migrationFn(state);
-        } catch (error) {
-            CrashUtility.recordError(Error(`${error}`));
-            return state;
-        }
-    };
+  return (state: any) => {
+    try {
+      return migrationFn(state)
+    } catch (error) {
+      CrashUtility.recordError(Error(`${error}`))
+
+      return state
+    }
+  }
 }
 
 const storageMigrationVersion2 = containAndLogMigrationError((state: any) => ({
-    ...state,
-    exercises: {
-        map: state.exercises.map,
-        templates: [],
-    },
-}));
+  ...state,
+  exercises: {
+    map: state.exercises.map,
+    templates: []
+  }
+}))
 
 const storageMigrationVersion3 = containAndLogMigrationError((state: any) => {
-    const mealEntryMap = state.dailyMealEntries.map;
-    const newMealEntryMap: { [date: string]: DailyMealEntry } = {};
-    Object.keys(mealEntryMap).forEach((dateKey) => {
-        newMealEntryMap[dateKey] = createDailyMealEntry(mealEntryMap[dateKey]);
-    });
+  const mealEntryMap = state.dailyMealEntries.map
+  const newMealEntryMap: {[date: string]: DailyMealEntry} = {}
 
-    const exerciseEntryMap = state.dailyExerciseEntries.map;
-    const newExerciseEntryMap: { [date: string]: DailyExerciseEntry } = {};
-    Object.keys(exerciseEntryMap).forEach((dateKey) => {
-        newExerciseEntryMap[dateKey] = createDailyExerciseEntry(exerciseEntryMap[dateKey]);
-    });
+  Object.keys(mealEntryMap).forEach(dateKey => {
+    newMealEntryMap[dateKey] = createDailyMealEntry(mealEntryMap[dateKey])
+  })
 
-    return ({
-        ...state,
-        dailyMealEntries: {
-            map: newMealEntryMap,
-        },
-        dailyExerciseEntries: {
-            map: newExerciseEntryMap,
-        },
-    });
-});
+  return {
+    ...state,
+    dailyMealEntries: {
+      map: newMealEntryMap
+    }
+  }
+})
 
 export const migrations: any = {
-    2: storageMigrationVersion2,
-    3: storageMigrationVersion3,
-};
+  2: storageMigrationVersion2,
+  3: storageMigrationVersion3
+}

@@ -1,9 +1,9 @@
-import { DailyMealEntry } from './models/DailyMealEntry';
+import {DailyMealEntry} from './models/DailyMealEntry'
 
 export default interface DailyMealEntriesState {
-    map: DailyMealEntryMap;
+  map: DailyMealEntryMap
 }
 
 export interface DailyMealEntryMap {
-    [date: string]: DailyMealEntry;
+  [date: string]: DailyMealEntry
 }
