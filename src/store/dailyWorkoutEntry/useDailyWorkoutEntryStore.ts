@@ -8,6 +8,7 @@ import {create} from 'zustand'
 import {immer} from 'zustand/middleware/immer'
 import useAuthStore from '@store/auth/useAuthStore'
 import {syncWorkoutDay} from '@service/workouts/syncWorkoutDay'
+import syncOfflineWorkouts from '@service/workouts/syncOfflineWorkouts'
 
 export type DailyWorkoutState = {
   currentWorkoutDay: WorkoutDay | null
@@ -42,15 +43,9 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
         set({isInitializing: true})
         const today = useSessionStore.getState().sessionStartDateIso
         const userId = useAuthStore.getState().userId
+        await syncOfflineWorkouts(today)
 
-        try {
-          if (!userId) throw new Error('User ID not found')
-        } catch (error) {
-          set({isInitializing: false})
-          return
-        }
-
-        const syncedWorkout = await syncWorkoutDay(today, userId)
+        const syncedWorkout = await syncWorkoutDay(today, userId ?? '')
         set({
           currentWorkoutDay: syncedWorkout,
           isInitializing: false

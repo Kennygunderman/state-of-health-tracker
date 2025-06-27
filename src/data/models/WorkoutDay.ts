@@ -8,6 +8,7 @@ export interface WorkoutDay {
   date: string
   dailyExercises: DailyExercise[]
   updatedAt: number
+  syncAttempts?: number // track how many times we've tried to sync this workout
   synced?: boolean // track if local data is dirty and needs to be synced
 }
 

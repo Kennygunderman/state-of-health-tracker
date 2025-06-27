@@ -1,25 +1,49 @@
 import offlineWorkoutStorageService from './OfflineWorkoutStorageService'
 import {saveWorkoutDay} from './saveWorkoutDay'
+
 import CrashUtility from '../../utility/CrashUtility'
+import {compareIsoDateStrings, formatDateUTC} from '../../utility/DateUtility'
 
-const syncOfflineWorkouts = async () => {
-  try {
-    const workouts = await offlineWorkoutStorageService.readAll()
+/**
+ * Attempts to sync all unsynced workouts that are not from today.
+ * - If a workout syncs successfully, marks it as synced.
+ * - If a workout fails 3 times, deletes it.
+ * @param todayISO - ISO date string (e.g., '2025-10-20')
+ */
+export default async function syncOfflineWorkouts(todayISO: string) {
+  const workouts = await offlineWorkoutStorageService.readAll()
 
-    for (const workout of workouts) {
-      if (workout.synced) continue
-      const success = await saveWorkoutDay(workout)
+  for (const workout of workouts) {
+    if (compareIsoDateStrings(workout.date, todayISO)) continue
 
-      if (success) {
-        workout.synced = true
-        await offlineWorkoutStorageService.save(workout)
+    if (workout.synced) continue
+
+    try {
+      const saved = await saveWorkoutDay(workout)
+
+      if (saved) {
+        await offlineWorkoutStorageService.save({
+          ...workout,
+          synced: true,
+          syncAttempts: 0
+        })
       }
+    } catch (err) {
+      const attempts = (workout.syncAttempts ?? 0) + 1
+
+      if (attempts >= 3) {
+        await offlineWorkoutStorageService.deleteByDate(workout.date)
+      } else {
+        await offlineWorkoutStorageService.save({
+          ...workout,
+          syncAttempts: attempts
+        })
+      }
+
+      CrashUtility.recordError(err)
     }
-
-    await offlineWorkoutStorageService.deleteAllSynced()
-  } catch (error) {
-    CrashUtility.recordError(error)
   }
-}
 
-export default syncOfflineWorkouts
+  // Clean up any records marked as synced
+  await offlineWorkoutStorageService.deleteAllSynced()
+}
