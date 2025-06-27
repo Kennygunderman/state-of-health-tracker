@@ -114,7 +114,7 @@ describe('syncWorkoutDay', () => {
 
       const result = await syncWorkoutDay(today, userId)
 
-      expect(mockUpdate).toHaveBeenCalledWith(localWorkoutNewerUnsynced)
+      expect(mockUpdate).toHaveBeenCalledWith({...localWorkoutNewerUnsynced, id: remoteWorkout.id})
       expect(result).toEqual(updatedWorkout)
     })
 

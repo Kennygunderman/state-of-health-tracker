@@ -5,7 +5,7 @@ import {createBottomTabNavigator} from '@react-navigation/bottom-tabs'
 import {useStyleTheme} from '@theme/Theme'
 
 import AccountScreen from '@screens/Account/AccountScreen'
-// import DebugScreen from '@screens/debug/DebugScreen'
+import DebugScreen from '@screens/debug/DebugScreen'
 
 import Screens from '@constants/Screens'
 import {MACROS_TITLE, WORKOUTS_TITLE} from '@constants/Strings'
@@ -56,7 +56,7 @@ const HomeTabs = () => {
 
       <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen} />
 
-      {/* <Tab.Screen name={Screens.DEBUG} component={DebugScreen} /> */}
+      <Tab.Screen name={Screens.DEBUG} component={DebugScreen} />
     </Tab.Navigator>
   )
 }

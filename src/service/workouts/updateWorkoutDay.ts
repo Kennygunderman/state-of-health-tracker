@@ -21,6 +21,7 @@ export async function updateWorkoutDay(workoutDay: WorkoutDay): Promise<WorkoutD
 
     return mappedWorkoutDay
   } catch (error) {
+    console.log('ERROR_UPDATING', error)
     CrashUtility.recordError(error)
     throw error
   }

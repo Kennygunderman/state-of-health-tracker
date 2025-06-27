@@ -22,6 +22,7 @@ export async function saveWorkoutDay(workoutDay: WorkoutDay): Promise<WorkoutDay
 
     return mappedWorkoutDay
   } catch (error) {
+    console.log('ERROR_SAVING', error)
     CrashUtility.recordError(error)
     throw error
   }

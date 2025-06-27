@@ -35,9 +35,8 @@ export async function syncWorkoutDay(today: string, userId: string) {
       console.log('[Sync] Found local workout:', local)
 
       if (local && !local.synced && local.updatedAt > remote.updatedAt) {
-        console.log(local.updatedAt, remote.updatedAt)
         console.log('[Sync] Local is newer and unsynced — pushing local to remote')
-        const updated = await updateWorkoutDay(local)
+        const updated = await updateWorkoutDay({...local, id: remote.id})
         console.log('[Sync] Remote update successful:', updated)
 
         return updated
