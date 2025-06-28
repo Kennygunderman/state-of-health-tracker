@@ -65,21 +65,6 @@ const CreateTemplateScreen = () => {
     }
   }, [])
 
-  if (exercises.length === 0) {
-    return (
-      <>
-        <MaterialCommunityIcons
-          style={styles.emptyIcon}
-          name="kettlebell"
-          size={100}
-          color={useStyleTheme().colors.white}
-        />
-
-        <Text style={styles.emptyText}>{CREATE_TEMPLATE_NO_EXERCISES}</Text>
-      </>
-    )
-  }
-
   const renderItem = ({item}: ListRenderItemInfo<Exercise>) => (
     <ListItem
       isSwipeable={false}
@@ -115,7 +100,6 @@ const CreateTemplateScreen = () => {
       exerciseIds: selectedExercises.map(e => e.id)
     })
   }
-
   return (
     <View style={styles.container}>
       {isCreatingTemplate && <LoadingOverlay />}
@@ -129,17 +113,30 @@ const CreateTemplateScreen = () => {
 
       <SearchBar placeholder={SEARCH_EXERCISES_PLACEHOLDER} onSearchTextChanged={onSearchTextChanged} />
 
-      <FlatList
-        keyboardShouldPersistTaps="always"
-        keyboardDismissMode="on-drag"
-        initialNumToRender={10}
-        data={[...selectedExercises, ...exercises.filter(e => !selectedExercises.includes(e))]}
-        ListHeaderComponent={<Text style={styles.headerText}>{SELECT_EXERCISES_FOR_TEMPLATE_TITLE}</Text>}
-        ListFooterComponent={
-          <PrimaryButton style={styles.footerButton} label={NEXT_BUTTON_TEXT} onPress={onNextPressed} />
-        }
-        renderItem={renderItem}
-      />
+      {exercises.length === 0 ? (
+        <>
+          <MaterialCommunityIcons
+            style={styles.emptyIcon}
+            name="kettlebell"
+            size={100}
+            color={useStyleTheme().colors.white}
+          />
+
+          <Text style={styles.emptyText}>{CREATE_TEMPLATE_NO_EXERCISES}</Text>
+        </>
+      ) : (
+        <FlatList
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="on-drag"
+          initialNumToRender={10}
+          data={[...selectedExercises, ...exercises.filter(e => !selectedExercises.includes(e))]}
+          ListHeaderComponent={<Text style={styles.headerText}>{SELECT_EXERCISES_FOR_TEMPLATE_TITLE}</Text>}
+          ListFooterComponent={
+            <PrimaryButton style={styles.footerButton} label={NEXT_BUTTON_TEXT} onPress={onNextPressed} />
+          }
+          renderItem={renderItem}
+        />
+      )}
     </View>
   )
 }
