@@ -16,7 +16,6 @@ import {showToast} from '@components/toast/util/ShowToast'
 import {TOAST_EXERCISE_ADDED, TOAST_EXERCISE_ALREADY_ADDED} from '@constants/Strings'
 
 import styles from './index.styled'
-import {combineExerciseNameType} from '../../../../utility/combineExerciseNameType'
 
 interface Props {
   exercise: Exercise
@@ -54,7 +53,7 @@ const ExerciseListItem = ({exercise}: Props) => {
         ]}>
         <View style={styles.textContainer}>
           <Text style={styles.title} numberOfLines={1}>
-            {combineExerciseNameType(exercise.name, exercise.exerciseType)}
+            {exercise.name}
           </Text>
 
           <Text style={styles.subtitle} numberOfLines={1}>
