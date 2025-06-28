@@ -7,7 +7,6 @@ export default StyleSheet.create({
     flex: 1
   },
   listContainer: {
-    marginTop: Spacing.X_SMALL,
-    marginBottom: Spacing.X_LARGE
+    marginTop: Spacing.X_SMALL
   }
 })
