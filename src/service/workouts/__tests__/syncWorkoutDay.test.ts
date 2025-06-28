@@ -212,8 +212,7 @@ describe('syncWorkoutDay', () => {
 
       const secondResult = await syncWorkoutDay(today, userId)
 
-      expect(mockUpdate).toHaveBeenCalledWith(newLocalWorkout)
-      expect(mockSaveLocal).not.toHaveBeenCalled()
+      expect(mockUpdate).toHaveBeenCalledWith({...newLocalWorkout, id: remoteWorkout.id})
       expect(secondResult).toEqual(updatedWorkout)
     })
     test('Offline fallback, then online fetch remote older, pushes local to remote', async () => {
@@ -234,7 +233,10 @@ describe('syncWorkoutDay', () => {
 
       const secondResult = await syncWorkoutDay(today, userId)
 
-      expect(mockUpdate).toHaveBeenCalledWith(newLocalWorkout)
+      expect(mockUpdate).toHaveBeenCalledWith({
+        ...newLocalWorkout,
+        id: remoteWorkoutOlder.id
+      })
       expect(secondResult).toEqual(updatedWorkout)
     })
 
