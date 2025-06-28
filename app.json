@@ -2,7 +2,7 @@
   "expo": {
     "name": "State of Health",
     "slug": "fitness-tracking-app",
-    "version": "1.4.3",
+    "version": "1.4.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,7 +19,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.stateofhealh.tracker",
       "icon": "./assets/icon.png",
-      "buildNumber": "16",
+      "buildNumber": "17",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

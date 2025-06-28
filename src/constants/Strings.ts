@@ -357,6 +357,13 @@ export const SEARCH_ADD_EXERCISE_SUCCESS = 'Exercise Added'
 export const CREATE_TEMPLATE_NO_EXERCISES =
   "To create a template, you must first add exercises to your list. Tap '+ Add Exercise' on the previous screen to get started."
 
+export const UPDATE_APP_VERSION_TITLE = 'Update Required'
+
+export const UPDATE_APP_VERSION_TEXT =
+  'Your app version is out of date. Please update to the latest version to continue using the app.'
+
+export const UPDATE_APP_VERSION_BUTTON = 'Update App Version'
+
 export function stringWithParameters(str: string = '', ...parameters: string[]): string {
   let updatedStr = str
 

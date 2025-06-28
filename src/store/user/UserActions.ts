@@ -17,11 +17,11 @@ export function updateLastSynced(date: number) {
   }
 }
 
-export function syncUserData(userId: string) {
+export function syncUserData(userId: string, overrideLastSync: boolean = false) {
   return async (dispatch: any, getState: () => LocalStore) => {
     // only sync logged-in users if last data sync was > 1 day ago.
     const {user} = getState()
-    if (!isDateOlderThanADay(user.lastDataSync ?? 0)) {
+    if (!isDateOlderThanADay(user.lastDataSync ?? 0) && !overrideLastSync) {
       return
     }
 

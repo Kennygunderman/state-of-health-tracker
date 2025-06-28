@@ -9,6 +9,7 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack'
 import Toast from 'react-native-toast-message'
 import {Provider} from 'react-redux'
 
+import MinimumVersionSheet from './src/components/MinimumVersionSheet'
 import GlobalBottomSheet from './src/components/GlobalBottomSheet'
 import ToastConfig from './src/components/toast/ToastConfig'
 import AuthStack from './src/navigation/AuthStack'
@@ -93,6 +94,7 @@ const App = () => {
           )}
 
           <GlobalBottomSheet />
+          <MinimumVersionSheet />
 
           <Toast config={ToastConfig} position="top" topOffset={50} />
         </NavigationContainer>
