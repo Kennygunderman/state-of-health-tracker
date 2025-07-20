@@ -9,49 +9,6 @@ At State of Health, we strive to simplify fitness. Our app is devoid of unnecess
 
 Our tracking app is loaded with comprehensive graphs, and charts to make sure you are on track every day to hit your goals. Each day you log a workout or meal, a diary entry will automatically be created for you to keep track of your progress.
 
-# Setup
-
-This app assumes you are using Expo EAS and have a registered Apple Developer account.
-
-### Firebase Setup
-To setup use with firebase:
-1. Create an iOS app in the Firebase console.
-2. Generate GoogleService-Info.plist file from Firebase.
-3. Generate an OAuth 2.0 Token and add to the GoogleServices-Info.plist file: https://developers.google.com/identity/protocols/oauth2#1.-obtain-oauth-2.0-credentials-from-the-dynamic_data.setvar.console_name-.
-4. Add GoogleService-Info.plist to root dir of project.
-
-### Env / API Keys
-1. copy `.env.dist` and paste it as `.env`
-2. Generate API Key for USDA API here: https://fdc.nal.usda.gov/api-key-signup.html or request key from project maintainer.
-3. Update `USDA_FOOD_API_KEY=` in the .env file with your API Key.
-
-### Running EAS builds
-EAS builds will ignore files found in .gitignore. Because of this, you must remove `.GoogleService-Info.plist` from the .gitignore to upload a build with EAS. Failing to do so will result in a failed build.
-
-
-### Dev Build
-Run an iOS dev build on a simulator:
-1. Make sure all node modules are installed `npm i`
-2. Open a simulator from XCode.
-3. Run `npm run ios`
-
-Run an iOS dev build on a physical device:
-1. Create a native build in EAS. Run `npm run build-ios-dev` to upload a dev build to EAS.
-2. Run Expo `npm run start`
-
-To debug crashlytics on a dev build, add a firebase.json file with the following to the root dir of the project:
-```
-{
-  "react-native": {
-    "crashlytics_debug_enabled": true,
-    "crashlytics_disable_auto_disabler": true,
-    "crashlytics_auto_collection_enabled": true,
-    "crashlytics_is_error_generation_on_js_crash_enabled": true,
-    "crashlytics_javascript_exception_handler_chaining_enabled": true
-  }
-}
-```
-
 ### Prod Build
 1. Make sure to increment `version` and `buildNumber` inside the app.json file.
 2. Build a native iOS build with `npx expo run:ios`
