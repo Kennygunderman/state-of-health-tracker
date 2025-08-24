@@ -115,7 +115,7 @@ const AccountScreen = () => {
   )
 
   const openPrivacyPolicy = async () => {
-    const privacyPolicy = 'https://www.thestateofhealth.com/privacy-policy'
+    const privacyPolicy = 'https://www.stateofhealthapp.com/privacy-policy'
     const supported = await Linking.canOpenURL(privacyPolicy)
 
     if (supported) {
