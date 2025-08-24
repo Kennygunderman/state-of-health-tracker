@@ -12,14 +12,16 @@ import styles from './index.styled'
 interface BottomSheetEvent {
   action: 'open' | 'close'
   content?: ReactNode
+  snapPoints?: string[]
 }
 
 export const BottomSheetSubject$ = new Subject<BottomSheetEvent>()
 
-export const openGlobalBottomSheet = (content: ReactNode) => {
+export const openGlobalBottomSheet = (content: ReactNode, snapPoints?: string[]) => {
   BottomSheetSubject$.next({
     action: 'open',
-    content
+    content,
+    snapPoints
   })
 }
 
@@ -33,16 +35,19 @@ const GlobalBottomSheet = () => {
 
   const [content, setContent] = useState<ReactNode>(null)
   const [isOpen, setIsOpen] = useState(false)
+  const [snapPoints, setSnapPoints] = useState(['25%'])
 
   useEffect(() => {
-    const sub = BottomSheetSubject$.subscribe(({action, content}) => {
+    const sub = BottomSheetSubject$.subscribe(({action, content, snapPoints: customSnapPoints}) => {
       if (action === 'open') {
         setContent(content || null)
+        setSnapPoints(customSnapPoints || ['25%'])
         sheetRef.current?.expand()
         setIsOpen(true)
       } else {
         setIsOpen(false)
         setContent(null)
+        setSnapPoints(['25%'])
         sheetRef.current?.close()
       }
     })
@@ -63,7 +68,7 @@ const GlobalBottomSheet = () => {
       <BottomSheet
         ref={sheetRef}
         index={-1}
-        snapPoints={['25%']}
+        snapPoints={snapPoints}
         enablePanDownToClose
         handleIndicatorStyle={{backgroundColor: theme.colors.white}}
         backgroundStyle={{backgroundColor: theme.colors.background}}

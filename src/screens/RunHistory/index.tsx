@@ -16,8 +16,11 @@ import ConfirmModal from '@components/dialog/ConfirmModal'
 import {useStyleTheme} from '@theme/Theme'
 import useRunFlowStore from '@store/runFlow/useRunFlowStore'
 import runTrackingService from '@service/run/RunTrackingService'
-import {RunsStackParamList} from '@navigation/RunsStack'
-import {RootStackParamList} from '@navigation/types'
+import {useSessionStore} from '@store/session/useSessionStore'
+import {openGlobalBottomSheet} from '@components/GlobalBottomSheet'
+import RunsBetaWarning from '@components/RunsBetaWarning'
+import {RunsStackParamList} from '../../navigation/RunsStack'
+import {RootStackParamList} from '../../navigation/types'
 import {RunSession} from '@store/runFlow/useRunFlowStore'
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager'
 
@@ -38,6 +41,8 @@ const RunHistoryScreen: React.FC = () => {
     loadRunHistory,
     deleteRun: deleteRunFromStore
   } = useRunFlowStore()
+
+  const { hasSeenRunsBetaWarning, setHasSeenRunsBetaWarning } = useSessionStore()
 
   // State for delete confirmation modal
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false)
@@ -73,6 +78,27 @@ const RunHistoryScreen: React.FC = () => {
       loadRunHistory()
     }, [loadRunHistory])
   )
+
+  // Show beta warning on first visit - separate effect to avoid showing on every focus
+  useEffect(() => {
+    if (!hasSeenRunsBetaWarning) {
+      console.log('Showing beta warning for first time this session')
+      // Small delay to ensure screen is fully loaded
+      const timer = setTimeout(() => {
+        openGlobalBottomSheet(
+          <RunsBetaWarning
+            onUnderstood={() => {
+              console.log('User acknowledged beta warning')
+              setHasSeenRunsBetaWarning(true)
+            }}
+          />,
+          ['55%'] // Taller snap point for beta warning content with punctuation
+        )
+      }, 500)
+
+      return () => clearTimeout(timer)
+    }
+  }, [hasSeenRunsBetaWarning, setHasSeenRunsBetaWarning])
 
   const handleStartRun = async () => {
     // Navigate to RunFlowModal (modal presentation)
@@ -357,6 +383,9 @@ const styles = StyleSheet.create({
     marginLeft: 0, // No margin from edge
     paddingTop: 12,
     paddingBottom: 12,
+  },
+  sectionHeaderContainer: {
+    paddingHorizontal: 20,
   },
 })
 

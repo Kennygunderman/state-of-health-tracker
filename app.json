@@ -24,7 +24,8 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to track your running routes and provide accurate distance and speed measurements.",
         "NSLocationAlwaysUsageDescription": "This app uses location to track your running routes even when the app is in the background.",
-        "NSLocationWhenInUseUsageDescription": "This app uses location to track your running routes and provide accurate distance and speed measurements."
+        "NSLocationWhenInUseUsageDescription": "This app uses location to track your running routes and provide accurate distance and speed measurements.",
+        "UIBackgroundModes": ["location"]
       }
     },
     "plugins": [
@@ -36,7 +37,7 @@
         {
           "ios": {
             "useFrameworks": "static",
-            "deploymentTarget": "14.0",
+            "deploymentTarget": "16.1",
             "swiftVersion": "5.9"
           }
         }
