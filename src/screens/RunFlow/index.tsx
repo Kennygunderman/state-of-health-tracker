@@ -154,6 +154,23 @@ const RunFlowScreen = () => {
   }
 
   const handleStopRun = () => {
+    // Check if distance is less than 0.05 miles before allowing completion
+    if (currentSession) {
+      const distanceInMiles = currentSession.stats.totalDistance || 0
+      
+      console.log('HandleStopRun - Distance check:', {
+        distanceInMiles,
+        routeLength: currentSession.route?.length || 0
+      })
+      
+      if (distanceInMiles < 0.05) {
+        // Show cancellation dialog for runs that are too short
+        setIsCancelConfirmModalVisible(true)
+        return
+      }
+    }
+    
+    // Normal completion flow for runs >= 0.05 miles
     setIsFinishRunModalVisible(true)
   }
 
