@@ -44,7 +44,10 @@ export class LocationTrackingService {
       // Request background permission for continuous tracking
       const { status: backgroundStatus } = await Location.getBackgroundPermissionsAsync()
       if (backgroundStatus !== 'granted') {
-        await Location.requestBackgroundPermissionsAsync()
+        const { status: newBackgroundStatus } = await Location.requestBackgroundPermissionsAsync()
+        if (newBackgroundStatus !== 'granted') {
+          console.warn('Background location permission not granted - tracking may stop when app is backgrounded')
+        }
       }
       
       const trackingOptions = { ...this.defaultOptions, ...options }

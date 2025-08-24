@@ -71,12 +71,14 @@ const RunFlowScreen = () => {
     }
   }, [isTracking, addLocationPoint])
 
+
   // Auto-start countdown when modal opens and no session exists
   useEffect(() => {
     if (!currentSession && countdownValue === 0) {
       startCountdown()
     }
   }, [currentSession])
+
 
   // Countdown animation effect
   useEffect(() => {
@@ -199,9 +201,10 @@ const RunFlowScreen = () => {
     setIsCancelConfirmModalVisible(true)
   }
 
-  const handleCancelRunConfirmed = () => {
+  const handleCancelRunConfirmed = async () => {
     cancelRun()
     console.log('🚫 Run cancelled')
+    
     setIsCancelConfirmModalVisible(false)
     goBack()
   }

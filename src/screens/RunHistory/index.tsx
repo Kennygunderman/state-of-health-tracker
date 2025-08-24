@@ -29,7 +29,7 @@ const listSwipeItemManager = new ListSwipeItemManager()
 const RunHistoryScreen: React.FC = () => {
   const theme = useStyleTheme()
   const navigation = useNavigation<RunHistoryScreenNavigationProp>()
-  
+
   const {
     startRun,
     startSimulation,
@@ -63,7 +63,7 @@ const RunHistoryScreen: React.FC = () => {
   }
 
   const sections = groupRunsByDate(runs)
-  
+
   // Update swipe manager with current runs
   listSwipeItemManager.setRows(runs.map(run => ({ id: run.id || '' })))
 
@@ -112,20 +112,20 @@ const RunHistoryScreen: React.FC = () => {
       console.warn('Invalid run item:', item)
       return null
     }
-    
+
     // Convert units for display with fallbacks
     const distanceInMeters = (item.stats.totalDistance || 0) * 1609.34 // Convert miles to meters
-    
+
     // Format time directly from seconds (ensure positive)
     const totalSeconds = Math.abs(Math.floor(item.stats.totalTime || 0))
     const minutes = Math.floor(totalSeconds / 60)
     const seconds = totalSeconds % 60
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-    
+
     // Add defensive checks for service calls with explicit string conversion
     let distance = '0.00'
     let pace = '0:00'
-    
+
     try {
       const distanceResult = runTrackingService.formatDistance(distanceInMeters)
       distance = String(distanceResult || '0.00')
@@ -133,7 +133,7 @@ const RunHistoryScreen: React.FC = () => {
       console.warn('Error formatting distance:', error)
       distance = '0.00'
     }
-    
+
     try {
       const paceResult = runTrackingService.formatPace(item.stats.averagePace || 0)
       pace = String(paceResult || '0:00')
@@ -141,7 +141,7 @@ const RunHistoryScreen: React.FC = () => {
       console.warn('Error formatting pace:', error)
       pace = '0:00'
     }
-    
+
     const time = String(formattedTime || '00:00')
     const date = String(new Date(item.startTime || Date.now()).toLocaleDateString() || 'Unknown')
     const calories = String(item.stats.calories || 0)
@@ -165,17 +165,17 @@ const RunHistoryScreen: React.FC = () => {
               <Text style={[styles.statValue, {color: theme.colors.white}]}>{distance}</Text>
               <Text style={[styles.statLabel, {color: theme.colors.grey}]}>Miles</Text>
             </View>
-            
+
             <View style={styles.statItem}>
               <Text style={[styles.statValue, {color: theme.colors.white}]}>{time}</Text>
               <Text style={[styles.statLabel, {color: theme.colors.grey}]}>Time</Text>
             </View>
-            
+
             <View style={styles.statItem}>
               <Text style={[styles.statValue, {color: theme.colors.white}]}>{pace}</Text>
               <Text style={[styles.statLabel, {color: theme.colors.grey}]}>Pace</Text>
             </View>
-            
+
             {item.stats.calories && (
               <View style={styles.statItem}>
                 <Text style={[styles.statValue, {color: theme.colors.white}]}>{calories}</Text>
@@ -277,7 +277,7 @@ const RunHistoryScreen: React.FC = () => {
           </View>
         </View>
       )}
-      
+
       <ConfirmModal
         confirmationTitle="Delete Run"
         confirmationBody={`Are you sure you want to delete this run? This action cannot be undone.`}
