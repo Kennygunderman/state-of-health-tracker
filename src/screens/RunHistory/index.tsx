@@ -373,14 +373,14 @@ const styles = StyleSheet.create({
     fontSize: FontSize.H1,
     fontWeight: 'bold',
     margin: 24,
-    marginLeft: 0, // Offset the FlatList's paddingHorizontal (20px) to achieve 24px from screen edge
+    marginLeft: 4, // Offset the FlatList's paddingHorizontal (20px) to achieve 24px from screen edge
     marginTop: 24,
     marginBottom: 16, // 8px less than the default 24px margin
   },
   sectionHeader: {
     fontSize: FontSize.H3,
     fontWeight: '200',
-    marginLeft: 0, // No margin from edge
+    marginLeft: 4, // No margin from edge
     paddingTop: 12,
     paddingBottom: 12,
   }
