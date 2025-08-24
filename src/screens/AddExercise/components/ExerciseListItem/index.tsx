@@ -16,6 +16,7 @@ import {showToast} from '@components/toast/util/ShowToast'
 import {TOAST_EXERCISE_ADDED, TOAST_EXERCISE_ALREADY_ADDED} from '@constants/Strings'
 
 import styles from './index.styled'
+import {Navigation} from '../../../../navigation/types'
 
 interface Props {
   exercise: Exercise
@@ -24,14 +25,20 @@ interface Props {
 const ExerciseListItem = ({exercise}: Props) => {
   const theme = useStyleTheme()
 
-  const {goBack} = useNavigation()
+  const navigation = useNavigation<Navigation>()
 
   const {addDailyExercise} = useDailyWorkoutEntryStore()
 
   const onPress = () => {
+    // Skip running exercises since they now have a dedicated Run tab
+    if (exercise.name === 'Running' && exercise.exerciseBodyPart === 'Cardio') {
+      showToast('info', 'Use the Run tab to track your runs', '')
+      return
+    }
+    
     if (addDailyExercise(exercise)) {
       showToast('success', TOAST_EXERCISE_ADDED, exercise.name)
-      goBack()
+      navigation.goBack()
     } else {
       showToast('error', TOAST_EXERCISE_ALREADY_ADDED, exercise.name)
     }

@@ -20,12 +20,13 @@ import {
   TOAST_TEMPLATE_EXERCISES_ADDED,
   TOAST_TEMPLATE_EXERCISES_ADDED_BODY
 } from '@constants/Strings'
+import Screens from '@constants/Screens'
 
 import styles from './index.styled'
 import {Navigation} from '../../navigation/types'
 
 const WorkoutTemplateDetailScreen = () => {
-  const {pop} = useNavigation<Navigation>()
+  const navigation = useNavigation<Navigation>()
   const {getExercises} = useExercisesStore()
   const {addDailyExercise} = useDailyWorkoutEntryStore()
   const {selectedTemplate} = useExerciseTemplateStore()
@@ -35,9 +36,19 @@ const WorkoutTemplateDetailScreen = () => {
   const exercises = getExercises(selectedTemplate.exerciseIds)
 
   const addExerciseToDailyEntry = () => {
-    exercises.forEach(exercise => {
+    // Filter out running exercises since they have a dedicated Run tab
+    const nonRunningExercises = exercises.filter(exercise => 
+      !(exercise.name === 'Running' && exercise.exerciseBodyPart === 'Cardio')
+    )
+    
+    nonRunningExercises.forEach(exercise => {
       addDailyExercise(exercise)
     })
+    
+    // Show warning if template contained running exercises
+    if (exercises.length !== nonRunningExercises.length) {
+      showToast('info', 'Running exercises skipped', 'Use the Run tab to track runs')
+    }
   }
 
   const onStartWorkoutPressed = () => {
@@ -47,7 +58,8 @@ const WorkoutTemplateDetailScreen = () => {
       TOAST_TEMPLATE_EXERCISES_ADDED,
       stringWithParameters(TOAST_TEMPLATE_EXERCISES_ADDED_BODY, selectedTemplate.name)
     )
-    pop(2)
+    
+    navigation.pop(2)
   }
 
   const renderItem = ({item}: ListRenderItemInfo<Exercise>) => (

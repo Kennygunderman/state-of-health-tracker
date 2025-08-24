@@ -11,6 +11,7 @@ import Screens from '@constants/Screens'
 import {MACROS_TITLE, WORKOUTS_TITLE} from '@constants/Strings'
 
 import MealsStack from './MealsStack'
+import RunsStack from './RunsStack'
 import WorkoutsStack from './WorkoutsStack'
 
 const Tab = createBottomTabNavigator()
@@ -23,6 +24,10 @@ const HomeTabs = () => {
   )
 
   const barbellIcon = (color: string) => <Ionicons name="barbell" size={24} color={color} style={{marginBottom: -3}} />
+
+  const runIcon = (color: string) => (
+    <MaterialCommunityIcons name="run" size={24} color={color} style={{marginBottom: -3}} />
+  )
 
   const accountIcon = (color: string) => (
     <MaterialCommunityIcons name="account" size={24} color={color} style={{marginBottom: -3}} />
@@ -39,6 +44,7 @@ const HomeTabs = () => {
         tabBarIcon: ({color}) => {
           if (route.name === 'MealsStack') return macrosIcon(color)
           if (route.name === 'WorkoutsStack') return barbellIcon(color)
+          if (route.name === 'RunsStack') return runIcon(color)
           if (route.name === Screens.ACCOUNT) return accountIcon(color)
           if (route.name === Screens.DEBUG) return debugIcon(color)
         },
@@ -53,6 +59,8 @@ const HomeTabs = () => {
       <Tab.Screen name={'MealsStack'} component={MealsStack} options={{title: MACROS_TITLE}} />
 
       <Tab.Screen name={'WorkoutsStack'} component={WorkoutsStack} options={{title: WORKOUTS_TITLE}} />
+
+      <Tab.Screen name={'RunsStack'} component={RunsStack} options={{title: 'Runs'}} />
 
       <Tab.Screen name={Screens.ACCOUNT} component={AccountScreen} />
 

@@ -36,6 +36,7 @@ export const darkTheme = {
     accentColor: accent,
     primary,
     primarySelected,
+    primaryBackground: tertiary,
     tertiary,
     secondary,
     secondaryLighter,
@@ -46,9 +47,12 @@ export const darkTheme = {
     chip: secondary,
     border: secondary,
     fireOrange: '#FF9502',
+    orange: '#FF9502',
     error: '#da2839',
     errorLight: '#fc7784',
-    success: '#34b471'
+    success: '#34b471',
+    warning: '#FFB366',
+    notification: '#f1505b'
   }
 }
 

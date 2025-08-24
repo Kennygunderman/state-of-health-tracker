@@ -21,6 +21,7 @@ import {showToast} from '@components/toast/util/ShowToast'
 
 import Spacing from '@constants/Spacing'
 import {SEARCH_ADD_EXERCISE_ERROR, SEARCH_ADD_EXERCISE_SUCCESS, SEARCH_EXERCISES_PLACEHOLDER} from '@constants/Strings'
+import Screens from '@constants/Screens'
 
 import styles from './index.styled'
 import {Navigation} from '../../navigation/types'
@@ -28,7 +29,7 @@ import {Navigation} from '../../navigation/types'
 const LoadBatchSize = 50
 
 const SearchExercisesScreen = () => {
-  const {popToTop} = useNavigation<Navigation>()
+  const navigation = useNavigation<Navigation>()
   const theme = useStyleTheme()
 
   const [searchText, setSearchText] = useState('')
@@ -56,9 +57,14 @@ const SearchExercisesScreen = () => {
           const exercise = findExercise(payload.name, payload.exerciseType)
 
           if (exercise) {
-            showToast('success', SEARCH_ADD_EXERCISE_SUCCESS, payload.name)
-            addDailyExercise(exercise)
-            popToTop()
+            // Skip running exercises since they now have a dedicated Run tab
+            if (exercise.name === 'Running' && exercise.exerciseBodyPart === 'Cardio') {
+              showToast('info', 'Use the Run tab to track your runs', '')
+            } else {
+              showToast('success', SEARCH_ADD_EXERCISE_SUCCESS, payload.name)
+              addDailyExercise(exercise)
+            }
+            navigation.popToTop()
           }
         } else if (event === CreateExerciseEvent.Error) {
           showToast('error', SEARCH_ADD_EXERCISE_ERROR)

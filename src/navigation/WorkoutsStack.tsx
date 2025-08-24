@@ -10,6 +10,7 @@ import PreviousWorkoutEntries from '@screens/PreviousWorkoutEntries'
 import SearchExercisesScreen from '@screens/SearchExercises'
 import WorkoutTemplateDetailScreen from '@screens/TemplateDetail'
 import WorkoutsScreen from '@screens/Workouts'
+import RunFlowScreen from '@screens/RunFlow'
 
 import Screens from '@constants/Screens'
 import {PREVIOUS_WORKOUTS_TITLE} from '@constants/Strings'
@@ -67,6 +68,18 @@ const WorkoutsStack = () => {
         name={Screens.PREVIOUS_DAILY_EXERCISE_ENTRIES}
         options={{title: PREVIOUS_WORKOUTS_TITLE}}
         component={PreviousWorkoutEntries}
+      />
+
+      <Stack.Screen
+        name={Screens.RUN_FLOW}
+        options={{
+          title: 'Nike Run',
+          headerStyle: {
+            backgroundColor: useStyleTheme().colors.background
+          },
+          headerShown: false
+        }}
+        component={RunFlowScreen}
       />
     </Stack.Navigator>
   )

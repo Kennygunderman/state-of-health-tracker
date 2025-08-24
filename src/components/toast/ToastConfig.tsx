@@ -41,5 +41,22 @@ export default {
         fontWeight: '300'
       }}
     />
+  ),
+  info: (props: ToastProps) => (
+    <BaseToast
+      {...props}
+      style={{borderLeftColor: useStyleTheme().colors.secondary, backgroundColor: useStyleTheme().colors.tertiary}}
+      contentContainerStyle={{paddingHorizontal: Spacing.MEDIUM}}
+      text1Style={{
+        color: useStyleTheme().colors.text,
+        fontSize: FontSize.H3,
+        fontWeight: '400'
+      }}
+      text2Style={{
+        color: useStyleTheme().colors.text,
+        fontSize: FontSize.PARAGRAPH,
+        fontWeight: '300'
+      }}
+    />
   )
 }

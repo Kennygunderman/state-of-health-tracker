@@ -21,7 +21,10 @@
       "icon": "./assets/icon.png",
       "buildNumber": "17",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to track your running routes and provide accurate distance and speed measurements.",
+        "NSLocationAlwaysUsageDescription": "This app uses location to track your running routes even when the app is in the background.",
+        "NSLocationWhenInUseUsageDescription": "This app uses location to track your running routes and provide accurate distance and speed measurements."
       }
     },
     "plugins": [
@@ -39,7 +42,15 @@
         }
       ],
       "expo-font",
-      "expo-file-system"
+      "expo-file-system",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "This app uses location to track your running routes and provide accurate distance and speed measurements.",
+          "locationAlwaysPermission": "This app uses location to track your running routes even when the app is in the background.",
+          "locationWhenInUsePermission": "This app uses location to track your running routes and provide accurate distance and speed measurements."
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"

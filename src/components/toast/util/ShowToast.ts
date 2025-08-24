@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics'
 import Toast from 'react-native-toast-message'
 const TOAST_LENGTH = 3_000
 
-export const showToast = (type: 'success' | 'error', text1: string, text2?: string) => {
+export const showToast = (type: 'success' | 'error' | 'info', text1: string, text2?: string) => {
   Toast.show({
     type,
     text1,
@@ -12,7 +12,8 @@ export const showToast = (type: 'success' | 'error', text1: string, text2?: stri
 
   if (type === 'success') {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-  } else {
+  } else if (type === 'error') {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
   }
+  // No haptic feedback for info type
 }

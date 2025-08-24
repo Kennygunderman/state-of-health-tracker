@@ -15,5 +15,6 @@ export default {
   WORKOUT_TEMPLATE_DETAIL: 'Workout Template',
   DEBUG: 'Debug',
   CREATE_TEMPLATE: 'Create Template',
-  SEARCH_EXERCISES: 'Search Exercises'
+  SEARCH_EXERCISES: 'Search Exercises',
+  RUN_FLOW: 'Run Flow'
 } as const

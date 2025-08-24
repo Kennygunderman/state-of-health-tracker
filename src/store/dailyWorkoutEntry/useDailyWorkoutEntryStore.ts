@@ -156,7 +156,8 @@ const useDailyWorkoutEntryStore = create<DailyWorkoutState>()(
         })
 
         persist()
-      }
+      },
+
     }
   })
 )
