@@ -14,6 +14,7 @@ import GlobalBottomSheet from './src/components/GlobalBottomSheet'
 import ToastConfig from './src/components/toast/ToastConfig'
 import AuthStack from './src/navigation/AuthStack'
 import HomeTabs from './src/navigation/HomeTabs'
+import RunFlowScreen from './src/screens/RunFlow'
 import store, {useThunkDispatch} from './src/store'
 import useAuthStore from './src/store/auth/useAuthStore'
 import {syncUserData} from '@store/user/UserActions'
@@ -88,6 +89,15 @@ const App = () => {
                 options={{
                   animation: 'fade',
                   headerShown: false
+                }}
+              />
+              <Stack.Screen
+                name="RunFlowModal"
+                component={RunFlowScreen}
+                options={{
+                  presentation: 'modal',
+                  headerShown: false,
+                  gestureEnabled: false
                 }}
               />
             </Stack.Navigator>

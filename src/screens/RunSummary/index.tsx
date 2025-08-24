@@ -162,7 +162,7 @@ const RunSummaryScreen: React.FC = () => {
             <Text style={{color: theme.colors.white, fontSize: 18, fontWeight: 'bold'}}>
               Run {date}
             </Text>
-            <Text style={{color: theme.colors.grey, fontSize: 14}}>
+            <Text style={{color: theme.colors.grey, fontSize: 14, marginTop: 4}}>
               Started at {startTime}
             </Text>
           </View>
@@ -202,13 +202,6 @@ const RunSummaryScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Buttons */}
-        <View style={styles.buttonContainer}>
-          <PrimaryButton
-            label="Back to Runs"
-            onPress={handleBackToRuns}
-          />
-        </View>
       </ScrollView>
     </View>
   )

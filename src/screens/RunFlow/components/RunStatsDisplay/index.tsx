@@ -59,16 +59,7 @@ const RunStatsDisplay: React.FC<RunStatsDisplayProps> = ({ session, isTracking }
   if (!session) {
     return (
       <View style={styles.container}>
-        <View style={styles.readyContainer}>
-          <MaterialCommunityIcons 
-            name="run" 
-            size={120} 
-            color={theme.colors.secondary}
-            style={styles.readyIcon}
-          />
-          <Text style={styles.readyText}>Ready to Run!</Text>
-          <Text style={styles.readySubtext}>Tap "Start Run" to begin tracking your workout</Text>
-        </View>
+        {/* Empty state - countdown will handle the ready display */}
       </View>
     )
   }
@@ -88,10 +79,16 @@ const RunStatsDisplay: React.FC<RunStatsDisplayProps> = ({ session, isTracking }
 
         <View style={styles.primaryStatContainer}>
           <Text style={styles.primaryStatLabel}>DISTANCE</Text>
-          <Text style={styles.primaryStatValue}>
-            {formatDistance(session.stats.totalDistance)}
-          </Text>
-          <Text style={styles.primaryStatUnit}>mi</Text>
+          <View style={{ position: 'relative', alignItems: 'center' }}>
+            <Text style={styles.primaryStatValue}>
+              {formatDistance(session.stats.totalDistance)}
+            </Text>
+            <Text style={[styles.primaryStatUnit, { 
+              position: 'absolute', 
+              right: -24, 
+              bottom: 4
+            }]}>mi</Text>
+          </View>
         </View>
       </View>
 
@@ -162,12 +159,12 @@ const RunStatsDisplay: React.FC<RunStatsDisplayProps> = ({ session, isTracking }
             backgroundColor: isTracking 
               ? theme.colors.success 
               : session.isPaused 
-                ? theme.colors.warning 
+                ? theme.colors.orange 
                 : theme.colors.secondary 
           }
         ]} />
         <Text style={styles.statusText}>
-          {isTracking ? 'Recording...' : session.isPaused ? 'Paused' : 'Stopped'}
+          {isTracking ? 'Tracking run....' : session.isPaused ? 'Paused' : 'Stopped'}
         </Text>
       </View>
     </View>

@@ -37,8 +37,7 @@ const RunsStack = () => {
         name="RunHistory"
         component={RunHistoryScreen}
         options={{
-          title: 'Runs',
-          headerShown: true
+          headerShown: false
         }}
       />
       <Stack.Screen
@@ -63,7 +62,12 @@ const RunsStack = () => {
         component={RunSummaryScreen}
         options={{
           title: 'Run Summary',
-          headerShown: true
+          headerShown: true,
+          headerBackTitleVisible: false,
+          headerShadowVisible: false,
+          headerStyle: {
+            backgroundColor: theme.colors.secondary
+          }
         }}
       />
     </Stack.Navigator>

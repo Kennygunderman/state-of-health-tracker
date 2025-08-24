@@ -1,5 +1,9 @@
-import React, {useEffect} from 'react'
-import {View, Text, FlatList, Alert, StyleSheet, Pressable} from 'react-native'
+import React, {useEffect, useState} from 'react'
+import {View, Text, SectionList, StyleSheet, Pressable, SafeAreaView} from 'react-native'
+import LinearGradient from 'react-native-linear-gradient'
+
+import FontSize from '@constants/FontSize'
+import Spacing from '@constants/Spacing'
 
 import {useNavigation, useFocusEffect} from '@react-navigation/native'
 import {NativeStackNavigationProp} from '@react-navigation/native-stack'
@@ -8,14 +12,16 @@ import PrimaryButton from '@components/PrimaryButton'
 import SecondaryButton from '@components/SecondaryButton'
 import LoadingOverlay from '@components/LoadingOverlay'
 import SwipeDeleteListItem from '@components/SwipeDeleteListItem'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import {useStyleTheme} from '@theme/Theme'
 import useRunFlowStore from '@store/runFlow/useRunFlowStore'
 import runTrackingService from '@service/run/RunTrackingService'
 import {RunsStackParamList} from '@navigation/RunsStack'
+import {RootStackParamList} from '@navigation/types'
 import {RunSession} from '@store/runFlow/useRunFlowStore'
 import ListSwipeItemManager from '../../utility/ListSwipeItemManager'
 
-type RunHistoryScreenNavigationProp = NativeStackNavigationProp<RunsStackParamList, 'RunHistory'>
+type RunHistoryScreenNavigationProp = NativeStackNavigationProp<RunsStackParamList & RootStackParamList>
 
 // Create swipe manager instance outside component to persist across renders
 const listSwipeItemManager = new ListSwipeItemManager()
@@ -26,12 +32,38 @@ const RunHistoryScreen: React.FC = () => {
   
   const {
     startRun,
+    startSimulation,
     runHistory: runs,
     isLoadingHistory: isLoadingRuns,
     loadRunHistory,
     deleteRun: deleteRunFromStore
   } = useRunFlowStore()
 
+  // State for delete confirmation modal
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false)
+  const [runToDelete, setRunToDelete] = useState<{id: string, name: string} | null>(null)
+
+  // Group runs by date
+  const groupRunsByDate = (runs: RunSession[]) => {
+    const grouped = runs.reduce((acc, run) => {
+      const date = new Date(run.startTime || Date.now()).toLocaleDateString()
+      if (!acc[date]) {
+        acc[date] = []
+      }
+      acc[date].push(run)
+      return acc
+    }, {} as Record<string, RunSession[]>)
+
+    return Object.entries(grouped)
+      .sort(([dateA], [dateB]) => new Date(dateB).getTime() - new Date(dateA).getTime())
+      .map(([date, runs]) => ({
+        title: date,
+        data: runs
+      }))
+  }
+
+  const sections = groupRunsByDate(runs)
+  
   // Update swipe manager with current runs
   listSwipeItemManager.setRows(runs.map(run => ({ id: run.id || '' })))
 
@@ -43,27 +75,35 @@ const RunHistoryScreen: React.FC = () => {
   )
 
   const handleStartRun = async () => {
-    // Navigate to RunFlow screen where the actual run logic is handled
-    navigation.navigate('RunFlow')
+    // Navigate to RunFlowModal (modal presentation)
+    navigation.navigate('RunFlowModal')
+  }
+
+  const handleSimulateRun = () => {
+    startSimulation()
+    navigation.navigate('RunFlowModal')
   }
 
   const handleRunPress = (runId: string) => {
-    navigation.navigate('RunSummary', {runId})
+    navigation.navigate('RunSummary', { runId })
   }
 
   const handleDeleteRun = (runId: string, runName: string) => {
-    Alert.alert(
-      'Delete Run',
-      `Are you sure you want to delete "${runName}"? This action cannot be undone.`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => deleteRunFromStore(runId)
-        }
-      ]
-    )
+    setRunToDelete({ id: runId, name: runName })
+    setIsDeleteModalVisible(true)
+  }
+
+  const handleDeleteConfirmed = () => {
+    if (runToDelete) {
+      deleteRunFromStore(runToDelete.id)
+    }
+    setIsDeleteModalVisible(false)
+    setRunToDelete(null)
+  }
+
+  const handleDeleteCancelled = () => {
+    setIsDeleteModalVisible(false)
+    setRunToDelete(null)
   }
 
   const renderRunItem = ({item, index}: {item: RunSession, index: number}) => {
@@ -120,15 +160,6 @@ const RunHistoryScreen: React.FC = () => {
         <Pressable
           style={[styles.runItemContainer, {backgroundColor: theme.colors.primary, borderColor: theme.colors.border}]}
           onPress={() => item.id && handleRunPress(item.id)}>
-          <View style={styles.runItemHeader}>
-            <Text style={{color: theme.colors.white, fontSize: 16, fontWeight: 'bold'}}>
-              {'Run'}
-            </Text>
-            <Text style={{color: theme.colors.grey, fontSize: 14}}>
-              {date}
-            </Text>
-          </View>
-          
           <View style={styles.runItemStats}>
             <View style={styles.statItem}>
               <Text style={[styles.statValue, {color: theme.colors.white}]}>{distance}</Text>
@@ -178,31 +209,85 @@ const RunHistoryScreen: React.FC = () => {
     </View>
   )
 
-  if (isLoadingRuns) {
+  if (isLoadingRuns && runs.length === 0) {
     return <LoadingOverlay />
   }
 
-  return (
-    <View style={[styles.container, {backgroundColor: theme.colors.background}]}>
-      <View style={{padding: 20}}>
-        <PrimaryButton
-          label={'Start New Run'}
-          onPress={handleStartRun}
-        />
-      </View>
+  const renderHeader = () => (
+    <Text style={[styles.title, {color: theme.colors.white}]}>Runs</Text>
+  )
 
-      {runs.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <FlatList
-          data={runs}
-          keyExtractor={(item, index) => item?.id || `run-${index}`}
-          renderItem={renderRunItem}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 20}}
-        />
-      )}
+  const renderSectionHeader = ({section}: {section: {title: string}}) => (
+    <View style={[styles.sectionHeaderContainer, {backgroundColor: theme.colors.background}]}>
+      <Text style={[styles.sectionHeader, {color: theme.colors.white}]}>{section.title}</Text>
     </View>
+  )
+
+  return (
+    <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
+      {runs.length === 0 ? (
+        <View style={{flex: 1}}>
+          {renderHeader()}
+          {renderEmptyState()}
+          <View style={styles.bottomButtonContainer}>
+            <PrimaryButton
+              label={'Start New Run'}
+              onPress={handleStartRun}
+            />
+            {/* {__DEV__ && (
+              <View style={{marginTop: 10}}>
+                <SecondaryButton
+                  label="Simulate Run (Dev)"
+                  onPress={handleSimulateRun}
+                />
+              </View>
+            )} */}
+          </View>
+        </View>
+      ) : (
+        <View style={{flex: 1}}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(item, index) => item?.id || `run-${index}`}
+            renderItem={renderRunItem}
+            renderSectionHeader={renderSectionHeader}
+            showsVerticalScrollIndicator={true}
+            ListHeaderComponent={renderHeader()}
+            contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 36}}
+          />
+          {/* Fade gradient to indicate more content */}
+          <LinearGradient
+            colors={['rgba(27, 29, 44, 0)', theme.colors.background]}
+            style={styles.fadeGradient}
+            pointerEvents="none"
+          />
+          <View style={styles.bottomButtonContainer}>
+            <PrimaryButton
+              label={'Start New Run'}
+              onPress={handleStartRun}
+            />
+            {/* {__DEV__ && (
+              <View style={{marginTop: 10}}>
+                <SecondaryButton
+                  label="Simulate Run (Dev)"
+                  onPress={handleSimulateRun}
+                />
+              </View>
+            )} */}
+          </View>
+        </View>
+      )}
+      
+      <ConfirmModal
+        confirmationTitle="Delete Run"
+        confirmationBody={`Are you sure you want to delete this run? This action cannot be undone.`}
+        confirmButtonText="Delete"
+        cancelButtonText="Cancel"
+        isVisible={isDeleteModalVisible}
+        onConfirmPressed={handleDeleteConfirmed}
+        onCancel={handleDeleteCancelled}
+      />
+    </SafeAreaView>
   )
 }
 
@@ -245,6 +330,33 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     textTransform: 'uppercase',
+  },
+  bottomButtonContainer: {
+    padding: 20,
+    paddingBottom: 20,
+  },
+  fadeGradient: {
+    position: 'absolute',
+    bottom: 75, // Just above the button container for seamless transition
+    left: 0,
+    right: 0,
+    height: 60,
+    zIndex: 1,
+  },
+  title: {
+    fontSize: FontSize.H1,
+    fontWeight: 'bold',
+    margin: 24,
+    marginLeft: 4, // Offset the FlatList's paddingHorizontal (20px) to achieve 24px from screen edge
+    marginTop: 24,
+    marginBottom: 16, // 8px less than the default 24px margin
+  },
+  sectionHeader: {
+    fontSize: FontSize.H3,
+    fontWeight: '200',
+    marginLeft: 0, // No margin from edge
+    paddingTop: 12,
+    paddingBottom: 12,
   },
 })
 

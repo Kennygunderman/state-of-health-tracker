@@ -70,14 +70,14 @@ export default StyleSheet.create({
     paddingHorizontal: Spacing.SMALL,
   },
   statIcon: {
-    marginBottom: Spacing.SMALL,
+    marginBottom: Spacing.X_SMALL,
   },
   statLabel: {
     fontSize: FontSize.PARAGRAPH,
     fontWeight: '500',
     textAlign: 'center',
     opacity: 0.8,
-    marginBottom: Spacing.XX_SMALL,
+    marginBottom: Spacing.X_SMALL,
   },
   statValue: {
     fontSize: FontSize.H3,

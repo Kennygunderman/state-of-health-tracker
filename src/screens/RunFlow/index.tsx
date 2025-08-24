@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Alert, SafeAreaView, View, BackHandler, TouchableOpacity } from 'react-native'
+import { Alert, SafeAreaView, View, BackHandler, TouchableOpacity, Animated } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation } from '@react-navigation/native'
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons'
@@ -7,6 +7,8 @@ import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons'
 import { Text, useStyleTheme } from '@theme/Theme'
 import PrimaryButton from '@components/PrimaryButton'
 import SecondaryButton from '@components/SecondaryButton'
+import ConfirmModal from '@components/dialog/ConfirmModal'
+import { showToast } from '@components/toast/util/ShowToast'
 
 import useRunFlowStore from '@store/runFlow/useRunFlowStore'
 import { locationTrackingService } from '@service/location/LocationTrackingService'
@@ -37,6 +39,11 @@ const RunFlowScreen = () => {
   
   const [isInitializing, setIsInitializing] = useState(false)
   const [showMap, setShowMap] = useState(false)
+  const [countdownValue, setCountdownValue] = useState(0) // 0 = no countdown, 3, 2, 1
+  const [scaleAnim] = useState(new Animated.Value(0))
+  const [fadeAnim] = useState(new Animated.Value(0))
+  const [isCancelConfirmModalVisible, setIsCancelConfirmModalVisible] = useState(false)
+  const [isFinishRunModalVisible, setIsFinishRunModalVisible] = useState(false)
 
   useEffect(() => {
     const backAction = () => {
@@ -64,6 +71,64 @@ const RunFlowScreen = () => {
     }
   }, [isTracking, addLocationPoint])
 
+  // Auto-start countdown when modal opens and no session exists
+  useEffect(() => {
+    if (!currentSession && countdownValue === 0) {
+      startCountdown()
+    }
+  }, [currentSession])
+
+  // Countdown animation effect
+  useEffect(() => {
+    if (countdownValue > 0) {
+      // Start animation
+      scaleAnim.setValue(0)
+      fadeAnim.setValue(0)
+      
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // After animation, wait then go to next number
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.timing(scaleAnim, {
+              toValue: 1.2,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(fadeAnim, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
+            if (countdownValue === 1) {
+              // Start the run after countdown
+              setCountdownValue(0)
+              handleStartRun()
+            } else {
+              // Go to next number
+              setCountdownValue(prev => prev - 1)
+            }
+          })
+        }, 500)
+      })
+    }
+  }, [countdownValue])
+
+  const startCountdown = () => {
+    setCountdownValue(3)
+  }
+
   const handleStartRun = async () => {
     setIsInitializing(true)
     try {
@@ -88,49 +153,44 @@ const RunFlowScreen = () => {
     resumeRun()
   }
 
-  const handleStopRun = async () => {
-    Alert.alert(
-      'Finish Run',
-      'Are you sure you want to finish your run? This will save it to your run history.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Finish Run', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const completedSession = await stopRun()
-              console.log('🏃‍♂️ Run completed and saved:', completedSession)
-              
-              // Navigate back
-              goBack()
-            } catch (error) {
-              Alert.alert('Error', 'Failed to save run. Please try again.')
-              console.error('❌ Failed to stop run:', error)
-            }
-          }
-        }
-      ]
-    )
+  const handleStopRun = () => {
+    setIsFinishRunModalVisible(true)
   }
 
-  const handleCancelRun = () => {
-    Alert.alert(
-      'Cancel Run',
-      'Are you sure you want to cancel your run? All data will be lost and not saved to your history.',
-      [
-        { text: 'Keep Running', style: 'cancel' },
-        { 
-          text: 'Cancel Run', 
-          style: 'destructive',
-          onPress: () => {
-            cancelRun()
-            console.log('🚫 Run cancelled')
-            goBack()
-          }
-        }
-      ]
-    )
+  const handleFinishRunConfirmed = async () => {
+    setIsFinishRunModalVisible(false)
+    try {
+      const completedSession = await stopRun()
+      console.log('🏃‍♂️ Run completed and saved:', completedSession)
+      
+      // Show success toast
+      showToast('success', 'Run Completed!', 'Your run has been saved to your history')
+      
+      // Navigate back
+      goBack()
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save run. Please try again.')
+      console.error('❌ Failed to stop run:', error)
+    }
+  }
+
+  const handleFinishRunCancelled = () => {
+    setIsFinishRunModalVisible(false)
+  }
+
+  const handleCancelRunPressed = () => {
+    setIsCancelConfirmModalVisible(true)
+  }
+
+  const handleCancelRunConfirmed = () => {
+    cancelRun()
+    console.log('🚫 Run cancelled')
+    setIsCancelConfirmModalVisible(false)
+    goBack()
+  }
+
+  const handleCancelRunCancelled = () => {
+    setIsCancelConfirmModalVisible(false)
   }
 
   const handleBackPress = () => {
@@ -154,7 +214,7 @@ const RunFlowScreen = () => {
           { 
             text: 'Cancel Run', 
             style: 'destructive',
-            onPress: handleCancelRun
+            onPress: handleCancelRunPressed
           }
         ]
       )
@@ -192,45 +252,25 @@ const RunFlowScreen = () => {
       { paddingBottom: Math.max(insets.bottom + 20, 40) } // Ensure sufficient bottom padding
     ]
 
-    if (!currentSession) {
+    // If there's a session, show the finish button
+    if (currentSession) {
       return (
         <View style={controlsStyle}>
           <PrimaryButton
-            label={isInitializing ? "Starting..." : "Start Run"}
-            onPress={handleStartRun}
-            disabled={isInitializing}
+            label="Finish Run"
+            onPress={handleStopRun}
           />
-          {__DEV__ && (
-            <SecondaryButton
-              label="Simulate Run (Dev)"
-              onPress={startSimulation}
-              style={{ marginTop: 10 }}
-            />
-          )}
         </View>
       )
     }
 
-    // Only show Finish Run button at bottom during active run
-    return (
-      <View style={controlsStyle}>
-        <PrimaryButton
-          label="Finish Run"
-          onPress={handleStopRun}
-        />
-      </View>
-    )
+    // If no session and countdown isn't running, show nothing (countdown will auto-start)
+    return <View style={controlsStyle} />
   }
 
   const renderHeader = () => (
     <View style={styles.headerContainer}>
       <Text style={styles.headerTitle}>Run</Text>
-      <Text style={styles.headerSubtitle}>
-        {currentSession 
-          ? currentSession.isPaused ? 'Paused' : 'Running...'
-          : 'Ready to start'
-        }
-      </Text>
       
       {/* Top left pause/play button */}
       {currentSession && (
@@ -250,7 +290,7 @@ const RunFlowScreen = () => {
       {currentSession && (
         <TouchableOpacity 
           style={styles.topLeftSecondButton}
-          onPress={handleCancelRun}
+          onPress={handleCancelRunPressed}
         >
           <Ionicons 
             name="close" 
@@ -276,6 +316,48 @@ const RunFlowScreen = () => {
     </View>
   )
 
+  const renderCountdown = () => {
+    if (countdownValue === 0) return null
+
+    return (
+      <View style={[
+        {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }
+      ]}>
+        <Animated.View style={{
+          transform: [{ scale: scaleAnim }],
+          opacity: fadeAnim
+        }}>
+          <Text style={{
+            fontSize: 120,
+            fontWeight: 'bold',
+            color: theme.colors.white,
+            textAlign: 'center'
+          }}>
+            {countdownValue}
+          </Text>
+        </Animated.View>
+        <Text style={{
+          fontSize: 18,
+          color: theme.colors.white,
+          marginTop: 20,
+          textAlign: 'center'
+        }}>
+          Get ready to run!
+        </Text>
+      </View>
+    )
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {renderHeader()}
@@ -296,6 +378,28 @@ const RunFlowScreen = () => {
       </View>
 
       {renderControls()}
+      {renderCountdown()}
+      
+      <ConfirmModal
+        confirmationTitle="Stop Run?"
+        confirmationBody="Are you sure you want to stop your run? All data will be lost and not saved to your history."
+        confirmButtonText="Stop Run"
+        cancelButtonText="Continue"
+        isVisible={isCancelConfirmModalVisible}
+        onConfirmPressed={handleCancelRunConfirmed}
+        onCancel={handleCancelRunCancelled}
+      />
+      
+      <ConfirmModal
+        confirmationTitle="Finish Run"
+        confirmationBody="Are you sure you want to finish your run? This will save it to your run history."
+        confirmButtonText="Finish Run"
+        confirmButtonColor={theme.colors.success}
+        cancelButtonText="Cancel"
+        isVisible={isFinishRunModalVisible}
+        onConfirmPressed={handleFinishRunConfirmed}
+        onCancel={handleFinishRunCancelled}
+      />
     </SafeAreaView>
   )
 }

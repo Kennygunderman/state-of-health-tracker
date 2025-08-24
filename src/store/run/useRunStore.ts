@@ -161,6 +161,30 @@ const useRunStore = create<RunState>()(
       const {userId} = useAuthStore.getState()
       if (!userId) return null
 
+      // Check if distance is less than 0.05 miles (safety check)
+      const actualDistanceMeters = runTrackingService.calculateTotalDistance(currentSession.coordinates)
+      const distanceInMiles = actualDistanceMeters / 1609.34
+      
+      console.log('CompleteRun - Distance safety check:', {
+        actualDistanceMeters,
+        distanceInMiles,
+        coordinatesCount: currentSession.coordinates.length,
+        minimumRequired: 0.05
+      })
+      
+      if (distanceInMiles < 0.05) {
+        console.log('Run cancelled - distance too short:', distanceInMiles)
+        // Cancel the run instead of saving it
+        await runTrackingService.stopTracking()
+        
+        set({
+          currentSession: null,
+          runStatus: RunStatus.STOPPED
+        })
+        
+        return null // Return null to indicate the run was cancelled
+      }
+
       await runTrackingService.stopTracking()
 
       // Calculate final stats

@@ -19,6 +19,7 @@ interface Props {
   confirmationBody: string
   confirmButtonText?: string
   confirmButtonColor?: string
+  cancelButtonText?: string
   isVisible: boolean
   onConfirmPressed: () => void
   onCancel: () => void
@@ -30,6 +31,7 @@ const ConfirmModal = (props: Props) => {
     confirmationBody,
     confirmButtonText = DELETE_BUTTON_TEXT,
     confirmButtonColor = useStyleTheme().colors.error,
+    cancelButtonText = CANCEL_BUTTON_TEXT,
     isVisible,
     onConfirmPressed,
     onCancel
@@ -96,7 +98,7 @@ const ConfirmModal = (props: Props) => {
               style={{
                 padding: Spacing.X_SMALL
               }}
-              label={CANCEL_BUTTON_TEXT}
+              label={cancelButtonText}
               onPress={() => {
                 onCancel()
               }}

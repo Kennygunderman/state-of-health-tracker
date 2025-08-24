@@ -15,6 +15,7 @@ export type RootStackParamList = {
   'Search Exercises': undefined
   Home: undefined
   Auth: NavigatorScreenParams<AuthStackParamList>
+  RunFlowModal: undefined
 }
 
 export type Navigation = NativeStackNavigationProp<RootStackParamList>
