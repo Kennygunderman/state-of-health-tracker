@@ -20,5 +20,10 @@ export default {
   REGISTER: 'Register',
   LOG_IN: 'Log In',
   FORGOT_PASSWORD: 'Forgot Password',
-  CREATE_TEMPLATE: 'Create Template'
+  CREATE_TEMPLATE: 'Create Template',
+  COACH_INTRO: 'Coach Intro',
+  COACH_SETUP: 'Coach Setup',
+  COACH_PROFILE: 'Coach Profile',
+  COACH_REVEAL: 'Coach Reveal',
+  COACH_SETTINGS: 'Coach Settings'
 } as const

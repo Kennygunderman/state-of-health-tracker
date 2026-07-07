@@ -760,3 +760,159 @@ export const AI_FREE_FOR_NOW_CAPTION = 'Free for a limited time'
 export const AI_DAILY_LIMIT_TOAST = "You've used today's free AI estimates. More tomorrow!"
 
 export const AI_UNAVAILABLE_TEXT = 'AI logging is temporarily unavailable. Check back soon.'
+
+export const EXPENDITURE_CARD_LABEL = 'Expenditure'
+
+export const EXPENDITURE_CARD_UNIT = 'kcal/day'
+
+export const EXPENDITURE_CARD_CAPTION = 'Your estimated daily burn, measured from your food logs and weigh-ins.'
+
+export const EXPENDITURE_CALIBRATING_HINT =
+  'Calibrating — log meals and weigh in regularly and this becomes your measured expenditure in about two weeks.'
+
+export const EXPENDITURE_CONFIDENCE_CALIBRATING = 'Calibrating'
+
+export const EXPENDITURE_CONFIDENCE_LOW = 'Rough estimate'
+
+export const EXPENDITURE_CONFIDENCE_MEDIUM = 'Good estimate'
+
+export const EXPENDITURE_CONFIDENCE_HIGH = 'Measured'
+
+export const COACH_CARD_TITLE = 'Coach'
+
+export const COACH_CARD_PITCH_BODY = 'Calorie & macro targets that adapt to your real expenditure — updated every Monday.'
+
+export const COACH_CARD_PITCH_CTA = 'Set up Coach'
+
+export const COACH_CARD_TARGET_TEXT = '%0 kcal target this week'
+
+export const COACH_CARD_EXPENDITURE_TEXT = 'Expenditure %0 kcal/day'
+
+export const COACH_CARD_PAUSED_TEXT = 'Paused — targets are frozen'
+
+export const COACH_CARD_MANAGE = 'Manage'
+
+export const COACH_INTRO_TITLE = 'Meet Coach'
+
+export const COACH_INTRO_SUBTITLE = 'Adaptive calorie & macro targets, measured from your own logs — not a formula.'
+
+export const COACH_INTRO_POINT_1_TITLE = 'Your real expenditure'
+
+export const COACH_INTRO_POINT_1_BODY = 'Coach measures how much you actually burn from your food logs and weigh-ins.'
+
+export const COACH_INTRO_POINT_2_TITLE = 'Targets that keep up'
+
+export const COACH_INTRO_POINT_2_BODY = 'Every Monday your calories and macros adjust to keep you on your chosen pace.'
+
+export const COACH_INTRO_POINT_3_TITLE = 'No judgment'
+
+export const COACH_INTRO_POINT_3_BODY = 'Go over? It’s just data. Coach never scolds — it recalibrates.'
+
+export const COACH_INTRO_CTA = 'Get started'
+
+export const COACH_SETUP_TITLE = 'Your goal'
+
+export const COACH_SETUP_SUBTITLE = 'You can change this anytime.'
+
+export const COACH_GOAL_LOSE = 'Lose'
+
+export const COACH_GOAL_MAINTAIN = 'Maintain'
+
+export const COACH_GOAL_GAIN = 'Gain'
+
+export const COACH_RATE_HEADER = 'Weekly pace'
+
+export const COACH_RATE_GENTLE = 'Gentle'
+
+export const COACH_RATE_STANDARD = 'Standard'
+
+export const COACH_RATE_AGGRESSIVE = 'Aggressive'
+
+export const COACH_RATE_RAPID = 'Rapid'
+
+export const COACH_RATE_LEAN = 'Lean'
+
+export const COACH_RATE_FAST = 'Fast'
+
+export const COACH_RATE_PCT_TEXT = '%0% of body weight per week'
+
+export const COACH_RATE_WEEKLY_TEXT = '≈ %0 %1/week'
+
+export const COACH_CONTINUE = 'Continue'
+
+export const COACH_PROFILE_TITLE = 'About you'
+
+export const COACH_PROFILE_SUBTITLE = 'Optional — these sharpen your starting estimate while Coach calibrates. They never leave your account.'
+
+export const COACH_PROFILE_SEX_LABEL = 'Sex'
+
+export const COACH_SEX_MALE = 'Male'
+
+export const COACH_SEX_FEMALE = 'Female'
+
+export const COACH_SEX_UNSPECIFIED = 'Skip'
+
+export const COACH_PROFILE_AGE_LABEL = 'Age'
+
+export const COACH_PROFILE_HEIGHT_LABEL = 'Height'
+
+export const COACH_PROFILE_HEIGHT_FT_PLACEHOLDER = 'ft'
+
+export const COACH_PROFILE_HEIGHT_IN_PLACEHOLDER = 'in'
+
+export const COACH_PROFILE_HEIGHT_CM_PLACEHOLDER = 'cm'
+
+export const COACH_REVEAL_TITLE = 'Your starting point'
+
+export const COACH_REVEAL_EXPENDITURE_LABEL = 'Estimated expenditure'
+
+export const COACH_REVEAL_BODY =
+  'Coach sets your targets now and refines them every Monday as your logs and weigh-ins teach it your real burn. About two weeks of logging makes it fully measured.'
+
+export const COACH_REVEAL_CTA = 'Start Coach'
+
+export const COACH_REVEAL_ERROR = 'Could not start Coach. Try again.'
+
+export const COACH_ENROLLED_TOAST = 'Coach is on — targets updated!'
+
+export const COACH_CHECKIN_TITLE = 'Your week is ready'
+
+export const COACH_CHECKIN_EXPENDITURE_TEXT = 'Expenditure %0 kcal/day'
+
+export const COACH_CHECKIN_UPDATED_BODY = 'New targets for this week, tuned to your measured burn and pace.'
+
+export const COACH_CHECKIN_HELD_BODY =
+  'Not enough data to update this week, so your targets are holding steady. A few more logged days and weigh-ins will sharpen things.'
+
+export const COACH_CHECKIN_CALORIES_LABEL = 'Calories'
+
+export const COACH_CHECKIN_PROTEIN_LABEL = 'Protein'
+
+export const COACH_CHECKIN_CARBS_LABEL = 'Carbs'
+
+export const COACH_CHECKIN_FAT_LABEL = 'Fat'
+
+export const COACH_CHECKIN_CTA = 'Sounds good'
+
+export const COACH_CHECKIN_HINT = 'Adjust your goal anytime from the Coach card.'
+
+export const COACH_SETTINGS_TITLE = 'Coach'
+
+export const COACH_SETTINGS_SAVE = 'Save changes'
+
+export const COACH_SETTINGS_SAVED_TOAST = 'Coach updated — new targets are in.'
+
+export const COACH_SETTINGS_PAUSE = 'Pause Coach'
+
+export const COACH_SETTINGS_RESUME = 'Resume Coach'
+
+export const COACH_SETTINGS_PAUSED_BODY = 'Paused: targets stay frozen while Coach keeps measuring in the background.'
+
+export const COACH_SETTINGS_TURN_OFF = 'Turn off Coach'
+
+export const COACH_TURN_OFF_MODAL_TITLE = 'Turn off Coach?'
+
+export const COACH_TURN_OFF_MODAL_BODY =
+  'Your targets keep their current values and become editable again. Your expenditure tracking stays.'
+
+export const COACH_TURNED_OFF_TOAST = 'Coach is off. Targets are yours again.'

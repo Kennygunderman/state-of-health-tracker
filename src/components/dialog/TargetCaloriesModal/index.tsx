@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react'
 
 import {MaterialCommunityIcons} from '@expo/vector-icons'
+import {useUpdateMacroTargetsMutation} from '@queries/macros/useUpdateMacroTargetsMutation'
 import useUserData from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
 import {isNumber} from '@utility/TextUtility'
@@ -21,6 +22,7 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
 
   const targetCalories = useUserData(state => state.targetCalories)
   const setTargetCalories = useUserData(state => state.setTargetCalories)
+  const {mutate: updateTargets} = useUpdateMacroTargetsMutation()
 
   const [value, setValue] = useState(targetCalories.toString())
   const [showError, setShowError] = useState(false)
@@ -39,7 +41,13 @@ const TargetCaloriesModal = (props: BaseInputModalProps) => {
     onDismissed()
     setShowError(false)
 
-    setTargetCalories(parseInt(value, 10))
+    const calories = parseInt(value, 10)
+
+    setTargetCalories(calories)
+    // Fire-and-forget server sync: the Zustand value stays the offline
+    // fallback (resolveMacroTargets), so a failed sync self-heals on the
+    // next save. The server copy is what the Coach engine reads.
+    updateTargets({calories})
   }
 
   return (

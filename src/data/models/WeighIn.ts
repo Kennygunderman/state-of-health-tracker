@@ -1,3 +1,5 @@
+import {WeightUnit} from './WeightUnit'
+
 export interface WeighIn {
   id: string
   weight: number
@@ -7,4 +9,5 @@ export interface WeighIn {
 export interface LogWeighInPayload {
   weight: number
   loggedAt: string
+  unit: WeightUnit
 }

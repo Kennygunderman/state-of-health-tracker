@@ -1,3 +1,4 @@
+import {CoachGoal, CoachSex} from '@data/models/CoachState'
 import {Food} from '@data/models/Food'
 import {MealEntry} from '@data/models/MealEntry'
 import {NavigatorScreenParams, RouteProp} from '@react-navigation/native'
@@ -21,6 +22,19 @@ export type RootStackParamList = {
   'Food Detail': FoodDetailParams
   'Log with AI': {mealId?: string; initialText?: string} | undefined
   'Macros History': undefined
+  'Coach Intro': undefined
+  'Coach Setup': undefined
+  'Coach Profile': {goal: CoachGoal; ratePctBw: number}
+  'Coach Reveal': CoachRevealParams
+  'Coach Settings': undefined
+}
+
+export type CoachRevealParams = {
+  goal: CoachGoal
+  ratePctBw: number
+  sex: CoachSex | null
+  birthDate: string | null
+  heightCm: number | null
 }
 
 // 'add' shows "Add to {meal}" for a library/branded food; 'update' edits the

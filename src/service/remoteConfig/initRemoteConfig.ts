@@ -5,7 +5,10 @@ remoteConfig().setDefaults({
   // Kill switch for all AI logging (estimate + label scan). Flip to false in
   // the Firebase console to hide the feature; the backend AI_FEATURES_ENABLED
   // env var is the authoritative server-side switch.
-  log_with_ai_enabled: true
+  log_with_ai_enabled: true,
+  // Kill switch for the Coach (adaptive TDEE) surfaces — the expenditure card
+  // now, enrollment/weekly plans in later phases.
+  coach_enabled: true
 })
 
 remoteConfig().setConfigSettings({
@@ -22,4 +25,8 @@ export const getMinimumAppVersion = () => {
 
 export const isLogWithAiEnabled = () => {
   return remoteConfig().getValue('log_with_ai_enabled').asBoolean()
+}
+
+export const isCoachEnabled = () => {
+  return remoteConfig().getValue('coach_enabled').asBoolean()
 }

@@ -24,6 +24,12 @@ const Endpoints = {
   AiUsage: `${baseApiUrl}/macros/ai-usage`,
   MacroLabelScan: `${baseApiUrl}/macros/label-scan`,
   MacroTargets: `${baseApiUrl}/user/targets`,
+  UserProfile: `${baseApiUrl}/user/profile`,
+  CoachState: `${baseApiUrl}/coach/state`,
+  Coach: `${baseApiUrl}/coach`,
+  CoachEnroll: `${baseApiUrl}/coach/enroll`,
+  CoachSettings: `${baseApiUrl}/coach/settings`,
+  CoachCheckInAck: (planId: string) => `${baseApiUrl}/coach/checkin/${planId}/ack`,
   Foods: `${baseApiUrl}/foods`,
   Food: (foodId: string) => `${baseApiUrl}/foods/${foodId}`,
   BrandedFoodSearch: (query: string) => `${baseApiUrl}/macros/search-branded-foods?q=${encodeURIComponent(query)}`

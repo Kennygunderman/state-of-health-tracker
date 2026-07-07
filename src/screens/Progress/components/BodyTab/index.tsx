@@ -9,6 +9,7 @@ import {useDeleteWeighInMutation} from '@queries/weighIns/useDeleteWeighInMutati
 import {useWeighInsQuery} from '@queries/weighIns/useWeighInsQuery'
 import {useNavigation} from '@react-navigation/native'
 import {NativeStackNavigationProp} from '@react-navigation/native-stack'
+import {isCoachEnabled} from '@service/remoteConfig/initRemoteConfig'
 import useUserData from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
 import {formatDateToMonthDay, formatDateToMonthDayName, formatDateToMonthDayYear} from '@utility/DateUtility'
@@ -49,6 +50,7 @@ import {
   TOAST_WEIGH_IN_DELETE_FAILED
 } from '@constants/strings'
 
+import ExpenditureCard from '../ExpenditureCard'
 import styles from './index.styled'
 import {
   buildWeighInRows,
@@ -247,6 +249,8 @@ const BodyTab = () => {
           </View>
         </View>
       </View>
+
+      {isCoachEnabled() && <ExpenditureCard />}
 
       <View style={styles.buttonWrapper}>
         <PrimaryButton label={PROGRESS_BODY_LOG_WEIGHT_BUTTON} onPress={onLogWeightPressed} />

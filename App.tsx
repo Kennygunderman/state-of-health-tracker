@@ -14,6 +14,7 @@ import Toast from 'react-native-toast-message'
 
 import GlobalBottomSheet from './src/components/GlobalBottomSheet'
 import MinimumVersionSheet from './src/components/MinimumVersionSheet'
+import ProfileSync from './src/components/ProfileSync'
 import ToastConfig from './src/components/toast/ToastConfig'
 import AuthStack from './src/navigation/AuthStack'
 import HomeTabs from './src/navigation/HomeTabs'
@@ -111,6 +112,8 @@ const App = () => {
                 />
               </Stack.Navigator>
             )}
+
+            <ProfileSync />
 
             <GlobalBottomSheet />
 

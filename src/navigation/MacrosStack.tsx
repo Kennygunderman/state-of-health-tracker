@@ -4,6 +4,11 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack'
 import {Theme} from '@styles/theme'
 
 import AddFoodScreen from '@screens/AddFood'
+import CoachIntroScreen from '@screens/Coach/CoachIntro'
+import CoachProfileScreen from '@screens/Coach/CoachProfile'
+import CoachRevealScreen from '@screens/Coach/CoachReveal'
+import CoachSettingsScreen from '@screens/Coach/CoachSettings'
+import CoachSetupScreen from '@screens/Coach/CoachSetup'
 import CreateFoodScreen from '@screens/CreateFood'
 import FoodDetailScreen from '@screens/FoodDetail'
 import LogWithAIScreen from '@screens/LogWithAI'
@@ -34,6 +39,16 @@ const MacrosStack = () => {
       <Stack.Screen name={Screens.LOG_WITH_AI} component={LogWithAIScreen} options={{title: ''}} />
 
       <Stack.Screen name={Screens.MACROS_HISTORY} component={MacrosHistoryScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.COACH_INTRO} component={CoachIntroScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.COACH_SETUP} component={CoachSetupScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.COACH_PROFILE} component={CoachProfileScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.COACH_REVEAL} component={CoachRevealScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.COACH_SETTINGS} component={CoachSettingsScreen} options={{title: ''}} />
     </Stack.Navigator>
   )
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, {useEffect} from 'react'
 
 import {ScrollView, StyleSheet, TouchableOpacity, View} from 'react-native'
 
@@ -6,10 +6,11 @@ import {DailyMacros} from '@data/models/DailyMacros'
 import {Meal} from '@data/models/Meal'
 import {MealEntry} from '@data/models/MealEntry'
 import {Navigation} from '@navigation/types'
+import {useCoachStateQuery} from '@queries/coach/useCoachStateQuery'
 import {useDailyMacrosQuery} from '@queries/macros/useDailyMacrosQuery'
 import {useDeleteMealEntryMutation} from '@queries/macros/useDeleteMealEntryMutation'
 import {useNavigation} from '@react-navigation/native'
-import {isLogWithAiEnabled} from '@service/remoteConfig/initRemoteConfig'
+import {isCoachEnabled, isLogWithAiEnabled} from '@service/remoteConfig/initRemoteConfig'
 import {useSessionStore} from '@store/session/useSessionStore'
 import useUserDataStore from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
@@ -18,6 +19,7 @@ import ListSwipeItemManager from '@utility/ListSwipeItemManager'
 import Animated, {FadeIn, FadeOut} from 'react-native-reanimated'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import {openGlobalBottomSheet} from '@components/GlobalBottomSheet'
 import HistoryIcon from '@components/icons/HistoryIcon'
 import Text from '@components/Text'
 import {showToast} from '@components/toast/util/ShowToast'
@@ -25,14 +27,20 @@ import {showToast} from '@components/toast/util/ShowToast'
 import Screens from '@constants/screens'
 import {MACROS_TITLE, TOAST_GENERIC_ERROR} from '@constants/strings'
 
+import CoachCard from './components/CoachCard'
 import DailySummaryCard from './components/DailySummaryCard'
 import LogWithAICard from './components/LogWithAICard'
 import MacrosSkeleton from './components/MacrosSkeleton'
 import MealCard from './components/MealCard'
+import WeeklyCheckInSheet from './components/WeeklyCheckInSheet'
 import styles from './index.styled'
 import {resolveMacroTargets} from './index.util'
 
 const listSwipeItemManager = new ListSwipeItemManager()
+
+// Module-level so a re-mounted Macros screen doesn't re-show a check-in the
+// user already saw this app session (ack failures land here too)
+const shownCheckInPlanIds = new Set<string>()
 
 const HISTORY_ICON_SIZE = 22
 const HISTORY_ICON_STROKE_WIDTH = 2
@@ -46,8 +54,18 @@ const MacrosScreen = () => {
 
   const {data: dailyMacros, isLoading, isError, refetch} = useDailyMacrosQuery(dateIso)
   const {mutateAsync: deleteMealEntry} = useDeleteMealEntryMutation(dateIso)
+  const {data: coachState} = useCoachStateQuery()
 
   const eyebrowDate = formatIsoDayMonthDay(dateIso)
+
+  const pendingCheckIn = coachState?.mode === 'coached' ? coachState.pendingCheckIn : null
+
+  useEffect(() => {
+    if (!pendingCheckIn || shownCheckInPlanIds.has(pendingCheckIn.id)) return
+
+    shownCheckInPlanIds.add(pendingCheckIn.id)
+    openGlobalBottomSheet(<WeeklyCheckInSheet plan={pendingCheckIn} />)
+  }, [pendingCheckIn])
 
   const goToHistory = () => navigation.push(Screens.MACROS_HISTORY)
 
@@ -102,6 +120,15 @@ const MacrosScreen = () => {
         {isLogWithAiEnabled() && (
           <View style={styles.aiCardContainer}>
             <LogWithAICard onPress={goToLogWithAI} />
+          </View>
+        )}
+
+        {isCoachEnabled() && (
+          <View style={styles.aiCardContainer}>
+            <CoachCard
+              onSetUpPressed={() => navigation.push(Screens.COACH_INTRO)}
+              onManagePressed={() => navigation.push(Screens.COACH_SETTINGS)}
+            />
           </View>
         )}
 

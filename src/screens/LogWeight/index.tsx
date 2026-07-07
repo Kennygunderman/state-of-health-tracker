@@ -6,6 +6,7 @@ import {Ionicons} from '@expo/vector-icons'
 import {useWeightUnitLabel} from '@hooks/userData/useWeightUnitLabel'
 import {useLogWeighInMutation} from '@queries/weighIns/useLogWeighInMutation'
 import {useNavigation} from '@react-navigation/native'
+import useUserData from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
 import {getTimeOfDayForHour, TimeOfDay} from '@utility/TimeOfDayUtility'
 import {addDays, subDays} from 'date-fns'
@@ -45,6 +46,7 @@ const TIME_OPTIONS = [
 const LogWeightScreen = () => {
   const {goBack} = useNavigation()
   const {mutateAsync: logWeighInAsync, isPending} = useLogWeighInMutation()
+  const weightUnit = useUserData(state => state.weightUnit)
   const weightUnitLabel = useWeightUnitLabel()
 
   const [weightText, setWeightText] = useState('')
@@ -70,7 +72,7 @@ const LogWeightScreen = () => {
     setShowError(false)
 
     try {
-      await logWeighInAsync({weight, loggedAt: buildLoggedAtISO(date, timeOfDay)})
+      await logWeighInAsync({weight, loggedAt: buildLoggedAtISO(date, timeOfDay), unit: weightUnit})
       goBack()
     } catch {
       showToast('error', TOAST_WEIGHT_LOG_FAILED)
