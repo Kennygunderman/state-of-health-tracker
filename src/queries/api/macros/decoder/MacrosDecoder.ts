@@ -17,19 +17,29 @@ export const MacroTargetsResponse = io.type({
   fat: nullableNumber
 })
 
-export const MealEntryResponse = io.type({
-  id: io.string,
-  foodId: optionalString,
-  name: io.string,
-  servingText: optionalString,
-  servings: io.number,
-  calories: io.number,
-  protein: io.number,
-  carbs: io.number,
-  fat: io.number,
-  inputMethod: io.string,
-  loggedAt: io.string
-})
+export const MealEntryResponse = io.intersection([
+  io.type({
+    id: io.string,
+    foodId: optionalString,
+    name: io.string,
+    servingText: optionalString,
+    servings: io.number,
+    calories: io.number,
+    protein: io.number,
+    carbs: io.number,
+    fat: io.number,
+    inputMethod: io.string,
+    loggedAt: io.string
+  }),
+  // Present and explicitly null on entries the server wrote before meal
+  // planning shipped; absent entirely from a server that predates the columns.
+  // nutritionProvenance decodes as a loose string so an unrecognised future
+  // value cannot fail the whole response — the converter narrows it.
+  io.partial({
+    mealPlanMealId: optionalString,
+    nutritionProvenance: optionalString
+  })
+])
 
 export const MealResponse = io.type({
   id: io.string,

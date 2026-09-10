@@ -12,6 +12,8 @@ const makeEntry = (overrides: Partial<MealEntry> = {}): MealEntry => ({
   fat: 4,
   inputMethod: InputMethodEnum.LIBRARY,
   loggedAt: '2026-07-03T12:00:00.000Z',
+  mealPlanMealId: null,
+  nutritionProvenance: null,
   ...overrides
 })
 

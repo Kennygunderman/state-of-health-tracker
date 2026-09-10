@@ -1,8 +1,11 @@
+import {NutritionProvenance} from './NutritionProvenance'
+
 export enum FoodSourceEnum {
   MANUAL = 'manual',
   LABEL_SCAN = 'label_scan',
   BRANDED = 'branded',
-  SEED = 'seed'
+  SEED = 'seed',
+  CATALOG = 'catalog'
 }
 
 export interface Food {
@@ -17,6 +20,9 @@ export interface Food {
   fat: number
   brand: string | null
   source: FoodSourceEnum
+  // Both populated only for catalog-sourced foods; absent on personal and branded foods
+  catalogFoodId?: string
+  nutritionProvenance?: NutritionProvenance
 }
 
 export interface CreateFoodPayload {

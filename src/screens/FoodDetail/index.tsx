@@ -11,6 +11,15 @@ import {useLogMealEntryMutation} from '@queries/macros/useLogMealEntryMutation'
 import {useUpdateMealEntryMutation} from '@queries/macros/useUpdateMealEntryMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {
+  applyFractionPart,
+  formatServingsDisplay,
+  isFractionSelected,
+  PerServingMacros,
+  scaleMacros,
+  SERVING_FRACTIONS,
+  stepServings
+} from '@utility/ServingsUtility'
 
 import MacroGramRow from '@components/MacroGramRow'
 import PrimaryButton from '@components/PrimaryButton'
@@ -31,19 +40,12 @@ import {
 import MacroDonut, {MACRO_COLORS} from './components/MacroDonut'
 import styles from './index.styled'
 import {
-  applyFractionPart,
   buildMacroBreakdown,
   dominantMacroKey,
   formatDetailSubtitle,
   formatMacroSummary,
-  formatServingsDisplay,
-  isFractionSelected,
   MACRO_LABELS,
-  MacroKey,
-  PerServingMacros,
-  scaleMacros,
-  SERVING_FRACTIONS,
-  stepServings
+  MacroKey
 } from './index.util'
 
 // Missing from @constants/strings — the toast string is 'Added to' but there is

@@ -1,8 +1,18 @@
+import {
+  MEAL_ENTRY_ESTIMATED_LABEL,
+  MEAL_ENTRY_FROM_MEAL_PLAN_LABEL,
+  MEAL_ENTRY_INGREDIENT_DERIVED_LABEL,
+  MEAL_ENTRY_SOURCE_BACKED_LABEL
+} from '@constants/strings'
+
+import {NutritionProvenance} from './NutritionProvenance'
+
 export enum InputMethodEnum {
   LIBRARY = 'library',
   SEARCH = 'search',
   AI_TEXT = 'ai_text',
-  AI_PHOTO = 'ai_photo'
+  AI_PHOTO = 'ai_photo',
+  MEAL_PLAN = 'meal_plan'
 }
 
 export interface MealEntry {
@@ -18,6 +28,10 @@ export interface MealEntry {
   fat: number
   inputMethod: InputMethodEnum
   loggedAt: string
+  // Always present on new responses; explicitly null on entries the server
+  // wrote before meal planning shipped.
+  mealPlanMealId: string | null
+  nutritionProvenance: NutritionProvenance | null
 }
 
 export interface LogMealEntryPayload {
@@ -31,6 +45,13 @@ export interface LogMealEntryPayload {
   fat: number
   inputMethod?: InputMethodEnum
   rawInput?: string
+}
+
+export interface LogCatalogMealEntryPayload {
+  catalogFoodId: string
+  servings: number
+  servingText?: string
+  inputMethod: InputMethodEnum.SEARCH
 }
 
 export interface UpdateMealEntryPayload {
@@ -80,4 +101,31 @@ function roundQuantity(value: number): number {
 
 export function isEstimatedEntry(entry: MealEntry): boolean {
   return entry.inputMethod === InputMethodEnum.AI_TEXT || entry.inputMethod === InputMethodEnum.AI_PHOTO
+}
+
+export function isFromMealPlan(entry: MealEntry): boolean {
+  return entry.inputMethod === InputMethodEnum.MEAL_PLAN
+}
+
+// Diary caption. Origin outranks provenance: a planned meal is built from
+// source-backed ingredients, so it reads as its origin. 'user_entered' and the
+// legacy null both carry no source claim and fall back to the AI-estimate rule.
+export function entryProvenanceLabel(entry: MealEntry): string | null {
+  if (isFromMealPlan(entry)) {
+    return MEAL_ENTRY_FROM_MEAL_PLAN_LABEL
+  }
+
+  if (entry.nutritionProvenance === 'source_backed') {
+    return MEAL_ENTRY_SOURCE_BACKED_LABEL
+  }
+
+  if (entry.nutritionProvenance === 'ingredient_derived') {
+    return MEAL_ENTRY_INGREDIENT_DERIVED_LABEL
+  }
+
+  if (entry.nutritionProvenance === 'ai_estimated') {
+    return MEAL_ENTRY_ESTIMATED_LABEL
+  }
+
+  return isEstimatedEntry(entry) ? MEAL_ENTRY_ESTIMATED_LABEL : null
 }
