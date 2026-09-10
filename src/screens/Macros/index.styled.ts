@@ -1,6 +1,6 @@
 import {StyleSheet} from 'react-native'
 
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight, LetterSpacing} from '@styles/fontSize'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -18,10 +18,10 @@ export default StyleSheet.create({
   },
   dateOverline: {
     fontSize: FontSize.OVERLINE,
-    fontWeight: '600',
+    fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.accentGreen,
     textTransform: 'uppercase',
-    letterSpacing: 0.6
+    letterSpacing: LetterSpacing.OVERLINE
   },
   dateOverlineTouchable: {
     alignSelf: 'flex-start',
@@ -34,12 +34,15 @@ export default StyleSheet.create({
   },
   screenTitle: {
     fontSize: FontSize.SCREEN_TITLE,
-    fontWeight: '700',
-    letterSpacing: -0.4,
+    fontWeight: FontWeight.BOLD,
+    letterSpacing: LetterSpacing.TITLE,
     marginTop: Spacing.XX_SMALL
   },
   historyButton: {
     padding: Spacing.X_SMALL
+  },
+  segmentRow: {
+    marginTop: Spacing.MEDIUM
   },
   summaryCardContainer: {
     marginTop: Spacing.MEDIUM
@@ -57,7 +60,7 @@ export default StyleSheet.create({
   },
   retryText: {
     fontSize: FontSize.PARAGRAPH,
-    fontWeight: '600',
+    fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textSecondary,
     textAlign: 'center'
   }

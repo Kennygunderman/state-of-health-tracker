@@ -23,7 +23,9 @@ export const LineHeight = {
   STAT_LG: 32.2,
   GREETING: 25.3,
   BODY: 21.75,
+  ROW_VALUE: 19.5,
   META: 18.85,
+  OPTION_SUBCOPY: 17.55,
   OVERLINE: 13.31
 }
 
@@ -32,10 +34,12 @@ export const LetterSpacing = {
   TITLE: -0.4,
   HERO: -1.0,
   OVERLINE: 0.6,
+  EYEBROW: 1,
   NONE: 0
 }
 
 export const FontWeight = {
+  EXTRA_LIGHT: '200',
   REGULAR: '400',
   SEMIBOLD: '600',
   BOLD: '700'

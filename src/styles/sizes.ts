@@ -1,15 +1,19 @@
 // Entries are named for their purpose, never their value — equal numbers on
 // different purposes are intentional and must not be collapsed.
 export const Sizes = {
+  PILL_SM: 32,
+  CHIP: 32,
   CONTROL_SM: 36,
   CONTROL: 44,
   CONTROL_LG: 48,
   CTA: 52,
+  ADD_CONTROL: 28,
 
   TILE_SM: 40,
   TILE: 56,
   HERO_TILE: 76,
   HERO_TILE_SM: 70,
+  HERO_BAND_H: 180,
   RING: 104,
   EMPTY_TILE: 104,
 
@@ -20,14 +24,27 @@ export const Sizes = {
   SPINNER: 18,
   SPINNER_LG: 76,
 
+  SKELETON_BAR: 14,
+  SKELETON_BAR_SM: 11,
+
   SEGMENT_TRACK_INSET: 2,
+  SEGMENT_COMPACT_INSET_V: 5,
   PROGRESS_SEGMENT_W: 33,
   PROGRESS_SEGMENT_H: 4,
+  PROGRESS_BAR_H: 6,
   TOUCH_TARGET: 44,
+
+  SKELETON_BAR_W: 193.68,
+  SKELETON_BAR_H: 14,
+  SKELETON_BAR_W_SM: 129.12,
+  SKELETON_BAR_H_SM: 11,
+  STEPPER_BAR_W: 14,
+  STEPPER_BAR_H: 2,
 
   CONTENT_MAX_WIDTH: 600,
   EMPTY_BLOCK_BOTTOM: 40,
   EMPTY_BLOCK_BOTTOM_LG: 60,
+  FOOTER_MIN_BOTTOM: 22,
 
   ICON_XS: 15,
   ICON_SM: 17,

@@ -1,8 +1,9 @@
 import {DimensionValue, StyleSheet, ViewStyle} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight} from '@styles/fontSize'
 import Shadow from '@styles/shadow'
+import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -19,8 +20,11 @@ export default StyleSheet.create({
     paddingHorizontal: Spacing.SMALL,
     alignItems: 'center'
   },
+  innerDisabled: {
+    opacity: Opacity.DISABLED
+  },
   label: {
-    fontWeight: '600',
+    fontWeight: FontWeight.SEMIBOLD,
     fontSize: FontSize.H3,
     color: Theme.colors.white,
     marginLeft: Spacing.XX_SMALL,

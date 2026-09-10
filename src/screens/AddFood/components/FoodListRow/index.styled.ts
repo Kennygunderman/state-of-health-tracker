@@ -20,6 +20,17 @@ export default StyleSheet.create({
     flex: 1,
     marginRight: Spacing.SMALL
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.X_SMALL
+  },
+  nameLine: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: 'auto'
+  },
   name: {
     fontSize: FontSize.BODY,
     fontWeight: 'bold'

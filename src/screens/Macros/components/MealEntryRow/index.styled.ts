@@ -1,6 +1,6 @@
 import {StyleSheet} from 'react-native'
 
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -18,11 +18,17 @@ export default StyleSheet.create({
   },
   name: {
     fontSize: FontSize.BODY,
-    fontWeight: '600'
+    fontWeight: FontWeight.SEMIBOLD
   },
   servingText: {
-    fontWeight: '400',
+    fontWeight: FontWeight.REGULAR,
     color: Theme.colors.textSecondary
+  },
+  provenanceCaption: {
+    fontSize: FontSize.LABEL,
+    lineHeight: LineHeight.META,
+    fontWeight: FontWeight.REGULAR,
+    color: Theme.colors.textMuted
   },
   caloriesContainer: {
     flexDirection: 'row',
@@ -31,7 +37,7 @@ export default StyleSheet.create({
   },
   calories: {
     fontSize: FontSize.BODY,
-    fontWeight: '700'
+    fontWeight: FontWeight.BOLD
   },
   caloriesLabel: {
     fontSize: FontSize.CAPTION,
