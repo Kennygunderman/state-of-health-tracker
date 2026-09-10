@@ -5,7 +5,11 @@ remoteConfig().setDefaults({
   // Kill switch for all AI logging (estimate + label scan). Flip to false in
   // the Firebase console to hide the feature; the backend AI_FEATURES_ENABLED
   // env var is the authoritative server-side switch.
-  log_with_ai_enabled: true
+  log_with_ai_enabled: true,
+  // Defaults to false, unlike the flag above: a never-fetched or offline
+  // install must hide meal planning rather than show it unseeded. The backend
+  // MEAL_PLANNING_ENABLED env var is the second gate.
+  meal_planning_enabled: false
 })
 
 remoteConfig().setConfigSettings({
@@ -22,4 +26,8 @@ export const getMinimumAppVersion = () => {
 
 export const isLogWithAiEnabled = () => {
   return remoteConfig().getValue('log_with_ai_enabled').asBoolean()
+}
+
+export const isMealPlanningEnabled = (): boolean => {
+  return remoteConfig().getValue('meal_planning_enabled').asBoolean()
 }

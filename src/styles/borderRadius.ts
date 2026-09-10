@@ -13,5 +13,9 @@ export default {
   INPUT: 14,
   TIP: 12,
   TILE: 10,
-  CELL: 10
+  CELL: 10,
+  EMPTY_TILE: 26,
+  CHECKBOX: 6,
+  BAR: 3,
+  SEGMENT: 2
 }

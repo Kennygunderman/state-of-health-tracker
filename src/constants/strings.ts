@@ -480,7 +480,8 @@ export const BURN_INFO_STEPS_BODY =
 
 export const BURN_INFO_RUNS_TITLE = 'Runs'
 
-export const BURN_INFO_RUNS_BODY = 'Estimated from each run’s distance. This is the same number you see on the Runs screen.'
+export const BURN_INFO_RUNS_BODY =
+  'Estimated from each run’s distance. This is the same number you see on the Runs screen.'
 
 export const BURN_INFO_DISCLAIMER =
   'Body weight comes from your most recent weigh-in. These are estimates, and actual burn varies with intensity and physiology.'
@@ -661,6 +662,10 @@ export function stringWithParameters(str: string = '', ...parameters: string[]):
   return updatedStr
 }
 
+export function stringWithNamedParameters(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce((result, [key, value]) => result.split(`{${key}}`).join(String(value)), template)
+}
+
 // --- Macros (nutrition) feature ---
 
 export const EMPTY_MEAL_CTA = 'Add food or log with AI'
@@ -767,3 +772,701 @@ export const AI_FREE_FOR_NOW_CAPTION = 'Free for a limited time'
 export const AI_DAILY_LIMIT_TOAST = "You've used today's free AI estimates. More tomorrow!"
 
 export const AI_UNAVAILABLE_TEXT = 'AI logging is temporarily unavailable. Check back soon.'
+
+// --- Meal planning: shared ---
+
+export const MEAL_PLAN_TITLE = 'Meal Plan'
+
+export const MEAL_PLAN_OVERLINE = 'Meal plan'
+
+export const DIARY_SEGMENT_LABEL = 'Diary'
+
+export const MEAL_PLAN_SEGMENT_LABEL = 'Meal Plan'
+
+export const MEAL_PLAN_CONTINUE_BUTTON_TEXT = 'Continue'
+
+export const MEAL_PLAN_SKIP_BUTTON_TEXT = 'Skip'
+
+export const MEAL_PLAN_DONE_BUTTON_TEXT = 'Done'
+
+export const MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT = 'Save changes'
+
+export const MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT = 'Try again'
+
+export const MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT = 'Edit preferences'
+
+export const MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT = 'Back to plan'
+
+export const MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT = 'Continue setup'
+
+export const MEAL_PLAN_CREATE_BUTTON_TEXT = 'Create my plan'
+
+export const MEAL_PLAN_EDIT_LINK_TEXT = 'Edit'
+
+export const MEAL_PLAN_CHANGE_LINK_TEXT = 'Change'
+
+export const MEAL_PLAN_RECALCULATE_LINK_TEXT = 'Recalculate'
+
+export const MEAL_PLAN_OPTIONAL_LABEL = 'Optional'
+
+export const MEAL_PLAN_REVIEW_HEADER_LABEL = 'Review'
+
+export const MEAL_PLAN_WIZARD_STEP_TEMPLATE = '{step} of {total}'
+
+export const MEAL_PLAN_KCAL_UNIT = 'kcal'
+
+export const MEAL_PLAN_GRAMS_UNIT = 'g'
+
+export const MEAL_PLAN_LB_UNIT = 'lb'
+
+export const MEAL_PLAN_KG_UNIT = 'kg'
+
+export const MEAL_PLAN_SELECTED_COUNT_TEMPLATE = 'Selected · {count}'
+
+export const MEAL_PLAN_SELECTED_VALUE_TEMPLATE = '{count} selected'
+
+export const MEAL_PLAN_MACRO_PAIR_TEMPLATE = '{value} / {target}g'
+
+export const MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT = 'Choose an option to continue'
+
+export const MEAL_PLAN_UNAVAILABLE_TEXT = "Meal planning isn't available right now."
+
+export const MEAL_PLAN_LOAD_ERROR_TITLE = "Couldn't load this right now."
+
+export const MEAL_PLAN_OFFLINE_BANNER_TEXT = 'Showing your last saved plan'
+
+export const MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE = "We couldn't confirm that"
+
+export const MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY = 'Check your connection and try again.'
+
+export const MEAL_PLAN_STALE_PLAN_TOAST = 'Your plan changed. Try that again.'
+
+export const MEAL_PLAN_STALE_REVISION_DIALOG_TITLE = 'Your preferences changed on another device'
+
+export const MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT = 'Use theirs'
+
+export const MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT = 'Keep mine'
+
+export const MEAL_SLOT_LABELS: Record<string, string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack'
+}
+
+export const MEAL_SLOT_SENTENCE_LABELS: Record<string, string> = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snack: 'snack'
+}
+
+export const MEAL_PLAN_GOAL_ROW_LABEL = 'Goal'
+
+export const MEAL_PLAN_DIET_ROW_LABEL = 'Diet'
+
+export const MEAL_PLAN_MEALS_ROW_LABEL = 'Meals'
+
+export const MEAL_PLAN_TARGETS_ROW_LABEL = 'Targets'
+
+export const MEAL_PLAN_ALLERGIES_ROW_LABEL = 'Allergies'
+
+export const MEAL_PLAN_MAX_COOKING_TIME_ROW_LABEL = 'Maximum cooking time'
+
+export const MEAL_PLAN_DISLIKED_INGREDIENTS_ROW_LABEL = 'Disliked ingredients'
+
+export const MEAL_PLAN_WEEKLY_BUDGET_ROW_LABEL = 'Weekly budget'
+
+// --- Meal planning: introduction (01) ---
+
+export const MEAL_PLAN_INTRO_TITLE = "Let's plan your meals."
+
+export const MEAL_PLAN_INTRO_BODY =
+  "Tell us about your goals and the foods you like. We'll build your meals and grocery list for the week."
+
+export const MEAL_PLAN_INTRO_SAMPLE_WEEK_OVERLINE = 'Example week'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BADGE_TEXT = 'Sample'
+
+export const MEAL_PLAN_INTRO_GROCERY_INCLUDED_TEXT = 'Grocery list included'
+
+export const MEAL_PLAN_INTRO_PRIMARY_BUTTON_TEXT = 'Build my plan'
+
+export const MEAL_PLAN_INTRO_DISMISS_BUTTON_TEXT = 'Not now'
+
+// --- Meal planning: your goal (02) ---
+
+export const MEAL_PLAN_GOAL_TITLE = "What's your goal?"
+
+export const MEAL_PLAN_GOAL_LABELS: Record<string, string> = {
+  lose: 'Lose weight',
+  maintain: 'Maintain weight',
+  gain: 'Gain weight'
+}
+
+export const MEAL_PLAN_GOAL_WEIGHT_HEADER = 'Goal weight'
+
+export const MEAL_PLAN_PACE_HEADER = 'How fast?'
+
+export const MEAL_PLAN_PACE_RATE_TEMPLATE = '{pace} lb a week'
+
+export const MEAL_PLAN_PACE_DEFICIT_TEMPLATE = 'About {calories} cal under maintenance'
+
+export const MEAL_PLAN_PACE_SURPLUS_TEMPLATE = 'About {calories} cal over maintenance'
+
+export const MEAL_PLAN_PACE_RECOMMENDED_SUFFIX = ' · recommended'
+
+// --- Meal planning: about you (03, 03b) ---
+
+export const MEAL_PLAN_ABOUT_YOU_TITLE = 'A little about you.'
+
+export const MEAL_PLAN_ABOUT_YOU_SUBTITLE = "We'll use this to estimate your daily targets."
+
+export const MEAL_PLAN_AGE_HEADER = 'Age'
+
+export const MEAL_PLAN_AGE_UNIT = 'years'
+
+export const MEAL_PLAN_HEIGHT_HEADER = 'Height'
+
+export const MEAL_PLAN_FEET_UNIT = 'ft'
+
+export const MEAL_PLAN_INCHES_UNIT = 'in'
+
+export const MEAL_PLAN_CM_UNIT = 'cm'
+
+export const MEAL_PLAN_CURRENT_WEIGHT_HEADER = 'Current weight'
+
+export const MEAL_PLAN_SEX_HEADER = 'Sex used for calorie estimate'
+
+export const MEAL_PLAN_SEX_LABELS: Record<string, string> = {
+  female: 'Female',
+  male: 'Male',
+  prefer_not_to_say: 'Prefer not to say'
+}
+
+export const MEAL_PLAN_WEIGHT_PREFILL_CAPTION = "From your last weigh-in. Edit if it's changed."
+
+export const MEAL_PLAN_AGE_ERROR_TEXT = 'Enter your age to continue'
+
+export const MEAL_PLAN_FEET_ERROR_TEXT = 'Enter feet to continue'
+
+export const MEAL_PLAN_INCHES_ERROR_TEXT = 'Enter inches to continue'
+
+export const MEAL_PLAN_HEIGHT_ERROR_TEXT = 'Enter your height to continue'
+
+export const MEAL_PLAN_WEIGHT_ERROR_TEXT = 'Enter your weight to continue'
+
+// --- Meal planning: activity level (04) ---
+
+export const MEAL_PLAN_ACTIVITY_TITLE = 'How active are you?'
+
+// Supersedes the Figma 04 info-card copy ("Outside of workouts you log in the
+// app."): the activity factor multiplies BMR once and already covers habitual
+// training, so the original wording contradicted the target calculation.
+export const MEAL_PLAN_ACTIVITY_INFO_BODY =
+  'Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.'
+
+export const MEAL_PLAN_ACTIVITY_LEVEL_LABELS: Record<string, string> = {
+  not_very_active: 'Not very active',
+  lightly_active: 'Lightly active',
+  active: 'Active',
+  very_active: 'Very active'
+}
+
+export const MEAL_PLAN_ACTIVITY_LEVEL_DESCRIPTIONS: Record<string, string> = {
+  not_very_active: 'Desk job, under 5,000 steps a day',
+  lightly_active: 'On your feet part of the day, or 1–2 workouts a week',
+  active: 'Moving most of the day, or 3–5 workouts a week',
+  very_active: 'Physical job, or 6+ workouts a week'
+}
+
+// --- Meal planning: diet and allergies (05) ---
+
+export const MEAL_PLAN_DIET_TITLE = 'How do you eat?'
+
+export const MEAL_PLAN_DIET_LABELS: Record<string, string> = {
+  none: 'No specific diet',
+  vegetarian: 'Vegetarian',
+  vegan: 'Vegan',
+  pescatarian: 'Pescatarian'
+}
+
+export const MEAL_PLAN_ALLERGIES_HEADER = 'Food allergies'
+
+export const MEAL_PLAN_ALLERGEN_LABELS: Record<string, string> = {
+  none: 'None',
+  milk: 'Milk',
+  eggs: 'Eggs',
+  peanuts: 'Peanuts',
+  tree_nuts: 'Tree nuts',
+  soy: 'Soy',
+  wheat: 'Wheat',
+  fish: 'Fish',
+  shellfish: 'Shellfish',
+  sesame: 'Sesame'
+}
+
+export const MEAL_PLAN_ALLERGIES_HELPER_TEXT = "We'll exclude recipes containing anything you select here."
+
+export const MEAL_PLAN_ALLERGIES_ERROR_TEXT = 'Choose None or at least one allergy'
+
+// --- Meal planning: food preferences (06, 06b) ---
+
+export const MEAL_PLAN_FOOD_PREFERENCES_TITLE = "Anything you'd rather skip?"
+
+export const MEAL_PLAN_FOOD_PREFERENCES_SUBTITLE = 'Optional. These are preferences, not allergies.'
+
+export const MEAL_PLAN_FOOD_SEARCH_PLACEHOLDER = 'Search foods and ingredients'
+
+export const MEAL_PLAN_SUGGESTIONS_HEADER = 'Suggestions'
+
+export const MEAL_PLAN_SUGGESTIONS_UNAVAILABLE_TEXT = 'Suggestions unavailable'
+
+export const MEAL_PLAN_FOOD_PREFERENCES_HELPER_TEXT = 'Add allergies on the previous screen instead.'
+
+export const MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER = 'Results'
+
+export const MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT = 'Clear all'
+
+export const MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT = 'Adding here only affects recipe suggestions.'
+
+export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query}'"
+
+// --- Meal planning: meals and schedule (07) ---
+
+export const MEAL_PLAN_SCHEDULE_TITLE = 'How many meals a day?'
+
+export const MEAL_PLAN_SCHEDULE_LABELS: Record<string, string> = {
+  three: '3 meals',
+  three_plus_snack: '3 meals + 1 snack'
+}
+
+export const MEAL_PLAN_USUAL_TIMES_HEADER = 'Usual times'
+
+export const MEAL_PLAN_SNACK_PLACEHOLDER_TEXT = 'Snack appears with 3 meals + 1 snack'
+
+export const MEAL_PLAN_SCHEDULE_FOOTNOTE = 'Approximate times are fine. You can change these later.'
+
+// --- Meal planning: cooking and budget (08) ---
+
+export const MEAL_PLAN_COOKING_BUDGET_TITLE = 'Make it fit your day.'
+
+export const MEAL_PLAN_COOKING_TIME_HEADER = 'Maximum cooking time per meal'
+
+export const MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE = '{minutes} min'
+
+export const MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE = '{minutes} minutes'
+
+export const MEAL_PLAN_BUDGET_HEADER = 'Weekly grocery budget'
+
+export const MEAL_PLAN_BUDGET_PLACEHOLDER = '$0'
+
+export const MEAL_PLAN_BUDGET_UNIT = 'per week'
+
+export const MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL = 'No budget preference'
+
+export const MEAL_PLAN_BUDGET_HELPER_TEXT = 'A preference only — grocery prices vary by store.'
+
+export const MEAL_PLAN_BUDGET_ERROR_TEXT = 'Enter a weekly budget above $0'
+
+export const MEAL_PLAN_SUMMARY_HEADER = 'Your plan so far'
+
+// --- Meal planning: targets and review (09) ---
+
+export const MEAL_PLAN_REVIEW_TITLE = "Here's your starting plan."
+
+export const MEAL_PLAN_REVIEW_MANUAL_TITLE = 'Your chosen targets.'
+
+export const MEAL_PLAN_DAILY_TARGETS_OVERLINE = 'Daily targets'
+
+export const MEAL_PLAN_CHOSEN_TARGETS_OVERLINE = 'Your chosen targets'
+
+export const MEAL_PLAN_TARGETS_CAPTION = 'Starting estimates. You can adjust them any time.'
+
+export const MEAL_PLAN_TARGETS_CLAMPED_CAPTION = "Adjusted to the app's minimum for your details"
+
+export const MEAL_PLAN_PLAN_STARTS_LABEL = 'Plan starts'
+
+export const MEAL_PLAN_YOUR_ANSWERS_OVERLINE = 'Your answers'
+
+export const MEAL_PLAN_ANSWER_DIET_LABEL = 'Diet and allergies'
+
+export const MEAL_PLAN_ANSWER_MEALS_LABEL = 'Daily meals'
+
+export const MEAL_PLAN_GENERATE_BUTTON_TEXT = 'Generate my weekly plan'
+
+export const MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE = "We couldn't calculate an estimate"
+
+export const MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT = 'Enter targets manually'
+
+// --- Meal planning: edit targets (09b) ---
+
+export const MEAL_PLAN_EDIT_TARGETS_TITLE = 'Daily targets'
+
+export const MEAL_PLAN_EDIT_TARGETS_SUBTITLE = 'These replace the estimate we calculated.'
+
+export const MEAL_PLAN_CALORIES_HEADER = 'Calories'
+
+export const MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT = 'Enter a calorie target above 0 kcal'
+
+export const MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT = 'Enter a protein target above 0 g'
+
+export const MEAL_PLAN_CARBS_TARGET_ERROR_TEXT = 'Enter a carb target above 0 g'
+
+export const MEAL_PLAN_FAT_TARGET_ERROR_TEXT = 'Enter a fat target above 0 g'
+
+export const MEAL_PLAN_MANUAL_MACROS_BANNER_BODY =
+  "Macros don't have to add up to your calorie target. We won't adjust them for you."
+
+export const MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT = 'Save targets'
+
+export const MEAL_PLAN_TARGET_WARNING_LABELS: Record<string, string> = {
+  macro_energy_mismatch: "Your macros don't add up to your calorie target.",
+  below_catalog_min: 'These targets are lower than most meals in the catalog.',
+  above_catalog_max: 'These targets are higher than most meals in the catalog.'
+}
+
+// --- Meal planning: generation (10, 10b, 10c) ---
+
+export const MEAL_PLAN_GENERATING_TITLE = 'Building your week.'
+
+export const MEAL_PLAN_GENERATING_BODY = 'This usually takes a moment.'
+
+export const MEAL_PLAN_GENERATING_SUMMARY_HEADER = 'Using your preferences'
+
+export const MEAL_PLAN_GENERATING_MEALS_PER_DAY_LABEL = 'Meals per day'
+
+export const MEAL_PLAN_GENERATING_COOKING_TIME_LABEL = 'Cooking time'
+
+export const MEAL_PLAN_GENERATION_FAILED_TITLE = "We couldn't finish your plan."
+
+export const MEAL_PLAN_GENERATION_FAILED_BODY = 'Your answers are saved. Try again, or change your preferences first.'
+
+export const MEAL_PLAN_SAVED_ANSWERS_HEADER = 'Saved answers'
+
+export const MEAL_PLAN_NO_MATCH_TITLE = 'Not enough meals match these preferences.'
+
+export const MEAL_PLAN_NO_MATCH_BODY =
+  'These are narrowing the results the most. Changing any one usually opens up the week.'
+
+export const MEAL_PLAN_ALLERGIES_KEPT_BANNER_BODY =
+  "Your allergies stay in place. We won't suggest removing them to find more meals."
+
+export const MEAL_PLAN_LIMITING_CONSTRAINT_LABELS: Record<string, string> = {
+  cooking_time: 'Maximum cooking time',
+  dislikes: 'Disliked ingredients',
+  diet: 'Diet',
+  nutrition_tolerance: 'Daily targets',
+  portion_limits: 'Portion sizes',
+  slot_coverage: 'Meal slots',
+  catalog_coverage: 'Available recipes'
+}
+
+export const MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES: Record<string, string> = {
+  minutes: '{value} minutes',
+  foods: '{value} selected',
+  percent: '{value}%',
+  recipes: '{value} recipes'
+}
+
+// --- Meal planning: plan tab (11, 11b, 11c) ---
+
+export const MEAL_PLAN_EMPTY_TITLE = 'Your week starts here.'
+
+export const MEAL_PLAN_EMPTY_BODY = "Answer a few questions and we'll build seven days of meals with a grocery list."
+
+export const MEAL_PLAN_GO_TO_DIARY_BUTTON_TEXT = 'Go to diary'
+
+export const MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT = 'Plan your next week'
+
+export const MEAL_PLAN_PLANNED_FOR_TEMPLATE = 'Planned for {day}'
+
+export const MEAL_PLAN_DAY_TARGET_TEMPLATE = 'Target {calories}'
+
+export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {count} meals'
+
+export const MEAL_PLAN_SWAP_BUTTON_TEXT = 'Swap'
+
+export const MEAL_PLAN_LOG_MEAL_BUTTON_TEXT = 'Log meal'
+
+export const MEAL_PLAN_VIEW_IN_DIARY_BUTTON_TEXT = 'View in diary'
+
+export const MEAL_PLAN_VIEW_DIARY_LINK_TEXT = 'View diary'
+
+export const MEAL_PLAN_LOGGED_BADGE_TEXT = 'LOGGED'
+
+export const MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE = 'Added to {slot}'
+
+export const MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE = "Added to {weekday}'s {slot}"
+
+export const MEAL_PLAN_TARGETS_STALE_CAPTION = 'Targets changed since this plan was built'
+
+export const MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE = 'You logged {recipe} for this slot'
+
+export const MEAL_PLAN_MEAL_FLAG_ALLERGEN_TEMPLATE = 'Contains {allergen}'
+
+export const MEAL_PLAN_LAST_DAY_TITLE = 'Last day of this plan'
+
+export const MEAL_PLAN_PLAN_ANOTHER_WEEK_BUTTON_TEXT = 'Plan another week'
+
+export const MEAL_PLAN_VIEW_NEXT_WEEK_BUTTON_TEXT = 'View next week'
+
+export const MEAL_PLAN_NEXT_WEEK_LINK_TEXT = 'Next week →'
+
+export const MEAL_PLAN_THIS_WEEK_LINK_TEXT = '← This week'
+
+export const MEAL_PLAN_SETTINGS_ROW_LABEL = 'Plan settings'
+
+// --- Meal planning: recipe detail (12) ---
+
+export const RECIPE_DETAIL_PLANNED_PORTION_LABEL = 'Your planned portion'
+
+export const RECIPE_DETAIL_INGREDIENTS_HEADER = 'Ingredients'
+
+export const RECIPE_DETAIL_INSTRUCTIONS_HEADER = 'Instructions'
+
+export const RECIPE_DETAIL_YOUR_PORTION_SEGMENT_LABEL = 'Your portion'
+
+export const RECIPE_DETAIL_FULL_RECIPE_SEGMENT_LABEL = 'Full recipe'
+
+export const RECIPE_DETAIL_UNAVAILABLE_TEXT = "This recipe isn't available"
+
+export const RECIPE_BADGE_LABELS: Record<string, string> = {
+  high_protein: 'High protein',
+  gluten_free: 'Gluten free',
+  dairy_free: 'Dairy free',
+  vegan: 'Vegan',
+  quick: 'Quick'
+}
+
+export const RECIPE_BADGE_DISCLAIMER_CAPTION = 'Based on ingredients only, not a cross-contact guarantee.'
+
+export const RECIPE_NUTRITION_METHOD_CAPTION = 'Calculated from source-backed ingredients'
+
+// --- Meal planning: swap a meal (13, 13b, 13c, 13d, 13e) ---
+
+export const SWAP_TITLE_TEMPLATE = 'Swap your {slot}'
+
+export const SWAP_CURRENT_MEAL_LABEL = 'Current meal'
+
+export const SWAP_CURRENT_MEAL_UNCHANGED_LABEL = 'Current meal, unchanged'
+
+export const SWAP_STILL_YOURS_TEMPLATE = 'Still your {slot}'
+
+export const SWAP_ALTERNATIVES_HEADER = 'Alternatives'
+
+export const SWAP_FITS_TARGETS_LABEL = 'Fits your targets'
+
+export const SWAP_FINDING_ALTERNATIVES_TEXT = 'Finding alternatives'
+
+export const SWAP_ALTERNATIVES_FOOTNOTE =
+  "Opening an alternative doesn't replace your meal — you confirm on the next screen."
+
+export const SWAP_ALTERNATIVES_ERROR_TEXT = "Couldn't find alternatives right now."
+
+export const SWAP_NO_ALTERNATIVES_TITLE = 'No alternatives for this slot'
+
+export const SWAP_NO_ALTERNATIVES_BODY_TEMPLATE =
+  'Nothing else matches your targets, cooking time, and dislikes for {slot} this week.'
+
+export const SWAP_NO_ALTERNATIVES_BANNER_BODY =
+  'Your allergies stay in place. Cooking time and dislikes are the usual limits here.'
+
+export const SWAP_KEEP_CURRENT_MEAL_BUTTON_TEXT = 'Keep current meal'
+
+export const SWAP_FAILED_TITLE = "We couldn't swap that meal"
+
+export const SWAP_FAILED_BODY_TEMPLATE = 'Your {slot} is unchanged and your grocery list was not updated.'
+
+export const SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT = 'Back to alternatives'
+
+export const SWAP_PREVIEW_REPLACING_TEMPLATE = 'Replacing {slot} · {date}'
+
+export const SWAP_PREVIEW_THIS_MEAL_LABEL = 'This meal'
+
+export const SWAP_PREVIEW_DAY_TOTAL_TEMPLATE = '{day} total if you swap'
+
+export const SWAP_PREVIEW_OF_TARGET_TEMPLATE = 'of {calories} kcal'
+
+export const SWAP_PREVIEW_DELTA_DOWN_TEMPLATE = '−{calories} cal'
+
+export const SWAP_PREVIEW_DELTA_UP_TEMPLATE = '+{calories} cal'
+
+export const SWAP_USE_THIS_MEAL_BUTTON_TEXT = 'Use this meal'
+
+export const SWAP_SUCCESS_TOAST = 'Meal swapped. Grocery list updated.'
+
+export const SWAP_RECIPE_INELIGIBLE_TOAST = 'That meal no longer fits your plan.'
+
+// --- Meal planning: grocery list (14, 14b, 14c) ---
+
+export const GROCERY_LIST_TITLE = 'Grocery list'
+
+export const GROCERY_UNCHECK_ALL_BUTTON_TEXT = 'Uncheck all'
+
+export const GROCERY_UPDATED_AFTER_SWAP_TEMPLATE = 'Updated after your {slot} swap'
+
+export const GROCERY_CHECKED_PROGRESS_TEMPLATE = '{checked} of {total} checked'
+
+export const GROCERY_CHECKED_HEADER_TEMPLATE = 'Checked · {count}'
+
+export const GROCERY_STILL_ON_LIST_CAPTION = 'Still on your list'
+
+export const GROCERY_AMOUNT_INCREASED_TITLE = 'One amount went up after your swap'
+
+export const GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE =
+  '{name} is flagged below. It stays checked so nothing disappears from your list.'
+
+export const GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE = '{count} amounts went up after your swaps'
+
+export const GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE =
+  '{count} items are flagged below. They stay checked so nothing disappears from your list.'
+
+export const GROCERY_FLAG_CHANGE_TEMPLATE = 'Now {newAmount}, was {oldAmount}'
+
+export const GROCERY_FLAG_DELTA_TEMPLATE = '+{delta}'
+
+export const GROCERY_CATEGORY_LABELS: Record<string, string> = {
+  produce: 'Produce',
+  protein: 'Protein',
+  dairy_alternatives: 'Dairy & alternatives',
+  grains_bread: 'Grains & bread',
+  pantry_other: 'Pantry & other'
+}
+
+export const GROCERY_NO_PLAN_EYEBROW = 'No active plan'
+
+export const GROCERY_NO_PLAN_TITLE = 'Nothing to shop for yet'
+
+export const GROCERY_NO_PLAN_BODY = 'Your grocery list fills in from the meals in your weekly plan.'
+
+export const GROCERY_EMPTY_PLAN_TITLE = 'No groceries in this plan'
+
+export const GROCERY_EMPTY_PLAN_BODY = "This plan doesn't need any ingredients right now."
+
+// --- Meal planning: log a planned meal (15) ---
+
+export const LOG_PLANNED_MEAL_TITLE = 'Log this meal'
+
+export const LOG_PLANNED_MEAL_RECIPE_OVERLINE = 'RECIPE'
+
+export const LOG_PLANNED_MEAL_ADD_TO_HEADER = 'Add to'
+
+export const LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT = 'Add to diary'
+
+export const LOG_PLANNED_MEAL_SLOT_FALLBACK_CAPTION = 'Choose where this goes in your diary'
+
+// --- Meal planning: plan settings (16, 16b) ---
+
+export const PLAN_SETTINGS_TITLE = 'Plan settings'
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_SINGULAR = '1 meal no longer matches your diet'
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_TEMPLATE = '{count} meals no longer match your diet'
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_SINGULAR_TEMPLATE =
+  '{meal} contains {allergen}. It stays flagged until you swap it.'
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_TEMPLATE =
+  '{meals} contain {allergen}. They stay flagged until you swap them.'
+
+export const PLAN_SETTINGS_REVIEW_AFFECTED_BUTTON_TEXT = 'Review affected meals'
+
+export const PLAN_SETTINGS_GOAL_AND_BODY_LABEL = 'Goal and body'
+
+export const PLAN_SETTINGS_ACTIVITY_AND_PACE_LABEL = 'Activity and pace'
+
+export const PLAN_SETTINGS_NUTRITION_TARGETS_LABEL = 'Nutrition targets'
+
+export const PLAN_SETTINGS_DIET_AND_ALLERGIES_LABEL = 'Diet and allergies'
+
+export const PLAN_SETTINGS_MEAL_SCHEDULE_LABEL = 'Meal schedule'
+
+export const PLAN_SETTINGS_COOKING_AND_BUDGET_LABEL = 'Cooking time and budget'
+
+export const PLAN_SETTINGS_FOOTNOTE = 'Your edits are saved. Choose how they apply below.'
+
+export const PLAN_SETTINGS_USE_FOR_NEXT_PLAN_BUTTON_TEXT = 'Use for next plan'
+
+export const PLAN_SETTINGS_REGENERATE_BUTTON_TEXT = 'Regenerate this week'
+
+export const PLAN_REGENERATE_DIALOG_TITLE = "Replace this week's plan?"
+
+export const PLAN_REGENERATE_DIALOG_BODY_TEMPLATE =
+  "Your planned meals and grocery list for {range} will change. Food you've already logged stays in your diary."
+
+export const PLAN_REGENERATE_PLANNED_MEALS_LABEL = 'Planned meals'
+
+export const PLAN_REGENERATE_GROCERY_LIST_LABEL = 'Grocery list'
+
+export const PLAN_REGENERATE_LOGGED_FOOD_LABEL = 'Logged food'
+
+export const PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE = '{count} replaced'
+
+export const PLAN_REGENERATE_GROCERY_REBUILT_TEXT = 'Rebuilt'
+
+export const PLAN_REGENERATE_GROCERY_EMPTY_TEXT = 'No items'
+
+export const PLAN_REGENERATE_NOTHING_LOGGED_TEXT = 'Nothing logged yet'
+
+export const PLAN_REGENERATE_ONE_ENTRY_KEPT_TEXT = '1 entry kept'
+
+export const PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE = '{count} entries kept'
+
+export const PLAN_REGENERATE_CONFIRM_BUTTON_TEXT = 'Replace plan'
+
+export const PLAN_REGENERATE_DISMISS_BUTTON_TEXT = 'Keep current plan'
+
+// --- Meal planning: catalog search and nutrition provenance ---
+
+export const CATALOG_HEADER = 'Catalog'
+
+export const BRANDED_HEADER = 'Branded'
+
+export const CATALOG_SEARCH_ERROR_TEXT = "Couldn't search right now."
+
+export const CATALOG_PROVENANCE_BADGE_LABELS: Record<string, string> = {
+  source_backed: 'Source-backed',
+  ingredient_derived: 'Estimated from ingredients',
+  ai_estimated: 'AI estimate'
+}
+
+export const MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'
+
+export const MEAL_ENTRY_SOURCE_BACKED_LABEL = 'Source-backed'
+
+export const MEAL_ENTRY_INGREDIENT_DERIVED_LABEL = 'Estimated from ingredients'
+
+export const MEAL_ENTRY_ESTIMATED_LABEL = 'Estimated'
+
+// --- Meal planning: accessibility labels ---
+
+export const MEAL_PLAN_BACK_ACCESSIBILITY_LABEL = 'Go back'
+
+export const MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL = 'Open grocery list'
+
+export const MEAL_PLAN_SETTINGS_ACCESSIBILITY_LABEL = 'Open plan settings'
+
+export const MEAL_PLAN_CLEAR_SEARCH_ACCESSIBILITY_LABEL = 'Clear search'
+
+export const MEAL_PLAN_DAY_CHIP_ACCESSIBILITY_TEMPLATE = 'Show meals for {day}'
+
+export const MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE = 'Swap {recipe}'
+
+export const MEAL_PLAN_LOG_MEAL_ACCESSIBILITY_TEMPLATE = 'Log {recipe}'
+
+export const MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE = 'View {recipe} in your diary'
+
+export const MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE = 'Add {name}'
+
+export const MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE = 'Remove {name}'
+
+export const MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Decrease servings'
+
+export const MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Increase servings'
+
+export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
+
+export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
+
+export const GROCERY_UNCHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Uncheck {name}'

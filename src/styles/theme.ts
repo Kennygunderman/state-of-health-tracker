@@ -28,8 +28,10 @@ const greenOnTint = '#5FDCAC'
 const tealTint = '#14282E'
 const danger = '#E2685E'
 const dangerTint = '#39241F'
+const dangerBorder = 'rgba(226,104,94,0.4)'
 
 const white = '#fff'
+const heroScrim = 'rgba(8,13,10,0.6)'
 
 export const Theme = {
   dark: true,
@@ -75,6 +77,8 @@ export const Theme = {
     tealTint,
     danger,
     dangerTint,
+    dangerBorder,
+    heroScrim,
     barMuted: '#33453B',
     barMid: '#57A67F',
     barActive: green,

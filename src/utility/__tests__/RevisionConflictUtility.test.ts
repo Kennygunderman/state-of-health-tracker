@@ -1,0 +1,405 @@
+import {resolveStaleRevision} from '../RevisionConflictUtility'
+
+type MealTime = {slot: string; time: string}
+
+type PreferencesShape = {
+  goal: string | null
+  age: number | null
+  weightKg: number | null
+  diet: string | null
+  allergens: string[]
+  dislikedFoodIds: string[]
+  mealSchedule: string | null
+  mealTimes: MealTime[]
+  cookingTimeLimitMin: number | null
+  budget: {amount: number; currency: string} | null
+  noBudgetPreference: boolean
+  timeZone: string | null
+}
+
+type TargetsShape = {
+  calories: number | null
+  protein: number | null
+  carbs: number | null
+  fat: number | null
+}
+
+const PREFERENCE_FIELDS = [
+  'goal',
+  'age',
+  'weightKg',
+  'diet',
+  'allergens',
+  'dislikedFoodIds',
+  'mealSchedule',
+  'mealTimes',
+  'cookingTimeLimitMin',
+  'budget',
+  'noBudgetPreference',
+  'timeZone'
+] as const
+
+const TARGET_FIELDS = ['calories', 'protein', 'carbs', 'fat'] as const
+
+const freshPreferences = (overrides: Partial<PreferencesShape> = {}): PreferencesShape => ({
+  goal: 'lose',
+  age: 34,
+  weightKg: 82.6,
+  diet: 'none',
+  allergens: ['milk', 'peanuts'],
+  dislikedFoodIds: ['a1', 'b2'],
+  mealSchedule: 'three',
+  mealTimes: [
+    {slot: 'breakfast', time: '08:00'},
+    {slot: 'lunch', time: '12:30'},
+    {slot: 'dinner', time: '18:30'}
+  ],
+  cookingTimeLimitMin: 30,
+  budget: {amount: 90, currency: 'USD'},
+  noBudgetPreference: false,
+  timeZone: 'Pacific/Auckland',
+  ...overrides
+})
+
+describe('resolveStaleRevision', () => {
+  describe('silent resolution', () => {
+    it('resolves when every compared field is identical', () => {
+      const fresh = freshPreferences()
+      const draft: Partial<PreferencesShape> = freshPreferences()
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('resolves an empty field list', () => {
+      const fresh = freshPreferences()
+
+      expect(resolveStaleRevision({cookingTimeLimitMin: 45}, fresh, [])).toEqual({status: 'resolved'})
+    })
+
+    it('resolves an empty draft', () => {
+      const fresh = freshPreferences()
+
+      expect(resolveStaleRevision({}, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('ignores a listed field the draft never carried, even when the fresh value differs', () => {
+      const fresh = freshPreferences({cookingTimeLimitMin: 60})
+
+      expect(resolveStaleRevision({goal: 'lose'}, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('ignores a field explicitly set to undefined in the draft', () => {
+      const fresh = freshPreferences({age: 41})
+      const draft: Partial<PreferencesShape> = {age: undefined}
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('treats null as equal to null', () => {
+      const fresh = freshPreferences({budget: null, timeZone: null})
+
+      expect(resolveStaleRevision({budget: null, timeZone: null}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'resolved'
+      })
+    })
+
+    it('resolves a false boolean draft value that matches', () => {
+      const fresh = freshPreferences({noBudgetPreference: false})
+
+      expect(resolveStaleRevision({noBudgetPreference: false}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'resolved'
+      })
+    })
+  })
+
+  describe('primitive comparison', () => {
+    it('reports a single differing primitive', () => {
+      const fresh = freshPreferences({cookingTimeLimitMin: 45})
+
+      expect(resolveStaleRevision({cookingTimeLimitMin: 30}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['cookingTimeLimitMin']
+      })
+    })
+
+    it('names every differing field in compare order', () => {
+      const fresh = freshPreferences({goal: 'gain', cookingTimeLimitMin: 45})
+      const draft: Partial<PreferencesShape> = {cookingTimeLimitMin: 30, goal: 'lose'}
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['goal', 'cookingTimeLimitMin']
+      })
+    })
+
+    it('reports a draft null against a fresh value', () => {
+      const fresh = freshPreferences({age: 34})
+
+      expect(resolveStaleRevision({age: null}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['age']
+      })
+    })
+
+    it('reports a draft value against a fresh null', () => {
+      const fresh = freshPreferences({diet: null})
+
+      expect(resolveStaleRevision({diet: 'vegan'}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['diet']
+      })
+    })
+
+    it('does not treat null as equal to zero or to an empty string', () => {
+      const zeroFresh = freshPreferences({age: 0})
+      const emptyFresh = freshPreferences({timeZone: ''})
+
+      expect(resolveStaleRevision({age: null}, zeroFresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['age']
+      })
+      expect(resolveStaleRevision({timeZone: null}, emptyFresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['timeZone']
+      })
+    })
+
+    it('distinguishes a numeric value from its string form', () => {
+      const fresh = freshPreferences()
+      const draft = {age: '34'} as unknown as Partial<PreferencesShape>
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['age']
+      })
+    })
+  })
+
+  describe('arrays of primitives compare as sets', () => {
+    it('resolves a reordered identical selection', () => {
+      const fresh = freshPreferences({allergens: ['peanuts', 'milk']})
+
+      expect(resolveStaleRevision({allergens: ['milk', 'peanuts']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'resolved'
+      })
+    })
+
+    it('reports an added member', () => {
+      const fresh = freshPreferences({allergens: ['milk', 'soy']})
+
+      expect(resolveStaleRevision({allergens: ['milk']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('reports a removed member', () => {
+      const fresh = freshPreferences({dislikedFoodIds: ['a1']})
+
+      expect(resolveStaleRevision({dislikedFoodIds: ['a1', 'b2']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['dislikedFoodIds']
+      })
+    })
+
+    it('reports a swapped member of equal length', () => {
+      const fresh = freshPreferences({allergens: ['milk', 'sesame']})
+
+      expect(resolveStaleRevision({allergens: ['milk', 'peanuts']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('distinguishes repeated members from distinct ones', () => {
+      const fresh = freshPreferences({allergens: ['milk', 'soy']})
+
+      expect(resolveStaleRevision({allergens: ['milk', 'milk']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('resolves two empty selections', () => {
+      const fresh = freshPreferences({allergens: []})
+
+      expect(resolveStaleRevision({allergens: []}, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('reports an emptied selection', () => {
+      const fresh = freshPreferences({allergens: []})
+
+      expect(resolveStaleRevision({allergens: ['milk']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('does not mutate or reorder the caller arrays', () => {
+      const draftAllergens = ['peanuts', 'milk']
+      const freshAllergens = ['milk', 'peanuts']
+      const fresh = freshPreferences({allergens: freshAllergens})
+
+      expect(resolveStaleRevision({allergens: draftAllergens}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'resolved'
+      })
+      expect(draftAllergens).toEqual(['peanuts', 'milk'])
+      expect(freshAllergens).toEqual(['milk', 'peanuts'])
+    })
+  })
+
+  describe('arrays of objects compare element-wise in order', () => {
+    it('resolves an identical schedule', () => {
+      const fresh = freshPreferences()
+      const draft: Partial<PreferencesShape> = {
+        mealTimes: [
+          {slot: 'breakfast', time: '08:00'},
+          {slot: 'lunch', time: '12:30'},
+          {slot: 'dinner', time: '18:30'}
+        ]
+      }
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('reports a changed time', () => {
+      const fresh = freshPreferences()
+      const draft: Partial<PreferencesShape> = {
+        mealTimes: [
+          {slot: 'breakfast', time: '08:00'},
+          {slot: 'lunch', time: '13:00'},
+          {slot: 'dinner', time: '18:30'}
+        ]
+      }
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['mealTimes']
+      })
+    })
+
+    it('reports a reordered schedule because slot order is meaningful', () => {
+      const fresh = freshPreferences()
+      const draft: Partial<PreferencesShape> = {
+        mealTimes: [
+          {slot: 'lunch', time: '12:30'},
+          {slot: 'breakfast', time: '08:00'},
+          {slot: 'dinner', time: '18:30'}
+        ]
+      }
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['mealTimes']
+      })
+    })
+
+    it('reports an appended slot', () => {
+      const fresh = freshPreferences()
+      const draft: Partial<PreferencesShape> = {
+        mealTimes: [
+          {slot: 'breakfast', time: '08:00'},
+          {slot: 'lunch', time: '12:30'},
+          {slot: 'dinner', time: '18:30'},
+          {slot: 'snack', time: '15:30'}
+        ]
+      }
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['mealTimes']
+      })
+    })
+  })
+
+  describe('nested objects compare deeply', () => {
+    it('resolves an equal budget held in a different object instance', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+
+      expect(resolveStaleRevision({budget: {amount: 90, currency: 'USD'}}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'resolved'
+      })
+    })
+
+    it('reports a changed amount', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+
+      expect(resolveStaleRevision({budget: {amount: 120, currency: 'USD'}}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+
+    it('reports a cleared budget against a fresh object', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+
+      expect(resolveStaleRevision({budget: null}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+
+    it('reports a budget set against a cleared fresh value', () => {
+      const fresh = freshPreferences({budget: null})
+
+      expect(resolveStaleRevision({budget: {amount: 90, currency: 'USD'}}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+
+    it('treats a missing key on one side as a difference', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+      const draft = {budget: {amount: 90}} as unknown as Partial<PreferencesShape>
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+
+    it('reports an array held against an object', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+      const draft = {budget: []} as unknown as Partial<PreferencesShape>
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+  })
+
+  describe('targets-shaped drafts', () => {
+    const freshTargets: TargetsShape = {calories: 1940, protein: 146, carbs: 194, fat: 65}
+
+    it('resolves an identical target save', () => {
+      const draft: Partial<TargetsShape> = {calories: 1940, protein: 146, carbs: 194, fat: 65}
+
+      expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('reports the changed macro only', () => {
+      const draft: Partial<TargetsShape> = {calories: 1940, protein: 146, carbs: 210, fat: 65}
+
+      expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['carbs']
+      })
+    })
+
+    it('reports every changed macro in compare order', () => {
+      const draft: Partial<TargetsShape> = {fat: 70, calories: 2100}
+
+      expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['calories', 'fat']
+      })
+    })
+
+    it('resolves a partial draft whose listed fields all match', () => {
+      const draft: Partial<TargetsShape> = {calories: 1940}
+
+      expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({status: 'resolved'})
+    })
+  })
+})

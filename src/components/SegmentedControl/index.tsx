@@ -7,11 +7,14 @@ import Animated, {SharedValue, useAnimatedStyle} from 'react-native-reanimated'
 import Text from '@components/Text'
 
 import styles, {indicatorWidth, TRACK_PADDING} from './index.styled'
+import {segmentWidthFor} from './index.util'
 
 export interface SegmentedControlOption<T extends string> {
   key: T
   label: string
 }
+
+export type SegmentedControlVariant = 'large' | 'small' | 'unit'
 
 interface Props<T extends string> {
   options: SegmentedControlOption<T>[]
@@ -26,7 +29,7 @@ interface Props<T extends string> {
 const SegmentedControl = <T extends string>({options, selected, onChange, scrollProgress}: Props<T>) => {
   const [trackWidth, setTrackWidth] = useState(0)
 
-  const segmentWidth = trackWidth > 0 ? (trackWidth - TRACK_PADDING * 2) / options.length : 0
+  const segmentWidth = segmentWidthFor(trackWidth, options.length, TRACK_PADDING)
 
   const onLayout = (event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width)
 

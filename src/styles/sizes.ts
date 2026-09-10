@@ -1,0 +1,69 @@
+// Entries are named for their purpose, never their value — equal numbers on
+// different purposes are intentional and must not be collapsed.
+export const Sizes = {
+  CONTROL_SM: 36,
+  CONTROL: 44,
+  CONTROL_LG: 48,
+  CTA: 52,
+
+  TILE_SM: 40,
+  TILE: 56,
+  HERO_TILE: 76,
+  HERO_TILE_SM: 70,
+  RING: 104,
+  EMPTY_TILE: 104,
+
+  BADGE_DISC_LG: 64,
+  BADGE_DISC: 56,
+  BADGE_DISC_SM: 48,
+
+  SPINNER: 18,
+  SPINNER_LG: 76,
+
+  SEGMENT_TRACK_INSET: 2,
+  PROGRESS_SEGMENT_W: 33,
+  PROGRESS_SEGMENT_H: 4,
+  TOUCH_TARGET: 44,
+
+  CONTENT_MAX_WIDTH: 600,
+  EMPTY_BLOCK_BOTTOM: 40,
+  EMPTY_BLOCK_BOTTOM_LG: 60,
+
+  ICON_XS: 15,
+  ICON_SM: 17,
+  ICON: 18,
+  ICON_MD: 20,
+  ICON_LG: 22,
+  ICON_XL: 24,
+  ICON_BADGE: 26,
+  ICON_HERO: 28,
+  ICON_ALERT: 30,
+  ICON_EMPTY: 46
+}
+
+export const Stroke = {
+  THIN: 1,
+  DEFAULT: 1.5,
+  BOLD: 2,
+
+  WARNING_TRIANGLE: 1.53,
+  BADGE_REFRESH: 1.8,
+  BADGE_ZOOM: 1.95,
+  BADGE_ALERT: 2.375,
+  EMPTY_CART: 2.49,
+  EMPTY_CALENDAR: 2.68,
+  HERO_ART: 3.48,
+  SPINNER_TRACK: 5.3
+}
+
+export const Opacity = {
+  SCRIM: 0.62,
+  CONTENT_DIM: 0.18,
+  STATUS_DIM: 0.4,
+
+  LOGGED_TILE: 0.6,
+  PRESSED: 0.6,
+  HERO_ART: 0.5,
+  DISABLED: 0.5,
+  CHIP_GLYPH: 0.8
+}

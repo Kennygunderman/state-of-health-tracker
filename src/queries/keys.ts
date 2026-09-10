@@ -15,13 +15,33 @@ export const queryKeys = {
   hourlySteps: (days: number) => ['activitySteps', 'hourly', days] as const,
   runWindowSteps: (runsKey: string) => ['activitySteps', 'runWindows', runsKey] as const,
   healthAuthStatus: ['healthAuthStatus'] as const,
+  dailyMacrosAll: ['dailyMacros'] as const,
   dailyMacros: (date: string) => ['dailyMacros', date] as const,
   macrosHistory: ['macrosHistory'] as const,
   foods: ['foods'] as const,
   foodSearch: (query: string) => ['foods', query] as const,
   brandedFoodSearch: (query: string) => ['brandedFoodSearch', query] as const,
   userAvatar: ['userAvatar'] as const,
-  aiUsage: ['aiUsage'] as const
+  aiUsage: ['aiUsage'] as const,
+  mealPlanPreferences: ['mealPlanPreferences'] as const,
+  nutritionTargets: ['nutritionTargets'] as const,
+  targetEstimate: ['targetEstimate'] as const,
+  mealPlanCurrent: ['mealPlanCurrent'] as const,
+  mealPlanDayAll: ['mealPlanDay'] as const,
+  mealPlanDay: (planId: string, date: string) => ['mealPlanDay', planId, date] as const,
+  swapAlternativesAll: ['swapAlternatives'] as const,
+  swapAlternatives: (planId: string, mealId: string, planRevision: number) =>
+    ['swapAlternatives', planId, mealId, planRevision] as const,
+  swapPreviewAll: ['swapPreview'] as const,
+  swapPreview: (planId: string, mealId: string, recipeVersionId: string, planRevision: number) =>
+    ['swapPreview', planId, mealId, recipeVersionId, planRevision] as const,
+  groceryListAll: ['groceryList'] as const,
+  groceryList: (planId: string) => ['groceryList', planId] as const,
+  affectedMealsAll: ['affectedMeals'] as const,
+  affectedMeals: (planId: string) => ['affectedMeals', planId] as const,
+  recipeVersion: (recipeVersionId: string) => ['recipeVersion', recipeVersionId] as const,
+  catalogSearch: (query: string) => ['catalogSearch', query] as const,
+  catalogSuggestions: ['catalogSuggestions'] as const
 }
 
 export const mutationKeys = {
@@ -43,5 +63,14 @@ export const mutationKeys = {
   scanNutritionLabel: ['scanNutritionLabel'] as const,
   createFood: ['createFood'] as const,
   deleteFood: ['deleteFood'] as const,
-  updateAvatar: ['updateAvatar'] as const
+  updateAvatar: ['updateAvatar'] as const,
+  saveSetupStep: ['saveSetupStep'] as const,
+  savePreferences: ['savePreferences'] as const,
+  saveNutritionTargets: ['saveNutritionTargets'] as const,
+  generatePlan: ['generatePlan'] as const,
+  regeneratePlan: ['regeneratePlan'] as const,
+  swapMeal: ['swapMeal'] as const,
+  toggleGroceryItem: ['toggleGroceryItem'] as const,
+  uncheckAllGroceries: ['uncheckAllGroceries'] as const,
+  logPlannedMeal: ['logPlannedMeal'] as const
 }

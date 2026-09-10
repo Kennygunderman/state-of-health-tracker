@@ -1,5 +1,6 @@
 export default {
   XX_SMALL: 4,
+  TIGHT: 6,
   X_SMALL: 8,
   SMALL: 12,
   MEDIUM: 16,
