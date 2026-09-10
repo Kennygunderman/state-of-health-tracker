@@ -20,6 +20,7 @@ export const Sizes = {
   BADGE_DISC_LG: 64,
   BADGE_DISC: 56,
   BADGE_DISC_SM: 48,
+  BADGE_PADDING_V: 2,
 
   SPINNER: 18,
   SPINNER_LG: 76,
