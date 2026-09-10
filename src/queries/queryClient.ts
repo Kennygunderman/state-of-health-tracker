@@ -8,7 +8,9 @@ import {QueryClient} from '@tanstack/react-query'
 // dailyMacros/foods persist so the Macros screen renders offline (display only —
 // there is no offline write queue for macros in v1).
 // userAvatar persists so the profile photo shows on cold launch without a refetch.
-export const PERSISTED_QUERY_KEYS: string[] = ['exercises', 'dailyMacros', 'foods', 'userAvatar']
+// mealPlanCurrent persists so the saved weekly plan renders offline (display only —
+// the plan is read-only until reconnect and no plan writes are queued).
+export const PERSISTED_QUERY_KEYS: string[] = ['exercises', 'dailyMacros', 'foods', 'userAvatar', 'mealPlanCurrent']
 
 export const queryClient = new QueryClient({
   defaultOptions: {

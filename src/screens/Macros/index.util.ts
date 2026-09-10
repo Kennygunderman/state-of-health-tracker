@@ -1,4 +1,5 @@
 import {MacroTargets} from '@data/models/Macros'
+import {formatMacroPair as formatMacroPairValue} from '@utility/NutritionFormatUtility'
 
 export const FALLBACK_PROTEIN_TARGET_G = 150
 
@@ -36,6 +37,10 @@ export function progressFraction(consumed: number, target: number): number {
 
 export function formatCalories(value: number): string {
   return Math.round(value).toLocaleString('en-US')
+}
+
+export function formatMacroPair(actual: number, target: number): string {
+  return formatMacroPairValue(actual, target)
 }
 
 export interface CalorieBalance {

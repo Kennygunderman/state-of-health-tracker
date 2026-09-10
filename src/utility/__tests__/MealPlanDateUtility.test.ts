@@ -13,10 +13,12 @@ import {
   planStartDateBounds
 } from '../MealPlanDateUtility'
 
+// Every helper here takes `now` as a parameter, so fixtures inject it instead of faking the system clock
 const PLAN_START = '2026-07-05'
 const PLAN_END = '2026-07-11'
 const EN_DASH = '\u2013'
 
+// The runner's zone is UTC, so these pin the local-midnight contract but cannot reproduce a negative-offset shift
 describe('parseDayKey', () => {
   it('returns the local calendar day rather than UTC midnight', () => {
     const parsed = parseDayKey('2026-07-05')
@@ -26,12 +28,25 @@ describe('parseDayKey', () => {
     expect(parsed.getDate()).toBe(5)
   })
 
+  it('returns local midnight, not the UTC instant the key would parse to', () => {
+    expect(parseDayKey(PLAN_START).getTime()).toBe(new Date(2026, 6, 5).getTime())
+  })
+
   it('round-trips through formatDayKey without a day shift', () => {
     expect(formatDayKey(parseDayKey('2026-07-05'))).toBe('2026-07-05')
   })
 
+  it('round-trips the first and last day of a year', () => {
+    expect(formatDayKey(parseDayKey('2026-01-01'))).toBe('2026-01-01')
+    expect(formatDayKey(parseDayKey('2026-12-31'))).toBe('2026-12-31')
+  })
+
   it('ignores a UTC-midnight time component', () => {
     expect(formatDayKey(parseDayKey('2026-07-05T00:00:00.000Z'))).toBe('2026-07-05')
+  })
+
+  it('keeps the day of a mid-afternoon api timestamp', () => {
+    expect(formatDayKey(parseDayKey('2026-07-05T14:30:00.000Z'))).toBe('2026-07-05')
   })
 
   it('ignores a late time component', () => {
@@ -42,12 +57,15 @@ describe('parseDayKey', () => {
     expect(parseDayKey('2026-01-31').getMonth()).toBe(0)
   })
 
-  it('returns a fresh Date instance on every call', () => {
+  it('returns a fresh Date on every call, so mutating one cannot affect the next', () => {
     const first = parseDayKey(PLAN_START)
     const second = parseDayKey(PLAN_START)
 
+    first.setDate(first.getDate() + 10)
+
     expect(first).not.toBe(second)
-    expect(first.getTime()).toBe(second.getTime())
+    expect(formatDayKey(second)).toBe(PLAN_START)
+    expect(formatDayKey(parseDayKey(PLAN_START))).toBe(PLAN_START)
   })
 })
 
@@ -210,23 +228,42 @@ describe('planDates', () => {
     ])
   })
 
+  it('returns seven distinct days', () => {
+    expect(new Set(planDates(PLAN_START)).size).toBe(7)
+  })
+
   it('spans a month boundary', () => {
-    expect(planDates('2026-07-28')).toEqual([
-      '2026-07-28',
+    expect(planDates('2026-07-29')).toEqual([
       '2026-07-29',
       '2026-07-30',
       '2026-07-31',
       '2026-08-01',
       '2026-08-02',
-      '2026-08-03'
+      '2026-08-03',
+      '2026-08-04'
     ])
   })
 
   it('spans a year boundary', () => {
-    const dates = planDates('2026-12-29')
+    const dates = planDates('2026-12-28')
 
-    expect(dates[0]).toBe('2026-12-29')
-    expect(dates[6]).toBe('2027-01-04')
+    expect(dates[0]).toBe('2026-12-28')
+    expect(dates[6]).toBe('2027-01-03')
+  })
+
+  it('returns contiguous distinct days across a spring-forward window', () => {
+    const dates = planDates('2026-03-08')
+
+    expect(dates).toEqual([
+      '2026-03-08',
+      '2026-03-09',
+      '2026-03-10',
+      '2026-03-11',
+      '2026-03-12',
+      '2026-03-13',
+      '2026-03-14'
+    ])
+    expect(new Set(dates).size).toBe(7)
   })
 
   it('includes the leap day', () => {
@@ -242,32 +279,32 @@ describe('planDates', () => {
 })
 
 describe('dayStripLabel', () => {
-  it('labels the first day of the sample week as Sat 5', () => {
-    expect(dayStripLabel('2025-07-05')).toEqual({weekday: 'Sat', dayNumber: '5'})
+  it('labels the first day of the plan week', () => {
+    expect(dayStripLabel(PLAN_START)).toEqual({weekday: 'Sun', dayNumber: '5'})
   })
 
-  it('labels the last day of the sample week as Fri 11', () => {
-    expect(dayStripLabel('2025-07-11')).toEqual({weekday: 'Fri', dayNumber: '11'})
+  it('labels the last day of the plan week', () => {
+    expect(dayStripLabel(PLAN_END)).toEqual({weekday: 'Sat', dayNumber: '11'})
   })
 
-  it('reports the real weekday for the same day number in another year', () => {
-    expect(dayStripLabel('2026-07-05')).toEqual({weekday: 'Sun', dayNumber: '5'})
+  it('labels the second day of the plan week', () => {
+    expect(dayStripLabel('2026-07-06')).toEqual({weekday: 'Mon', dayNumber: '6'})
   })
 
   it('returns the weekday in natural case, leaving uppercasing to the style layer', () => {
-    const label = dayStripLabel('2025-07-05')
+    const label = dayStripLabel(PLAN_START)
 
-    expect(label.weekday).toBe('Sat')
-    expect(label.weekday).not.toBe('SAT')
+    expect(label.weekday).toBe('Sun')
+    expect(label.weekday).not.toBe('SUN')
   })
 
-  it('does not pad the day number', () => {
-    expect(dayStripLabel('2026-07-05').dayNumber).toBe('5')
-    expect(dayStripLabel('2026-07-11').dayNumber).toBe('11')
+  it('returns an unpadded day number as a string', () => {
+    expect(dayStripLabel(PLAN_START).dayNumber).toBe('5')
+    expect(dayStripLabel(PLAN_END).dayNumber).toBe('11')
   })
 
   it('ignores a time component', () => {
-    expect(dayStripLabel('2025-07-05T23:59:00.000Z')).toEqual({weekday: 'Sat', dayNumber: '5'})
+    expect(dayStripLabel('2026-07-05T23:59:00.000Z')).toEqual({weekday: 'Sun', dayNumber: '5'})
   })
 })
 
@@ -282,6 +319,10 @@ describe('formatPlanDayLabel', () => {
 
   it('formats the first day of a year', () => {
     expect(formatPlanDayLabel('2026-01-01')).toBe('Jan 1')
+  })
+
+  it('omits the year for a day in the following year', () => {
+    expect(formatPlanDayLabel('2027-01-03')).toBe('Jan 3')
   })
 
   it('formats the last day of a year', () => {
@@ -306,12 +347,18 @@ describe('formatPlanRange', () => {
     expect(range).not.toContain('\u2212')
   })
 
+  it('separates the two labels with the en dash code point', () => {
+    const separator = formatPlanRange(PLAN_START, PLAN_END).split(' ')[2]
+
+    expect(separator.codePointAt(0)).toBe(0x2013)
+  })
+
   it('formats a range spanning two months', () => {
-    expect(formatPlanRange('2026-07-28', '2026-08-03')).toBe(`Jul 28 ${EN_DASH} Aug 3`)
+    expect(formatPlanRange('2026-07-29', '2026-08-04')).toBe(`Jul 29 ${EN_DASH} Aug 4`)
   })
 
   it('formats a range spanning two years', () => {
-    expect(formatPlanRange('2026-12-29', '2027-01-04')).toBe(`Dec 29 ${EN_DASH} Jan 4`)
+    expect(formatPlanRange('2026-12-28', '2027-01-03')).toBe(`Dec 28 ${EN_DASH} Jan 3`)
   })
 
   it('formats a single-day range', () => {
@@ -340,6 +387,10 @@ describe('defaultSelectedPlanDate', () => {
     expect(defaultSelectedPlanDate(PLAN_START, PLAN_END, new Date(2026, 6, 11, 18, 30))).toBe(PLAN_END)
   })
 
+  it('keeps the last day for a late-evening now on the last day', () => {
+    expect(defaultSelectedPlanDate(PLAN_START, PLAN_END, new Date(2026, 6, 11, 23, 30))).toBe(PLAN_END)
+  })
+
   it('uses the local day for a late-evening now', () => {
     expect(defaultSelectedPlanDate(PLAN_START, PLAN_END, new Date(2026, 6, 9, 23, 59))).toBe('2026-07-09')
   })
@@ -351,6 +402,7 @@ describe('defaultSelectedPlanDate', () => {
 
 describe('clampDayKeyToPlan', () => {
   it('clamps a key below the week up to the start date', () => {
+    expect(clampDayKeyToPlan('2026-07-01', PLAN_START, PLAN_END)).toBe(PLAN_START)
     expect(clampDayKeyToPlan('2026-07-04', PLAN_START, PLAN_END)).toBe(PLAN_START)
   })
 
@@ -463,5 +515,33 @@ describe('planStartDateBounds', () => {
     const bounds = planStartDateBounds({now: new Date(2026, 6, 4), activePlanEndDate: '2026-08-20'})
 
     expect(isDayKeyWithin(bounds.default, bounds.min, bounds.max)).toBe(true)
+  })
+
+  it('leaves the minimum and the default unaffected by the active plan', () => {
+    const now = new Date(2026, 6, 4)
+    const laterPlan = planStartDateBounds({now, activePlanEndDate: '2026-08-20'})
+    const tiedPlan = planStartDateBounds({now, activePlanEndDate: '2026-08-02'})
+    const earlierPlan = planStartDateBounds({now, activePlanEndDate: PLAN_END})
+
+    expect(laterPlan.min).toBe('2026-07-04')
+    expect(laterPlan.default).toBe('2026-07-05')
+    expect(tiedPlan.min).toBe('2026-07-04')
+    expect(tiedPlan.default).toBe('2026-07-05')
+    expect(earlierPlan.min).toBe('2026-07-04')
+    expect(earlierPlan.default).toBe('2026-07-05')
+  })
+})
+
+describe('injected now', () => {
+  it('is never mutated by the helpers that read it', () => {
+    const now = new Date(2026, 6, 8, 13, 0)
+    const before = now.getTime()
+
+    defaultSelectedPlanDate(PLAN_START, PLAN_END, now)
+    planStartDateBounds({now, activePlanEndDate: PLAN_END})
+
+    expect(now.getTime()).toBe(before)
+    expect(defaultSelectedPlanDate(PLAN_START, PLAN_END, now)).toBe('2026-07-08')
+    expect(planStartDateBounds({now, activePlanEndDate: null}).min).toBe('2026-07-08')
   })
 })

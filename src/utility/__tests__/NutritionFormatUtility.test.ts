@@ -49,10 +49,14 @@ describe('formatCalories', () => {
     it('rounds up at the half boundary', () => {
       expect(formatCalories(1904.5)).toBe('1,905')
     })
+
+    it('rounds half up across the grouping separator', () => {
+      expect(formatCalories(1905.5)).toBe('1,906')
+    })
   })
 
   describe('inputs the diary never produces', () => {
-    it('keeps the shipped signed negative output rather than guarding it', () => {
+    it('renders a negative with an ASCII hyphen, since only formatSignedCalories uses the typographic minus', () => {
       expect(formatCalories(-70)).toBe('-70')
     })
 
@@ -60,7 +64,7 @@ describe('formatCalories', () => {
       expect(formatCalories(-0.4)).toBe('-0')
     })
 
-    it('keeps the shipped NaN output rather than guarding it', () => {
+    it('renders NaN as the string NaN, matching the shipped diary formatter', () => {
       expect(formatCalories(NaN)).toBe('NaN')
     })
   })
@@ -85,6 +89,10 @@ describe('formatMacroGrams', () => {
 
   it('rounds up at the half boundary', () => {
     expect(formatMacroGrams(64.5)).toBe('65g')
+  })
+
+  it('rounds a fractional gram figure up, like the shipped MacroGramRow', () => {
+    expect(formatMacroGrams(64.6)).toBe('65g')
   })
 
   it('does not group thousands, matching the shipped MacroGramRow', () => {
@@ -135,8 +143,16 @@ describe('formatMacroPair', () => {
     expect(formatMacroPair(141.6, 146.4)).toBe('142 / 146g')
   })
 
+  it('rounds the planned carbs pair down to whole grams', () => {
+    expect(formatMacroPair(188.4, 194)).toBe('188 / 194g')
+  })
+
   it('renders nothing consumed as 0', () => {
     expect(formatMacroPair(0, 146)).toBe('0 / 146g')
+  })
+
+  it('renders a zero actual against a zero target', () => {
+    expect(formatMacroPair(0, 0)).toBe('0 / 0g')
   })
 
   it('does not clamp an actual above the target', () => {
@@ -150,14 +166,14 @@ describe('formatMacroPair', () => {
 
 describe('formatSignedCalories', () => {
   it('renders the Figma negative delta with a true minus sign', () => {
-    expect(formatSignedCalories(-70, CAL_SUFFIX)).toBe(`${MINUS_SIGN}70 ${CAL_SUFFIX}`)
+    expect(formatSignedCalories(-70, 'cal')).toBe('\u221270 cal')
   })
 
   it('uses U+2212 and not an ASCII hyphen for a negative delta', () => {
     const rendered = formatSignedCalories(-70, CAL_SUFFIX)
 
     expect(rendered.codePointAt(0)).toBe(0x2212)
-    expect(rendered.startsWith('-')).toBe(false)
+    expect(rendered).not.toContain('-')
   })
 
   it('renders a positive delta with a leading plus', () => {
@@ -168,7 +184,9 @@ describe('formatSignedCalories', () => {
     expect(formatSignedCalories(0, CAL_SUFFIX)).toBe(`0 ${CAL_SUFFIX}`)
   })
 
-  it('renders a negative delta that rounds to zero without a sign', () => {
+  // Math.round(-0.4) is -0 and (-0).toLocaleString('en-US') is '-0', so formatting before taking the
+  // magnitude would render '-0 cal' here — a delta that rounds to zero carries no sign
+  it('drops the sign for a negative delta that rounds to zero', () => {
     expect(formatSignedCalories(-0.4, CAL_SUFFIX)).toBe(`0 ${CAL_SUFFIX}`)
   })
 
@@ -196,6 +214,14 @@ describe('formatSignedCalories', () => {
     expect(formatSignedCalories(-1200, CAL_SUFFIX)).not.toContain('-')
   })
 
+  it('renders the minus sign and the thousands separator together', () => {
+    expect(formatSignedCalories(-1234, 'cal')).toBe('\u22121,234 cal')
+  })
+
+  it('renders a unit suffix of grams with the same spacing', () => {
+    expect(formatSignedCalories(-15, 'g')).toBe('\u221215 g')
+  })
+
   it('renders the injected unit suffix rather than a hardcoded one', () => {
     expect(formatSignedCalories(-70, 'kcal')).toBe(`${MINUS_SIGN}70 kcal`)
   })
@@ -205,8 +231,16 @@ describe('formatSignedCalories', () => {
   })
 })
 
-describe('parity with the shipped diary calorie formatter', () => {
+// Detects the planner and diary formatters drifting apart: comparing against the shipped expression
+// catches a locale, fraction-digit or abbreviation option added to one of them but not the other
+describe('drift from the shipped diary calorie formatter', () => {
   it.each(PARITY_VALUES)('renders %p exactly as the shipped formatter does', value => {
     expect(formatCalories(value)).toBe(Math.round(value).toLocaleString('en-US'))
+  })
+
+  it('renders the figures a drifting implementation would break, as literals', () => {
+    expect(formatCalories(1940)).toBe('1,940')
+    expect(formatCalories(12345)).toBe('12,345')
+    expect(formatCalories(610)).toBe('610')
   })
 })
