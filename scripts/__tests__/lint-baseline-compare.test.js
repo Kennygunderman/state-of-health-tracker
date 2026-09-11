@@ -19,11 +19,15 @@ const EXIT_INPUT_ERROR = 2
 
 const USAGE_LINE = 'Usage: node scripts/lint-baseline-compare.mjs <baseline.json> <after.json>'
 const STACK_FRAME = /\n\s+at\s/
+const BASELINE_LABEL = 'the baseline report at'
+const AFTER_LABEL = 'the after report at'
+const NEW_FINDINGS_NOTE = 'new lint finding(s)'
 
 const ESLINTRC = '.eslintrc.js'
 const BABEL_CONFIG = 'babel.config.js'
 const SCRIPT_FILE = 'scripts/transform-imports.js'
 const STYLE_FILE = 'src/screens/Macros/index.styled.ts'
+const SHAPE_FILE_PATH = `${CI_ROOT}/${STYLE_FILE}`
 
 const CONFIG_ERROR = {
   ruleId: '@typescript-eslint/no-var-requires',
@@ -232,6 +236,90 @@ describe('usage and input errors', () => {
 
     expect(status).toBe(EXIT_INPUT_ERROR)
     expect(stderr).toContain(baseline)
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+})
+
+describe('valid JSON in a shape that is not an ESLint report', () => {
+  it('exits 2 and names the baseline report when it holds an object instead of a top-level array', () => {
+    const baseline = writeFixture('shape-object-baseline.json', '{}')
+    const after = writeReport('shape-object-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${BASELINE_LABEL} ${baseline}`)
+    expect(stderr).toContain('expected a top-level array, found object')
+    expect(stdout).not.toContain(NEW_FINDINGS_NOTE)
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the after report when it holds null instead of a top-level array', () => {
+    const baseline = writeReport('shape-null-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeFixture('shape-null-after.json', 'null')
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${AFTER_LABEL} ${after}`)
+    expect(stderr).toContain('expected a top-level array, found null')
+    expect(stdout).not.toContain(NEW_FINDINGS_NOTE)
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the baseline report when a result entry is not an object', () => {
+    const baseline = writeFixture('shape-entry-baseline.json', JSON.stringify([42]))
+    const after = writeReport('shape-entry-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${BASELINE_LABEL} ${baseline}`)
+    expect(stderr).toContain('holds a non-object result at index 0')
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the after report when a result entry carries an empty filePath', () => {
+    const baseline = writeReport('shape-file-path-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeFixture('shape-file-path-after.json', JSON.stringify([{filePath: ''}]))
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${AFTER_LABEL} ${after}`)
+    expect(stderr).toContain('holds a result at index 0 without a non-empty string "filePath"')
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the baseline report when a result carries a non-array messages field', () => {
+    const entries = [{filePath: SHAPE_FILE_PATH, messages: {}}]
+    const baseline = writeFixture('shape-messages-baseline.json', JSON.stringify(entries))
+    const after = writeReport('shape-messages-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${BASELINE_LABEL} ${baseline}`)
+    expect(stderr).toContain(`holds a non-array "messages" for ${SHAPE_FILE_PATH}`)
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the after report when a message entry is not an object', () => {
+    const entries = [{filePath: SHAPE_FILE_PATH, messages: [null]}]
+    const baseline = writeReport('shape-message-entry-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeFixture('shape-message-entry-after.json', JSON.stringify(entries))
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${AFTER_LABEL} ${after}`)
+    expect(stderr).toContain(`holds a non-object message for ${SHAPE_FILE_PATH}`)
+    expect(stdout + stderr).not.toMatch(STACK_FRAME)
+  })
+
+  it('exits 2 and names the baseline report when a message carries no string message field', () => {
+    const entries = [{filePath: SHAPE_FILE_PATH, messages: [{ruleId: 'prettier/prettier', line: 12, column: 5}]}]
+    const baseline = writeFixture('shape-message-text-baseline.json', JSON.stringify(entries))
+    const after = writeReport('shape-message-text-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${BASELINE_LABEL} ${baseline}`)
+    expect(stderr).toContain(`holds a message without a string "message" for ${SHAPE_FILE_PATH}`)
     expect(stdout + stderr).not.toMatch(STACK_FRAME)
   })
 })

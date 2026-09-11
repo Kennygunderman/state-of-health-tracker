@@ -49,6 +49,15 @@ export default StyleSheet.create({
     lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
   },
+  /* BLITZY [A11Y]: the added state implements Figma `47:387` exactly — accent-green fill under
+     `47:388`'s white check — which measures 2.45:1, below the 3:1 non-text graphical minimum.
+     Figma is the authoritative design contract for this pair, so the rendered values are matched
+     rather than adjusted. Resolving it is a design-system decision rather than a local edit: the
+     same accent-green-and-white pair is the checked-emphasis state of the shared CheckboxSquare,
+     so changing only this control would fork the selection language. Either remedy clears the
+     threshold if a designer chooses one — a near-black glyph on the accent-green surface
+     (`Theme.colors.background` on `accentGreen` measures 7.67:1), or a darker selected surface
+     keeping the white glyph. Flagged here for designer review. */
   addedControl: {
     width: Sizes.ICON_LG,
     height: Sizes.ICON_LG,

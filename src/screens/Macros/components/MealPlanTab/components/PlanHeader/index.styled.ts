@@ -24,6 +24,7 @@ export default StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+    paddingTop: Spacing.X_SMALL,
     rowGap: Spacing.XX_SMALL
   },
   title: {
@@ -44,14 +45,11 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.accentGreen
   },
-  // 49:34 centres in a band that includes 49:26's 8px top padding, which MealPlanTab supplies outside this row as
-  // part of its Spacing.MEDIUM inset. Centring a margin box 8px taller restores Figma's disc position.
   groceryButton: {
     width: Sizes.CONTROL_SM,
     height: Sizes.CONTROL_SM,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.X_SMALL,
     borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.tile
   }

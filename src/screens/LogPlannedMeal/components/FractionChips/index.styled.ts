@@ -2,7 +2,7 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight} from '@styles/fontSize'
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -15,12 +15,14 @@ export default StyleSheet.create({
     columnGap: Spacing.X_SMALL,
     rowGap: Spacing.X_SMALL
   },
+  // Node 38:62's row imposes the 32px band, pinned so the selected-state border cannot grow the chip to 34.
   // borderColor matches the chip's own fill so selecting recolours the edge without resizing the chip.
   chip: {
     flexGrow: 1,
     flexBasis: 'auto',
+    height: Sizes.CHIP,
     alignItems: 'center',
-    paddingVertical: Spacing.X_SMALL,
+    justifyContent: 'center',
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.PILL,
     borderWidth: Stroke.THIN,

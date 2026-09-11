@@ -811,7 +811,7 @@ export const MEAL_PLAN_OPTIONAL_LABEL = 'Optional'
 
 export const MEAL_PLAN_REVIEW_HEADER_LABEL = 'Review'
 
-export const MEAL_PLAN_WIZARD_STEP_TEMPLATE = '{step} of {total}'
+export const MEAL_PLAN_WIZARD_STEP_TEMPLATE = '{n} of {m}'
 
 export const MEAL_PLAN_KCAL_UNIT = 'kcal'
 
@@ -1183,7 +1183,7 @@ export const MEAL_PLAN_PLANNED_FOR_TEMPLATE = 'Planned for {day}'
 
 export const MEAL_PLAN_DAY_TARGET_TEMPLATE = 'Target {calories}'
 
-export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {count} meals'
+export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {n} meals'
 
 export const MEAL_PLAN_SWAP_BUTTON_TEXT = 'Swap'
 
@@ -1203,7 +1203,15 @@ export const MEAL_PLAN_TARGETS_STALE_CAPTION = 'Targets changed since this plan 
 
 export const MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE = 'You logged {recipe} for this slot'
 
-export const MEAL_PLAN_MEAL_FLAG_ALLERGEN_TEMPLATE = 'Contains {allergen}'
+// The flagged-card meta line, keyed by the server's flag code. The allergen entry is the only one Figma draws
+// (0.2.5, "Contains milk"); the rest exist so a dislike or a cooking-time overrun is never shown as an allergen.
+export const MEAL_PLAN_MEAL_FLAG_TEMPLATES: Record<string, string> = {
+  diet: 'Contains {detail} · outside your diet',
+  allergen: 'Contains {detail}',
+  dislike: 'Contains {detail} · an ingredient you skip',
+  cooking_time: 'Over your {detail} cooking time',
+  mixed: "Doesn't match your preferences"
+}
 
 export const MEAL_PLAN_LAST_DAY_TITLE = 'Last day of this plan'
 
@@ -1308,7 +1316,7 @@ export const GROCERY_UPDATED_AFTER_SWAP_TEMPLATE = 'Updated after your {slot} sw
 
 export const GROCERY_CHECKED_PROGRESS_TEMPLATE = '{checked} of {total} checked'
 
-export const GROCERY_CHECKED_HEADER_TEMPLATE = 'Checked · {count}'
+export const GROCERY_CHECKED_HEADER_TEMPLATE = 'Checked · {n}'
 
 export const GROCERY_STILL_ON_LIST_CAPTION = 'Still on your list'
 
@@ -1317,10 +1325,10 @@ export const GROCERY_AMOUNT_INCREASED_TITLE = 'One amount went up after your swa
 export const GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE =
   '{name} is flagged below. It stays checked so nothing disappears from your list.'
 
-export const GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE = '{count} amounts went up after your swaps'
+export const GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE = '{n} amounts went up after your swaps'
 
 export const GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE =
-  '{count} items are flagged below. They stay checked so nothing disappears from your list.'
+  '{n} items are flagged below. They stay checked so nothing disappears from your list.'
 
 export const GROCERY_FLAG_CHANGE_TEMPLATE = 'Now {newAmount}, was {oldAmount}'
 
@@ -1360,15 +1368,43 @@ export const LOG_PLANNED_MEAL_SLOT_FALLBACK_CAPTION = 'Choose where this goes in
 
 export const PLAN_SETTINGS_TITLE = 'Plan settings'
 
-export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_SINGULAR = '1 meal no longer matches your diet'
+// Keyed by the server's flag code, plus 'mixed' for a flagged set whose codes differ. Figma 38:385 draws only
+// the diet change whose body names an allergen, so that scenario keeps its wording exactly; the three reasons
+// the file never draws get copy of their own rather than borrowing the allergen sentence, which would state a
+// dislike or a cooking-time overrun as an allergen condition.
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_SINGULAR_LABELS: Record<string, string> = {
+  diet: '1 meal no longer matches your diet',
+  allergen: '1 meal no longer matches your diet',
+  dislike: '1 meal contains an ingredient you skip',
+  cooking_time: '1 meal takes longer than your cooking time',
+  mixed: '1 meal no longer matches your preferences'
+}
 
-export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_TEMPLATE = '{count} meals no longer match your diet'
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_TEMPLATES: Record<string, string> = {
+  diet: '{n} meals no longer match your diet',
+  allergen: '{n} meals no longer match your diet',
+  dislike: '{n} meals contain ingredients you skip',
+  cooking_time: '{n} meals take longer than your cooking time',
+  mixed: '{n} meals no longer match your preferences'
+}
 
-export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_SINGULAR_TEMPLATE =
-  '{meal} contains {allergen}. It stays flagged until you swap it.'
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_SINGULAR_TEMPLATES: Record<string, string> = {
+  diet: '{meal} contains {detail}, which your diet excludes. It stays flagged until you swap it.',
+  allergen: '{meal} contains {detail}. It stays flagged until you swap it.',
+  dislike: '{meal} contains {detail}, which you asked us to skip. It stays flagged until you swap it.',
+  cooking_time: '{meal} takes longer than your {detail} cooking time. It stays flagged until you swap it.',
+  mixed: '{meal} no longer matches your preferences. It stays flagged until you swap it.'
+}
 
-export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_TEMPLATE =
-  '{meals} contain {allergen}. They stay flagged until you swap them.'
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_TEMPLATES: Record<string, string> = {
+  diet: '{meals} contain {detail}, which your diet excludes. They stay flagged until you swap them.',
+  allergen: '{meals} contain {detail}. They stay flagged until you swap them.',
+  dislike: '{meals} contain {detail}, which you asked us to skip. They stay flagged until you swap them.',
+  cooking_time: '{meals} take longer than your {detail} cooking time. They stay flagged until you swap them.',
+  mixed: '{meals} no longer match your preferences. They stay flagged until you swap them.'
+}
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON = 'mixed'
 
 export const PLAN_SETTINGS_REVIEW_AFFECTED_BUTTON_TEXT = 'Review affected meals'
 
@@ -1401,7 +1437,7 @@ export const PLAN_REGENERATE_GROCERY_LIST_LABEL = 'Grocery list'
 
 export const PLAN_REGENERATE_LOGGED_FOOD_LABEL = 'Logged food'
 
-export const PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE = '{count} replaced'
+export const PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE = '{n} replaced'
 
 export const PLAN_REGENERATE_GROCERY_REBUILT_TEXT = 'Rebuilt'
 
@@ -1411,7 +1447,7 @@ export const PLAN_REGENERATE_NOTHING_LOGGED_TEXT = 'Nothing logged yet'
 
 export const PLAN_REGENERATE_ONE_ENTRY_KEPT_TEXT = '1 entry kept'
 
-export const PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE = '{count} entries kept'
+export const PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE = '{n} entries kept'
 
 export const PLAN_REGENERATE_CONFIRM_BUTTON_TEXT = 'Replace plan'
 
@@ -1429,6 +1465,37 @@ export const CATALOG_PROVENANCE_BADGE_LABELS: Record<string, string> = {
   source_backed: 'Source-backed',
   ingredient_derived: 'Estimated from ingredients',
   ai_estimated: 'AI estimate'
+}
+
+export const CATALOG_CATEGORY_LABELS: Record<string, string> = {
+  produce_vegetable: 'Vegetable',
+  produce_fruit: 'Fruit',
+  protein_meat: 'Meat',
+  protein_poultry: 'Poultry',
+  protein_seafood: 'Seafood',
+  protein_egg: 'Egg',
+  protein_plant: 'Plant protein',
+  dairy: 'Dairy',
+  dairy_alternative: 'Dairy alternative',
+  grain: 'Grain',
+  bread_bakery: 'Bread & bakery',
+  legume: 'Legume',
+  nut_seed: 'Nut & seed',
+  oil_fat: 'Oil & fat',
+  condiment_sauce: 'Condiment & sauce',
+  spice_herb: 'Spice & herb',
+  beverage: 'Beverage',
+  snack: 'Snack',
+  sweet: 'Sweet',
+  prepared_meal: 'Prepared dish',
+  other: 'Other'
+}
+
+// Distinct from the 'other' category's own label, so an unrecognised code is never shown as a known category.
+export const CATALOG_CATEGORY_FALLBACK_LABEL = 'Food'
+
+export function catalogCategoryLabel(category: string): string {
+  return CATALOG_CATEGORY_LABELS[category] ?? CATALOG_CATEGORY_FALLBACK_LABEL
 }
 
 export const MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'

@@ -50,7 +50,7 @@ export default StyleSheet.create({
 
   nutritionCard: {
     alignSelf: 'stretch',
-    padding: Spacing.MEDIUM,
+    padding: Spacing.GUTTER,
     marginTop: Spacing.MEDIUM,
     backgroundColor: Theme.colors.card,
     borderRadius: BorderRadius.CARD_LG
@@ -61,9 +61,11 @@ export default StyleSheet.create({
     justifyContent: 'space-between'
   },
   nutritionOverline: {
-    fontSize: FontSize.LABEL,
-    fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    fontSize: FontSize.OVERLINE,
+    fontWeight: FontWeight.SEMIBOLD,
+    letterSpacing: LetterSpacing.OVERLINE,
+    lineHeight: LineHeight.OVERLINE,
+    textTransform: 'uppercase',
     color: Theme.colors.textMuted
   },
   portionValue: {

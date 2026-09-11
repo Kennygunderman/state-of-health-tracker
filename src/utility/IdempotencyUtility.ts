@@ -32,7 +32,15 @@ const canonicalJson = (value: unknown): string => {
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map(item => canonicalJson(item)).join(',')}]`
+    // Indexed rather than `map`, which skips a sparse hole and would fingerprint a one-hole array
+    // as `[]`: JSON sends that slot as `null`, so every slot up to `length` is emitted.
+    const slots: string[] = []
+
+    for (let index = 0; index < value.length; index++) {
+      slots.push(canonicalJson(value[index]))
+    }
+
+    return `[${slots.join(',')}]`
   }
 
   if (isJsonObject(value)) {

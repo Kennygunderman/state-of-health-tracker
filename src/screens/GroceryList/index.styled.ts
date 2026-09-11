@@ -65,15 +65,13 @@ export default StyleSheet.create({
   bannerContainer: {
     marginTop: Spacing.MEDIUM
   },
+  // Every card carries its own 8px top margin (37:338 for the checked card), so the
+  // checked block needs no wrapper: CheckedSectionHeader owns 37:253's full 20px inset.
   sectionCard: {
     marginTop: Spacing.X_SMALL,
     paddingHorizontal: Spacing.MEDIUM,
     backgroundColor: Theme.colors.card,
     borderRadius: BorderRadius.CARD_LG
-  },
-  // CheckedSectionHeader owns the shared 16px inset; 37:253 measures 20, so this block adds the last 4.
-  checkedBlock: {
-    marginTop: Spacing.XX_SMALL
   },
   // 37:377 centres its narrower children, so it takes the column's full width from the list and centres inside it.
   emptyStateContainer: {

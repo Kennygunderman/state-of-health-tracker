@@ -34,7 +34,7 @@ export default StyleSheet.create({
     color: Theme.colors.greenOnTint
   },
   dayNumber: {
-    paddingTop: Spacing.TEXT_GAP,
+    paddingTop: Spacing.MICRO,
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.BOLD,
     color: Theme.colors.textSecondary

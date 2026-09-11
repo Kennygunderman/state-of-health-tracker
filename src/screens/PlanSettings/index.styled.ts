@@ -77,7 +77,11 @@ export default StyleSheet.create({
     fontWeight: FontWeight.BOLD,
     color: Theme.colors.text
   },
-  // Single line at the design's auto leading; LineHeight.META would stretch it.
+  // 13px single-line meta, so no lineHeight by design: Figma node 38:481 declares
+  // none, and it is the same authored style object as the settings-row labels.
+  // LineHeight.META (18.85) is the 13px MULTI-LINE value (the frame's only user is
+  // the wrapping banner body 38:394); applying it here would grow this wrapper from
+  // 24 to 26.85 and push the descenders into the pinned footer's hairline.
   footnote: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,

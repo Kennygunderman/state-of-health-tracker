@@ -21,13 +21,15 @@ export function formatMacroPair(actual: number, target: number): string {
   return `${Math.round(actual)}${MACRO_PAIR_SEPARATOR}${formatMacroGrams(target)}`
 }
 
+// Rounding the magnitude rather than the signed delta keeps the two directions symmetric: Math.round
+// breaks negative halves toward positive infinity, which would render -69.5 as 69 and -0.5 as plain 0
 export function formatSignedCalories(delta: number, unitSuffix: string): string {
-  const rounded = Math.round(delta)
-  const magnitude = formatCalories(Math.abs(rounded))
+  const rounded = Math.round(Math.abs(delta))
+  const magnitude = formatCalories(rounded)
 
   if (rounded === 0) {
     return `${magnitude} ${unitSuffix}`
   }
 
-  return `${rounded < 0 ? MINUS_SIGN : PLUS_SIGN}${magnitude} ${unitSuffix}`
+  return `${delta < 0 ? MINUS_SIGN : PLUS_SIGN}${magnitude} ${unitSuffix}`
 }

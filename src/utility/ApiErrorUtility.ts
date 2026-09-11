@@ -19,6 +19,7 @@ export const API_ERROR_CODES = {
   readOnlyField: 'read_only_field',
   recipeIneligible: 'recipe_ineligible',
   invalidRequest: 'invalid_request',
+  invalidPayload: 'invalid_payload',
   catalogFoodNotFound: 'catalog_food_not_found',
   invalidServing: 'invalid_serving',
   planGenerationFailed: 'plan_generation_failed',
@@ -45,9 +46,13 @@ export function getApiErrorCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null
 }
 
-// A 'confirmed' failure is one the server described: the write did not happen, so the caller may say so.
-// Anything else is 'unknown' — the request may have committed before the response was lost, so callers
-// must not promise nothing changed, and keyed mutations retry with the same idempotency key.
+// 'confirmed' means the server described the outcome of this attempt in a decodable body — a 4xx carrying
+// `{error: string}`, or a 5xx carrying a recognised failure code. It never asserts that nothing was written:
+// a repeated revisioned save answers `stale_revision`/`stale_targets` precisely because the first attempt
+// committed, and a same-key retry carrying a changed body answers `idempotency_conflict`. Reconciliation is
+// therefore per code, and only a confirmed failure of the current attempt may draw the 10b/13e "unchanged"
+// assurances. Anything else is 'unknown' — the request may have committed before the response was lost, so
+// callers must not promise nothing changed, and keyed mutations retry with the same idempotency key.
 export function classifyOutcome(error: unknown): ApiOutcome {
   const status = (error as {response?: {status?: unknown}} | null)?.response?.status
   const code = getApiErrorCode(error)
@@ -56,11 +61,11 @@ export function classifyOutcome(error: unknown): ApiOutcome {
     return 'unknown'
   }
 
-  if (status >= 500) {
+  if (status >= 500 && status < 600) {
     return code !== null && RECOGNIZED_SERVER_FAILURE_CODES.has(code) ? 'confirmed' : 'unknown'
   }
 
-  return status >= 400 && code !== null ? 'confirmed' : 'unknown'
+  return status >= 400 && status < 500 && code !== null ? 'confirmed' : 'unknown'
 }
 
 export function isUnknownOutcome(error: unknown): boolean {

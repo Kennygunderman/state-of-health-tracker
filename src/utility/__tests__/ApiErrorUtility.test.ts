@@ -8,6 +8,13 @@ const makeAxiosError = (status?: number, body?: unknown): AxiosError => {
   return new AxiosError('Request failed', 'ERR_BAD_RESPONSE', undefined, undefined, response)
 }
 
+describe('API_ERROR_CODES', () => {
+  it('declares invalid_payload as a code of its own, distinct from invalid_request', () => {
+    expect(API_ERROR_CODES.invalidPayload).toBe('invalid_payload')
+    expect(API_ERROR_CODES.invalidPayload).not.toBe(API_ERROR_CODES.invalidRequest)
+  })
+})
+
 describe('getApiErrorCode', () => {
   it('extracts the code from an axios-shaped error', () => {
     const error = {response: {data: {error: 'quota_exceeded'}}}
@@ -51,6 +58,12 @@ describe('classifyOutcome', () => {
       expect(classifyOutcome(error)).toBe('confirmed')
     })
 
+    it('classifies the 400 invalid_payload of a body naming both foodId and catalogFoodId as confirmed', () => {
+      const error = {response: {status: 400, data: {error: API_ERROR_CODES.invalidPayload}}}
+
+      expect(classifyOutcome(error)).toBe('confirmed')
+    })
+
     it('classifies a 404 with a human message as confirmed, not as a feature-unavailability signal', () => {
       const error = {response: {status: 404, data: {error: 'Plan not found'}}}
 
@@ -81,6 +94,20 @@ describe('classifyOutcome', () => {
 
       expect(classifyOutcome(estimateFailure)).toBe('confirmed')
       expect(classifyOutcome(searchFailure)).toBe('confirmed')
+    })
+
+    it('classifies a 499 carrying a machine code as confirmed, the top of the 4xx range', () => {
+      const error = {response: {status: 499, data: {error: API_ERROR_CODES.stalePlan}}}
+
+      expect(classifyOutcome(error)).toBe('confirmed')
+    })
+
+    it('classifies 500 and 599 carrying a recognised code as confirmed, both ends of the 5xx range', () => {
+      const lowerEdge = {response: {status: 500, data: {error: API_ERROR_CODES.planGenerationFailed}}}
+      const upperEdge = {response: {status: 599, data: {error: API_ERROR_CODES.swapFailed}}}
+
+      expect(classifyOutcome(lowerEdge)).toBe('confirmed')
+      expect(classifyOutcome(upperEdge)).toBe('confirmed')
     })
   })
 
@@ -123,6 +150,18 @@ describe('classifyOutcome', () => {
 
       expect(classifyOutcome(success)).toBe('unknown')
       expect(classifyOutcome(redirect)).toBe('unknown')
+    })
+
+    it('classifies a 600 carrying a recognised server failure code as unknown', () => {
+      const error = {response: {status: 600, data: {error: API_ERROR_CODES.swapFailed}}}
+
+      expect(classifyOutcome(error)).toBe('unknown')
+    })
+
+    it('classifies a 600 carrying a code the 4xx rule accepts as unknown, so nothing falls through', () => {
+      const error = {response: {status: 600, data: {error: API_ERROR_CODES.stalePlan}}}
+
+      expect(classifyOutcome(error)).toBe('unknown')
     })
 
     it('classifies a response whose status is not a number as unknown', () => {
@@ -218,6 +257,10 @@ describe('isUnknownOutcome', () => {
 
   it('reports a 504 with no body as unknown', () => {
     expect(isUnknownOutcome({response: {status: 504}})).toBe(true)
+  })
+
+  it('reports a 600 carrying a recognised code as unknown', () => {
+    expect(isUnknownOutcome({response: {status: 600, data: {error: API_ERROR_CODES.swapFailed}}})).toBe(true)
   })
 
   it('reports null and undefined as unknown', () => {

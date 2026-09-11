@@ -16,14 +16,14 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.TIP
   },
   iconWrapper: {
-    paddingTop: Stroke.THIN
+    paddingTop: Sizes.BANNER_ICON_INSET_T
   },
   iconWrapperCentered: {
     paddingTop: 0
   },
   textWrapper: {
     flex: 1,
-    paddingTop: Sizes.SEGMENT_TRACK_INSET
+    paddingTop: Sizes.BANNER_TEXT_INSET_T
   },
   textWrapperFlush: {
     paddingTop: 0
@@ -84,7 +84,7 @@ export default StyleSheet.create({
     color: Theme.colors.text
   },
   errorBody: {
-    paddingTop: Sizes.SEGMENT_TRACK_INSET,
+    paddingTop: Spacing.MICRO,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
@@ -97,11 +97,14 @@ export default StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     columnGap: Spacing.X_SMALL,
+    rowGap: Spacing.X_SMALL,
     paddingTop: Spacing.SMALL
   },
   primaryAction: {
+    flexShrink: 1,
     paddingVertical: Spacing.X_SMALL,
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.PILL,
@@ -113,6 +116,7 @@ export default StyleSheet.create({
     color: Theme.colors.white
   },
   secondaryAction: {
+    flexShrink: 1,
     paddingVertical: Spacing.X_SMALL,
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.TILE,

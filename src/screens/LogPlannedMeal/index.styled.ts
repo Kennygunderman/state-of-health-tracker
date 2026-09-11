@@ -7,6 +7,12 @@ import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
+  // Deliberately not @components/Screen: its 16px side margins would compound with
+  // ContentColumn's 20px gutter and shrink the content column from 353px to 321px.
+  root: {
+    flex: 1,
+    backgroundColor: Theme.colors.background
+  },
   scrollContent: {
     flexGrow: 1,
     paddingBottom: Spacing.GUTTER
@@ -71,9 +77,6 @@ export default StyleSheet.create({
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textSecondary
-  },
-  servingsSection: {
-    paddingTop: Spacing.X_SMALL
   },
   chipsSection: {
     paddingTop: Spacing.SMALL

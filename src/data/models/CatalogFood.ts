@@ -5,6 +5,13 @@ export type CatalogIdentitySource = 'usda' | 'ai_generated'
 
 export type CatalogAllergenStatus = 'known' | 'unknown'
 
+// foodState and nutritionBasis are closed because the app branches on them, which obliges convertCatalogFood to
+// resolve or reject an unknown wire value instead of passing a raw string through; category and foodGroup stay
+// strings because they are data (coverage-plan.v1.json), so adding one must not be a code change.
+export type CatalogFoodState = 'raw' | 'cooked' | 'prepared' | 'dry' | 'as_purchased'
+
+export type CatalogNutritionBasis = 'per_100g' | 'per_100ml' | 'per_serving'
+
 export interface CatalogFoodPortion {
   description: string
   amount: number
@@ -16,10 +23,10 @@ export interface CatalogFood {
   id: string
   name: string
   category: string
-  foodState: string
+  foodState: CatalogFoodState
   identitySource: CatalogIdentitySource
   nutritionProvenance: SourcedNutritionProvenance
-  nutritionBasis: string
+  nutritionBasis: CatalogNutritionBasis
   basisAmount: number
   calories: number
   protein: number

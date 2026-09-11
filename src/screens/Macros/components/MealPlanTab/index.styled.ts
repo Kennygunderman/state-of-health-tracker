@@ -12,9 +12,6 @@ export default StyleSheet.create({
     width: '100%',
     maxWidth: Sizes.CONTENT_MAX_WIDTH
   },
-  segmentRow: {
-    marginTop: Spacing.MEDIUM
-  },
   dayStripContainer: {
     marginTop: Spacing.MEDIUM
   },
@@ -80,7 +77,7 @@ export default StyleSheet.create({
   retryLabel: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
-    color: Theme.colors.white
+    color: Theme.colors.onInverse
   },
   unavailableCard: {
     marginTop: Spacing.MEDIUM,

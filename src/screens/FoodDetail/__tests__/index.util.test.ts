@@ -1,6 +1,9 @@
+import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
+
 import {
   buildDonutSegments,
   buildMacroBreakdown,
+  catalogProvenanceLabel,
   dominantMacroKey,
   formatDetailSubtitle,
   formatMacroSummary
@@ -82,5 +85,32 @@ describe('formatDetailSubtitle', () => {
 
   it('omits the brand and serving text when missing', () => {
     expect(formatDetailSubtitle(null, null, 231, 'cal per serving')).toBe('231 cal per serving')
+  })
+})
+
+describe('catalogProvenanceLabel', () => {
+  it('captions each sourced provenance with its catalog badge label', () => {
+    expect(catalogProvenanceLabel('source_backed')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.source_backed)
+    expect(catalogProvenanceLabel('ingredient_derived')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.ingredient_derived)
+    expect(catalogProvenanceLabel('ai_estimated')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.ai_estimated)
+  })
+
+  it('keeps those badge labels non-empty and distinct, so an estimate cannot read as source-backed', () => {
+    const labels = [
+      catalogProvenanceLabel('source_backed'),
+      catalogProvenanceLabel('ingredient_derived'),
+      catalogProvenanceLabel('ai_estimated')
+    ]
+
+    expect(new Set(labels.filter(label => label !== null && label.length > 0)).size).toBe(3)
+  })
+
+  it('never captions user-entered nutrition, so client-supplied values are not shown as verified', () => {
+    expect(catalogProvenanceLabel('user_entered')).toBeNull()
+  })
+
+  it('returns no caption when provenance is missing', () => {
+    expect(catalogProvenanceLabel(undefined)).toBeNull()
+    expect(catalogProvenanceLabel(null)).toBeNull()
   })
 })

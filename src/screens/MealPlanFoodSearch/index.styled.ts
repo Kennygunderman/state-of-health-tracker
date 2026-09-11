@@ -18,8 +18,11 @@ export default StyleSheet.create({
   resultsSection: {
     paddingTop: Spacing.GUTTER
   },
+  // 47:454 owns the overline-to-card rung; the overline renders inside listContent, which cannot supply it.
+  resultsListWrapper: {
+    paddingTop: Spacing.X_SMALL
+  },
   listContent: {
-    paddingTop: Spacing.X_SMALL,
     paddingBottom: Spacing.LARGE
   },
   skeletonRow: {
@@ -44,6 +47,10 @@ export default StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     columnGap: Spacing.SMALL
+  },
+  // 47:431 declares this rung on the chips row; SelectedChipsRow carries no top inset, so the screen owns it.
+  selectedChipsWrapper: {
+    paddingTop: Spacing.X_SMALL
   },
   retryContainer: {
     alignItems: 'center',

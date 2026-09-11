@@ -14,7 +14,7 @@ export default StyleSheet.create({
   track: {
     flexDirection: 'row',
     backgroundColor: Theme.colors.tile,
-    borderRadius: BorderRadius.CHIP,
+    borderRadius: BorderRadius.PILL,
     padding: Sizes.SEGMENT_TRACK_INSET
   },
   trackLarge: {
@@ -22,10 +22,7 @@ export default StyleSheet.create({
     justifyContent: 'center',
     minHeight: Sizes.CONTROL_SM
   },
-  trackSmall: {
-    alignSelf: 'flex-start'
-  },
-  trackUnit: {
+  trackCompact: {
     alignSelf: 'flex-start'
   },
   indicator: {
@@ -33,26 +30,21 @@ export default StyleSheet.create({
     top: Sizes.SEGMENT_TRACK_INSET,
     bottom: Sizes.SEGMENT_TRACK_INSET,
     left: Sizes.SEGMENT_TRACK_INSET,
-    borderRadius: BorderRadius.CHIP,
+    borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.card
   },
   segment: {
     flex: 1,
     paddingVertical: Spacing.X_SMALL,
-    borderRadius: BorderRadius.CHIP,
     alignItems: 'center'
   },
-  segmentSmall: {
-    flex: 0,
-    paddingVertical: Sizes.SEGMENT_COMPACT_INSET_V,
-    paddingHorizontal: Spacing.SMALL
-  },
-  segmentUnit: {
+  segmentCompact: {
     flex: 0,
     paddingVertical: Sizes.SEGMENT_COMPACT_INSET_V,
     paddingHorizontal: Spacing.SMALL
   },
   segmentSelected: {
+    borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.card
   },
   label: {
@@ -60,11 +52,7 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textMuted
   },
-  labelSmall: {
-    fontSize: FontSize.CAPTION,
-    fontWeight: FontWeight.SEMIBOLD
-  },
-  labelUnit: {
+  labelCompact: {
     fontSize: FontSize.CAPTION,
     fontWeight: FontWeight.SEMIBOLD
   },

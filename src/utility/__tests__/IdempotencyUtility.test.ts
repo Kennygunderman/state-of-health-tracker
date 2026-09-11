@@ -279,6 +279,96 @@ describe('fingerprint', () => {
     })
   })
 
+  describe('sparse arrays', () => {
+    it('distinguishes a one-hole array from an empty one, so the two cannot reuse a key', () => {
+      const oneHole: unknown[] = new Array(1)
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: oneHole})
+      const empty = fingerprint('POST', 'generate', NO_IDS, {tags: []})
+
+      expect(withHole).not.toBe(empty)
+    })
+
+    it('renders a hole as null, matching the [null] JSON sends', () => {
+      const oneHole: unknown[] = new Array(1)
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: oneHole})
+      const withNull = fingerprint('POST', 'generate', NO_IDS, {tags: [null]})
+
+      expect(withHole).toBe(withNull)
+    })
+
+    it('distinguishes a one-hole array body from an empty array body', () => {
+      const oneHole: unknown[] = new Array(1)
+      const withHole = fingerprint('POST', 'generate', NO_IDS, oneHole)
+      const empty = fingerprint('POST', 'generate', NO_IDS, [])
+
+      expect(withHole).not.toBe(empty)
+    })
+
+    it('matches an explicit null when the hole is the leading slot', () => {
+      const holeThenValue: unknown[] = new Array(2)
+
+      holeThenValue[1] = 'a'
+
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: holeThenValue})
+      const withNull = fingerprint('POST', 'generate', NO_IDS, {tags: [null, 'a']})
+
+      expect(withHole).toBe(withNull)
+    })
+
+    it('counts a trailing hole, matching the null JSON sends in that slot', () => {
+      const trailingHole: unknown[] = ['a']
+
+      trailingHole.length = 2
+
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: trailingHole})
+      const withNull = fingerprint('POST', 'generate', NO_IDS, {tags: ['a', null]})
+
+      expect(withHole).toBe(withNull)
+    })
+
+    it('distinguishes a trailing hole from an array that simply ends earlier', () => {
+      const trailingHole: unknown[] = ['a']
+
+      trailingHole.length = 2
+
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: trailingHole})
+      const shorter = fingerprint('POST', 'generate', NO_IDS, {tags: ['a']})
+
+      expect(withHole).not.toBe(shorter)
+    })
+
+    it('renders every slot of a wholly sparse array as null', () => {
+      const threeHoles: unknown[] = new Array(3)
+      const withHoles = fingerprint('POST', 'generate', NO_IDS, {tags: threeHoles})
+      const withNulls = fingerprint('POST', 'generate', NO_IDS, {tags: [null, null, null]})
+
+      expect(withHoles).toBe(withNulls)
+    })
+
+    it('visits the holes of an array nested inside another array', () => {
+      const innerHole: unknown[] = new Array(1)
+      const withHole = fingerprint('POST', 'generate', NO_IDS, {tags: [[], innerHole]})
+      const withNull = fingerprint('POST', 'generate', NO_IDS, {tags: [[], [null]]})
+
+      expect(withHole).toBe(withNull)
+      expect(withHole).not.toBe(fingerprint('POST', 'generate', NO_IDS, {tags: [[], []]}))
+    })
+
+    it('matches the body JSON actually sends for the same sparse array', () => {
+      const withHoles: unknown[] = new Array(3)
+
+      withHoles[0] = 'a'
+      withHoles[2] = 'b'
+
+      const body = {tags: withHoles}
+      const asSentOverTheWire: unknown = JSON.parse(JSON.stringify(body))
+      const fromSparseBody = fingerprint('POST', 'generate', NO_IDS, body)
+      const fromWireBody = fingerprint('POST', 'generate', NO_IDS, asSentOverTheWire)
+
+      expect(fromSparseBody).toBe(fromWireBody)
+    })
+  })
+
   describe('purity and persistence', () => {
     it('leaves the body it is given unmutated and unreordered', () => {
       const body = {servings: 1, nested: {z: 1, a: 2}, tags: ['b', 'a'], idempotencyKey: 'k1'}

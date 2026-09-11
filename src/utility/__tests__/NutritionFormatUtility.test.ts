@@ -194,16 +194,30 @@ describe('formatSignedCalories', () => {
     expect(formatSignedCalories(0.4, CAL_SUFFIX)).toBe(`0 ${CAL_SUFFIX}`)
   })
 
-  it('renders the negative half boundary as unsigned zero, since Math.round(-0.5) is -0', () => {
-    expect(formatSignedCalories(-0.5, CAL_SUFFIX)).toBe(`0 ${CAL_SUFFIX}`)
+  // The magnitude is rounded before the sign is applied, so the half boundary rounds away from zero
+  it('rounds the negative half boundary away from zero rather than up to an unsigned zero', () => {
+    expect(formatSignedCalories(-0.5, CAL_SUFFIX)).toBe(`${MINUS_SIGN}1 ${CAL_SUFFIX}`)
   })
 
   it('rounds the positive half boundary up before signing', () => {
     expect(formatSignedCalories(0.5, CAL_SUFFIX)).toBe(`+1 ${CAL_SUFFIX}`)
   })
 
-  it('rounds a negative half boundary toward positive infinity, as Math.round does', () => {
-    expect(formatSignedCalories(-69.5, CAL_SUFFIX)).toBe(`${MINUS_SIGN}69 ${CAL_SUFFIX}`)
+  it('rounds a negative half boundary on its magnitude, not toward positive infinity', () => {
+    expect(formatSignedCalories(-69.5, CAL_SUFFIX)).toBe(`${MINUS_SIGN}70 ${CAL_SUFFIX}`)
+  })
+
+  it('rounds a small negative half boundary away from zero', () => {
+    expect(formatSignedCalories(-2.5, CAL_SUFFIX)).toBe(`${MINUS_SIGN}3 ${CAL_SUFFIX}`)
+  })
+
+  it('gives a negative and a positive half boundary the same magnitude', () => {
+    const negative = formatSignedCalories(-69.5, CAL_SUFFIX)
+    const positive = formatSignedCalories(69.5, CAL_SUFFIX)
+
+    expect(negative.slice(1)).toBe(positive.slice(1))
+    expect(negative).toBe(`${MINUS_SIGN}70 ${CAL_SUFFIX}`)
+    expect(positive).toBe(`+70 ${CAL_SUFFIX}`)
   })
 
   it('groups the magnitude of a four digit delta', () => {

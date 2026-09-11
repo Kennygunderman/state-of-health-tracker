@@ -18,7 +18,7 @@ export default StyleSheet.create({
   },
   title: {
     fontSize: FontSize.SCREEN_TITLE,
-    fontWeight: 'bold',
+    fontWeight: FontWeight.BOLD,
     marginTop: Spacing.XX_SMALL,
     marginHorizontal: Spacing.MEDIUM
   },
@@ -32,7 +32,7 @@ export default StyleSheet.create({
   },
   sectionHeaderText: {
     fontSize: FontSize.H3,
-    fontWeight: 'bold'
+    fontWeight: FontWeight.BOLD
   },
   emptyText: {
     fontWeight: FontWeight.EXTRA_LIGHT,

@@ -13,12 +13,12 @@ import {
   planStartDateBounds
 } from '../MealPlanDateUtility'
 
-// Every helper here takes `now` as a parameter, so fixtures inject it instead of faking the system clock
+// The time-dependent helpers take `now` as a parameter, so fixtures inject it instead of faking the system clock
 const PLAN_START = '2026-07-05'
 const PLAN_END = '2026-07-11'
 const EN_DASH = '\u2013'
 
-// The runner's zone is UTC, so these pin the local-midnight contract but cannot reproduce a negative-offset shift
+// No case here depends on the runner's zone; the negative-offset and DST cases live in MealPlanDateUtility.dst.test.ts
 describe('parseDayKey', () => {
   it('returns the local calendar day rather than UTC midnight', () => {
     const parsed = parseDayKey('2026-07-05')
@@ -148,16 +148,6 @@ describe('addDaysToDayKey', () => {
   it('normalizes a timestamp input before adding', () => {
     expect(addDaysToDayKey('2026-07-05T12:00:00.000Z', 1)).toBe('2026-07-06')
   })
-
-  it('adds calendar days across a spring-forward boundary', () => {
-    expect(addDaysToDayKey('2026-03-07', 1)).toBe('2026-03-08')
-    expect(addDaysToDayKey('2026-03-08', 1)).toBe('2026-03-09')
-  })
-
-  it('adds calendar days across a fall-back boundary', () => {
-    expect(addDaysToDayKey('2026-10-31', 1)).toBe('2026-11-01')
-    expect(addDaysToDayKey('2026-11-01', 1)).toBe('2026-11-02')
-  })
 })
 
 describe('isDayKeyWithin', () => {
@@ -249,21 +239,6 @@ describe('planDates', () => {
 
     expect(dates[0]).toBe('2026-12-28')
     expect(dates[6]).toBe('2027-01-03')
-  })
-
-  it('returns contiguous distinct days across a spring-forward window', () => {
-    const dates = planDates('2026-03-08')
-
-    expect(dates).toEqual([
-      '2026-03-08',
-      '2026-03-09',
-      '2026-03-10',
-      '2026-03-11',
-      '2026-03-12',
-      '2026-03-13',
-      '2026-03-14'
-    ])
-    expect(new Set(dates).size).toBe(7)
   })
 
   it('includes the leap day', () => {

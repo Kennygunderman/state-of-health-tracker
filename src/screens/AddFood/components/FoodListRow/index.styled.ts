@@ -1,7 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight} from '@styles/fontSize'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -33,7 +33,7 @@ export default StyleSheet.create({
   },
   name: {
     fontSize: FontSize.BODY,
-    fontWeight: 'bold'
+    fontWeight: FontWeight.BOLD
   },
   detail: {
     fontSize: FontSize.BODY,
@@ -49,7 +49,7 @@ export default StyleSheet.create({
   },
   caloriesValue: {
     fontSize: FontSize.H3,
-    fontWeight: 'bold'
+    fontWeight: FontWeight.BOLD
   },
   caloriesLabel: {
     fontSize: FontSize.OVERLINE,

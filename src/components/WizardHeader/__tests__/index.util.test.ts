@@ -61,6 +61,12 @@ describe('progressSegmentWidth', () => {
     it('gives a single segment the whole track regardless of gap', () => {
       expect(progressSegmentWidth(SINGLE_SEGMENT_TRACK, 1, SEGMENT_GAP)).toBe(100)
     })
+
+    it('charges a single segment no gap at all, so a non-zero gap changes nothing', () => {
+      const withoutGap = progressSegmentWidth(SINGLE_SEGMENT_TRACK, 1, 0)
+
+      expect(progressSegmentWidth(SINGLE_SEGMENT_TRACK, 1, SEGMENT_GAP)).toBe(withoutGap)
+    })
   })
 
   describe('an unmeasured or empty track', () => {

@@ -57,10 +57,13 @@ const REASON_COLOR = 'hardcoded color'
 const REASON_NUMERIC = 'numeric literal'
 const REASON_NUMERIC_STRING = 'quoted numeric font weight'
 
+const BIGINT_SUFFIX_PATTERN = /n$/
 const COLOR_FUNCTION_PATTERN = /^(?:rgb|rgba|hsl|hsla)\(/
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{3,8}$/
 const IDENTIFIER_CHARACTER_PATTERN = /[A-Za-z0-9_$]/
-const NUMERIC_LITERAL_PATTERN = /-?(?:\d+(?:\.\d+)?|\.\d+)/g
+const NUMERIC_LITERAL_PATTERN =
+  /-?(?:0[xX][\da-fA-F][\da-fA-F_]*|0[bB][01][01_]*|0[oO][0-7][0-7_]*|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][-+]?\d[\d_]*)?)n?/g
+const NUMERIC_SEPARATOR_PATTERN = /_/g
 const NUMERIC_STRING_PATTERN = /^\d+$/
 const PERCENTAGE_PATTERN = /^-?\d+(?:\.\d+)?%$/
 const PROPERTY_PATTERN = /([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g
@@ -84,6 +87,14 @@ const isQuoted = text => text.length > 1 && QUOTE_CHARACTERS.includes(text[0])
 
 const unquote = text => (isQuoted(text) ? text.slice(1, -1) : text)
 
+// Number() rejects numeric separators and a signed radix prefix; a magnitude that still resolves to NaN stays a hit.
+const isZeroLiteral = text => {
+  const bare = text.replace(NUMERIC_SEPARATOR_PATTERN, '').replace(BIGINT_SUFFIX_PATTERN, '')
+  const magnitude = bare.startsWith('-') ? bare.slice(1) : bare
+
+  return magnitude.length > 0 && Number(magnitude) === 0
+}
+
 const classifyValue = (propertyName, valueText) => {
   const literal = unquote(valueText)
 
@@ -103,7 +114,7 @@ const classifyValue = (propertyName, valueText) => {
     return null
   }
 
-  if (isExemptProperty(propertyName) || Number(literal) === 0) {
+  if (isExemptProperty(propertyName) || isZeroLiteral(literal)) {
     return null
   }
 

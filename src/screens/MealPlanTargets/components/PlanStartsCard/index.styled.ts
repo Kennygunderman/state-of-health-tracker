@@ -29,9 +29,7 @@ export default StyleSheet.create({
     color: Theme.colors.textMuted
   },
   value: {
-    // BLITZY [SPACING]: Figma 34:88 gives this gap 2px; the scale has no 2 step, so it snaps up to XX_SMALL (4),
-    // which the AAP assigns to value->label. Alternative: an eighth spacing step, where the AAP stops at seven.
-    paddingTop: Spacing.XX_SMALL,
+    paddingTop: Spacing.MICRO,
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text

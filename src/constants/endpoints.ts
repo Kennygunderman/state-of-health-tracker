@@ -18,50 +18,135 @@ const NGROK_HOST_SUFFIXES = ['.ngrok.io', '.ngrok-free.app', '.ngrok.app', '.ngr
 
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1']
 
-const PRIVATE_IPV4_HOST = /^(?:10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2})$/
+const PRINTABLE_ASCII_ONLY = /^[\x21-\x7e]+$/
+const HTTP_SCHEME = /^https?:\/\//i
+const BARE_AUTHORITY = /^([a-z0-9._-]+)(?::(\d{1,5}))?$/i
+const TRAILING_DOT = /\.$/
+const DNS_LABEL = /^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/
+const NUMERIC_LABEL = /^(?:\d+|0x[0-9a-f]*)$/i
+// No leading zeros, because a URL parser re-reads 010 as octal 8 and 0x0a as
+// hex 10 — only the plain decimal form means what it says.
+const DECIMAL_OCTET = /^(?:0|[1-9]\d{0,2})$/
 
-const ORIGIN_AUTHORITY = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i
+const MIN_PORT = 1
+const MAX_PORT = 65535
+const MAX_OCTET = 255
+const IPV4_LABEL_COUNT = 4
+const MAX_HOST_LENGTH = 253
+const MAX_LABEL_LENGTH = 63
 
-const hostOf = (origin: string): string => {
-  const authority = ORIGIN_AUTHORITY.exec(origin.trim())?.[1]
+type Ipv4Octets = [number, number, number, number]
 
-  if (!authority) {
-    return ''
-  }
-
-  const withoutUserInfo = authority.slice(authority.lastIndexOf('@') + 1)
-
-  return withoutUserInfo.replace(/:\d*$/, '').toLowerCase().replace(/\.$/, '')
+interface ParsedOrigin {
+  host: string
+  octets: Ipv4Octets | null
 }
 
-export const isNonProductionApiOrigin = (origin: string): boolean => {
-  const host = hostOf(origin)
+const parseIpv4Octets = (labels: string[]): Ipv4Octets | null => {
+  if (labels.length !== IPV4_LABEL_COUNT || !labels.every(label => DECIMAL_OCTET.test(label))) {
+    return null
+  }
 
-  if (!host) {
+  const octets = labels.map(Number)
+
+  if (octets.some(octet => octet > MAX_OCTET)) {
+    return null
+  }
+
+  return [octets[0], octets[1], octets[2], octets[3]]
+}
+
+const parseHost = (host: string): ParsedOrigin | null => {
+  const labels = host.split('.')
+
+  // A host whose last label is numeric is an IPv4 address to every URL parser,
+  // so it must be a full dotted quad here and is never treated as a name.
+  if (NUMERIC_LABEL.test(labels[labels.length - 1])) {
+    const octets = parseIpv4Octets(labels)
+
+    return octets ? {host, octets} : null
+  }
+
+  if (host.length > MAX_HOST_LENGTH) {
+    return null
+  }
+
+  const isDnsName = labels.every(label => label.length <= MAX_LABEL_LENGTH && DNS_LABEL.test(label))
+
+  return isDnsName ? {host, octets: null} : null
+}
+
+// Anything this cannot read as scheme + host + optional port is rejected rather
+// than normalized: a backslash, userinfo, a control character or a non-ASCII
+// label separator each move the host the request stack resolves, so agreeing
+// with that stack means accepting only hosts no character can shift. Surrounding
+// whitespace is rejected for the same reason and never trimmed — baseApiUrl is
+// built from the raw value, and String.trim() strips more (U+00A0, U+2028) than
+// a URL parser does, so trimming here would approve a string no request can use.
+const parseOrigin = (origin: string): ParsedOrigin | null => {
+  if (!PRINTABLE_ASCII_ONLY.test(origin) || !HTTP_SCHEME.test(origin)) {
+    return null
+  }
+
+  const authority = BARE_AUTHORITY.exec(origin.replace(HTTP_SCHEME, ''))
+
+  if (!authority) {
+    return null
+  }
+
+  const [, hostPart, portPart] = authority
+  const port = portPart ? Number(portPart) : MIN_PORT
+
+  if (port < MIN_PORT || port > MAX_PORT) {
+    return null
+  }
+
+  const host = hostPart.toLowerCase().replace(TRAILING_DOT, '')
+
+  return host === '' ? null : parseHost(host)
+}
+
+// RFC 1918: 10/8, 172.16/12 and 192.168/16.
+const isPrivateIpv4 = ([first, second]: Ipv4Octets): boolean =>
+  first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)
+
+export const isNonProductionApiOrigin = (origin: string): boolean => {
+  const parsed = parseOrigin(origin)
+
+  if (!parsed) {
     return false
   }
 
-  if (LOOPBACK_HOSTS.includes(host) || PRIVATE_IPV4_HOST.test(host)) {
+  if (LOOPBACK_HOSTS.includes(parsed.host) || SOH_DEV_API_HOSTS.includes(parsed.host)) {
     return true
   }
 
-  if (NGROK_HOST_SUFFIXES.some(suffix => host.endsWith(suffix))) {
-    return true
+  if (parsed.octets) {
+    return isPrivateIpv4(parsed.octets)
   }
 
-  return SOH_DEV_API_HOSTS.includes(host)
+  return NGROK_HOST_SUFFIXES.some(suffix => parsed.host.endsWith(suffix))
 }
 
-export const assertNonProductionApi = (): void => {
-  if (!SOH_API_BASE_URL || SOH_API_BASE_URL.trim() === '') {
+// The origin is a parameter because `module:react-native-dotenv` inlines
+// SOH_API_BASE_URL at every reference site and deletes the `@env` import, so a
+// test cannot drive these branches by mocking the module.
+export const assertNonProductionApiOrigin = (origin: string | undefined): void => {
+  if (!origin || origin.trim() === '') {
     throw new Error('SOH_API_BASE_URL is not set')
   }
 
-  if (!isNonProductionApiOrigin(resolvedApiOrigin)) {
-    throw new Error(
-      `SOH_API_BASE_URL must point at a non-production API in development and tests, got ${resolvedApiOrigin}`
-    )
+  if (!parseOrigin(origin)) {
+    throw new Error(`SOH_API_BASE_URL is not a bare http(s) origin, got ${origin}`)
   }
+
+  if (!isNonProductionApiOrigin(origin)) {
+    throw new Error(`SOH_API_BASE_URL must point at a non-production API in development and tests, got ${origin}`)
+  }
+}
+
+export const assertNonProductionApi = (): void => {
+  assertNonProductionApiOrigin(SOH_API_BASE_URL)
 }
 
 if (__DEV__ || typeof jest !== 'undefined') {

@@ -28,10 +28,10 @@ export default StyleSheet.create({
     color: Theme.colors.text
   },
   subtitle: {
-    fontSize: FontSize.LABEL,
-    lineHeight: LineHeight.META,
+    fontSize: FontSize.BODY,
+    lineHeight: LineHeight.BODY,
     fontWeight: FontWeight.REGULAR,
-    color: Theme.colors.textMuted
+    color: Theme.colors.textSecondary
   },
 
   thisMealSection: {
@@ -44,7 +44,7 @@ export default StyleSheet.create({
 
   totalsCard: {
     marginTop: Spacing.SMALL,
-    padding: Spacing.MEDIUM,
+    padding: Spacing.GUTTER,
     backgroundColor: Theme.colors.card,
     borderRadius: BorderRadius.CARD_LG
   },
@@ -54,11 +54,11 @@ export default StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between'
   },
-  // No lineHeight: the frame leaves this overline's line height automatic.
   totalsOverline: {
     fontSize: FontSize.OVERLINE,
-    letterSpacing: LetterSpacing.OVERLINE,
     fontWeight: FontWeight.SEMIBOLD,
+    letterSpacing: LetterSpacing.OVERLINE,
+    lineHeight: LineHeight.OVERLINE,
     textTransform: 'uppercase',
     color: Theme.colors.textMuted
   },

@@ -18,7 +18,7 @@ export default StyleSheet.create({
   },
   textColumn: {
     flex: 1,
-    rowGap: Spacing.TEXT_GAP
+    rowGap: Spacing.MICRO
   },
   label: {
     fontSize: FontSize.LABEL,

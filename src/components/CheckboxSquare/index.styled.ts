@@ -1,7 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
-import {Sizes, Stroke} from '@styles/sizes'
+import {Sizes, Stroke, Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
@@ -21,5 +21,8 @@ export default StyleSheet.create({
   containerCheckedEmphasis: {
     backgroundColor: Theme.colors.accentGreen,
     borderColor: Theme.colors.accentGreen
+  },
+  containerPending: {
+    opacity: Opacity.DISABLED
   }
 })

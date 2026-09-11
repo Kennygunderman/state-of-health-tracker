@@ -22,4 +22,19 @@ describe('metricCellWidth', () => {
   it('gives a single column the whole container because it spans no gaps', () => {
     expect(metricCellWidth(321, 12, 1)).toBe(321)
   })
+
+  it('charges one fewer gap than there are columns', () => {
+    const oneGapPerColumn = (321 - 12 * 4) / 4
+
+    expect(metricCellWidth(321, 12, 4)).not.toBe(oneGapPerColumn)
+    expect(metricCellWidth(321, 12, 4)).toBe(71.25)
+  })
+
+  it('fills the container exactly with four cells and the three gaps between them', () => {
+    expect(metricCellWidth(321, 12, 4) * 4 + 12 * 3).toBe(321)
+  })
+
+  it('divides the whole container evenly when there is no gap to subtract', () => {
+    expect(metricCellWidth(321, 0, 4)).toBe(80.25)
+  })
 })

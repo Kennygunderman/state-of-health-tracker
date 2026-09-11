@@ -32,9 +32,11 @@ export default StyleSheet.create({
     paddingTop: Spacing.GUTTER,
     rowGap: Spacing.X_SMALL
   },
+  // Figma 47:632 declares 24px here, while the cooking section above deliberately opens at 20px (47:616) —
+  // the two section rungs differ by design and must not be normalised to one value.
   budgetSection: {
     alignSelf: 'stretch',
-    paddingTop: Spacing.MEDIUM,
+    paddingTop: Spacing.LARGE,
     rowGap: Spacing.X_SMALL
   },
   labelRow: {

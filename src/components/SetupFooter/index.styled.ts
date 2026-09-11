@@ -1,14 +1,12 @@
 import {StyleSheet, ViewStyle} from 'react-native'
 
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 // Figma's footer bottom padding (22): a floor beneath the live safe-area inset, never added to it.
-const FOOTER_MIN_BOTTOM_INSET = Spacing.MEDIUM + Spacing.TIGHT
-
 export const footerBottomInset = (inset: number): ViewStyle => ({
-  paddingBottom: Math.max(inset, FOOTER_MIN_BOTTOM_INSET)
+  paddingBottom: Math.max(inset, Sizes.FOOTER_MIN_BOTTOM)
 })
 
 export default StyleSheet.create({

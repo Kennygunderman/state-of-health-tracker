@@ -39,9 +39,17 @@ export default StyleSheet.create({
   },
   field: {
     flex: 1,
-    paddingVertical: Spacing.SMALL,
+    // 50px, not the buttons' 44: node 38:55 hugs to 1 stroke + 12 pad + 24 line box + 12 pad + 1
+    // stroke, and row 38:52's own authored height of 58 only balances as 8 padding + 50, so the
+    // field is taller than the buttons by design and the row centres them against it. Pinned rather
+    // than left to hug because that 24px line box is Figma's AUTO value and would drift per
+    // platform; the vertical padding drops to 0 so @components/TextInput's inherited padding
+    // cannot re-inflate the box. Composed from tokens because no Sizes entry equals 50.
+    height: Sizes.CONTROL + Spacing.TIGHT,
+    paddingVertical: 0,
     paddingHorizontal: Spacing.MEDIUM,
     textAlign: 'center',
+    textAlignVertical: 'center',
     fontSize: FontSize.STAT,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text,
