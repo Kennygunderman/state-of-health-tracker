@@ -29,8 +29,13 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     color: Theme.colors.text
   },
-  /* BLITZY [A11Y]: 37:276 struck name #6E7B74 (textFaint) = 3.81:1 on card, below AA 4.5:1 on an interactive row. */
-  /* Held per AAP 0.2.1/0.2.2 + Figma; textMuted (4.75:1) rejected. DESIGNER: approve a >=4.5:1 struck-name fill. */
+  // BLITZY [A11Y] — WCAG 1.4.3 exception, re-verified against Figma at review and upheld. Figma 37:276 authors
+  // these checked deltas as two distinct opaque fills with no opacity anywhere: struck name #6E7B74 (3.81:1 on
+  // the #161F1A card) and quantity #4B5750 (2.23:1), both under the 4.5:1 AA default for 15px/400 text. Figma
+  // specifies them and outranks that default (AAP 0.2.1 F12 / 0.2.2 / 0.6.5 precedence), so they are matched
+  // exactly, never lightened: textMuted (4.75:1) clears AA but collapses the two-tone mute into one grey and
+  // breaks the frame 14b comparison. WCAG 1.4.1 still holds — the strike-through below, plus the filled box and
+  // added tick CheckboxSquare renders, carry the state without colour. Raising a fill is a Figma change.
   nameMuted: {
     textDecorationLine: 'line-through',
     color: Theme.colors.textFaint
@@ -41,8 +46,6 @@ export default StyleSheet.create({
     textAlign: 'right',
     color: Theme.colors.textSecondary
   },
-  /* BLITZY [A11Y]: 37:276 struck quantity #4B5750 (textDisabled) = 2.23:1 on card, below AA on an interactive row. */
-  /* Held per AAP 0.2.1/0.2.2 + Figma (a distinct darker grey, not name-at-opacity). DESIGNER: approve >=4.5:1. */
   quantityMuted: {
     color: Theme.colors.textDisabled
   }

@@ -46,6 +46,7 @@ export const Sizes = {
   EMPTY_BLOCK_BOTTOM_LG: 60,
   FOOTER_MIN_BOTTOM: 22,
 
+  ICON_CHEVRON: 14,
   ICON_XS: 15,
   ICON_SM: 17,
   ICON: 18,

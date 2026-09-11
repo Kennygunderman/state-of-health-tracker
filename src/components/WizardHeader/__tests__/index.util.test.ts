@@ -20,6 +20,12 @@ const UNMEASURABLE_TRACKS = [
   {trackWidth: TRACK_393, total: 0},
   {trackWidth: TRACK_393, total: -1}
 ]
+const EXACTLY_FILLED_TRACKS = [
+  {trackWidth: TRACK_393, total: ESTIMATED_ROUTE_STEPS},
+  {trackWidth: TRACK_375, total: ESTIMATED_ROUTE_STEPS},
+  {trackWidth: TRACK_393, total: MANUAL_ROUTE_STEPS},
+  {trackWidth: TRACK_375, total: MANUAL_ROUTE_STEPS}
+]
 
 describe('progressSegmentWidth', () => {
   describe('the seven-step estimated route', () => {
@@ -56,6 +62,14 @@ describe('progressSegmentWidth', () => {
 
       expect(progressSegmentWidth(TRACK_393, ESTIMATED_ROUTE_STEPS, SEGMENT_GAP)).not.toBe(oneGapPerSegment)
       expect(progressSegmentWidth(TRACK_393, ESTIMATED_ROUTE_STEPS, SEGMENT_GAP)).toBe(33)
+    })
+
+    it('fills each device track exactly with its segments plus their one-fewer gaps', () => {
+      EXACTLY_FILLED_TRACKS.forEach(({trackWidth, total}) => {
+        const width = progressSegmentWidth(trackWidth, total, SEGMENT_GAP)
+
+        expect(width * total + SEGMENT_GAP * (total - 1)).toBe(trackWidth)
+      })
     })
 
     it('gives a single segment the whole track regardless of gap', () => {

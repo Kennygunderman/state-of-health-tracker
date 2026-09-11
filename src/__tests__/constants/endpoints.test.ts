@@ -10,6 +10,69 @@ const PRODUCTION_ORIGIN = 'https://stateofhealthapi.com'
 // so approving it as "localhost" would send development traffic to production.
 const BACKSLASH_USERINFO_ORIGIN = 'http://stateofhealthapi.com\\@localhost:3000'
 
+// Pinned here rather than imported, so a regression to interpolating the
+// rejected value into the guard's messages fails these tests.
+const MALFORMED_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL is not a bare http(s) origin. Expected http(s)://host[:port] with no path, credentials or query. The configured value is not logged.'
+
+const PRODUCTION_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL must point at a non-production API in development and tests. Allowed: localhost, 127.0.0.1, a private LAN address, an *.ngrok* tunnel or a SOH_DEV_API_HOSTS entry. The configured value is not logged.'
+
+const USERINFO_PASSWORD = 'p4ss-8f21c0-userinfo'
+const QUERY_ACCESS_TOKEN = 'tok-4d19ab-query'
+const FORGED_HEADER_TOKEN = 'bearer-77e3f5-header'
+const TOKEN_SHAPED_HOST = 'sk-live-2b91d4-host'
+
+interface CredentialBearingCase {
+  label: string
+  origin: string
+  secret: string
+  message: string
+}
+
+// The label, never the origin, builds the Jest title: the runner's output is a
+// log sink too, so a `%s` title on these rows would reproduce the very leak
+// these cases exist to rule out.
+const CREDENTIAL_BEARING_CASES: CredentialBearingCase[] = [
+  {
+    label: 'userinfo carrying a password',
+    origin: `http://admin:${USERINFO_PASSWORD}@localhost:3000`,
+    secret: USERINFO_PASSWORD,
+    message: MALFORMED_ORIGIN_MESSAGE
+  },
+  {
+    label: 'a query string carrying an access token',
+    origin: `http://localhost:3000/?access_token=${QUERY_ACCESS_TOKEN}`,
+    secret: QUERY_ACCESS_TOKEN,
+    message: MALFORMED_ORIGIN_MESSAGE
+  },
+  {
+    label: 'a control character followed by a forged Authorization header',
+    origin: `http://localhost:3000\nAuthorization: Bearer ${FORGED_HEADER_TOKEN}`,
+    secret: FORGED_HEADER_TOKEN,
+    message: MALFORMED_ORIGIN_MESSAGE
+  },
+  {
+    // This one parses as a DNS name, so the production branch rejects it —
+    // proving that message is redacted too, and that no "parsed host" is safe
+    // to print when the host itself can be the pasted secret.
+    label: 'a token pasted in place of the host',
+    origin: `http://${TOKEN_SHAPED_HOST}`,
+    secret: TOKEN_SHAPED_HOST,
+    message: PRODUCTION_ORIGIN_MESSAGE
+  }
+]
+
+const messageThrownFor = (origin: string): string => {
+  try {
+    assertNonProductionApiOrigin(origin)
+  } catch (error) {
+    return (error as Error).message
+  }
+
+  throw new Error('assertNonProductionApiOrigin accepted an origin it must reject')
+}
+
 describe('isNonProductionApiOrigin', () => {
   describe('non-production origins', () => {
     it.each([
@@ -148,25 +211,35 @@ describe('assertNonProductionApiOrigin', () => {
   })
 
   it('throws for a padded origin rather than trimming it into an approved host', () => {
-    expect(() => assertNonProductionApiOrigin('http://localhost:3000 ')).toThrow(
-      'SOH_API_BASE_URL is not a bare http(s) origin, got http://localhost:3000 '
-    )
+    expect(messageThrownFor('http://localhost:3000 ')).toBe(MALFORMED_ORIGIN_MESSAGE)
   })
 
-  it('throws naming the production origin it was given', () => {
-    expect(() => assertNonProductionApiOrigin(PRODUCTION_ORIGIN)).toThrow(
-      `SOH_API_BASE_URL must point at a non-production API in development and tests, got ${PRODUCTION_ORIGIN}`
-    )
+  it('throws for a production origin without repeating the value it was given', () => {
+    const message = messageThrownFor(PRODUCTION_ORIGIN)
+
+    expect(message).toBe(PRODUCTION_ORIGIN_MESSAGE)
+    expect(message).not.toContain(PRODUCTION_ORIGIN)
   })
 
   it('throws for the backslash userinfo form instead of accepting it as localhost', () => {
-    expect(() => assertNonProductionApiOrigin(BACKSLASH_USERINFO_ORIGIN)).toThrow(
-      `SOH_API_BASE_URL is not a bare http(s) origin, got ${BACKSLASH_USERINFO_ORIGIN}`
-    )
+    const message = messageThrownFor(BACKSLASH_USERINFO_ORIGIN)
+
+    expect(message).toBe(MALFORMED_ORIGIN_MESSAGE)
+    expect(message).not.toContain(BACKSLASH_USERINFO_ORIGIN)
   })
 
   it('does not throw for a loopback development origin', () => {
     expect(() => assertNonProductionApiOrigin('http://localhost:3000')).not.toThrow()
+  })
+
+  describe('values carrying a credential', () => {
+    it.each(CREDENTIAL_BEARING_CASES)('rejects $label without echoing it', ({origin, secret, message}) => {
+      const thrown = messageThrownFor(origin)
+
+      expect(thrown).not.toContain(secret)
+      expect(thrown).not.toContain(origin)
+      expect(thrown).toBe(message)
+    })
   })
 })
 

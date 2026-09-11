@@ -128,20 +128,29 @@ export const isNonProductionApiOrigin = (origin: string): boolean => {
   return NGROK_HOST_SUFFIXES.some(suffix => parsed.host.endsWith(suffix))
 }
 
+const MALFORMED_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL is not a bare http(s) origin. Expected http(s)://host[:port] with no path, credentials or query. The configured value is not logged.'
+
+const PRODUCTION_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL must point at a non-production API in development and tests. Allowed: localhost, 127.0.0.1, a private LAN address, an *.ngrok* tunnel or a SOH_DEV_API_HOSTS entry. The configured value is not logged.'
+
 // The origin is a parameter because `module:react-native-dotenv` inlines
 // SOH_API_BASE_URL at every reference site and deletes the `@env` import, so a
-// test cannot drive these branches by mocking the module.
+// test cannot drive these branches by mocking the module. Nothing derived from
+// the rejected value is interpolated into these messages: this throws at module
+// load, so it reaches Jest, Metro and CI logs, and a misconfigured value can
+// carry credentials or a token — even its host, which may be the token itself.
 export const assertNonProductionApiOrigin = (origin: string | undefined): void => {
   if (!origin || origin.trim() === '') {
     throw new Error('SOH_API_BASE_URL is not set')
   }
 
   if (!parseOrigin(origin)) {
-    throw new Error(`SOH_API_BASE_URL is not a bare http(s) origin, got ${origin}`)
+    throw new Error(MALFORMED_ORIGIN_MESSAGE)
   }
 
   if (!isNonProductionApiOrigin(origin)) {
-    throw new Error(`SOH_API_BASE_URL must point at a non-production API in development and tests, got ${origin}`)
+    throw new Error(PRODUCTION_ORIGIN_MESSAGE)
   }
 }
 

@@ -23,6 +23,16 @@ describe('metricCellWidth', () => {
     expect(metricCellWidth(321, 12, 1)).toBe(321)
   })
 
+  it('charges a two-column row the one gap that sits between its cells', () => {
+    expect(metricCellWidth(321, 12, 2)).toBe(154.5)
+    expect(metricCellWidth(321, 12, 2) * 2 + 12 * 1).toBe(321)
+  })
+
+  it('charges a three-column row the two gaps that sit between its cells', () => {
+    expect(metricCellWidth(321, 12, 3)).toBe(99)
+    expect(metricCellWidth(321, 12, 3) * 3 + 12 * 2).toBe(321)
+  })
+
   it('charges one fewer gap than there are columns', () => {
     const oneGapPerColumn = (321 - 12 * 4) / 4
 
