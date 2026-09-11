@@ -51,11 +51,14 @@ const EXEMPT_VALUES = Object.freeze([
 
 const EXEMPT_PROPERTIES = Object.freeze(['flex', 'flexGrow', 'flexShrink'])
 
+const FONT_WEIGHT_PROPERTY = 'fontWeight'
+
 const QUOTE_CHARACTERS = Object.freeze(["'", '"', '`'])
 
 const REASON_COLOR = 'hardcoded color'
+const REASON_FONT_WEIGHT_STRING = 'quoted numeric font weight'
 const REASON_NUMERIC = 'numeric literal'
-const REASON_NUMERIC_STRING = 'quoted numeric font weight'
+const REASON_NUMERIC_STRING = 'quoted numeric literal'
 
 const BIGINT_SUFFIX_PATTERN = /n$/
 const COLOR_FUNCTION_PATTERN = /^(?:rgb|rgba|hsl|hsla)\(/
@@ -104,7 +107,7 @@ const classifyValue = (propertyName, valueText) => {
 
   if (isQuoted(valueText)) {
     if (NUMERIC_STRING_PATTERN.test(literal)) {
-      return REASON_NUMERIC_STRING
+      return propertyName === FONT_WEIGHT_PROPERTY ? REASON_FONT_WEIGHT_STRING : REASON_NUMERIC_STRING
     }
 
     if (HEX_COLOR_PATTERN.test(literal) || COLOR_FUNCTION_PATTERN.test(literal)) {
