@@ -946,6 +946,15 @@ export const MEAL_PLAN_PACE_SURPLUS_TEMPLATE = 'About {calories} cal over mainte
 
 export const MEAL_PLAN_PACE_RECOMMENDED_SUFFIX = ' · recommended'
 
+// The word form a chosen pace reads as on the Review and Plan-settings rows, keyed by lb per week. Figma draws
+// only 'Gradual' (09 and 16 both sample the recommended 1 lb a week); 'Gentle' and 'Fast' are this
+// implementation's copy for the two paces the file never draws, and are flagged for designer review.
+export const MEAL_PLAN_PACE_LABELS: Record<string, string> = {
+  '0.5': 'Gentle',
+  '1': 'Gradual',
+  '1.5': 'Fast'
+}
+
 // --- Meal planning: about you (03, 03b) ---
 
 export const MEAL_PLAN_ABOUT_YOU_TITLE = 'A little about you.'
@@ -1114,7 +1123,13 @@ export const MEAL_PLAN_BUDGET_HELPER_TEXT = 'A preference only — grocery price
 
 export const MEAL_PLAN_BUDGET_ERROR_TEXT = 'Enter a weekly budget above $0'
 
+// A saved budget as the Review and Plan-settings rows read it back. The currency sign is part of the copy
+// because this version accepts USD only; a second currency turns this into a per-currency lookup.
+export const MEAL_PLAN_BUDGET_VALUE_TEMPLATE = '${amount} per week'
+
 export const MEAL_PLAN_SUMMARY_HEADER = 'Your plan so far'
+
+export const MEAL_PLAN_SUMMARY_GOAL_WITH_WEIGHT_TEMPLATE = '{goal} · {weight} {unit}'
 
 // --- Meal planning: targets and review (09) ---
 
@@ -1139,6 +1154,33 @@ export const MEAL_PLAN_ANSWER_DIET_LABEL = 'Diet and allergies'
 export const MEAL_PLAN_ANSWER_MEALS_LABEL = 'Daily meals'
 
 export const MEAL_PLAN_GENERATE_BUTTON_TEXT = 'Generate my weekly plan'
+
+// The review and settings rows compose a value out of a variable number of fragments ('Lose weight · 170 lb ·
+// 1 lb a week'), so the middot is a join separator here rather than being baked into a fixed template the way
+// MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE bakes its own.
+export const MEAL_PLAN_VALUE_SEPARATOR = ' · '
+
+// Same characters as MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR, kept separate because a row listing the user's own
+// answers and a card explaining why a meal is flagged are different surfaces that may be reworded apart.
+export const MEAL_PLAN_LIST_SEPARATOR = ', '
+
+// The value a review row shows when the answer is an empty set or is not recorded yet, so a row never renders
+// a blank, a 'null' or an 'undefined'.
+export const MEAL_PLAN_VALUE_NONE = 'None'
+
+export const MEAL_PLAN_WEIGHT_VALUE_TEMPLATE = '{value} {unit}'
+
+export const MEAL_PLAN_MACRO_LABELS: Record<string, string> = {
+  protein: 'Protein',
+  carbs: 'Carbs',
+  fat: 'Fat'
+}
+
+// The plan-start stepper names the first two reachable days rather than dating them; every later day reads as
+// its date. Separate from LOG_WEIGHT_TODAY_LABEL so the weigh-in stepper and the planner can diverge.
+export const MEAL_PLAN_START_DATE_TODAY_LABEL = 'Today'
+
+export const MEAL_PLAN_START_DATE_TOMORROW_LABEL = 'Tomorrow'
 
 export const MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE = "We couldn't calculate an estimate"
 
@@ -1197,14 +1239,23 @@ export const MEAL_PLAN_NO_MATCH_BODY =
 export const MEAL_PLAN_ALLERGIES_KEPT_BANNER_BODY =
   "Your allergies stay in place. We won't suggest removing them to find more meals."
 
+export const MEAL_PLAN_TARGETS_KCAL_TEMPLATE = '{calories} kcal'
+
+export const MEAL_PLAN_COOKING_TIME_MAX_TEMPLATE = '{minutes} minutes max'
+
+export const MEAL_PLAN_MEALS_PER_DAY_VALUES: Record<string, string> = {
+  three: '3',
+  three_plus_snack: '4'
+}
+
 export const MEAL_PLAN_LIMITING_CONSTRAINT_LABELS: Record<string, string> = {
   cooking_time: 'Maximum cooking time',
   dislikes: 'Disliked ingredients',
   diet: 'Diet',
-  nutrition_tolerance: 'Daily targets',
+  nutrition_tolerance: 'Daily nutrition targets',
   portion_limits: 'Portion sizes',
   slot_coverage: 'Meal slots',
-  catalog_coverage: 'Available recipes'
+  catalog_coverage: 'Recipe variety'
 }
 
 export const MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES: Record<string, string> = {
@@ -1212,6 +1263,50 @@ export const MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES: Record<string, string> = {
   foods: '{value} selected',
   percent: '{value}%',
   recipes: '{value} recipes'
+}
+
+export const MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR = ', '
+
+export const MEAL_PLAN_CONSTRAINT_EDIT_ACCESSIBILITY_TEMPLATE = 'Edit {label}'
+
+export interface TerminalOutcomeCopy {
+  title: string
+  body: string
+}
+
+// The generation outcomes that a same-key retry can never resolve: the request was refused for a reason
+// that only a fresh decision elsewhere can clear, so each one names what moved and where to go next
+// instead of offering the 10b retry. One record rather than parallel title/body maps so the pair of a
+// code can never drift apart.
+export const MEAL_PLAN_GENERATION_TERMINAL_COPY: Record<string, TerminalOutcomeCopy> = {
+  stale_revision: {
+    title: 'Your answers changed',
+    body: 'Your preferences were updated somewhere else. Review them, then generate your plan again.'
+  },
+  plan_overlap: {
+    title: 'A plan already covers that week',
+    body: 'Pick a different start date, or replace the plan you already have.'
+  },
+  upcoming_exists: {
+    title: 'You already have a plan for next week',
+    body: 'Open it from your plan, or replace it before building another.'
+  },
+  preferences_incomplete: {
+    title: 'Finish setting up your plan',
+    body: 'A few answers are still missing. Complete setup, then generate your plan.'
+  },
+  targets_missing: {
+    title: 'Confirm your daily targets',
+    body: 'We need your calorie and macro targets before we can build a plan.'
+  },
+  targets_unconfirmed: {
+    title: 'Confirm your daily targets',
+    body: 'Your targets changed outside the planner. Review them, then generate your plan again.'
+  },
+  idempotency_conflict: {
+    title: 'Start that again',
+    body: 'Something about this request changed. Go back and generate your plan again.'
+  }
 }
 
 // --- Meal planning: plan tab (11, 11b, 11c) ---
@@ -1346,6 +1441,10 @@ export const SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT = 'Back to alternatives'
 
 export const SWAP_PREVIEW_REPLACING_TEMPLATE = 'Replacing {slot} · {date}'
 
+export const SWAP_PREVIEW_SUBTITLE_SEPARATOR = ' · '
+
+export const SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE = '{minutes} min total'
+
 export const SWAP_PREVIEW_THIS_MEAL_LABEL = 'This meal'
 
 export const SWAP_PREVIEW_DAY_TOTAL_TEMPLATE = '{day} total if you swap'
@@ -1467,6 +1566,17 @@ export const PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON = 'mixed'
 
 export const PLAN_SETTINGS_REVIEW_AFFECTED_BUTTON_TEXT = 'Review affected meals'
 
+// One flagged meal as the banner body names it ('Tuesday dinner'), and the word that joins the last two when
+// several are flagged, so the body reads as the sentence 38:385 draws rather than as a comma-separated list.
+export const PLAN_SETTINGS_FLAGGED_MEAL_TEMPLATE = '{weekday} {slot}'
+
+export const PLAN_SETTINGS_FLAGGED_MEALS_CONJUNCTION = ' and '
+
+// Every preference field is nullable, so a half-answered profile still renders seven readable settings rows.
+export const PLAN_SETTINGS_NOT_SET_VALUE = 'Not set'
+
+export const PLAN_SETTINGS_MACRO_TRIPLE_TEMPLATE = '{protein}P / {carbs}C / {fat}F'
+
 export const PLAN_SETTINGS_GOAL_AND_BODY_LABEL = 'Goal and body'
 
 export const PLAN_SETTINGS_ACTIVITY_AND_PACE_LABEL = 'Activity and pace'
@@ -1489,6 +1599,10 @@ export const PLAN_REGENERATE_DIALOG_TITLE = "Replace this week's plan?"
 
 export const PLAN_REGENERATE_DIALOG_BODY_TEMPLATE =
   "Your planned meals and grocery list for {range} will change. Food you've already logged stays in your diary."
+
+// The dialog spells the range out ('Jul 5 to Jul 11', 38:526) where the plan header abbreviates it with an en
+// dash, so this is deliberately not formatPlanRange's output.
+export const PLAN_REGENERATE_DIALOG_RANGE_TEMPLATE = '{start} to {end}'
 
 export const PLAN_REGENERATE_PLANNED_MEALS_LABEL = 'Planned meals'
 

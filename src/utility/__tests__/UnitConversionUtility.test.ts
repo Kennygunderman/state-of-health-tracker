@@ -111,6 +111,7 @@ describe('centimetersToFeetInches', () => {
 
   it('returns the original feet and inches after a round trip through centimetres', () => {
     expect(centimetersToFeetInches(feetInchesToCentimeters(6, 0))).toEqual({feet: 6, inches: 0})
+    expect(centimetersToFeetInches(feetInchesToCentimeters(6, 0))).not.toEqual({feet: 5, inches: 12})
     expect(centimetersToFeetInches(feetInchesToCentimeters(5, 11))).toEqual({feet: 5, inches: 11})
   })
 

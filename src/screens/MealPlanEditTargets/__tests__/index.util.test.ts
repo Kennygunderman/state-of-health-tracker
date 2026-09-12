@@ -1,4 +1,4 @@
-import type {NutritionTargetEstimate} from '@data/models/NutritionTargets'
+import type {NutritionTargetEstimate, NutritionTargetFeasibilityWarning} from '@data/models/NutritionTargets'
 
 import {MEAL_PLAN_TARGET_WARNING_LABELS} from '@constants/strings'
 
@@ -77,68 +77,108 @@ describe('sanitizeIntegerInput', () => {
 })
 
 describe('validateEditTargets', () => {
-  it('accepts four in-range whole numbers', () => {
-    expect(validateEditTargets(makeFields())).toEqual({errors: {}, isValid: true})
-  })
-
-  it('reports an empty field as required and a whitespace-only field the same way', () => {
-    expect(validateEditTargets(makeFields({calories: ''})).errors).toEqual({calories: 'required'})
-    expect(validateEditTargets(makeFields({protein: '   '})).errors).toEqual({protein: 'required'})
-  })
-
-  it('distinguishes a non-numeric value from an empty one', () => {
-    expect(validateEditTargets(makeFields({calories: 'abc'})).errors).toEqual({calories: 'not_a_number'})
-    expect(validateEditTargets(makeFields({carbs: '1.5'})).errors).toEqual({carbs: 'not_a_number'})
-    expect(validateEditTargets(makeFields({fat: '-5'})).errors).toEqual({fat: 'not_a_number'})
-  })
-
-  it('pins the calorie boundaries', () => {
-    expect(validateEditTargets(makeFields({calories: '799'})).errors).toEqual({calories: 'below_min'})
-    expect(validateEditTargets(makeFields({calories: '800'})).isValid).toBe(true)
-    expect(validateEditTargets(makeFields({calories: '6000'})).isValid).toBe(true)
-    expect(validateEditTargets(makeFields({calories: '6001'})).errors).toEqual({calories: 'above_max'})
-  })
-
-  it('rejects a zero macro and accepts one gram', () => {
-    expect(validateEditTargets(makeFields({carbs: '0'})).errors).toEqual({carbs: 'below_min'})
-    expect(validateEditTargets(makeFields({carbs: '1'})).isValid).toBe(true)
-  })
-
-  it('pins the macro maximum for protein, carbs and fat', () => {
-    expect(validateEditTargets(makeFields({protein: '1000'})).isValid).toBe(true)
-    expect(validateEditTargets(makeFields({protein: '1001'})).errors).toEqual({protein: 'above_max'})
-    expect(validateEditTargets(makeFields({carbs: '1001'})).errors).toEqual({carbs: 'above_max'})
-    expect(validateEditTargets(makeFields({fat: '1001'})).errors).toEqual({fat: 'above_max'})
-  })
-
-  it('reports every offending field in one pass', () => {
-    const validation = validateEditTargets({calories: '', protein: 'abc', carbs: '0', fat: '1001'})
-
-    expect(validation.errors).toEqual({
-      calories: 'required',
-      protein: 'not_a_number',
-      carbs: 'below_min',
-      fat: 'above_max'
+  describe('a complete in-range set', () => {
+    it('accepts four in-range whole numbers', () => {
+      expect(validateEditTargets(makeFields())).toEqual({errors: {}, isValid: true})
     })
-    expect(Object.keys(validation.errors)).toHaveLength(4)
-    expect(validation.isValid).toBe(false)
+
+    it('tolerates surrounding whitespace on an otherwise valid value', () => {
+      expect(validateEditTargets(makeFields({fat: ' 65 '})).isValid).toBe(true)
+    })
+
+    it('does not mutate the fields it is given', () => {
+      const fields = makeFields({calories: ''})
+
+      validateEditTargets(fields)
+
+      expect(fields).toEqual(makeFields({calories: ''}))
+    })
   })
 
-  it('tolerates surrounding whitespace on an otherwise valid value', () => {
-    expect(validateEditTargets(makeFields({fat: ' 65 '})).isValid).toBe(true)
+  describe('missing and malformed input', () => {
+    it('reports a blank field as required, the state the manual route opens every field in', () => {
+      expect(validateEditTargets(makeFields({calories: ''})).errors).toEqual({calories: 'required'})
+      expect(validateEditTargets(makeFields({protein: '   '})).errors).toEqual({protein: 'required'})
+      expect(validateEditTargets({calories: '', protein: '', carbs: '', fat: ''}).isValid).toBe(false)
+    })
+
+    it('distinguishes a non-numeric value from an empty one', () => {
+      expect(validateEditTargets(makeFields({calories: 'abc'})).errors).toEqual({calories: 'not_a_number'})
+      expect(validateEditTargets(makeFields({fat: '-5'})).errors).toEqual({fat: 'not_a_number'})
+    })
+
+    it('rejects a decimal because a target is only ever a whole number', () => {
+      expect(validateEditTargets(makeFields({carbs: '1.5'})).errors).toEqual({carbs: 'not_a_number'})
+      expect(validateEditTargets(makeFields({calories: '1940.5'})).errors).toEqual({calories: 'not_a_number'})
+    })
   })
 
-  it('does not mutate the fields it is given', () => {
-    const fields = makeFields({calories: ''})
+  describe('calories', () => {
+    it('rejects 799 as below the minimum and accepts 800', () => {
+      expect(validateEditTargets(makeFields({calories: '799'})).errors).toEqual({calories: 'below_min'})
+      expect(validateEditTargets(makeFields({calories: '800'})).isValid).toBe(true)
+    })
 
-    validateEditTargets(fields)
+    it('accepts 6000 and rejects 6001 as above the maximum', () => {
+      expect(validateEditTargets(makeFields({calories: '6000'})).isValid).toBe(true)
+      expect(validateEditTargets(makeFields({calories: '6001'})).errors).toEqual({calories: 'above_max'})
+    })
+  })
 
-    expect(fields).toEqual(makeFields({calories: ''}))
+  describe('protein', () => {
+    it('rejects 0 grams as below the minimum and accepts 1 gram', () => {
+      expect(validateEditTargets(makeFields({protein: '0'})).errors).toEqual({protein: 'below_min'})
+      expect(validateEditTargets(makeFields({protein: '1'})).isValid).toBe(true)
+    })
+
+    it('accepts 1000 grams and rejects 1001 as above the maximum', () => {
+      expect(validateEditTargets(makeFields({protein: '1000'})).isValid).toBe(true)
+      expect(validateEditTargets(makeFields({protein: '1001'})).errors).toEqual({protein: 'above_max'})
+    })
+  })
+
+  describe('carbs', () => {
+    it('rejects 0 grams as below the minimum and accepts 1 gram', () => {
+      expect(validateEditTargets(makeFields({carbs: '0'})).errors).toEqual({carbs: 'below_min'})
+      expect(validateEditTargets(makeFields({carbs: '1'})).isValid).toBe(true)
+    })
+
+    it('accepts 1000 grams and rejects 1001 as above the maximum', () => {
+      expect(validateEditTargets(makeFields({carbs: '1000'})).isValid).toBe(true)
+      expect(validateEditTargets(makeFields({carbs: '1001'})).errors).toEqual({carbs: 'above_max'})
+    })
+  })
+
+  describe('fat', () => {
+    it('rejects 0 grams as below the minimum and accepts 1 gram', () => {
+      expect(validateEditTargets(makeFields({fat: '0'})).errors).toEqual({fat: 'below_min'})
+      expect(validateEditTargets(makeFields({fat: '1'})).isValid).toBe(true)
+    })
+
+    it('accepts 1000 grams and rejects 1001 as above the maximum', () => {
+      expect(validateEditTargets(makeFields({fat: '1000'})).isValid).toBe(true)
+      expect(validateEditTargets(makeFields({fat: '1001'})).errors).toEqual({fat: 'above_max'})
+    })
+  })
+
+  describe('every field at once', () => {
+    it('reports every offending field in one pass', () => {
+      const validation = validateEditTargets({calories: '', protein: 'abc', carbs: '0', fat: '1001'})
+
+      expect(validation.errors).toEqual({
+        calories: 'required',
+        protein: 'not_a_number',
+        carbs: 'below_min',
+        fat: 'above_max'
+      })
+      expect(Object.keys(validation.errors)).toHaveLength(4)
+      expect(validation.isValid).toBe(false)
+    })
   })
 })
 
 describe('resolveTargetsSaveSource', () => {
-  it('reports estimated only when every field still holds the estimate figure', () => {
+  it('reserves estimated for an untouched estimate, since only the server may declare a save estimated', () => {
     expect(resolveTargetsSaveSource(makeFields(), makeEstimate())).toBe('estimated')
     expect(resolveTargetsSaveSource(makeFields({calories: ' 1940 '}), makeEstimate())).toBe('estimated')
   })
@@ -189,5 +229,16 @@ describe('feasibilityBannerBody', () => {
 
     expect(body).toBe(MEAL_PLAN_TARGET_WARNING_LABELS.below_catalog_min)
     expect(feasibilityBannerBody(['below_catalog_min'])).toBe(body)
+  })
+
+  it('returns the same body for the same input on every call', () => {
+    const warnings: NutritionTargetFeasibilityWarning[] = ['below_catalog_min', 'macro_energy_mismatch']
+    const expected = [
+      MEAL_PLAN_TARGET_WARNING_LABELS.macro_energy_mismatch,
+      MEAL_PLAN_TARGET_WARNING_LABELS.below_catalog_min
+    ].join(' ')
+
+    expect(feasibilityBannerBody(warnings)).toBe(expected)
+    expect(feasibilityBannerBody(warnings)).toBe(expected)
   })
 })

@@ -1,101 +1,145 @@
+import {MEAL_PLAN_ALLERGEN_LABELS, MEAL_PLAN_DIET_LABELS} from '@constants/strings'
+
 import {ALLERGEN_NONE_CODE, buildAllergenChips, DIET_OPTIONS, dietWizardProgress, validateDietStep} from '../index.util'
 
-// Frame 05 (47:177) draws the cloud as None, Milk, Eggs, Peanuts, Tree nuts, Soy, Wheat, Fish, Shellfish, Sesame
 const FIGMA_CHIP_ORDER = ['none', 'milk', 'eggs', 'peanuts', 'tree_nuts', 'soy', 'wheat', 'fish', 'shellfish', 'sesame']
 
-const FIGMA_CHIP_LABELS = [
-  'None',
-  'Milk',
-  'Eggs',
-  'Peanuts',
-  'Tree nuts',
-  'Soy',
-  'Wheat',
-  'Fish',
-  'Shellfish',
-  'Sesame'
-]
+const NAMED_ALLERGENS = FIGMA_CHIP_ORDER.slice(1)
 
 const selectedCodesOf = (selected: string[]): string[] =>
   buildAllergenChips(selected)
     .filter(chip => chip.selected)
     .map(chip => chip.code)
 
-describe('ALLERGEN_NONE_CODE', () => {
-  it('is the wire sentinel the saved step carries on its own', () => {
-    expect(ALLERGEN_NONE_CODE).toBe('none')
-  })
-
-  it('leads the chip cloud', () => {
-    expect(buildAllergenChips([])[0].code).toBe(ALLERGEN_NONE_CODE)
-  })
-})
-
 describe('buildAllergenChips', () => {
-  it('renders the ten chips in the order frame 05 draws them, None first', () => {
-    expect(buildAllergenChips([]).map(chip => chip.code)).toEqual(FIGMA_CHIP_ORDER)
+  describe('the chip cloud itself', () => {
+    it('renders the ten chips in the order frame 05 draws them, None first', () => {
+      expect(buildAllergenChips([]).map(chip => chip.code)).toEqual(FIGMA_CHIP_ORDER)
+    })
+
+    it('leads the cloud with the None sentinel the saved step carries on its own', () => {
+      expect(buildAllergenChips([])[0].code).toBe(ALLERGEN_NONE_CODE)
+    })
+
+    it('labels every chip with the copy its code owns in the strings module', () => {
+      expect(buildAllergenChips([]).map(chip => chip.label)).toEqual([
+        MEAL_PLAN_ALLERGEN_LABELS.none,
+        MEAL_PLAN_ALLERGEN_LABELS.milk,
+        MEAL_PLAN_ALLERGEN_LABELS.eggs,
+        MEAL_PLAN_ALLERGEN_LABELS.peanuts,
+        MEAL_PLAN_ALLERGEN_LABELS.tree_nuts,
+        MEAL_PLAN_ALLERGEN_LABELS.soy,
+        MEAL_PLAN_ALLERGEN_LABELS.wheat,
+        MEAL_PLAN_ALLERGEN_LABELS.fish,
+        MEAL_PLAN_ALLERGEN_LABELS.shellfish,
+        MEAL_PLAN_ALLERGEN_LABELS.sesame
+      ])
+    })
+
+    it('selects nothing on first entry', () => {
+      const chips = buildAllergenChips([])
+
+      expect(chips.every(chip => !chip.selected)).toBe(true)
+      expect(chips.every(chip => !chip.removable)).toBe(true)
+    })
   })
 
-  it('labels every chip with its Figma copy', () => {
-    expect(buildAllergenChips([]).map(chip => chip.label)).toEqual(FIGMA_CHIP_LABELS)
+  describe('a named selection', () => {
+    it('marks only the chosen allergen and leaves None unselected', () => {
+      const chips = buildAllergenChips(['milk'])
+
+      expect(chips.filter(chip => chip.selected).map(chip => chip.code)).toEqual(['milk'])
+      expect(chips[0].selected).toBe(false)
+    })
+
+    it('marks each selected allergen and nothing else', () => {
+      expect(selectedCodesOf(['milk', 'tree_nuts'])).toEqual(['milk', 'tree_nuts'])
+    })
+
+    it('keeps the selection order of the cloud rather than of the argument', () => {
+      expect(selectedCodesOf(['sesame', 'eggs'])).toEqual(['eggs', 'sesame'])
+    })
+
+    it('makes a selected chip removable and an unselected chip not', () => {
+      const chips = buildAllergenChips(['peanuts'])
+
+      expect(chips.filter(chip => chip.removable).map(chip => chip.code)).toEqual(['peanuts'])
+    })
+
+    it('marks all nine named allergens without deriving None from them', () => {
+      const chips = buildAllergenChips(NAMED_ALLERGENS)
+
+      expect(chips.filter(chip => chip.selected).map(chip => chip.code)).toEqual(NAMED_ALLERGENS)
+      expect(chips[0].selected).toBe(false)
+      expect(chips[0].removable).toBe(false)
+    })
+
+    it('ignores a duplicated selection', () => {
+      expect(selectedCodesOf(['fish', 'fish'])).toEqual(['fish'])
+    })
   })
 
-  it('selects nothing on first entry', () => {
-    const chips = buildAllergenChips([])
+  describe('a None selection', () => {
+    it('marks None selected and removable when it is the stored answer', () => {
+      const chips = buildAllergenChips([ALLERGEN_NONE_CODE])
 
-    expect(chips.every(chip => !chip.selected)).toBe(true)
-    expect(chips.every(chip => !chip.removable)).toBe(true)
+      expect(chips[0]).toEqual({
+        code: ALLERGEN_NONE_CODE,
+        label: MEAL_PLAN_ALLERGEN_LABELS.none,
+        selected: true,
+        removable: true
+      })
+    })
+
+    it('leaves every named chip unselected and not removable', () => {
+      const namedChips = buildAllergenChips([ALLERGEN_NONE_CODE]).slice(1)
+
+      expect(namedChips.map(chip => chip.code)).toEqual(NAMED_ALLERGENS)
+      expect(namedChips.every(chip => !chip.selected && !chip.removable)).toBe(true)
+    })
+
+    it('reflects None alongside named allergens without resolving the exclusivity itself', () => {
+      expect(selectedCodesOf([ALLERGEN_NONE_CODE, 'soy'])).toEqual(['none', 'soy'])
+    })
   })
 
-  it('marks each selected allergen and nothing else', () => {
-    expect(selectedCodesOf(['milk', 'tree_nuts'])).toEqual(['milk', 'tree_nuts'])
-  })
+  describe('an unrecognised stored code', () => {
+    it('drops it instead of rendering an extra chip', () => {
+      const chips = buildAllergenChips(['gluten'])
 
-  it('keeps the selection order of the cloud rather than of the argument', () => {
-    expect(selectedCodesOf(['sesame', 'eggs'])).toEqual(['eggs', 'sesame'])
-  })
+      expect(chips).toHaveLength(FIGMA_CHIP_ORDER.length)
+      expect(chips.some(chip => chip.selected)).toBe(false)
+    })
 
-  it('makes a selected chip removable and an unselected chip not', () => {
-    const chips = buildAllergenChips(['peanuts'])
+    it('keeps the recognised codes beside it', () => {
+      expect(selectedCodesOf(['gluten', 'milk'])).toEqual(['milk'])
+    })
 
-    expect(chips.filter(chip => chip.removable).map(chip => chip.code)).toEqual(['peanuts'])
-  })
+    it('does not mutate the selection it is given', () => {
+      const selected = ['gluten', 'milk']
 
-  it('reflects a None-only selection', () => {
-    expect(selectedCodesOf(['none'])).toEqual(['none'])
-  })
+      buildAllergenChips(selected)
 
-  it('reflects None alongside named allergens without resolving the exclusivity itself', () => {
-    expect(selectedCodesOf(['none', 'soy'])).toEqual(['none', 'soy'])
-  })
-
-  it('drops an unrecognised code instead of rendering an extra chip', () => {
-    const chips = buildAllergenChips(['gluten'])
-
-    expect(chips).toHaveLength(FIGMA_CHIP_ORDER.length)
-    expect(chips.some(chip => chip.selected)).toBe(false)
-  })
-
-  it('ignores a duplicated selection', () => {
-    expect(selectedCodesOf(['fish', 'fish'])).toEqual(['fish'])
-  })
-
-  it('does not mutate the selection it is given', () => {
-    const selected = ['gluten', 'milk']
-
-    buildAllergenChips(selected)
-
-    expect(selected).toEqual(['gluten', 'milk'])
+      expect(selected).toEqual(['gluten', 'milk'])
+    })
   })
 })
 
 describe('DIET_OPTIONS', () => {
-  it('offers the four diet cards of frame 05 in order, with their wire codes', () => {
-    expect(DIET_OPTIONS).toEqual([
-      {value: 'none', label: 'No specific diet'},
-      {value: 'vegetarian', label: 'Vegetarian'},
-      {value: 'vegan', label: 'Vegan'},
-      {value: 'pescatarian', label: 'Pescatarian'}
+  it('offers exactly the four diet cards of frame 05', () => {
+    expect(DIET_OPTIONS).toHaveLength(4)
+  })
+
+  it('orders the wire codes as the option cards are drawn', () => {
+    expect(DIET_OPTIONS.map(option => option.value)).toEqual(['none', 'vegetarian', 'vegan', 'pescatarian'])
+  })
+
+  it('labels each option with the copy its code owns in the strings module', () => {
+    expect(DIET_OPTIONS.map(option => option.label)).toEqual([
+      MEAL_PLAN_DIET_LABELS.none,
+      MEAL_PLAN_DIET_LABELS.vegetarian,
+      MEAL_PLAN_DIET_LABELS.vegan,
+      MEAL_PLAN_DIET_LABELS.pescatarian
     ])
   })
 })

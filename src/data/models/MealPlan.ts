@@ -98,3 +98,13 @@ export interface MealPlanDayEnvelope {
   planStatus: MealPlanStatus
   day: MealPlanDay
 }
+
+// One row of the affected-meals response: the flagged meals of an active plan, flat rather than nested in the
+// plan tree, because Plan settings names them in a banner without loading the days they belong to.
+export interface AffectedMeal {
+  mealId: string
+  date: string
+  slot: MealSlot
+  recipeName: string
+  flags: MealPlanFlag[]
+}
