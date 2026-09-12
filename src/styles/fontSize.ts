@@ -17,15 +17,20 @@ export default {
   TAB_LABEL: 10
 }
 
-// The 13px single-line meta style deliberately has no entry: 18.85 would stretch fixed-height rows.
+// META is the 13px multiline value; LABEL is the 13px box the design resolves for single-line labels
+// and captions — inside stacked rows, time pills and footnotes alike — where META's 18.85 would
+// stretch the line: Figma leaves that style's line height automatic and resolves it to exactly 16.
 export const LineHeight = {
   SCREEN_TITLE: 34.5,
   STAT_LG: 32.2,
   GREETING: 25.3,
   BODY: 21.75,
+  // Recipe instruction bodies are 15/21 in Figma, a deliberate 1.4 ratio distinct from BODY's 1.45.
+  STEP_BODY: 21,
   ROW_VALUE: 19.5,
   META: 18.85,
   OPTION_SUBCOPY: 17.55,
+  LABEL: 16,
   OVERLINE: 13.31
 }
 

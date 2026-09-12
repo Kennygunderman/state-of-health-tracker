@@ -11,7 +11,16 @@ export default StyleSheet.create({
   },
   // No horizontal gutter and no top inset: both belong to ContentColumn, which wraps this body.
   scrollContent: {
-    paddingBottom: Spacing.LARGE
+    paddingBottom: Spacing.X_LARGE
+  },
+  optionList: {
+    alignSelf: 'stretch',
+    paddingTop: Spacing.GUTTER,
+    rowGap: Spacing.X_SMALL
+  },
+  infoBannerWrapper: {
+    alignSelf: 'stretch',
+    paddingTop: Spacing.LARGE
   },
   headline: {
     paddingTop: Spacing.MEDIUM,
@@ -27,14 +36,5 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.BODY,
     color: Theme.colors.textSecondary
-  },
-  optionList: {
-    alignSelf: 'stretch',
-    paddingTop: Spacing.GUTTER,
-    rowGap: Spacing.X_SMALL
-  },
-  infoBannerWrapper: {
-    alignSelf: 'stretch',
-    paddingTop: Spacing.LARGE
   }
 })

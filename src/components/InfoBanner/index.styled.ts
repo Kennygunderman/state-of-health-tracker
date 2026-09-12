@@ -83,8 +83,10 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text
   },
+  errorBodyWrapper: {
+    paddingTop: Spacing.MICRO
+  },
   errorBody: {
-    paddingTop: Spacing.MICRO,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,

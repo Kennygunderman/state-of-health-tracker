@@ -7,6 +7,7 @@ import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
   card: {
+    alignSelf: 'stretch',
     paddingHorizontal: Spacing.MEDIUM,
     borderRadius: BorderRadius.CARD_LG,
     backgroundColor: Theme.colors.card

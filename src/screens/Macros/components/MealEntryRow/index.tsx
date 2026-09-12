@@ -2,7 +2,7 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {entryCalories, entryServingText, MealEntry} from '@data/models/MealEntry'
+import {entryCalories, entryProvenanceLabel, entryServingText, MealEntry} from '@data/models/MealEntry'
 import {Swipeable} from 'react-native-gesture-handler'
 
 import SwipeDeleteListItem from '@components/SwipeDeleteListItem'
@@ -22,6 +22,7 @@ interface Props {
 
 const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeActivated}: Props) => {
   const servingLabel = entryServingText(entry)
+  const provenanceLabel = entryProvenanceLabel(entry)
 
   return (
     <SwipeDeleteListItem
@@ -35,6 +36,8 @@ const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeAct
 
             {!!servingLabel && <Text style={styles.servingText}>{` · ${servingLabel}`}</Text>}
           </Text>
+
+          {!!provenanceLabel && <Text style={styles.provenanceCaption}>{provenanceLabel}</Text>}
         </View>
 
         <View style={styles.caloriesContainer}>

@@ -15,6 +15,7 @@ export default StyleSheet.create({
   chip: {
     flex: 1,
     minHeight: Sizes.CONTROL_LG,
+    paddingVertical: Spacing.X_SMALL,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: BorderRadius.TILE,
@@ -28,6 +29,7 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     letterSpacing: LetterSpacing.OVERLINE,
     textTransform: 'uppercase',
+    textAlign: 'center',
     color: Theme.colors.textMuted
   },
   weekdaySelected: {
@@ -37,6 +39,7 @@ export default StyleSheet.create({
     paddingTop: Spacing.MICRO,
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.BOLD,
+    textAlign: 'center',
     color: Theme.colors.textSecondary
   },
   dayNumberSelected: {

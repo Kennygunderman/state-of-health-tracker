@@ -33,11 +33,20 @@ export default StyleSheet.create({
     lineHeight: LineHeight.BODY,
     color: Theme.colors.textSecondary
   },
+  // These wrappers stretch rather than carry a width: the frame's 353 is the derived result of the
+  // gutter at the 393 reference, not an authored cap, so stretching reproduces it at every width.
   fieldWrapper: {
     alignSelf: 'stretch',
     paddingTop: Spacing.GUTTER
   },
   sectionWrapper: {
+    alignSelf: 'stretch',
+    paddingTop: Spacing.GUTTER
+  },
+  // 47:284 and 47:300 resolve through one declaration, so every stacked section opens on the same rung.
+  // The first-section variant restates both values rather than differing from them: the frame has no
+  // smaller subsequent-section step, and a self-sufficient variant stays correct applied on its own.
+  sectionWrapperFirst: {
     alignSelf: 'stretch',
     paddingTop: Spacing.GUTTER
   },

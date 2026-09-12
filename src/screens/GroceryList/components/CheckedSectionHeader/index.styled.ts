@@ -8,8 +8,8 @@ export default StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
+    // 37:253 declares no gap: space-between alone separates the two children
     justifyContent: 'space-between',
-    columnGap: Spacing.SMALL,
     alignSelf: 'stretch',
     paddingTop: Spacing.GUTTER
   },
@@ -26,7 +26,7 @@ export default StyleSheet.create({
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
-    textAlign: 'right',
+    // 37:258 aligns left inside its hug-width box; the row's space-between puts it on the right edge
     color: Theme.colors.textMuted
   }
 })

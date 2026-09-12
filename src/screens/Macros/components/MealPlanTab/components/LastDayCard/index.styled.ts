@@ -11,7 +11,6 @@ export default StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     alignSelf: 'stretch',
-    columnGap: Spacing.SMALL,
     padding: Spacing.MEDIUM,
     borderRadius: BorderRadius.CARD_LG,
     backgroundColor: Theme.colors.card
@@ -20,11 +19,13 @@ export default StyleSheet.create({
     flex: 1
   },
   title: {
+    alignSelf: 'flex-start',
     fontSize: FontSize.CARD_TITLE,
     fontWeight: FontWeight.BOLD,
     color: Theme.colors.text
   },
   rangeText: {
+    alignSelf: 'flex-start',
     fontSize: FontSize.LABEL,
     lineHeight: LineHeight.META,
     fontWeight: FontWeight.REGULAR,
@@ -32,7 +33,6 @@ export default StyleSheet.create({
   },
   actionPill: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: Spacing.X_SMALL,
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.PILL,

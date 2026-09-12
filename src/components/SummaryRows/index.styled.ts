@@ -1,7 +1,7 @@
 import {StyleSheet, TextStyle} from 'react-native'
 
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -37,11 +37,12 @@ export default StyleSheet.create({
   label: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   },
   labelInline: {
-    flexShrink: 1
+    flexShrink: 1,
+    lineHeight: LineHeight.META
   },
   value: {
     fontWeight: FontWeight.SEMIBOLD
@@ -52,6 +53,10 @@ export default StyleSheet.create({
   valueBody: {
     fontSize: FontSize.BODY,
     lineHeight: LineHeight.ROW_VALUE
+  },
+  valueStacked: {
+    paddingTop: Sizes.ROW_VALUE_INSET_T,
+    paddingBottom: Sizes.ROW_VALUE_INSET_B
   },
   valueInline: {
     flexShrink: 1,

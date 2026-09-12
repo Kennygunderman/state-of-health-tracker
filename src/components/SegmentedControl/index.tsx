@@ -8,7 +8,7 @@ import Animated, {SharedValue, useAnimatedStyle} from 'react-native-reanimated'
 import Text from '@components/Text'
 
 import styles, {indicatorWidth} from './index.styled'
-import {segmentWidthFor} from './index.util'
+import {isFlexSegments, segmentWidthFor} from './index.util'
 
 export interface SegmentedControlOption<T extends string> {
   key: T
@@ -25,10 +25,19 @@ interface Props<T extends string> {
   // provided, the highlight pill tracks the swipe instead of snapping between
   // segments
   scrollProgress?: SharedValue<number>
+  variant?: SegmentedControlVariant
 }
 
-const SegmentedControl = <T extends string>({options, selected, onChange, scrollProgress}: Props<T>) => {
+const SegmentedControl = <T extends string>({
+  options,
+  selected,
+  onChange,
+  scrollProgress,
+  variant = 'large'
+}: Props<T>) => {
   const [trackWidth, setTrackWidth] = useState(0)
+
+  const flexSegments = isFlexSegments(variant)
 
   const segmentWidth = segmentWidthFor(trackWidth, options.length, Sizes.SEGMENT_TRACK_INSET)
 
@@ -44,8 +53,10 @@ const SegmentedControl = <T extends string>({options, selected, onChange, scroll
   })
 
   return (
-    <View style={styles.track} onLayout={onLayout}>
-      {scrollProgress && segmentWidth > 0 && (
+    <View
+      style={[styles.track, variant === 'large' && styles.trackLarge, !flexSegments && styles.trackCompact]}
+      onLayout={onLayout}>
+      {flexSegments && scrollProgress && segmentWidth > 0 && (
         <Animated.View style={[styles.indicator, indicatorWidth(segmentWidth), indicatorStyle]} />
       )}
 
@@ -55,10 +66,22 @@ const SegmentedControl = <T extends string>({options, selected, onChange, scroll
         return (
           <TouchableOpacity
             key={option.key}
-            style={[styles.segment, !scrollProgress && isSelected && styles.segmentSelected]}
+            style={[
+              styles.segment,
+              !flexSegments && styles.segmentCompact,
+              !scrollProgress && isSelected && styles.segmentSelected
+            ]}
             activeOpacity={0.7}
+            accessibilityRole="tab"
+            accessibilityState={{selected: isSelected}}
+            accessibilityLabel={option.label}
             onPress={() => onChange(option.key)}>
-            <Text style={[styles.label, isSelected && styles.labelSelected]}>{option.label}</Text>
+            <Text
+              style={[styles.label, !flexSegments && styles.labelCompact, isSelected && styles.labelSelected]}
+              numberOfLines={1}
+              adjustsFontSizeToFit>
+              {option.label}
+            </Text>
           </TouchableOpacity>
         )
       })}

@@ -1032,6 +1032,15 @@ export const MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT = 'Adding here only affects recip
 
 export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query}'"
 
+export const MEAL_PLAN_SEARCH_CLEAR_GLYPH = '✕'
+
+// The add affordance on an unadded search result (47:399); the added state draws a tick instead.
+export const MEAL_PLAN_SEARCH_ADD_GLYPH = '+'
+
+// The remove affordance on a selected chip (47:191). Same character as the search clear disc, kept
+// separate because the two are different controls and either may be restyled without the other.
+export const MEAL_PLAN_CHIP_REMOVE_GLYPH = '✕'
+
 // --- Meal planning: meals and schedule (07) ---
 
 export const MEAL_PLAN_SCHEDULE_TITLE = 'How many meals a day?'
@@ -1516,6 +1525,8 @@ export const MEAL_PLAN_SETTINGS_ACCESSIBILITY_LABEL = 'Open plan settings'
 
 export const MEAL_PLAN_CLEAR_SEARCH_ACCESSIBILITY_LABEL = 'Clear search'
 
+export const MEAL_PLAN_CANCEL_SEARCH_ACCESSIBILITY_LABEL = 'Cancel search'
+
 export const MEAL_PLAN_DAY_CHIP_ACCESSIBILITY_TEMPLATE = 'Show meals for {day}'
 
 export const MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE = 'Swap {recipe}'
@@ -1533,6 +1544,8 @@ export const MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Decrease serving
 export const MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Increase servings'
 
 export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
+
+export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
 
 export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
 

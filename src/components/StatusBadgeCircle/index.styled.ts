@@ -7,6 +7,7 @@ import {Theme} from '@styles/theme'
 export default StyleSheet.create({
   badge: {
     borderRadius: BorderRadius.PILL,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center'
   },

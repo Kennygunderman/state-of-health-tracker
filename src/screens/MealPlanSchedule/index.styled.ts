@@ -32,6 +32,7 @@ export default StyleSheet.create({
     paddingTop: Spacing.LARGE,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textSecondary
   },
   timesCardWrapper: {
@@ -41,7 +42,6 @@ export default StyleSheet.create({
   timesCard: {
     alignSelf: 'stretch',
     paddingHorizontal: Spacing.MEDIUM,
-    overflow: 'hidden',
     borderRadius: BorderRadius.CARD_LG,
     backgroundColor: Theme.colors.card
   },
@@ -53,11 +53,11 @@ export default StyleSheet.create({
     paddingTop: Spacing.X_SMALL,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   },
+  // Padding and the safe-area inset belong to GlobalBottomSheet, which already pads its own content view.
   sheetContent: {
-    padding: Spacing.GUTTER,
     rowGap: Spacing.MEDIUM
   },
   sheetTitle: {
