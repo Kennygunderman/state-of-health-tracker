@@ -97,9 +97,12 @@ export default StyleSheet.create({
     borderTopWidth: Stroke.THIN,
     borderTopColor: Theme.colors.hairline
   },
+  // The pills hug 8 + label + 8 rather than pinning a height, so they grow with the text size
+  // instead of clipping the label; PILL_SM is the floor that keeps the drawn 32 at the base size.
   pillSecondary: {
     flex: 1,
-    height: Sizes.PILL_SM,
+    minHeight: Sizes.PILL_SM,
+    paddingVertical: Spacing.X_SMALL,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: BorderRadius.PILL,
@@ -107,7 +110,8 @@ export default StyleSheet.create({
   },
   pillPrimary: {
     flex: 1,
-    height: Sizes.PILL_SM,
+    minHeight: Sizes.PILL_SM,
+    paddingVertical: Spacing.X_SMALL,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: BorderRadius.PILL,
@@ -116,12 +120,14 @@ export default StyleSheet.create({
   pillLabelSecondary: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     textAlign: 'center',
     color: Theme.colors.textSecondary
   },
   pillLabelPrimary: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     textAlign: 'center',
     color: Theme.colors.accentGreen
   }

@@ -10,7 +10,6 @@ export default StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
     paddingVertical: Sizes.BADGE_PADDING_V,
     paddingHorizontal: Spacing.X_SMALL,
     borderRadius: BorderRadius.PILL,
@@ -20,7 +19,6 @@ export default StyleSheet.create({
     fontSize: FontSize.TAB_LABEL,
     fontWeight: FontWeight.SEMIBOLD,
     letterSpacing: LetterSpacing.OVERLINE,
-    textTransform: 'uppercase',
     color: Theme.colors.greenOnTint
   }
 })

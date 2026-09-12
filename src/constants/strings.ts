@@ -888,7 +888,37 @@ export const MEAL_PLAN_INTRO_SAMPLE_WEEK_OVERLINE = 'Example week'
 
 export const MEAL_PLAN_INTRO_SAMPLE_BADGE_TEXT = 'Sample'
 
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_MONDAY = 'Mon'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_TUESDAY = 'Tue'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_WEDNESDAY = 'Wed'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_THURSDAY = 'Thu'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_FRIDAY = 'Fri'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_SLOT = 'Breakfast · 8:00 AM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_NAME = 'Greek yogurt bowl'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_META = '420 cal · 32g protein'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_SLOT = 'Lunch · 12:30 PM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_NAME = 'Chicken burrito bowl'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_META = '610 cal · 45g protein'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_SLOT = 'Dinner · 6:30 PM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_NAME = 'Salmon with roasted veg'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_META = '680 cal · 41g protein'
+
 export const MEAL_PLAN_INTRO_GROCERY_INCLUDED_TEXT = 'Grocery list included'
+
+export const MEAL_PLAN_INTRO_CALORIES_PLANNED_TEXT = '1,710 cal planned'
 
 export const MEAL_PLAN_INTRO_PRIMARY_BUTTON_TEXT = 'Build my plan'
 
@@ -1200,6 +1230,15 @@ export const MEAL_PLAN_DAY_TARGET_TEMPLATE = 'Target {calories}'
 
 export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {n} meals'
 
+export const MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE = '{slot} · {time}'
+
+export const MEAL_PLAN_MEAL_CALORIES_TEMPLATE = '{calories} cal'
+
+export const MEAL_PLAN_MEAL_META_TEMPLATE = '{portion} · {minutes} min · {protein} protein'
+
+// A logged meal's card drops the cooking time: the meal is already made, so its duration no longer informs a choice.
+export const MEAL_PLAN_MEAL_META_LOGGED_TEMPLATE = '{portion} · {protein} protein'
+
 export const MEAL_PLAN_SWAP_BUTTON_TEXT = 'Swap'
 
 export const MEAL_PLAN_LOG_MEAL_BUTTON_TEXT = 'Log meal'
@@ -1227,6 +1266,8 @@ export const MEAL_PLAN_MEAL_FLAG_TEMPLATES: Record<string, string> = {
   cooking_time: 'Over your {detail} cooking time',
   mixed: "Doesn't match your preferences"
 }
+
+export const MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR = ', '
 
 export const MEAL_PLAN_LAST_DAY_TITLE = 'Last day of this plan'
 
@@ -1538,6 +1579,8 @@ export const MEAL_PLAN_CANCEL_SEARCH_ACCESSIBILITY_LABEL = 'Cancel search'
 
 export const MEAL_PLAN_DAY_CHIP_ACCESSIBILITY_TEMPLATE = 'Show meals for {day}'
 
+export const MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE = 'Open {recipe}'
+
 export const MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE = 'Swap {recipe}'
 
 export const MEAL_PLAN_LOG_MEAL_ACCESSIBILITY_TEMPLATE = 'Log {recipe}'
@@ -1552,9 +1595,14 @@ export const MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Decrease serving
 
 export const MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Increase servings'
 
+// Matches the visible 'Servings' label above the stepper so the spoken and seen labels agree (WCAG 2.5.3).
+export const MEAL_PLAN_SERVINGS_FIELD_ACCESSIBILITY_LABEL = 'Servings'
+
 export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
 
 export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
+
+export const SWAP_ALTERNATIVE_ACCESSIBILITY_TEMPLATE = '{name}, {meta}'
 
 export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
 

@@ -1,6 +1,6 @@
 import {StyleSheet} from 'react-native'
 
-import FontSize, {FontWeight} from '@styles/fontSize'
+import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
 import {Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
@@ -24,6 +24,7 @@ export default StyleSheet.create({
   meta: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
   },
   rowDivided: {

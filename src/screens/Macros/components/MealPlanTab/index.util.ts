@@ -1,4 +1,4 @@
-import {CurrentMealPlans, MealPlan, MealPlanMeal} from '@data/models/MealPlan'
+import {CurrentMealPlans, MealPlan, MealPlanFlag, MealPlanMeal} from '@data/models/MealPlan'
 import {MealPlanPreferences, SetupStatus, SetupStep} from '@data/models/MealPlanPreferences'
 import {httpStatusOf, isRoutesMissingError, MealPlanAvailability} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import {RootStackParamList} from '@navigation/types'
@@ -7,6 +7,7 @@ import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {clampDayKeyToPlan, defaultSelectedPlanDate, isLastPlanDay} from '@utility/MealPlanDateUtility'
 
 import Screens from '@constants/screens'
+import {PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON} from '@constants/strings'
 
 const NOT_FOUND_STATUS = 404
 
@@ -224,6 +225,24 @@ export function resolveMealLoggedState(meal: MealPlanMeal): MealLoggedState {
   const isCurrentRecipeLogged = meal.loggedEntries.some(logged => logged.recipeVersionId === meal.recipe.versionId)
 
   return isCurrentRecipeLogged ? {kind: 'logged', entry} : {kind: 'loggedThenSwapped', entry}
+}
+
+/**
+ * The single reason a flagged meal's card states, keyed into the flag copy. Flags that all carry one code name
+ * that code's reason; a set whose codes differ can only be stated generically, which is what the fallback reason
+ * is for — borrowing one of the specific reasons would tell the user, for instance, that a disliked ingredient
+ * is an allergen.
+ */
+export function resolveMealFlagReason(flags: MealPlanFlag[]): string | null {
+  const [firstFlag] = flags
+
+  if (firstFlag === undefined) {
+    return null
+  }
+
+  return flags.every(flag => flag.code === firstFlag.code)
+    ? firstFlag.code
+    : PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
 }
 
 export function resolveViewTarget(entryDayKey: string, nowDayKey: string): PostLogViewTarget {

@@ -43,10 +43,11 @@ export default StyleSheet.create({
     // stroke, and row 38:52's own authored height of 58 only balances as 8 padding + 50, so the
     // field is taller than the buttons by design and the row centres them against it. Pinned rather
     // than left to hug because that 24px line box is Figma's AUTO value and would drift per
-    // platform; the vertical padding drops to 0 so @components/TextInput's inherited padding
-    // cannot re-inflate the box. Composed from tokens because no Sizes entry equals 50.
+    // platform; with the height pinned, the authored 12px vertical padding reproduces the stack
+    // exactly (50 - 2 strokes - 24 pad = the 24px line box) and cannot re-inflate the box, so no
+    // lineHeight is set on the input. Composed from tokens because no Sizes entry equals 50.
     height: Sizes.CONTROL + Spacing.TIGHT,
-    paddingVertical: 0,
+    paddingVertical: Spacing.SMALL,
     paddingHorizontal: Spacing.MEDIUM,
     textAlign: 'center',
     textAlignVertical: 'center',

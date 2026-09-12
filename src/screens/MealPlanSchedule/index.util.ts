@@ -1,6 +1,6 @@
 import {MealSchedule, MealTimeEntry} from '@data/models/MealPlanPreferences'
 import {MealSlot, RecipeIconKey} from '@data/models/Recipe'
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 
 import {PickerItem} from '@components/Picker'
 
@@ -12,9 +12,12 @@ import {
 
 export const PICKER_MINUTE_STEP = 15
 
-// The tile-glyph stroke the 18 px slot icons render at (47:526, 47:538, 47:549). The value stays owned
-// by the token map; this only gives the schedule rows a purpose-named handle on it.
-export const SLOT_ICON_STROKE_WIDTH = Stroke.MEAL_GLYPH_TILE
+// Figma strokes the 18 px slot glyphs (47:526, 47:538, 47:549) at 1.35 px, heavier than the 1.2 px the
+// same marks carry elsewhere, so the schedule rows must override the icons' default. The glyphs declare
+// their paths in a 24-unit viewBox that MealIconTile renders into 18 px, and strokeWidth is in viewBox
+// units, so the token is pre-scaled to the viewBox exactly as HeroPotIcon's POT_CARD_STROKE is. Passing
+// Stroke.MEAL_GLYPH_TILE raw would render 1.0125 px.
+export const SLOT_ICON_STROKE_WIDTH: number = (Stroke.MEAL_GLYPH_TILE * Sizes.ICON_XL) / Sizes.ICON
 
 const HOURS_PER_DAY = 24
 const MINUTES_PER_HOUR = 60
