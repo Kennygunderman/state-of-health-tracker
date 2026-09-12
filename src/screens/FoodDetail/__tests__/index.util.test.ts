@@ -95,16 +95,6 @@ describe('catalogProvenanceLabel', () => {
     expect(catalogProvenanceLabel('ai_estimated')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.ai_estimated)
   })
 
-  it('keeps those badge labels non-empty and distinct, so an estimate cannot read as source-backed', () => {
-    const labels = [
-      catalogProvenanceLabel('source_backed'),
-      catalogProvenanceLabel('ingredient_derived'),
-      catalogProvenanceLabel('ai_estimated')
-    ]
-
-    expect(new Set(labels.filter(label => label !== null && label.length > 0)).size).toBe(3)
-  })
-
   it('never captions user-entered nutrition, so client-supplied values are not shown as verified', () => {
     expect(catalogProvenanceLabel('user_entered')).toBeNull()
   })

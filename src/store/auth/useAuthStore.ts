@@ -3,6 +3,7 @@ import {FirebaseAuthTypes} from '@react-native-firebase/auth'
 import authService from '@service/auth/AuthService'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import useProgressStore from '@store/progress/useProgressStore'
 import {create} from 'zustand'
 
@@ -28,6 +29,7 @@ const clearUserSession = async () => {
   queryClient.clear()
   useDailyWorkoutEntryStore.getState().reset()
   useProgressStore.getState().reset()
+  useMealPlanStore.getState().reset()
 }
 
 const useAuthStore = create<AuthState>()((set, get) => ({

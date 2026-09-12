@@ -6,6 +6,7 @@ import {
   FALLBACK_FAT_TARGET_G,
   FALLBACK_PROTEIN_TARGET_G,
   formatCalories,
+  formatMacroPair,
   progressFraction,
   resolveMacroTargets
 } from '../index.util'
@@ -96,5 +97,32 @@ describe('formatCalories', () => {
 
   it('rounds fractional values', () => {
     expect(formatCalories(1799.6)).toBe('1,800')
+  })
+})
+
+describe('formatMacroPair', () => {
+  it('suffixes only the target with grams', () => {
+    expect(formatMacroPair(142, 146)).toBe('142 / 146g')
+  })
+
+  it('rounds fractional values on both sides', () => {
+    expect(formatMacroPair(187.6, 193.7)).toBe('188 / 194g')
+    expect(formatMacroPair(142.4, 146.2)).toBe('142 / 146g')
+  })
+
+  it('renders a zero target as 0g', () => {
+    expect(formatMacroPair(32, 0)).toBe('32 / 0g')
+  })
+
+  it('renders a zero actual as 0', () => {
+    expect(formatMacroPair(0, 146)).toBe('0 / 146g')
+  })
+
+  it('does not clamp an actual above the target', () => {
+    expect(formatMacroPair(168, 146)).toBe('168 / 146g')
+  })
+
+  it('omits thousands separators for large values', () => {
+    expect(formatMacroPair(1200, 1500)).toBe('1200 / 1500g')
   })
 })
