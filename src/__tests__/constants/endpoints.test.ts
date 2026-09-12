@@ -1,3 +1,6 @@
+// Not colocated beside its subject because the plan fixes this path. The exported predicate is driven directly
+// because `module:react-native-dotenv` inlines SOH_API_BASE_URL and deletes the `@env` import at transform time,
+// so no module remains for jest.mock('@env') to replace.
 import Endpoints, {
   assertNonProductionApi,
   assertNonProductionApiOrigin,
@@ -101,7 +104,19 @@ describe('isNonProductionApiOrigin', () => {
       'https://api.stateofhealthapi.com',
       'https://notstateofhealthapi.com',
       'https://stateofhealthapi.com.evil.com',
-      'https://w3fv96liu9.execute-api.us-east-2.amazonaws.com/prod'
+      'https://w3fv96liu9.execute-api.us-east-2.amazonaws.com/prod',
+      'https://w3fv96liu9.execute-api.us-east-2.amazonaws.com'
+    ])('rejects %s', origin => {
+      expect(isNonProductionApiOrigin(origin)).toBe(false)
+    })
+  })
+
+  describe('hosts that merely contain a permitted name', () => {
+    it.each([
+      'https://localhost.evil.com',
+      'https://notlocalhost',
+      'https://localhost-staging.example.com',
+      'https://127.0.0.1.evil.com'
     ])('rejects %s', origin => {
       expect(isNonProductionApiOrigin(origin)).toBe(false)
     })
@@ -195,6 +210,14 @@ describe('isNonProductionApiOrigin', () => {
       }
     )
   })
+
+  describe('release builds, where the preflight never runs', () => {
+    it('returns false for a rejected origin instead of throwing, so classification stays side-effect free', () => {
+      expect(() => isNonProductionApiOrigin(PRODUCTION_ORIGIN)).not.toThrow()
+      expect(() => isNonProductionApiOrigin('')).not.toThrow()
+      expect(() => isNonProductionApiOrigin(BACKSLASH_USERINFO_ORIGIN)).not.toThrow()
+    })
+  })
 })
 
 describe('assertNonProductionApiOrigin', () => {
@@ -258,5 +281,9 @@ describe('Endpoints', () => {
     const origin = Endpoints.User.replace('/api/user', '')
 
     expect(isNonProductionApiOrigin(origin)).toBe(true)
+  })
+
+  it('appends /api to the resolved origin for the untouched user targets route', () => {
+    expect(Endpoints.MacroTargets).toBe('http://localhost:3000/api/user/targets')
   })
 })

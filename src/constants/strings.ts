@@ -1052,6 +1052,12 @@ export const MEAL_PLAN_SCHEDULE_LABELS: Record<string, string> = {
 
 export const MEAL_PLAN_USUAL_TIMES_HEADER = 'Usual times'
 
+// The meridiem suffixes every meal time renders with, on the schedule pills and in the time picker
+// (07: '8:00 AM', '12:30 PM', '6:30 PM').
+export const MEAL_PLAN_TIME_AM_SUFFIX = 'AM'
+
+export const MEAL_PLAN_TIME_PM_SUFFIX = 'PM'
+
 export const MEAL_PLAN_SNACK_PLACEHOLDER_TEXT = 'Snack appears with 3 meals + 1 snack'
 
 export const MEAL_PLAN_SCHEDULE_FOOTNOTE = 'Approximate times are fine. You can change these later.'
@@ -1322,6 +1328,9 @@ export const GROCERY_LIST_TITLE = 'Grocery list'
 export const GROCERY_UNCHECK_ALL_BUTTON_TEXT = 'Uncheck all'
 
 export const GROCERY_UPDATED_AFTER_SWAP_TEMPLATE = 'Updated after your {slot} swap'
+
+// Used when the banner names no slot, so the same fact is stated without inventing one for the sentence.
+export const GROCERY_UPDATED_AFTER_SWAP_TEXT = 'Updated after your swap'
 
 export const GROCERY_CHECKED_PROGRESS_TEMPLATE = '{checked} of {total} checked'
 

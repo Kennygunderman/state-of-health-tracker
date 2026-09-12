@@ -9,6 +9,10 @@ const PLAN_DAY_FORMAT = 'MMM d'
 const PLAN_RANGE_SEPARATOR = '\u2013'
 const PLAN_DAY_COUNT = 7
 const PLAN_START_MAX_DAYS_AHEAD = 30
+const SLOT_TIME_FORMAT = 'h:mm a'
+const SLOT_TIME_PATTERN = /^(\d{1,2}):([0-5]\d)$/
+const SLOT_TIME_MAX_HOUR = 23
+const SLOT_TIME_ANCHOR_YEAR = 2000
 
 export interface DayStripLabel {
   weekday: string
@@ -62,6 +66,30 @@ export const formatPlanDayLabel = (dayKey: string): string => format(parseDayKey
 
 export const formatPlanRange = (startDate: string, endDate: string): string =>
   `${formatPlanDayLabel(startDate)} ${PLAN_RANGE_SEPARATOR} ${formatPlanDayLabel(endDate)}`
+
+/**
+ * A stored meal time ('08:00', '12:30') as the plan surfaces render it ('8:00 AM', '12:30 PM').
+ * A value that is not a 24-hour clock time is returned unchanged, so a malformed one reads as
+ * itself rather than as an empty label or 'Invalid Date'.
+ */
+export const formatSlotTime = (time: string): string => {
+  const match = SLOT_TIME_PATTERN.exec(time.trim())
+
+  if (match === null) {
+    return time
+  }
+
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+
+  if (hours > SLOT_TIME_MAX_HOUR) {
+    return time
+  }
+
+  // A meal time carries no calendar day, so the clock parts are read onto a January anchor: no zone
+  // shifts its clock then, whereas on a spring-forward day a missing local 02:30 normalises to 03:30
+  return format(new Date(SLOT_TIME_ANCHOR_YEAR, 0, 1, hours, minutes), SLOT_TIME_FORMAT)
+}
 
 export const defaultSelectedPlanDate = (startDate: string, endDate: string, now: Date): string => {
   const todayKey = formatDayKey(now)

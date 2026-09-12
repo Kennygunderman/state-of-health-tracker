@@ -95,6 +95,13 @@ describe('resolveStaleRevision', () => {
       expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
     })
 
+    it('ignores a draft undefined against a fresh null, which comparison alone would call a difference', () => {
+      const fresh = freshPreferences({budget: null})
+      const draft: Partial<PreferencesShape> = {budget: undefined}
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
     it('treats null as equal to null', () => {
       const fresh = freshPreferences({budget: null, timeZone: null})
 
@@ -110,6 +117,47 @@ describe('resolveStaleRevision', () => {
         status: 'resolved'
       })
     })
+
+    it('resolves a zero numeric draft value that matches', () => {
+      const fresh = freshPreferences({age: 0, weightKg: 0})
+      const draft: Partial<PreferencesShape> = {age: 0, weightKg: 0}
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('resolves a resubmitted draft that a lost first attempt had already written', () => {
+      const draft: Partial<PreferencesShape> = {cookingTimeLimitMin: 45, allergens: ['milk', 'soy']}
+      const fresh = freshPreferences({cookingTimeLimitMin: 45, allergens: ['milk', 'soy']})
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('resolves when another device had already saved the same answers', () => {
+      const fresh = freshPreferences({allergens: ['soy', 'milk'], diet: 'vegan'})
+      const draft: Partial<PreferencesShape> = {allergens: ['milk', 'soy'], diet: 'vegan'}
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('resolves a single-field list whose one field matches', () => {
+      const fresh = freshPreferences({cookingTimeLimitMin: 30})
+
+      expect(resolveStaleRevision({cookingTimeLimitMin: 30}, fresh, ['cookingTimeLimitMin'])).toEqual({
+        status: 'resolved'
+      })
+    })
+
+    it('resolves an empty field list however far the draft has drifted', () => {
+      const fresh = freshPreferences({goal: 'gain', diet: 'vegan', cookingTimeLimitMin: 60, allergens: ['soy']})
+      const draft: Partial<PreferencesShape> = {
+        goal: 'lose',
+        diet: 'none',
+        cookingTimeLimitMin: 15,
+        allergens: ['milk']
+      }
+
+      expect(resolveStaleRevision(draft, fresh, [])).toEqual({status: 'resolved'})
+    })
   })
 
   describe('primitive comparison', () => {
@@ -122,7 +170,7 @@ describe('resolveStaleRevision', () => {
       })
     })
 
-    it('names every differing field in compare order', () => {
+    it('names every differing field in the order the caller listed them, not the draft order', () => {
       const fresh = freshPreferences({goal: 'gain', cookingTimeLimitMin: 45})
       const draft: Partial<PreferencesShape> = {cookingTimeLimitMin: 30, goal: 'lose'}
 
@@ -173,6 +221,58 @@ describe('resolveStaleRevision', () => {
         conflictingFields: ['age']
       })
     })
+
+    it('names only the differing field when three are listed', () => {
+      const fields = ['goal', 'diet', 'cookingTimeLimitMin'] as const
+      const fresh = freshPreferences({cookingTimeLimitMin: 45})
+      const draft: Partial<PreferencesShape> = {goal: 'lose', diet: 'none', cookingTimeLimitMin: 30}
+
+      expect(resolveStaleRevision(draft, fresh, fields)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['cookingTimeLimitMin']
+      })
+    })
+
+    it('ignores a differing field the caller did not list', () => {
+      const fields = ['goal', 'diet'] as const
+      const fresh = freshPreferences({cookingTimeLimitMin: 45})
+      const draft: Partial<PreferencesShape> = {goal: 'lose', diet: 'none', cookingTimeLimitMin: 30}
+
+      expect(resolveStaleRevision(draft, fresh, fields)).toEqual({status: 'resolved'})
+    })
+  })
+
+  describe('draft presence', () => {
+    it('ignores a listed field the draft never edited, even though the fresh value moved', () => {
+      const fresh = freshPreferences({weightKg: 79.4})
+
+      expect(resolveStaleRevision({goal: 'lose'}, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('resolves a listed field the draft carries with a matching value', () => {
+      const fresh = freshPreferences({weightKg: 82.6})
+
+      expect(resolveStaleRevision({weightKg: 82.6}, fresh, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+    })
+
+    it('reports a listed field the draft carries with a differing value', () => {
+      const fresh = freshPreferences({weightKg: 79.4})
+
+      expect(resolveStaleRevision({weightKg: 82.6}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['weightKg']
+      })
+    })
+
+    it('reports a drafted field the fresh resource no longer carries', () => {
+      const fresh: Partial<PreferencesShape> = {goal: 'lose', age: 34}
+      const draft: Partial<PreferencesShape> = {diet: 'vegan'}
+
+      expect(resolveStaleRevision<Partial<PreferencesShape>>(draft, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['diet']
+      })
+    })
   })
 
   describe('arrays of primitives compare as sets', () => {
@@ -215,6 +315,25 @@ describe('resolveStaleRevision', () => {
       const fresh = freshPreferences({allergens: ['milk', 'soy']})
 
       expect(resolveStaleRevision({allergens: ['milk', 'milk']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('counts repeated members, so a duplicated selection differs from a single one', () => {
+      const fresh = freshPreferences({allergens: ['milk']})
+
+      expect(resolveStaleRevision({allergens: ['milk', 'milk']}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['allergens']
+      })
+    })
+
+    it('falls back to element-wise comparison for a selection holding a null', () => {
+      const fresh = freshPreferences({allergens: [null, 'milk'] as unknown as string[]})
+      const draft = {allergens: ['milk', null]} as unknown as Partial<PreferencesShape>
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual({
         status: 'conflict',
         conflictingFields: ['allergens']
       })
@@ -330,6 +449,15 @@ describe('resolveStaleRevision', () => {
       })
     })
 
+    it('reports a changed currency', () => {
+      const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
+
+      expect(resolveStaleRevision({budget: {amount: 90, currency: 'EUR'}}, fresh, PREFERENCE_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['budget']
+      })
+    })
+
     it('reports a cleared budget against a fresh object', () => {
       const fresh = freshPreferences({budget: {amount: 90, currency: 'USD'}})
 
@@ -369,6 +497,52 @@ describe('resolveStaleRevision', () => {
     })
   })
 
+  describe('purity', () => {
+    it('leaves the draft and the fresh resource deeply unchanged', () => {
+      const fresh = freshPreferences({allergens: ['peanuts', 'milk'], cookingTimeLimitMin: 45})
+      const draft: Partial<PreferencesShape> = {
+        allergens: ['milk', 'peanuts'],
+        cookingTimeLimitMin: 30,
+        budget: {amount: 90, currency: 'USD'},
+        mealTimes: [
+          {slot: 'breakfast', time: '08:00'},
+          {slot: 'lunch', time: '13:00'}
+        ]
+      }
+      const draftBefore: Partial<PreferencesShape> = JSON.parse(JSON.stringify(draft))
+      const freshBefore: PreferencesShape = JSON.parse(JSON.stringify(fresh))
+
+      resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)
+
+      expect(draft).toEqual(draftBefore)
+      expect(fresh).toEqual(freshBefore)
+    })
+
+    it('returns an equal result when called twice with the same arguments', () => {
+      const fresh = freshPreferences({goal: 'gain', cookingTimeLimitMin: 45})
+      const draft: Partial<PreferencesShape> = {goal: 'lose', cookingTimeLimitMin: 30}
+      const first = resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)
+
+      expect(resolveStaleRevision(draft, fresh, PREFERENCE_FIELDS)).toEqual(first)
+    })
+
+    it('returns a conflicting-field list the caller cannot mutate its inputs through', () => {
+      const fields = ['allergens', 'cookingTimeLimitMin'] as const
+      const draftAllergens = ['milk']
+      const fresh = freshPreferences({allergens: ['milk', 'soy'], cookingTimeLimitMin: 45})
+      const result = resolveStaleRevision({allergens: draftAllergens, cookingTimeLimitMin: 30}, fresh, fields)
+
+      expect(result).toEqual({status: 'conflict', conflictingFields: ['allergens', 'cookingTimeLimitMin']})
+
+      if (result.status === 'conflict') {
+        result.conflictingFields.push('goal')
+      }
+
+      expect(fields).toEqual(['allergens', 'cookingTimeLimitMin'])
+      expect(draftAllergens).toEqual(['milk'])
+    })
+  })
+
   describe('targets-shaped drafts', () => {
     const freshTargets: TargetsShape = {calories: 1940, protein: 146, carbs: 194, fat: 65}
 
@@ -393,6 +567,15 @@ describe('resolveStaleRevision', () => {
       expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({
         status: 'conflict',
         conflictingFields: ['calories', 'fat']
+      })
+    })
+
+    it('names all four macros when every one differs', () => {
+      const draft: Partial<TargetsShape> = {fat: 70, carbs: 200, protein: 150, calories: 2100}
+
+      expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({
+        status: 'conflict',
+        conflictingFields: ['calories', 'protein', 'carbs', 'fat']
       })
     })
 

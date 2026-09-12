@@ -1,10 +1,5 @@
+import {HeightUnitPref, WeightUnitPref} from '@data/models/MealPlanPreferences'
 import {WeightUnit} from '@data/models/WeightUnit'
-
-// The values the About-you lb/kg and ft-in/cm toggles produce; they mirror the meal-planning
-// preferences wire vocabulary, so a preference read from or written to the server needs no translation.
-export type WeightUnitPref = 'lb' | 'kg'
-
-export type HeightUnitPref = 'ft_in' | 'cm'
 
 export interface FeetInches {
   feet: number
@@ -49,11 +44,12 @@ export const feetInchesToCentimeters = (feet: number, inches: number): number =>
   (feet * INCHES_PER_FOOT + inches) * CM_PER_INCH
 
 // Rounds the total inches before splitting so 182cm (71.65in) carries into 6'0"; rounding after the
-// split would render the impossible 5'12".
+// split would render the impossible 5'12". Truncating toward zero rather than flooring keeps
+// feet * 12 + inches equal to the rounded total for a negative reading too.
 export const centimetersToFeetInches = (centimeters: number): FeetInches => {
   const totalInches = Math.round(centimeters / CM_PER_INCH)
 
-  return {feet: Math.floor(totalInches / INCHES_PER_FOOT), inches: totalInches % INCHES_PER_FOOT}
+  return {feet: Math.trunc(totalInches / INCHES_PER_FOOT), inches: totalInches % INCHES_PER_FOOT}
 }
 
 export const formatHeightImperial = (feet: number, inches: number): string => `${feet}'${inches}"`

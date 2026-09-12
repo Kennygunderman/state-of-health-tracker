@@ -1,3 +1,4 @@
+import {HeightUnitPref, WeightUnitPref} from '@data/models/MealPlanPreferences'
 import {WEIGHT_UNITS} from '@data/models/WeightUnit'
 
 import {
@@ -5,7 +6,6 @@ import {
   CM_PER_INCH,
   feetInchesToCentimeters,
   formatHeightImperial,
-  HeightUnitPref,
   heightUnitPrefFor,
   INCHES_PER_FOOT,
   isSupportedBodyWeightInUnit,
@@ -17,7 +17,6 @@ import {
   MIN_BODY_WEIGHT_KG,
   poundsToKilograms,
   stoneToKilograms,
-  WeightUnitPref,
   weightUnitPrefFor
 } from '../UnitConversionUtility'
 
@@ -51,6 +50,15 @@ describe('poundsToKilograms', () => {
     expect(kilograms).toBeGreaterThan(82.6)
     expect(kilograms).toBeLessThan(82.7)
   })
+
+  it('preserves the sign of a negative reading rather than clamping it', () => {
+    expect(poundsToKilograms(-10)).toBeCloseTo(-4.5359237, 7)
+  })
+
+  it('propagates a non-numeric reading instead of fabricating a weight', () => {
+    expect(poundsToKilograms(NaN)).toBeNaN()
+    expect(poundsToKilograms(Infinity)).toBe(Infinity)
+  })
 })
 
 describe('kilogramsToPounds', () => {
@@ -61,11 +69,19 @@ describe('kilogramsToPounds', () => {
   it('returns the original pounds after a round trip through kilograms', () => {
     expect(kilogramsToPounds(poundsToKilograms(182.2))).toBeCloseTo(182.2, 10)
   })
+
+  it('converts zero kilograms to zero pounds', () => {
+    expect(kilogramsToPounds(0)).toBe(0)
+  })
 })
 
 describe('stoneToKilograms', () => {
   it('interprets a stone reading one way only, since no screen renders stone back', () => {
     expect(stoneToKilograms(13)).toBeCloseTo(82.55381134, 8)
+  })
+
+  it('converts zero stone to zero kilograms', () => {
+    expect(stoneToKilograms(0)).toBe(0)
   })
 })
 
@@ -74,6 +90,10 @@ describe('feetInchesToCentimeters', () => {
     expect(feetInchesToCentimeters(5, 10)).toBe(177.8)
     expect(feetInchesToCentimeters(6, 0)).toBe(182.88)
     expect(feetInchesToCentimeters(0, 1)).toBe(2.54)
+  })
+
+  it('converts a zero height to zero centimetres', () => {
+    expect(feetInchesToCentimeters(0, 0)).toBe(0)
   })
 })
 
@@ -92,6 +112,25 @@ describe('centimetersToFeetInches', () => {
   it('returns the original feet and inches after a round trip through centimetres', () => {
     expect(centimetersToFeetInches(feetInchesToCentimeters(6, 0))).toEqual({feet: 6, inches: 0})
     expect(centimetersToFeetInches(feetInchesToCentimeters(5, 11))).toEqual({feet: 5, inches: 11})
+  })
+
+  it('splits a zero height into zero feet and zero inches', () => {
+    expect(centimetersToFeetInches(0)).toEqual({feet: 0, inches: 0})
+  })
+
+  // Flooring would answer {feet: -6, inches: -10}, a pair that adds up to -82in rather than the -70in
+  // it was given, so the split would no longer describe the height it came from
+  it('keeps feet and inches adding back up to the rounded total for a negative reading', () => {
+    const {feet, inches} = centimetersToFeetInches(-177.8)
+
+    expect(feet * INCHES_PER_FOOT + inches).toBe(-70)
+  })
+
+  it('propagates a non-numeric height instead of reporting a real one', () => {
+    const {feet, inches} = centimetersToFeetInches(NaN)
+
+    expect(feet).toBeNaN()
+    expect(inches).toBeNaN()
   })
 })
 

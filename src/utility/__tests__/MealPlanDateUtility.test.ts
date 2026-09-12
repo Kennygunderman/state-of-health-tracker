@@ -6,6 +6,7 @@ import {
   formatDayKey,
   formatPlanDayLabel,
   formatPlanRange,
+  formatSlotTime,
   isDayKeyWithin,
   isLastPlanDay,
   parseDayKey,
@@ -338,6 +339,40 @@ describe('formatPlanRange', () => {
 
   it('formats a single-day range', () => {
     expect(formatPlanRange(PLAN_START, PLAN_START)).toBe(`Jul 5 ${EN_DASH} Jul 5`)
+  })
+})
+
+describe('formatSlotTime', () => {
+  it('formats the default meal times without padding the hour', () => {
+    expect(formatSlotTime('08:00')).toBe('8:00 AM')
+    expect(formatSlotTime('12:30')).toBe('12:30 PM')
+    expect(formatSlotTime('15:30')).toBe('3:30 PM')
+    expect(formatSlotTime('18:30')).toBe('6:30 PM')
+  })
+
+  it('formats both ends of the clock', () => {
+    expect(formatSlotTime('00:00')).toBe('12:00 AM')
+    expect(formatSlotTime('00:15')).toBe('12:15 AM')
+    expect(formatSlotTime('12:00')).toBe('12:00 PM')
+    expect(formatSlotTime('23:59')).toBe('11:59 PM')
+  })
+
+  it('accepts an unpadded hour and surrounding whitespace', () => {
+    expect(formatSlotTime('7:05')).toBe('7:05 AM')
+    expect(formatSlotTime(' 18:30 ')).toBe('6:30 PM')
+  })
+
+  it('formats a time inside a spring-forward hour rather than shifting it', () => {
+    expect(formatSlotTime('02:30')).toBe('2:30 AM')
+  })
+
+  it('returns a value that is not a clock time unchanged', () => {
+    expect(formatSlotTime('')).toBe('')
+    expect(formatSlotTime('24:00')).toBe('24:00')
+    expect(formatSlotTime('12:60')).toBe('12:60')
+    expect(formatSlotTime('noon')).toBe('noon')
+    expect(formatSlotTime('8:00 AM')).toBe('8:00 AM')
+    expect(formatSlotTime('2026-07-05T08:00')).toBe('2026-07-05T08:00')
   })
 })
 

@@ -6,17 +6,19 @@ import * as io from 'io-ts'
 
 const KNOWN_INPUT_METHODS = Object.values(InputMethodEnum) as string[]
 
-const KNOWN_NUTRITION_PROVENANCES: NutritionProvenance[] = [
+const KNOWN_NUTRITION_PROVENANCES = [
   'source_backed',
   'ingredient_derived',
   'ai_estimated',
   'user_entered'
-]
+] as const satisfies readonly NutritionProvenance[]
 
-// Unknown or absent values become null so a future server provenance renders no
-// caption rather than breaking the diary row.
-function convertNutritionProvenance(value: string | null | undefined): NutritionProvenance | null {
-  return KNOWN_NUTRITION_PROVENANCES.includes(value as NutritionProvenance) ? (value as NutritionProvenance) : null
+function resolveNutritionProvenance(value: string | null | undefined): NutritionProvenance | null {
+  if (!value) {
+    return null
+  }
+
+  return (KNOWN_NUTRITION_PROVENANCES as readonly string[]).includes(value) ? (value as NutritionProvenance) : null
 }
 
 export function convertMealEntry(data: io.TypeOf<typeof MealEntryResponse>): MealEntry {
@@ -35,7 +37,7 @@ export function convertMealEntry(data: io.TypeOf<typeof MealEntryResponse>): Mea
       : InputMethodEnum.LIBRARY,
     loggedAt: data.loggedAt,
     mealPlanMealId: data.mealPlanMealId ?? null,
-    nutritionProvenance: convertNutritionProvenance(data.nutritionProvenance)
+    nutritionProvenance: resolveNutritionProvenance(data.nutritionProvenance)
   }
 }
 
