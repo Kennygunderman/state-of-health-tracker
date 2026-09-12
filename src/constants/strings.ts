@@ -1550,3 +1550,9 @@ export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
 export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
 
 export const GROCERY_UNCHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Uncheck {name}'
+
+export const GROCERY_ITEM_ACCESSIBILITY_TEMPLATE = '{name}, {quantity}'
+
+// States the increase in words so the danger colour is never the only signal carrying the flag (WCAG 1.4.1).
+export const GROCERY_FLAG_ROW_ACCESSIBILITY_TEMPLATE =
+  '{name}, amount went up. Now {newAmount}, was {oldAmount}, a change of {delta}.'

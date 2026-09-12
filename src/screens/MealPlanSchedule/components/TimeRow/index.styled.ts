@@ -1,7 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
-import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
+import FontSize, {FontWeight} from '@styles/fontSize'
 import {Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
@@ -33,7 +33,6 @@ export default StyleSheet.create({
   timePillLabel: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
-    lineHeight: LineHeight.LABEL,
     color: Theme.colors.text
   }
 })

@@ -58,7 +58,7 @@ export default StyleSheet.create({
   caption: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   }
 })

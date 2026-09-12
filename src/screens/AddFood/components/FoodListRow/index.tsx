@@ -2,11 +2,13 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import BadgePill from '@components/BadgePill'
 import Text from '@components/Text'
 
 import {CAL_LABEL} from '@constants/strings'
 
 import styles from './index.styled'
+import {FoodListRowBadge, resolveBadgeVariant} from './index.util'
 
 interface Props {
   name: string
@@ -16,17 +18,25 @@ interface Props {
   subtitle?: string | null
   calories: number
   onPress: () => void
+  // Catalog provenance pill rendered after the name, e.g. 'Source-backed'; absent means the row has no pill
+  badge?: FoodListRowBadge
 }
 
-const FoodListRow = ({name, detail, subtitle, calories, onPress}: Props) => {
+const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props) => {
+  const badgeVariant = resolveBadgeVariant(badge)
+
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.7} onPress={onPress}>
       <View style={styles.textColumn}>
-        <Text numberOfLines={1}>
-          <Text style={styles.name}>{name}</Text>
+        <View style={styles.nameRow}>
+          <Text numberOfLines={1} style={styles.nameLine}>
+            <Text style={styles.name}>{name}</Text>
 
-          {!!detail && <Text style={styles.detail}>{` · ${detail}`}</Text>}
-        </Text>
+            {!!detail && <Text style={styles.detail}>{` · ${detail}`}</Text>}
+          </Text>
+
+          {badge && badgeVariant !== 'none' && <BadgePill label={badge.label} tone={badgeVariant} />}
+        </View>
 
         {!!subtitle && (
           <Text numberOfLines={1} style={styles.subtitle}>
