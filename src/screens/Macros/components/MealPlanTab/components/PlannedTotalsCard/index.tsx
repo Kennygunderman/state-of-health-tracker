@@ -17,7 +17,7 @@ interface Props {
   legend: {label: string; valueText: string; dotColor: string}[]
 }
 
-const PlannedTotalsCard = ({dayName, targetText, figure, unitText, legend}: Props) => (
+const PlannedTotalsCard = ({dayName, targetText, figure, unitText, legend}: Props): React.JSX.Element => (
   <View style={styles.card}>
     <View style={styles.headerRow}>
       <View style={styles.dayNameSlot}>

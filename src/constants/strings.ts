@@ -1323,6 +1323,15 @@ export const MEAL_PLAN_GENERATION_TERMINAL_COPY: Record<string, TerminalOutcomeC
   }
 }
 
+// The same card for a confirmed refusal this release has no wording of its own for — a validation error, or a
+// code a later server release introduces. It claims only what a confirmed answer establishes (the attempt was
+// described, so the saved answers stand) and points at the one screen from which every answer can be changed,
+// which is exactly what the card's Edit preferences action opens.
+export const MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY: TerminalOutcomeCopy = {
+  title: "We couldn't build your plan",
+  body: 'Your answers are saved. Review them, then generate your plan again.'
+}
+
 // --- Meal planning: plan tab (11, 11b, 11c) ---
 
 export const MEAL_PLAN_EMPTY_TITLE = 'Your week starts here.'

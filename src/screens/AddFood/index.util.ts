@@ -1,6 +1,6 @@
 import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood} from '@data/models/CatalogFood'
-import {Food, FoodSourceEnum} from '@data/models/Food'
+import {CatalogSourcedFood, FoodSourceEnum, PersonalFood} from '@data/models/Food'
 import {SourcedNutritionProvenance} from '@data/models/NutritionProvenance'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
@@ -12,7 +12,7 @@ export const formatMacroSummary = (protein: number, carbs: number, fat: number):
 // Branded search results are catalog rows, not library foods — shape one into a
 // Food so Food Detail can treat both paths identically. The branded serving
 // text rides along as the serving unit of a single serving.
-export const mapBrandedFoodToFood = (brandedFood: BrandedFood): Food => ({
+export const mapBrandedFoodToFood = (brandedFood: BrandedFood): PersonalFood => ({
   id: brandedFood.id,
   name: brandedFood.name,
   servingAmount: 1,
@@ -28,15 +28,20 @@ export const mapBrandedFoodToFood = (brandedFood: BrandedFood): Food => ({
 // Every published catalog food has a default portion — validation quarantines a candidate without
 // one — so the portion maps straight onto the serving pair with no fallback. catalogFoodId and the
 // provenance ride along because Food Detail logs a catalog food by id instead of creating one.
-export const mapCatalogFoodToFood = (catalogFood: CatalogFood): Food => ({
+// The macros come from defaultPortionNutrition, never from the per-basis figures beside it: those
+// are stated per basisAmount of nutritionBasis, so pairing them with this serving pair would show
+// 100 g of nutrition against a 195 g cup, and a per_100ml food cannot be converted here at all
+// (density is on no response). The projection is also what the server stores per serving when this
+// food is logged, so the card and the resulting diary row agree to the integer.
+export const mapCatalogFoodToFood = (catalogFood: CatalogFood): CatalogSourcedFood => ({
   id: catalogFood.id,
   name: catalogFood.name,
   servingAmount: catalogFood.defaultPortion.amount,
   servingUnit: catalogFood.defaultPortion.unit,
-  calories: catalogFood.calories,
-  protein: catalogFood.protein,
-  carbs: catalogFood.carbs,
-  fat: catalogFood.fat,
+  calories: catalogFood.defaultPortionNutrition.calories,
+  protein: catalogFood.defaultPortionNutrition.protein,
+  carbs: catalogFood.defaultPortionNutrition.carbs,
+  fat: catalogFood.defaultPortionNutrition.fat,
   brand: null,
   source: FoodSourceEnum.CATALOG,
   catalogFoodId: catalogFood.id,

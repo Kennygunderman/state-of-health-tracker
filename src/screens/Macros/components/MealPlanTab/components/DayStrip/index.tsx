@@ -17,7 +17,7 @@ interface Props {
   onDayPressed: (dayKey: string) => void
 }
 
-const DayStrip = ({dayKeys, selectedDayKey, onDayPressed}: Props) => {
+const DayStrip = ({dayKeys, selectedDayKey, onDayPressed}: Props): React.JSX.Element => {
   return (
     <View style={styles.strip}>
       {dayKeys.map(dayKey => {

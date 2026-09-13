@@ -18,7 +18,7 @@ interface Props {
   readonly accessibilityLabel: string
 }
 
-const SettingsRow = (props: Props) => {
+const SettingsRow = (props: Props): React.JSX.Element => {
   const {label, value, isFirst, onPress, accessibilityLabel} = props
 
   return (

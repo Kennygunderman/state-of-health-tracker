@@ -10,7 +10,7 @@ import Skeleton from '@components/Skeleton'
 import styles from './index.styled'
 import {SKELETON_ALTERNATIVE_ROWS, skeletonBarWidth} from '../../index.util'
 
-const SkeletonAlternatives = () => {
+const SkeletonAlternatives = (): React.JSX.Element => {
   const [textColumnWidth, setTextColumnWidth] = useState(0)
 
   // Skeleton takes a numeric width and reads it once at mount to size its shimmer, so the bars are measured

@@ -4,12 +4,16 @@ import {MealSlot, RecipeBadge, RecipeIngredient} from '@data/models/Recipe'
 import {RecipeDetailContext} from '@navigation/types'
 import {dayStripLabel, formatPlanDayLabel, formatSlotTime} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
-import {formatServingsDisplay} from '@utility/ServingsUtility'
+import {
+  DisplayedIngredient,
+  plannedPortionFactor,
+  scaleIngredientsForDisplay,
+  WHOLE_RECIPE_FACTOR
+} from '@utility/RecipeIngredientUtility'
 
 import {MetricGridItem} from '@components/MetricGrid4'
 
 import {
-  MEAL_PLAN_UNIT_VALUE_TEMPLATE,
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE,
   stringWithNamedParameters
@@ -21,11 +25,9 @@ export type RecipeDetailErrorBranch = 'not_found' | 'inline'
 
 export type PlannedNutritionSource = {planned: MacroTotals} | {perServing: MacroTotals; portionMultiplier: number}
 
-export interface DisplayedIngredient {
-  name: string
-  quantityText: string
-  isOptional: boolean
-}
+// Declared by @utility/RecipeIngredientUtility, which owns the scaling and formatting this screen shares with the
+// swap preview, and re-exported so this screen's own surface is unchanged
+export type {DisplayedIngredient}
 
 export interface MetricGridCaptions {
   calories: string
@@ -39,42 +41,25 @@ export interface ActionBarState {
   isEnabled: boolean
 }
 
-const QUANTITY_PRECISION = 100
+// The factor that rounds a nutrition figure without scaling it. Deliberately not the ingredient module's
+// WHOLE_RECIPE_FACTOR, which is the same number about a different thing: already-planned totals need no
+// portion applied, whereas 'Full recipe' means the recipe's own amounts.
 const UNSCALED_FACTOR = 1
 const NOT_FOUND_STATUS = 404
 
 const isPresent = (segment: string | undefined): segment is string => segment !== undefined && segment.length > 0
 
-// Keeps a scaled amount away from floating point dust (0.30000000000000004) before it is formatted
-const roundQuantity = (quantity: number): number => Math.round(quantity * QUANTITY_PRECISION) / QUANTITY_PRECISION
-
 /**
  * Stored ingredient quantities are whole-recipe amounts, so 'Your portion' divides the recipe by its yield
  * before applying the planned multiplier while 'Full recipe' leaves the stored amount alone. A yield that
  * cannot divide (zero, negative or non-finite) falls back to the unscaled amount rather than to Infinity.
+ *
+ * The portion arithmetic itself is @utility/RecipeIngredientUtility's, because the swap preview scales the same
+ * whole-recipe amounts by the same two numbers — a second copy here is how the two screens came to disagree.
+ * The display MODE stays this screen's: only frame 12 has a 'Full recipe' segment.
  */
-const displayFactor = (mode: IngredientDisplayMode, portionMultiplier: number, yieldServings: number): number => {
-  if (mode === 'full') {
-    return UNSCALED_FACTOR
-  }
-
-  if (!Number.isFinite(portionMultiplier) || !Number.isFinite(yieldServings) || yieldServings <= 0) {
-    return UNSCALED_FACTOR
-  }
-
-  return portionMultiplier / yieldServings
-}
-
-const formatIngredientQuantity = (ingredient: RecipeIngredient, factor: number): string => {
-  if (!Number.isFinite(ingredient.quantity)) {
-    return ingredient.displayText
-  }
-
-  const amount = formatServingsDisplay(roundQuantity(ingredient.quantity * factor))
-  const unit = ingredient.unit.trim()
-
-  return unit.length > 0 ? stringWithNamedParameters(MEAL_PLAN_UNIT_VALUE_TEMPLATE, {value: amount, unit}) : amount
-}
+const displayFactor = (mode: IngredientDisplayMode, portionMultiplier: number, yieldServings: number): number =>
+  mode === 'full' ? WHOLE_RECIPE_FACTOR : plannedPortionFactor(portionMultiplier, yieldServings)
 
 // One Math.round per value, applied once to the scaled figure: rounding an already-rounded value or summing
 // rounded parts would drift from the totals the server planned the day against
@@ -91,13 +76,7 @@ export function resolveDisplayedIngredients(
   portionMultiplier: number,
   yieldServings: number
 ): DisplayedIngredient[] {
-  const factor = displayFactor(mode, portionMultiplier, yieldServings)
-
-  return ingredients.map(ingredient => ({
-    name: ingredient.name,
-    quantityText: formatIngredientQuantity(ingredient, factor),
-    isOptional: ingredient.isOptional
-  }))
+  return scaleIngredientsForDisplay(ingredients, displayFactor(mode, portionMultiplier, yieldServings))
 }
 
 export function resolvePlannedNutrition(source: PlannedNutritionSource): MacroTotals {

@@ -32,7 +32,7 @@ interface DarkVariantProps extends BaseProps {
 
 type Props = DefaultVariantProps | DarkVariantProps
 
-const SecondaryButton = (props: Props) => {
+const SecondaryButton = (props: Props): React.JSX.Element => {
   const {label, onPress, style, variant = 'default', disabled = false} = props
   const isDark = isDarkVariant(variant)
 

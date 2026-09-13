@@ -19,7 +19,7 @@ interface Props {
   accessibilityLabel: string
 }
 
-const BackCircleButton = ({onPress, variant = 'default', accessibilityLabel}: Props) => (
+const BackCircleButton = ({onPress, variant = 'default', accessibilityLabel}: Props): React.JSX.Element => (
   <TouchableOpacity
     style={[styles.button, styles[variant]]}
     onPress={onPress}

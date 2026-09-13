@@ -1,7 +1,14 @@
 import {NoMatchingMealsOutcome, PlanGenerationFailedOutcome} from '@data/models/PlanGenerationResult'
 import {AxiosError, AxiosResponse} from 'axios'
 
-import {API_ERROR_CODES, classifyOutcome, getApiErrorCode, isUnknownOutcome} from '../ApiErrorUtility'
+import {
+  API_ERROR_CODES,
+  classifyOutcome,
+  getApiErrorCode,
+  isFeatureDisabledError,
+  isUnknownOutcome,
+  terminalErrorCode
+} from '../ApiErrorUtility'
 
 const makeAxiosError = (status?: number, body?: unknown): AxiosError => {
   const response = status === undefined ? undefined : ({status, data: body} as AxiosResponse)
@@ -289,5 +296,93 @@ describe('isUnknownOutcome', () => {
     ]
 
     confirmedFailures.forEach(error => expect(isUnknownOutcome(error)).toBe(false))
+  })
+})
+
+describe('isFeatureDisabledError', () => {
+  it('recognises the capability code a mounted backend returns from a gated route', () => {
+    expect(isFeatureDisabledError({response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(true)
+  })
+
+  it('does not treat another refusal as the capability being off', () => {
+    expect(isFeatureDisabledError({response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(false)
+  })
+
+  it('does not treat a bodiless failure as the capability being off', () => {
+    expect(isFeatureDisabledError({response: {status: 503}})).toBe(false)
+    expect(isFeatureDisabledError(new Error('Network Error'))).toBe(false)
+    expect(isFeatureDisabledError(null)).toBe(false)
+    expect(isFeatureDisabledError(undefined)).toBe(false)
+  })
+})
+
+describe('terminalErrorCode', () => {
+  const RETRYABLE: ReadonlySet<string> = new Set<string>([
+    API_ERROR_CODES.planGenerationFailed,
+    API_ERROR_CODES.noMatchingMeals
+  ])
+
+  it('has nothing to retire when there was no error', () => {
+    expect(terminalErrorCode(null, RETRYABLE)).toBeNull()
+    expect(terminalErrorCode(undefined, RETRYABLE)).toBeNull()
+  })
+
+  describe('leaves a key replayable', () => {
+    it('for an outcome the server never described, which may have committed', () => {
+      expect(terminalErrorCode(new Error('Network Error'), RETRYABLE)).toBeNull()
+      expect(terminalErrorCode({response: {status: 504}}, RETRYABLE)).toBeNull()
+    })
+
+    it('for a 5xx whose code this client does not recognise', () => {
+      expect(terminalErrorCode({response: {status: 500, data: {error: 'some_future_failure'}}}, RETRYABLE)).toBeNull()
+    })
+
+    it('for a 4xx whose error field is not a string', () => {
+      expect(terminalErrorCode({response: {status: 409, data: {error: 42}}}, RETRYABLE)).toBeNull()
+    })
+
+    it('for each code the caller named as retryable or handled in place', () => {
+      const generationFailed = {response: {status: 502, data: {error: API_ERROR_CODES.planGenerationFailed}}}
+      const noMatch = {response: {status: 422, data: {error: API_ERROR_CODES.noMatchingMeals}}}
+
+      expect(terminalErrorCode(generationFailed, RETRYABLE)).toBeNull()
+      expect(terminalErrorCode(noMatch, RETRYABLE)).toBeNull()
+    })
+  })
+
+  describe('retires the key, naming the code that refused it', () => {
+    it.each([
+      ['a validation refusal', 400, API_ERROR_CODES.invalidRequest],
+      ['the capability being off', 503, API_ERROR_CODES.featureDisabled],
+      ['a superseded plan', 409, API_ERROR_CODES.planNotActive],
+      ['a reused key with a changed body', 409, API_ERROR_CODES.idempotencyConflict],
+      ['missing targets', 422, API_ERROR_CODES.targetsMissing],
+      ['a code from a later server release', 409, 'some_future_refusal']
+    ])('for %s', (_case, status, code) => {
+      expect(terminalErrorCode({response: {status, data: {error: code}}}, RETRYABLE)).toBe(code)
+    })
+
+    it('for a confirmed 5xx that is not the caller\u2019s retryable failure', () => {
+      expect(terminalErrorCode({response: {status: 502, data: {error: API_ERROR_CODES.swapFailed}}}, RETRYABLE)).toBe(
+        API_ERROR_CODES.swapFailed
+      )
+    })
+  })
+
+  it('lets each flow name its own retryable set without changing the others', () => {
+    const swapRetryable: ReadonlySet<string> = new Set<string>([API_ERROR_CODES.swapFailed])
+    const swapFailed = {response: {status: 502, data: {error: API_ERROR_CODES.swapFailed}}}
+    const generationFailed = {response: {status: 502, data: {error: API_ERROR_CODES.planGenerationFailed}}}
+
+    expect(terminalErrorCode(swapFailed, swapRetryable)).toBeNull()
+    expect(terminalErrorCode(generationFailed, swapRetryable)).toBe(API_ERROR_CODES.planGenerationFailed)
+  })
+
+  it('is terminal by default, so a code nobody listed is never replayed forever', () => {
+    const empty: ReadonlySet<string> = new Set<string>()
+
+    expect(terminalErrorCode({response: {status: 422, data: {error: API_ERROR_CODES.noMatchingMeals}}}, empty)).toBe(
+      API_ERROR_CODES.noMatchingMeals
+    )
   })
 })

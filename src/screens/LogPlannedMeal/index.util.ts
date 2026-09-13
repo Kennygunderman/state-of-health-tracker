@@ -1,6 +1,7 @@
 import {Meal} from '@data/models/Meal'
 import {MealSlot} from '@data/models/Recipe'
 import {formatIsoDayMonthDay} from '@utility/DateUtility'
+import {LogRequestSnapshot} from '@utility/IdempotencyUtility'
 import {
   addDaysToDayKey,
   clampDayKeyToPlan,
@@ -66,6 +67,17 @@ export interface DiaryBucketOption {
 export interface DiaryBucketResolution {
   option: DiaryBucketOption | null
   isFallback: boolean
+}
+
+// What a cold start restores a planned log from: the route's plan, meal, revision and date, plus the servings
+// the user set and the diary bucket they chose.
+export interface PlannedLogInputs {
+  planId: string
+  mealId: string
+  servings: number
+  date: string
+  diaryMealId: string
+  planRevision: number
 }
 
 const bucketName = (slot: MealSlot): string => CANONICAL_DIARY_BUCKET_NAMES[slot].toLowerCase()
@@ -210,6 +222,25 @@ export function stepLogDate(dayKey: string, direction: 1 | -1, planStartDate: st
 
 export function dateOverlineText(dayKey: string): string {
   return formatIsoDayMonthDay(dayKey)
+}
+
+/**
+ * The request a planned log sends, as the snapshot stored beside its idempotency key. A diary entry is the
+ * one keyed write whose duplicate the user sees directly, so the request has to be rebuildable rather than
+ * re-derived: a launch after a lost response replays the stored key with this identical body and receives the
+ * entry that was already written, instead of logging the meal a second time (0.7.2). Pair it with
+ * `resolveKeyedRequest`, which compares this snapshot's fingerprint with the stored intent's.
+ */
+export function buildPlannedLogRequest(inputs: PlannedLogInputs): LogRequestSnapshot {
+  return {
+    action: 'log',
+    planId: inputs.planId,
+    mealId: inputs.mealId,
+    servings: inputs.servings,
+    date: inputs.date,
+    diaryMealId: inputs.diaryMealId,
+    expectedPlanRevision: inputs.planRevision
+  }
 }
 
 export function logDateStepperLabel(dayKey: string, now: Date): string {

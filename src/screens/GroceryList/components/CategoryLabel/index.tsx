@@ -11,7 +11,7 @@ interface Props {
   isFirst: boolean
 }
 
-const CategoryLabel = ({label, isFirst}: Props) => {
+const CategoryLabel = ({label, isFirst}: Props): React.JSX.Element => {
   return (
     <View style={[styles.container, isFirst && styles.containerFirst]}>
       <Text style={styles.label}>{label}</Text>

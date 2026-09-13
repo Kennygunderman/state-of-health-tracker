@@ -17,7 +17,7 @@ interface Props {
   readonly onChangePress: () => void
 }
 
-const PlanStartsCard = ({label, rangeText, changeLabel, onChangePress}: Props) => {
+const PlanStartsCard = ({label, rangeText, changeLabel, onChangePress}: Props): React.JSX.Element => {
   return (
     <View style={styles.card}>
       <View style={styles.row} hitSlop={PLAN_STARTS_ROW_HIT_SLOP}>

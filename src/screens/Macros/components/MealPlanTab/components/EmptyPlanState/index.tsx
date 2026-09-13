@@ -18,7 +18,14 @@ interface Props {
   onSecondary: () => void
 }
 
-const EmptyPlanState = ({headline, body, primaryLabel, onPrimary, secondaryLabel, onSecondary}: Props) => (
+const EmptyPlanState = ({
+  headline,
+  body,
+  primaryLabel,
+  onPrimary,
+  secondaryLabel,
+  onSecondary
+}: Props): React.JSX.Element => (
   <View style={styles.container}>
     <EmptyState
       icon={<EmptyCalendarIcon color={Theme.colors.accentGreen} />}

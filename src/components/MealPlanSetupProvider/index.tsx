@@ -3,6 +3,7 @@ import React, {createContext, useCallback, useContext, useMemo, useState} from '
 import {MealPlanPreferences, MealSchedule, MealTimeEntry, TargetRoute} from '@data/models/MealPlanPreferences'
 
 import {
+  answerBodySkipped as applyBodySkipped,
   applyAllergenSelection,
   applyBudgetAmount,
   applyLifecycleEvent,
@@ -30,6 +31,10 @@ export interface MealPlanSetupContextValue {
   seeded: boolean
   seedFromPreferences: (preferences: MealPlanPreferences | null | undefined) => void
   setStepFields: (step: MealPlanSetupStep, fields: Partial<MealPlanSetupDraft>) => void
+  // Skip on the About-you screen. It is the body step's other answer, so it is an action here
+  // rather than a field the screen clears: no measurement in the draft says "the user skipped",
+  // and the completeness rules need to be told that the step was answered.
+  answerBodySkipped: () => void
   selectAllergen: (allergen: string) => void
   toggleDislikedFood: (foodId: string) => void
   setDislikedFoods: (foodIds: string[]) => void
@@ -56,9 +61,14 @@ export interface MealPlanSetupContextValue {
 //     that prefers to clear in its own handler. No setup screen exists in the tree yet, so no
 //     call site uses them; they are the API those screens should reach for rather than inventing
 //     a clearing rule, and clearing twice is a no-op.
-//   - signing out clears by unmounting: App.tsx swaps the whole navigator when the auth state
-//     flips, so this tree goes with it, and useMealPlanStore.reset() in useAuthStore covers the
-//     meal-plan state that is not in this tree.
+//   - a change of account clears by unmounting, and the boundary is the signed-in uid rather than
+//     the signed-in/signed-out flag: App.tsx keys the whole session tree by that uid, so signing
+//     out AND signing straight in as somebody else both recreate this provider with an empty
+//     draft. The distinction matters because the draft holds the answers to 'what do you weigh',
+//     'how old are you' and 'what can't you eat': an account change arrives as one uid replacing
+//     another with no signed-out render in between, a store reset cannot reach mounted Context, and
+//     the flag alone would leave those answers on screen for the incoming account.
+//     useMealPlanStore.reset() in useAuthStore covers the meal-plan state that is not in this tree.
 // A persisted step ('step_saved') deliberately keeps the draft. Resuming a half-finished setup is
 // the server's job (meal_plan_preferences.setup_step), so nothing here is persisted and the only
 // client state that outlives the session is useMealPlanStore.pendingIntents.
@@ -87,6 +97,10 @@ const MealPlanSetupProvider = ({children}: Props): React.JSX.Element => {
 
   const setStepFields = useCallback((step: MealPlanSetupStep, fields: Partial<MealPlanSetupDraft>) => {
     setState(previous => applyStepFields(previous, step, fields))
+  }, [])
+
+  const answerBodySkipped = useCallback(() => {
+    setState(previous => applyBodySkipped(previous))
   }, [])
 
   const selectAllergen = useCallback((allergen: string) => {
@@ -121,9 +135,11 @@ const MealPlanSetupProvider = ({children}: Props): React.JSX.Element => {
     setState(previous => applyLifecycleEvent(previous, event))
   }, [])
 
-  const completedSteps = useCallback((route: TargetRoute) => completedDraftSteps(state.draft, route), [state.draft])
+  // Both take the whole state, not the draft: a body step answered with Skip is recorded on the
+  // state, because no editable field of the draft can hold it.
+  const completedSteps = useCallback((route: TargetRoute) => completedDraftSteps(state, route), [state])
 
-  const isStepComplete = useCallback((step: MealPlanSetupStep) => isDraftStepComplete(state.draft, step), [state.draft])
+  const isStepComplete = useCallback((step: MealPlanSetupStep) => isDraftStepComplete(state, step), [state])
 
   const value = useMemo<MealPlanSetupContextValue>(
     () => ({
@@ -132,6 +148,7 @@ const MealPlanSetupProvider = ({children}: Props): React.JSX.Element => {
       seeded: state.seeded,
       seedFromPreferences,
       setStepFields,
+      answerBodySkipped,
       selectAllergen,
       toggleDislikedFood,
       setDislikedFoods,
@@ -145,6 +162,7 @@ const MealPlanSetupProvider = ({children}: Props): React.JSX.Element => {
       isStepComplete
     }),
     [
+      answerBodySkipped,
       completedSteps,
       isStepComplete,
       resetDraft,

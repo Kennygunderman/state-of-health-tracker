@@ -14,7 +14,7 @@ interface Props {
   onToggle: () => void
 }
 
-const GroceryRow = ({item, variant, isFirst, isPending, onToggle}: Props) => {
+const GroceryRow = ({item, variant, isFirst, isPending, onToggle}: Props): React.JSX.Element => {
   if (variant === 'flagged') {
     return <GroceryFlagRow item={item} isFirst={isFirst} isPending={isPending} onToggle={onToggle} />
   }

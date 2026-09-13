@@ -1,5 +1,7 @@
 import {MacroTotals} from '@data/models/Macros'
+import {RecipeIngredient} from '@data/models/Recipe'
 import {SwapPreview} from '@data/models/SwapAlternative'
+import {plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/RecipeIngredientUtility'
 
 import {
   CAL_LABEL,
@@ -17,10 +19,9 @@ import {
   buildThisMealMetrics,
   calorieProgressRatio,
   deriveCalorieDelta,
-  formatIngredientQuantity,
   formatPreviewSubtitle,
   formatReplacingContext,
-  IngredientQuantitySource
+  resolvePreviewIngredients
 } from '../index.util'
 
 const MINUS_SIGN = '\u2212'
@@ -77,10 +78,18 @@ const replacingText = (slotLabel: string, dateText: string = DAY_TEXT): string =
 const minutesText = (minutes: number): string =>
   SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE.replace('{minutes}', String(minutes))
 
-const makeIngredient = (overrides: Partial<IngredientQuantitySource> = {}): IngredientQuantitySource => ({
+// The stored row as the server sends it: WHOLE-RECIPE amounts, which is what makes the scaling below the point
+// of the suite. `displayText` deliberately disagrees with `quantity` so a regression that renders the stored
+// text instead of the portion's amount is visible rather than coincidentally right.
+const makeIngredient = (overrides: Partial<RecipeIngredient> = {}): RecipeIngredient => ({
+  catalogFoodId: 'catalog-food-1',
+  name: 'Chicken breast',
   quantity: 2,
   unit: 'cup',
+  gramWeight: 480,
   displayText: '1 1/2 cups',
+  nutritionProvenance: 'source_backed',
+  isOptional: false,
   ...overrides
 })
 
@@ -462,75 +471,95 @@ describe('formatPreviewSubtitle', () => {
   })
 })
 
-describe('formatIngredientQuantity', () => {
-  describe('the amount the server formatted', () => {
-    it('wins over the composed fallback', () => {
-      expect(formatIngredientQuantity(makeIngredient())).toBe('1 1/2 cups')
+describe('resolvePreviewIngredients', () => {
+  // The contract this screen gets wrong if nobody pins it: `alternative.nutrition` is the PORTION's, while
+  // `alternative.recipe.ingredients` are the WHOLE RECIPE's, so the amounts have to be scaled by the same two
+  // numbers the server scaled the nutrition by — `portionMultiplier / yieldServings`. Rendering the stored
+  // `displayText` instead is what put whole-recipe ingredients beside a portion's calories on frame 13b.
+  describe('a recipe that yields more than one serving', () => {
+    it('halves the stored amount for one serving of a two-serving recipe', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, 2)
+
+      expect(rows).toEqual([{name: 'Chicken breast', quantityText: '5 oz', isOptional: false}])
     })
 
-    it('is trimmed before it is rendered', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: '  3 tbsp  '}))).toBe('3 tbsp')
+    it('applies the multiplier and the yield together when both differ from one', () => {
+      // 6 cups in the whole recipe / 4 servings x 1.5 portions = 2.25 cups
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 6, unit: 'cup'})], 1.5, 4)
+
+      expect(rows[0].quantityText).toBe('2¼ cup')
     })
 
-    it('still wins when the raw quantity is unusable', () => {
-      expect(formatIngredientQuantity(makeIngredient({quantity: Number.NaN}))).toBe('1 1/2 cups')
-    })
-  })
+    it('scales a portion larger than one serving upwards', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 4, unit: 'tbsp'})], 2, 2)
 
-  describe('the composed fallback', () => {
-    it('composes quantity and unit when the display text is an empty string', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: ''}))).toBe('2 cup')
+      expect(rows[0].quantityText).toBe('4 tbsp')
     })
 
-    it('composes quantity and unit when the display text is whitespace', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: '   '}))).toBe('2 cup')
-    })
+    it('leaves a single-serving recipe at its stored amount when the portion is one serving', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 3, unit: 'oz'})], 1, 1)
 
-    it('composes quantity and unit when the display text is absent', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: undefined}))).toBe('2 cup')
-    })
-
-    it('composes quantity and unit when the display text is null', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null}))).toBe('2 cup')
-    })
-
-    it('renders the quantity alone when no unit arrived', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: undefined}))).toBe('2')
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: null}))).toBe('2')
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: '   '}))).toBe('2')
-    })
-
-    it('trims the unit before composing', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: '  g  ', quantity: 150}))).toBe('150 g')
+      expect(rows[0].quantityText).toBe('3 oz')
     })
   })
 
-  describe('quantity precision', () => {
-    it('rounds floating point dust out of the composed quantity', () => {
-      const ingredient = makeIngredient({displayText: null, unit: null, quantity: 0.1 + 0.2})
+  describe('the amount the server pre-formatted', () => {
+    it('is never rendered in place of the portion it does not describe', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 2, unit: 'cup'})], 1, 2)
 
-      expect(formatIngredientQuantity(ingredient)).toBe('0.3')
+      // '1 1/2 cups' is the whole recipe's text on the fixture; the portion is one cup
+      expect(rows[0].quantityText).toBe('1 cup')
+      expect(rows[0].quantityText).not.toBe('1 1/2 cups')
+    })
+  })
+
+  describe('the whole list', () => {
+    it('keeps the server order and carries each name and optional flag through', () => {
+      const rows = resolvePreviewIngredients(
+        [
+          makeIngredient({name: 'Tortilla, whole wheat', quantity: 2, unit: ''}),
+          makeIngredient({name: 'Turkey breast, sliced', quantity: 8, unit: 'oz'}),
+          makeIngredient({name: 'Hummus', quantity: 4, unit: 'tbsp', isOptional: true})
+        ],
+        1,
+        2
+      )
+
+      expect(rows).toEqual([
+        {name: 'Tortilla, whole wheat', quantityText: '1', isOptional: false},
+        {name: 'Turkey breast, sliced', quantityText: '4 oz', isOptional: false},
+        {name: 'Hummus', quantityText: '2 tbsp', isOptional: true}
+      ])
     })
 
-    it('keeps two decimals of a genuine fraction', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: 'tsp', quantity: 0.125}))).toBe(
-        '0.13 tsp'
+    it('returns an empty list for a recipe with no ingredients rather than throwing', () => {
+      expect(resolvePreviewIngredients([], 1, 2)).toEqual([])
+    })
+  })
+
+  describe('the shared rule', () => {
+    it('adds no transformation of its own to the scaling both screens share', () => {
+      // Pins the delegation rather than the arithmetic: the screen must apply the shared factor and nothing
+      // else, which is what stops the preview and recipe detail drifting apart again
+      const ingredients = [
+        makeIngredient({quantity: 6, unit: 'cup'}),
+        makeIngredient({name: 'Avocado', quantity: 3, unit: ''})
+      ]
+
+      expect(resolvePreviewIngredients(ingredients, 1.5, 4)).toEqual(
+        scaleIngredientsForDisplay(ingredients, plannedPortionFactor(1.5, 4))
       )
     })
-
-    it('renders a whole quantity without a decimal tail', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, unit: 'g', quantity: 150.001}))).toBe('150 g')
-    })
   })
 
-  describe('a quantity that is not a number', () => {
-    it('renders nothing rather than NaN', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, quantity: Number.NaN}))).toBe('')
-    })
+  describe('purity', () => {
+    it('does not mutate the ingredients it was given', () => {
+      const ingredients = [makeIngredient({quantity: 10, unit: 'oz'})]
+      const snapshot = JSON.stringify(ingredients)
 
-    it('renders nothing for either infinity', () => {
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, quantity: Number.POSITIVE_INFINITY}))).toBe('')
-      expect(formatIngredientQuantity(makeIngredient({displayText: null, quantity: Number.NEGATIVE_INFINITY}))).toBe('')
+      resolvePreviewIngredients(ingredients, 1, 2)
+
+      expect(JSON.stringify(ingredients)).toBe(snapshot)
     })
   })
 })

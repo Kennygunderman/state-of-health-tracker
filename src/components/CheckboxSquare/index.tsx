@@ -18,7 +18,7 @@ interface Props {
   disabled?: boolean
 }
 
-const CheckboxSquare = (props: Props) => {
+const CheckboxSquare = (props: Props): React.JSX.Element => {
   const {state, onPress, accessibilityLabel, disabled = false} = props
 
   const tickColor = state === 'checkedEmphasis' ? Theme.colors.white : Theme.colors.textFaint

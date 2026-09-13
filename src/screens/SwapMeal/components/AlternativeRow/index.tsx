@@ -25,7 +25,7 @@ interface Props {
   isFirst: boolean
 }
 
-const AlternativeRow = ({alternative, meta, onPress, isFirst}: Props) => {
+const AlternativeRow = ({alternative, meta, onPress, isFirst}: Props): React.JSX.Element => {
   const rowStyle = [styles.row, !isFirst && styles.rowDivided]
 
   const accessibilityLabel = stringWithNamedParameters(SWAP_ALTERNATIVE_ACCESSIBILITY_TEMPLATE, {

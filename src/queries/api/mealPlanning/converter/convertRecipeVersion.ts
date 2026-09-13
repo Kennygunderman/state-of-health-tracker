@@ -5,10 +5,7 @@ import * as io from 'io-ts'
 
 const KNOWN_ICON_KEYS = RECIPE_ICON_KEYS as string[]
 const KNOWN_BADGES = RECIPE_BADGES as string[]
-const KNOWN_STATUSES = ['current', 'retired'] as const satisfies readonly RecipeVersion['status'][]
 const KNOWN_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const satisfies readonly MealSlot[]
-const KNOWN_ALLERGEN_STATUSES = ['known', 'unknown'] as const satisfies readonly RecipeVersion['allergenStatus'][]
-const KNOWN_BUDGET_TIERS = [1, 2, 3] as const satisfies readonly RecipeVersion['budgetTier'][]
 const KNOWN_SOURCED_PROVENANCES = [
   'source_backed',
   'ingredient_derived',
@@ -26,10 +23,10 @@ export function convertRecipeVersion(data: io.TypeOf<typeof RecipeVersionRespons
     versionId: data.versionId,
     recipeId: data.recipeId,
     version: data.version,
-    // The server's visibility rule already allowed this recipe, so an unknown status must not imply a retired one.
-    status: (KNOWN_STATUSES as readonly string[]).includes(data.status)
-      ? (data.status as RecipeVersion['status'])
-      : 'current',
+    // Carried, never defaulted: 'current' is what the plan and the swap list are built from, so reading an
+    // unrecognised status as current would offer a version the server does not plan with. The codec admits
+    // only the two the contract defines.
+    status: data.status,
     name: data.name,
     description: data.description,
     // An unknown glyph code falls back to the generic bowl rather than failing the response.
@@ -47,13 +44,12 @@ export function convertRecipeVersion(data: io.TypeOf<typeof RecipeVersionRespons
     badges: data.badges.filter((badge): badge is RecipeBadge => KNOWN_BADGES.includes(badge)),
     dietTags: data.dietTags,
     allergenTags: data.allergenTags,
-    // Unrecognised safety, cost and provenance codes degrade to their weakest claim, never an unverified stronger one.
-    allergenStatus: (KNOWN_ALLERGEN_STATUSES as readonly string[]).includes(data.allergenStatus)
-      ? (data.allergenStatus as RecipeVersion['allergenStatus'])
-      : 'unknown',
-    budgetTier: (KNOWN_BUDGET_TIERS as readonly number[]).includes(data.budgetTier)
-      ? (data.budgetTier as RecipeVersion['budgetTier'])
-      : 3,
+    // Both are closed sets the codec enforces, so they are carried as sent: an allergen status defaulted to
+    // 'unknown' would hide a known one, and a cost band defaulted to 3 would misprice a cheap recipe.
+    allergenStatus: data.allergenStatus,
+    budgetTier: data.budgetTier,
+    // Provenance is the one code that still degrades rather than rejects: it appears on a recipe and on every
+    // ingredient, and an unrecognised value must read as the weakest claim, never as an unverified stronger one.
     nutritionProvenance: resolveSourcedProvenance(data.nutritionProvenance),
     perServing: data.perServing,
     ingredients: data.ingredients.map(ingredient => ({

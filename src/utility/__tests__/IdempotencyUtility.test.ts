@@ -1,4 +1,20 @@
-import {fingerprint, MealPlanActionType, mintKey} from '../IdempotencyUtility'
+import {
+  fingerprint,
+  fingerprintSnapshot,
+  GenerateRequestSnapshot,
+  isMealPlanActionType,
+  LogRequestSnapshot,
+  matchesFingerprint,
+  MEAL_PLAN_REQUEST_METHOD,
+  MealPlanActionType,
+  MealPlanRequestSnapshot,
+  mintKey,
+  parseRequestSnapshot,
+  RegenerateRequestSnapshot,
+  requestBody,
+  requestIds,
+  SwapRequestSnapshot
+} from '../IdempotencyUtility'
 
 interface GenerateBody {
   startDate: string
@@ -516,5 +532,384 @@ describe('real request payloads', () => {
     const log = fingerprint('POST', 'log', PLAN_MEAL_IDS, makeLogBody())
 
     expect(new Set([generate, swap, log]).size).toBe(3)
+  })
+})
+
+const generateSnapshot = (overrides: Partial<GenerateRequestSnapshot> = {}): GenerateRequestSnapshot => ({
+  action: 'generate',
+  startDate: '2026-07-05',
+  expectedPreferencesRevision: 4,
+  expectedTargetsRevision: 2,
+  ...overrides
+})
+
+const regenerateSnapshot = (overrides: Partial<RegenerateRequestSnapshot> = {}): RegenerateRequestSnapshot => ({
+  action: 'regenerate',
+  planId: 'plan-1',
+  expectedPlanRevision: 3,
+  expectedPreferencesRevision: 4,
+  expectedTargetsRevision: 2,
+  ...overrides
+})
+
+const swapSnapshot = (overrides: Partial<SwapRequestSnapshot> = {}): SwapRequestSnapshot => ({
+  action: 'swap',
+  planId: 'plan-1',
+  mealId: 'meal-1',
+  recipeVersionId: 'rv-1',
+  portionMultiplier: 1.25,
+  expectedPlanRevision: 3,
+  ...overrides
+})
+
+const logSnapshot = (overrides: Partial<LogRequestSnapshot> = {}): LogRequestSnapshot => ({
+  action: 'log',
+  planId: 'plan-1',
+  mealId: 'meal-1',
+  servings: 0.66,
+  date: '2026-07-05',
+  diaryMealId: 'dm-1',
+  expectedPlanRevision: 3,
+  ...overrides
+})
+
+const EVERY_SNAPSHOT: readonly MealPlanRequestSnapshot[] = [
+  generateSnapshot(),
+  regenerateSnapshot(),
+  swapSnapshot(),
+  logSnapshot()
+]
+
+// What AsyncStorage actually hands back: the record that was written, decoded from JSON. Round-tripping it is
+// the difference between testing the parser and testing the object that was just built in memory.
+const throughStorage = (snapshot: MealPlanRequestSnapshot): unknown => JSON.parse(JSON.stringify(snapshot))
+
+describe('MEAL_PLAN_REQUEST_METHOD', () => {
+  it('is the one method every keyed meal-planning write uses', () => {
+    expect(MEAL_PLAN_REQUEST_METHOD).toBe('POST')
+  })
+})
+
+describe('requestIds', () => {
+  it('gives a generation no path ids, because it names no existing resource', () => {
+    expect(requestIds(generateSnapshot())).toEqual([])
+  })
+
+  it('gives a regeneration the plan it replaces', () => {
+    expect(requestIds(regenerateSnapshot({planId: 'plan-9'}))).toEqual(['plan-9'])
+  })
+
+  it('gives a swap the plan and the meal, in path order', () => {
+    expect(requestIds(swapSnapshot({planId: 'plan-9', mealId: 'meal-9'}))).toEqual(['plan-9', 'meal-9'])
+  })
+
+  it('gives a planned log the plan and the meal, in path order', () => {
+    expect(requestIds(logSnapshot({planId: 'plan-9', mealId: 'meal-9'}))).toEqual(['plan-9', 'meal-9'])
+  })
+})
+
+describe('requestBody', () => {
+  it('rebuilds the generate body of the plans endpoint', () => {
+    expect(requestBody(generateSnapshot(), 'key-1')).toEqual({
+      startDate: '2026-07-05',
+      expectedPreferencesRevision: 4,
+      expectedTargetsRevision: 2,
+      idempotencyKey: 'key-1'
+    })
+  })
+
+  it('rebuilds the regenerate body without the plan id, which the path already carries', () => {
+    expect(requestBody(regenerateSnapshot(), 'key-1')).toEqual({
+      expectedPlanRevision: 3,
+      expectedPreferencesRevision: 4,
+      expectedTargetsRevision: 2,
+      idempotencyKey: 'key-1'
+    })
+  })
+
+  it('rebuilds the swap body with the bound alternative and portion', () => {
+    expect(requestBody(swapSnapshot(), 'key-1')).toEqual({
+      recipeVersionId: 'rv-1',
+      portionMultiplier: 1.25,
+      expectedPlanRevision: 3,
+      idempotencyKey: 'key-1'
+    })
+  })
+
+  it('rebuilds the planned-log body with the eaten servings, date and diary bucket', () => {
+    expect(requestBody(logSnapshot(), 'key-1')).toEqual({
+      servings: 0.66,
+      date: '2026-07-05',
+      diaryMealId: 'dm-1',
+      expectedPlanRevision: 3,
+      idempotencyKey: 'key-1'
+    })
+  })
+
+  it('carries whichever key the caller decided to send', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      expect(requestBody(snapshot, 'replayed-key').idempotencyKey).toBe('replayed-key')
+    })
+  })
+
+  it('never puts a path id in the body', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      const body = requestBody(snapshot, 'key-1')
+
+      expect(body.planId).toBeUndefined()
+      expect(body.mealId).toBeUndefined()
+    })
+  })
+})
+
+describe('fingerprintSnapshot', () => {
+  it('equals the fingerprint of the request the snapshot rebuilds', () => {
+    const snapshot = swapSnapshot()
+
+    expect(fingerprintSnapshot(snapshot)).toBe(
+      fingerprint(MEAL_PLAN_REQUEST_METHOD, 'swap', requestIds(snapshot), requestBody(snapshot, 'any-key'))
+    )
+  })
+
+  it('does not depend on the idempotency key, so a replay compares equal', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      const withKey = fingerprint(
+        MEAL_PLAN_REQUEST_METHOD,
+        snapshot.action,
+        requestIds(snapshot),
+        requestBody(snapshot, 'minted-now')
+      )
+
+      expect(fingerprintSnapshot(snapshot)).toBe(withKey)
+    })
+  })
+
+  it('survives a round trip through storage, which is what a cold-start replay depends on', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      const restored = parseRequestSnapshot(throughStorage(snapshot), snapshot.action)
+
+      expect(restored).not.toBeNull()
+      expect(fingerprintSnapshot(restored as MealPlanRequestSnapshot)).toBe(fingerprintSnapshot(snapshot))
+    })
+  })
+
+  it('distinguishes the four actions even where their bodies would agree', () => {
+    const fingerprints = EVERY_SNAPSHOT.map(fingerprintSnapshot)
+
+    expect(new Set(fingerprints).size).toBe(4)
+  })
+
+  describe('changes with any member of the request', () => {
+    it.each([
+      ['the start date', generateSnapshot({startDate: '2026-07-12'})],
+      ['the preferences revision', generateSnapshot({expectedPreferencesRevision: 5})],
+      ['the targets revision', generateSnapshot({expectedTargetsRevision: 3})]
+    ])('%s of a generation', (_member, changed) => {
+      expect(fingerprintSnapshot(changed)).not.toBe(fingerprintSnapshot(generateSnapshot()))
+    })
+
+    it.each([
+      ['the plan', regenerateSnapshot({planId: 'plan-2'})],
+      ['the plan revision', regenerateSnapshot({expectedPlanRevision: 4})]
+    ])('%s of a regeneration', (_member, changed) => {
+      expect(fingerprintSnapshot(changed)).not.toBe(fingerprintSnapshot(regenerateSnapshot()))
+    })
+
+    it.each([
+      ['the chosen alternative', swapSnapshot({recipeVersionId: 'rv-2'})],
+      ['the portion', swapSnapshot({portionMultiplier: 1})],
+      ['the meal', swapSnapshot({mealId: 'meal-2'})],
+      ['the plan revision', swapSnapshot({expectedPlanRevision: 4})]
+    ])('%s of a swap', (_member, changed) => {
+      expect(fingerprintSnapshot(changed)).not.toBe(fingerprintSnapshot(swapSnapshot()))
+    })
+
+    it.each([
+      ['the eaten servings', logSnapshot({servings: 1})],
+      ['the diary date', logSnapshot({date: '2026-07-06'})],
+      ['the diary bucket', logSnapshot({diaryMealId: 'dm-2'})],
+      ['the plan revision', logSnapshot({expectedPlanRevision: 4})]
+    ])('%s of a planned log', (_member, changed) => {
+      expect(fingerprintSnapshot(changed)).not.toBe(fingerprintSnapshot(logSnapshot()))
+    })
+  })
+})
+
+describe('matchesFingerprint', () => {
+  it('accepts the snapshot the fingerprint was taken of', () => {
+    const snapshot = logSnapshot()
+
+    expect(matchesFingerprint(snapshot, fingerprintSnapshot(snapshot))).toBe(true)
+  })
+
+  it('rejects a snapshot whose request has changed since the key was minted', () => {
+    expect(matchesFingerprint(logSnapshot({servings: 2}), fingerprintSnapshot(logSnapshot()))).toBe(false)
+  })
+
+  it('rejects a fingerprint from a different action', () => {
+    expect(matchesFingerprint(swapSnapshot(), fingerprintSnapshot(logSnapshot()))).toBe(false)
+  })
+})
+
+describe('parseRequestSnapshot', () => {
+  it('restores every action from storage exactly as it was written', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      expect(parseRequestSnapshot(throughStorage(snapshot), snapshot.action)).toEqual(snapshot)
+    })
+  })
+
+  it('returns a value of its own rather than the stored object', () => {
+    const stored = throughStorage(swapSnapshot())
+
+    expect(parseRequestSnapshot(stored, 'swap')).not.toBe(stored)
+  })
+
+  it('refuses a snapshot filed under an action it would not reconstruct', () => {
+    expect(parseRequestSnapshot(throughStorage(swapSnapshot()), 'log')).toBeNull()
+    expect(parseRequestSnapshot(throughStorage(generateSnapshot()), 'regenerate')).toBeNull()
+  })
+
+  it('refuses a value that is not a JSON object', () => {
+    ;[null, undefined, 'generate', 7, true, [generateSnapshot()]].forEach(value => {
+      expect(parseRequestSnapshot(value, 'generate')).toBeNull()
+    })
+  })
+
+  describe('refuses an incomplete record, because a missing member cannot be reconstructed', () => {
+    it.each([
+      ['startDate', 'generate' as MealPlanActionType, generateSnapshot()],
+      ['expectedTargetsRevision', 'generate' as MealPlanActionType, generateSnapshot()],
+      ['planId', 'regenerate' as MealPlanActionType, regenerateSnapshot()],
+      ['recipeVersionId', 'swap' as MealPlanActionType, swapSnapshot()],
+      ['portionMultiplier', 'swap' as MealPlanActionType, swapSnapshot()],
+      ['diaryMealId', 'log' as MealPlanActionType, logSnapshot()],
+      ['servings', 'log' as MealPlanActionType, logSnapshot()]
+    ])('without %s', (member, action, snapshot) => {
+      const stored = throughStorage(snapshot) as Record<string, unknown>
+
+      delete stored[member]
+
+      expect(parseRequestSnapshot(stored, action)).toBeNull()
+    })
+  })
+
+  it('refuses a record carrying a member the contract does not have', () => {
+    const stored = {...(throughStorage(logSnapshot()) as Record<string, unknown>), mealName: 'Greek yogurt bowl'}
+
+    expect(parseRequestSnapshot(stored, 'log')).toBeNull()
+  })
+
+  describe('refuses a member whose value could not have come from this app', () => {
+    it.each([
+      ['a start date that is not a day key', generateSnapshot({startDate: '05/07/2026'})],
+      ['an empty start date', generateSnapshot({startDate: ''})],
+      ['a fractional revision', generateSnapshot({expectedPreferencesRevision: 1.5})],
+      ['a negative revision', generateSnapshot({expectedTargetsRevision: -1})],
+      ['a revision beyond a database integer', generateSnapshot({expectedPreferencesRevision: 2_147_483_648})],
+      ['an unsafe revision', generateSnapshot({expectedTargetsRevision: 1e30})]
+    ])('%s', (_case, snapshot) => {
+      expect(parseRequestSnapshot(throughStorage(snapshot), 'generate')).toBeNull()
+    })
+
+    it.each([
+      ['an empty plan id', regenerateSnapshot({planId: ''})],
+      ['a revision beyond a database integer', regenerateSnapshot({expectedPlanRevision: 2_147_483_648})]
+    ])('%s', (_case, snapshot) => {
+      expect(parseRequestSnapshot(throughStorage(snapshot), 'regenerate')).toBeNull()
+    })
+
+    it.each([
+      ['an empty meal id', swapSnapshot({mealId: ''})],
+      ['an empty recipe version', swapSnapshot({recipeVersionId: ''})],
+      ['a zero portion', swapSnapshot({portionMultiplier: 0})],
+      ['a negative portion', swapSnapshot({portionMultiplier: -1})]
+    ])('%s', (_case, snapshot) => {
+      expect(parseRequestSnapshot(throughStorage(snapshot), 'swap')).toBeNull()
+    })
+
+    it.each([
+      ['zero servings', logSnapshot({servings: 0})],
+      ['negative servings', logSnapshot({servings: -1})],
+      ['a date that is not a day key', logSnapshot({date: '2026-7-5'})],
+      ['an empty diary bucket', logSnapshot({diaryMealId: ''})]
+    ])('%s', (_case, snapshot) => {
+      expect(parseRequestSnapshot(throughStorage(snapshot), 'log')).toBeNull()
+    })
+
+    it('a member of the wrong type entirely', () => {
+      const stored = {...(throughStorage(swapSnapshot()) as Record<string, unknown>), portionMultiplier: '1.25'}
+
+      expect(parseRequestSnapshot(stored, 'swap')).toBeNull()
+    })
+
+    it('a non-finite portion, which JSON stores as null', () => {
+      const stored = {...(throughStorage(swapSnapshot()) as Record<string, unknown>), portionMultiplier: null}
+
+      expect(parseRequestSnapshot(stored, 'swap')).toBeNull()
+    })
+  })
+
+  it('keeps the two-decimal fractional servings the app sends', () => {
+    const restored = parseRequestSnapshot(throughStorage(logSnapshot({servings: 0.33})), 'log')
+
+    expect((restored as LogRequestSnapshot).servings).toBe(0.33)
+  })
+
+  // The action is as much a boundary value as the record: it arrives as a persisted slot key, so it can name
+  // a keyed write a newer release added, or a member of `Object.prototype`. Reading the member table by that
+  // name has to answer "cannot reproduce this" rather than throw, because the caller is the rehydration path
+  // and an exception there aborts hydration for every slot at once.
+  describe('refuses an action this release has no contract for', () => {
+    it.each([
+      ['an action added by a newer release', 'reorder'],
+      ['the empty string', ''],
+      ['a one-argument function on Object.prototype', 'hasOwnProperty'],
+      ['the Object constructor', 'constructor'],
+      ['a zero-argument function on Object.prototype', 'toString'],
+      ['a prototype member that is not a function', '__proto__']
+    ])('%s', (_case, action) => {
+      const call = (): MealPlanRequestSnapshot | null =>
+        parseRequestSnapshot({action}, action as unknown as MealPlanActionType)
+
+      expect(call).not.toThrow()
+      expect(call()).toBeNull()
+    })
+
+    it('refuses a full record whose discriminant is an action this release does not have', () => {
+      const stored = {...(throughStorage(swapSnapshot()) as Record<string, unknown>), action: 'reorder'}
+
+      expect(parseRequestSnapshot(stored, 'reorder' as unknown as MealPlanActionType)).toBeNull()
+    })
+  })
+})
+
+describe('isMealPlanActionType', () => {
+  it.each([['generate'], ['regenerate'], ['swap'], ['log']])('accepts %s', action => {
+    expect(isMealPlanActionType(action)).toBe(true)
+  })
+
+  // Own-property only: a plain `in` or truthiness test would accept every member of `Object.prototype` as an
+  // action and hand its value to the member lookup.
+  it.each([
+    ['an action added by a newer release', 'reorder'],
+    ['the empty string', ''],
+    ['a capitalised action', 'Generate'],
+    ['hasOwnProperty', 'hasOwnProperty'],
+    ['constructor', 'constructor'],
+    ['toString', 'toString'],
+    ['__proto__', '__proto__'],
+    ['valueOf', 'valueOf']
+  ])('rejects %s', (_case, action) => {
+    expect(isMealPlanActionType(action)).toBe(false)
+  })
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a number', 1],
+    ['an object', {action: 'generate'}],
+    ['an array', ['generate']]
+  ])('rejects %s, which is not a name at all', (_case, value) => {
+    expect(isMealPlanActionType(value)).toBe(false)
   })
 })

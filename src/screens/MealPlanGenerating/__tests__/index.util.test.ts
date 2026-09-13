@@ -2,6 +2,7 @@ import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import {LimitingConstraint} from '@data/models/PlanGenerationResult'
 import {GenerationContext} from '@navigation/types'
+import {buildPendingIntent, resolveKeyedRequest} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 
@@ -26,6 +27,7 @@ import {
   MEAL_PLAN_GENERATION_FAILED_BODY,
   MEAL_PLAN_GENERATION_FAILED_TITLE,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
+  MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY,
   MEAL_PLAN_LIMITING_CONSTRAINT_LABELS,
   MEAL_PLAN_MEALS_PER_DAY_VALUES,
   MEAL_PLAN_NO_MATCH_BODY,
@@ -42,7 +44,15 @@ import {
   stringWithNamedParameters
 } from '@constants/strings'
 
+// The lifecycle cases below reach the meal-plan store for its pure intent helpers, and importing it pulls in
+// the persistence adapter's native module. Mocking the adapter — exactly as the store's own suite does — keeps
+// this suite free of native modules; nothing here reads or writes storage.
+jest.mock('@store/zustandAsyncStorage', () => ({
+  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
+
 import {
+  buildGenerationRequest,
   buildLimitingConstraintRows,
   extractLimitingConstraints,
   GenerationRequestStatus,
@@ -55,8 +65,8 @@ import {
   resolveTerminalRecovery
 } from '../index.util'
 
-// The seven refusals that carry card copy and the two plan-state refusals that deliberately do not. Declared
-// here rather than imported so the suite pins the intended membership instead of restating the module's.
+// The seven refusals that carry card copy of their own. Declared here rather than imported so the suite pins
+// the intended membership instead of restating the module's.
 const TERMINAL_COPY_CODES: readonly string[] = [
   API_ERROR_CODES.staleRevision,
   API_ERROR_CODES.planOverlap,
@@ -67,9 +77,28 @@ const TERMINAL_COPY_CODES: readonly string[] = [
   API_ERROR_CODES.idempotencyConflict
 ]
 
+// The refusals whose recovery leaves the screen rather than drawing a card: the plan has moved on, or the
+// capability is off and the Macros tab says so.
 const PLAN_STATE_TERMINAL_CODES: readonly string[] = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
 
-const TERMINAL_CODES: readonly string[] = [...TERMINAL_COPY_CODES, ...PLAN_STATE_TERMINAL_CODES]
+const UNAVAILABLE_TERMINAL_CODES: readonly string[] = [API_ERROR_CODES.featureDisabled]
+
+const LEAVING_TERMINAL_CODES: readonly string[] = [...PLAN_STATE_TERMINAL_CODES, ...UNAVAILABLE_TERMINAL_CODES]
+
+// Confirmed refusals this release ships no copy for: a validation error the parser produced, and whatever a
+// later server release introduces. They are terminal all the same — that is the point of stating retryability
+// positively rather than listing terminal codes.
+const GENERIC_TERMINAL_CODES: readonly string[] = [
+  API_ERROR_CODES.invalidRequest,
+  API_ERROR_CODES.invalidPayload,
+  'some_future_refusal'
+]
+
+// The two confirmed answers a same-key retry or an in-place edit can still resolve, and the only non-terminal
+// ones.
+const RETRYABLE_CODES: readonly string[] = [API_ERROR_CODES.planGenerationFailed, API_ERROR_CODES.noMatchingMeals]
+
+const TERMINAL_CODES: readonly string[] = [...TERMINAL_COPY_CODES, ...LEAVING_TERMINAL_CODES, ...GENERIC_TERMINAL_CODES]
 
 const VIEW_KINDS: readonly GenerationViewKind[] = ['pending', 'failed', 'noMatch', 'unconfirmed', 'terminal']
 
@@ -293,15 +322,14 @@ describe('resolveGenerationView', () => {
       })
     })
 
-    it('renders the failure state for a confirmed 4xx code this release does not recognise', () => {
-      const view = resolveGenerationView('error', apiError(409, 'some_future_refusal'), SETUP)
+    it('reserves the failure state for that one code, and never reaches it by falling through', () => {
+      const kinds = [
+        resolveGenerationView('error', apiError(409, 'some_future_refusal'), SETUP).kind,
+        resolveGenerationView('error', apiError(400, API_ERROR_CODES.invalidRequest), SETUP).kind,
+        resolveGenerationView('error', apiError(503, API_ERROR_CODES.featureDisabled), SETUP).kind
+      ]
 
-      expect(view.kind).toBe('failed')
-      expect(view.terminalCode).toBeNull()
-    })
-
-    it('renders the failure state for a validation code that is not one of the generation outcomes', () => {
-      expect(resolveGenerationView('error', apiError(400, API_ERROR_CODES.invalidRequest), SETUP).kind).toBe('failed')
+      expect(kinds).toEqual(['terminal', 'terminal', 'terminal'])
     })
   })
 
@@ -315,12 +343,47 @@ describe('resolveGenerationView', () => {
       })
     })
 
-    it('offers no action and no badge for a terminal outcome', () => {
+    it('offers no badge and no spinner for a terminal outcome', () => {
       const view = resolveGenerationView('error', apiError(409, API_ERROR_CODES.staleRevision), SETUP)
 
-      expect(view.actions).toBeNull()
       expect(view.badgeVariant).toBeNull()
       expect(view.showSpinner).toBe(false)
+    })
+
+    // This screen draws no back button and the tab bar is hidden on it, so a card with no footer would be a
+    // dead end. Retry is absent because the key has been retired: the same request would earn the same answer.
+    it('offers the edit as the only way off a terminal card during setup', () => {
+      TERMINAL_COPY_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
+        expect(resolveGenerationView('error', apiError(409, code), SETUP).actions).toEqual({
+          primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
+          secondary: null
+        })
+      })
+    })
+
+    it('adds the way back to the retained plan when a regeneration is refused', () => {
+      TERMINAL_COPY_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
+        expect(resolveGenerationView('error', apiError(409, code), REGENERATE).actions).toEqual({
+          primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
+          secondary: {kind: 'backToPlan', label: MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT}
+        })
+      })
+    })
+
+    it('offers no footer for a refusal whose recovery leaves the screen at once', () => {
+      LEAVING_TERMINAL_CODES.forEach(code => {
+        expect(resolveGenerationView('error', apiError(409, code), SETUP).actions).toBeNull()
+      })
+    })
+
+    it('falls back to the shared terminal copy for a refusal it has no wording for', () => {
+      GENERIC_TERMINAL_CODES.forEach(code => {
+        const view = resolveGenerationView('error', apiError(409, code), SETUP)
+
+        expect(view.headline).toBe(MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY.title)
+        expect(view.body).toBe(MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY.body)
+        expect(view.terminalCode).toBe(code)
+      })
     })
 
     TERMINAL_COPY_CODES.forEach(code => {
@@ -334,7 +397,7 @@ describe('resolveGenerationView', () => {
       })
     })
 
-    PLAN_STATE_TERMINAL_CODES.forEach(code => {
+    LEAVING_TERMINAL_CODES.forEach(code => {
       it(`leaves ${code} without card copy, because its recovery leaves the screen immediately`, () => {
         const view = resolveGenerationView('error', apiError(409, code), SETUP)
 
@@ -409,7 +472,7 @@ describe('resolveGenerationView', () => {
       const view = resolveGenerationView('error', apiError(502, API_ERROR_CODES.planGenerationFailed), NEXT_WEEK)
 
       expect(view.actions?.primary.kind).toBe('retry')
-      expect(view.actions?.secondary.kind).toBe('editPreferences')
+      expect(view.actions?.secondary?.kind).toBe('editPreferences')
     })
 
     it('returns to the existing plan instead of setup when a regeneration fails', () => {
@@ -473,8 +536,28 @@ describe('resolveTerminalRecovery', () => {
     expect(resolveTerminalRecovery(API_ERROR_CODES.planGenerationFailed, SETUP)).toBeNull()
   })
 
-  it('has no recovery for a code this release does not classify as terminal', () => {
-    expect(resolveTerminalRecovery('some_future_refusal', REGENERATE)).toBeNull()
+  it('retires the key for a confirmed refusal this release has never seen, rather than replaying it forever', () => {
+    GENERIC_TERMINAL_CODES.forEach(code => {
+      expect(resolveTerminalRecovery(code, REGENERATE)).toEqual({
+        clearsPendingIntent: true,
+        refetchesCurrentPlan: false,
+        toast: null,
+        route: null
+      })
+    })
+  })
+
+  it('leaves for the plan tab and refetches when meal planning itself is off', () => {
+    UNAVAILABLE_TERMINAL_CODES.forEach(code => {
+      ;[SETUP, NEXT_WEEK, REGENERATE].forEach(context => {
+        expect(resolveTerminalRecovery(code, context)).toEqual({
+          clearsPendingIntent: true,
+          refetchesCurrentPlan: true,
+          toast: null,
+          route: Screens.MACROS
+        })
+      })
+    })
   })
 
   PLAN_STATE_TERMINAL_CODES.forEach(code => {
@@ -512,38 +595,52 @@ describe('resolveTerminalRecovery', () => {
     })
   })
 
-  it('resolves the pending intent for every terminal code, whatever the context', () => {
-    const clears = TERMINAL_CODES.flatMap(code =>
-      [SETUP, NEXT_WEEK, REGENERATE].map(context => resolveTerminalRecovery(code, context)?.clearsPendingIntent)
-    )
-
-    expect(clears).toHaveLength(TERMINAL_CODES.length * 3)
-    expect(clears.every(clearsPendingIntent => clearsPendingIntent === true)).toBe(true)
-  })
-
-  describe('the structural invariant behind the two code sets', () => {
-    it('gives every terminal code either card copy or a plan-state recovery, never neither and never both', () => {
+  describe('the invariant the two terminal families hold', () => {
+    // Every terminal outcome is one of exactly two things, whether or not this release knows its code: a card
+    // the user reads and leaves through the footer, or a destination it goes to at once. Neither is allowed to
+    // be both, and none may be neither — which is what a blank card with no footer would be.
+    it('gives every terminal code either a readable card with a way off it, or a destination', () => {
       const classified = TERMINAL_CODES.map(code => {
-        const hasCopy = Object.prototype.hasOwnProperty.call(MEAL_PLAN_GENERATION_TERMINAL_COPY, code)
+        const view = resolveGenerationView('error', apiError(409, code), SETUP)
         const recovery = resolveTerminalRecovery(code, SETUP)
 
-        return {code, hasCopy, isPlanState: recovery?.refetchesCurrentPlan === true}
+        return {
+          code,
+          drawsCard: view.headline.length > 0 && view.body.length > 0 && view.actions !== null,
+          leaves: recovery?.route !== null && recovery?.route !== undefined
+        }
       })
 
-      expect(classified).toHaveLength(9)
-      expect(classified.filter(entry => entry.hasCopy === entry.isPlanState)).toEqual([])
+      expect(classified).toHaveLength(TERMINAL_COPY_CODES.length + LEAVING_TERMINAL_CODES.length + 3)
+      expect(classified.filter(entry => entry.drawsCard === entry.leaves)).toEqual([])
+    })
+
+    it('retires the key for every terminal code, in every context', () => {
+      const clears = TERMINAL_CODES.flatMap(code =>
+        [SETUP, NEXT_WEEK, REGENERATE].map(context => resolveTerminalRecovery(code, context)?.clearsPendingIntent)
+      )
+
+      expect(clears).toHaveLength(TERMINAL_CODES.length * 3)
+      expect(clears.every(clearsPendingIntent => clearsPendingIntent === true)).toBe(true)
+    })
+
+    it('keeps the key for the two codes whose own state can still resolve them', () => {
+      RETRYABLE_CODES.forEach(code => {
+        expect(resolveTerminalRecovery(code, SETUP)).toBeNull()
+        expect(resolveGenerationView('error', apiError(422, code), SETUP).terminalCode).toBeNull()
+      })
     })
 
     it('classifies every code that owns terminal card copy as terminal', () => {
-      const kinds = Object.keys(MEAL_PLAN_GENERATION_TERMINAL_COPY).map(
-        code => resolveGenerationView('error', apiError(409, code), SETUP).kind
-      )
+      const copyCodes = Object.keys(MEAL_PLAN_GENERATION_TERMINAL_COPY)
+      const kinds = copyCodes.map(code => resolveGenerationView('error', apiError(409, code), SETUP).kind)
 
-      expect(kinds).toEqual(TERMINAL_COPY_CODES.map(() => 'terminal'))
+      expect(copyCodes).toEqual(TERMINAL_COPY_CODES)
+      expect(kinds).toEqual(copyCodes.map(() => 'terminal'))
     })
 
-    it('holds no card copy for either plan-state code, so their recovery is the only answer', () => {
-      const copied = PLAN_STATE_TERMINAL_CODES.filter(code =>
+    it('holds no card copy for a code whose recovery leaves the screen, so nothing competes with it', () => {
+      const copied = LEAVING_TERMINAL_CODES.filter(code =>
         Object.prototype.hasOwnProperty.call(MEAL_PLAN_GENERATION_TERMINAL_COPY, code)
       )
 
@@ -1028,5 +1125,111 @@ describe('resolveActionRoute', () => {
 
   it('sends a next-week edit to the review screen', () => {
     expect(resolveActionRoute('editPreferences', NEXT_WEEK)).toBe(Screens.MEAL_PLAN_TARGETS)
+  })
+})
+
+describe('buildGenerationRequest', () => {
+  const REVISIONS = {expectedPreferencesRevision: 4, expectedTargetsRevision: 2}
+
+  it('builds a generation for setup from the start date the route carries', () => {
+    expect(buildGenerationRequest({context: SETUP, startDate: '2026-07-05', ...REVISIONS})).toEqual({
+      action: 'generate',
+      startDate: '2026-07-05',
+      expectedPreferencesRevision: 4,
+      expectedTargetsRevision: 2
+    })
+  })
+
+  it('prefers the next-week context own start date, so the two can never disagree', () => {
+    const context: GenerationContext = {kind: 'nextWeek', startDate: '2026-07-12'}
+
+    expect(buildGenerationRequest({context, startDate: '2026-07-05', ...REVISIONS})).toMatchObject({
+      action: 'generate',
+      startDate: '2026-07-12'
+    })
+  })
+
+  it('builds a regeneration naming the plan it replaces and the revision it expects', () => {
+    expect(buildGenerationRequest({context: REGENERATE, startDate: '2026-07-05', ...REVISIONS})).toEqual({
+      action: 'regenerate',
+      planId: 'plan-7c9f',
+      expectedPlanRevision: 3,
+      expectedPreferencesRevision: 4,
+      expectedTargetsRevision: 2
+    })
+  })
+
+  it('leaves a start date out of a regeneration, which keeps the dates it already has', () => {
+    const request = buildGenerationRequest({context: REGENERATE, startDate: '2026-07-05', ...REVISIONS})
+
+    expect(Object.keys(request)).not.toContain('startDate')
+  })
+
+  // The same inputs after a restart have to rebuild the same request, or the stored key could not be replayed.
+  it('rebuilds an identical request from identical inputs', () => {
+    const inputs = {context: SETUP, startDate: '2026-07-05', ...REVISIONS}
+
+    expect(buildGenerationRequest(inputs)).toEqual(buildGenerationRequest({...inputs}))
+  })
+
+  it('changes when a revision the attempt was built against moves', () => {
+    const inputs = {context: SETUP, startDate: '2026-07-05', ...REVISIONS}
+
+    expect(buildGenerationRequest({...inputs, expectedTargetsRevision: 3})).not.toEqual(buildGenerationRequest(inputs))
+  })
+})
+
+// The seam between the request a key was minted for and the outcomes that end its life. A refusal the screen
+// classifies as terminal has to retire the intent, or the next cold start rebuilds the same request, finds the
+// key still pending and replays a request the server has already refused — for as long as the record survives.
+describe('the keyed intent lifecycle', () => {
+  const REVISIONS = {expectedPreferencesRevision: 4, expectedTargetsRevision: 2}
+  const INPUTS = {context: SETUP, startDate: '2026-07-05', ...REVISIONS}
+  const NOW = 1_760_000_000_000
+
+  const pendingFor = (): {pendingIntents: {generate: ReturnType<typeof buildPendingIntent>}} => ({
+    pendingIntents: {generate: buildPendingIntent(buildGenerationRequest(INPUTS), 'key-sent', 'user-a', NOW)}
+  })
+
+  it('replays the same key while the outcome is one the screen may retry', () => {
+    const view = resolveGenerationView('error', apiError(502, API_ERROR_CODES.planGenerationFailed), SETUP)
+
+    expect(resolveTerminalRecovery(view.terminalCode, SETUP)).toBeNull()
+    expect(resolveKeyedRequest(pendingFor(), buildGenerationRequest(INPUTS), 'user-a', NOW, 'key-fresh')).toMatchObject(
+      {idempotencyKey: 'key-sent', isReplay: true}
+    )
+  })
+
+  it('replays the same key for an outcome the server never confirmed, which may have committed', () => {
+    const view = resolveGenerationView('error', new Error('Network Error'), SETUP)
+
+    expect(view.kind).toBe('unconfirmed')
+    expect(resolveTerminalRecovery(view.terminalCode, SETUP)).toBeNull()
+  })
+
+  it.each([
+    ['a validation refusal', 400, API_ERROR_CODES.invalidRequest],
+    ['the capability being off', 503, API_ERROR_CODES.featureDisabled],
+    ['a refusal from a later server release', 409, 'some_future_refusal']
+  ])('retires the key after %s, so the next launch mints a new one', (_case, status, code) => {
+    const view = resolveGenerationView('error', apiError(status, code), SETUP)
+    const recovery = resolveTerminalRecovery(view.terminalCode, SETUP)
+
+    expect(view.kind).toBe('terminal')
+    expect(recovery?.clearsPendingIntent).toBe(true)
+
+    // What the screen does with that instruction: the slot is cleared, so the rebuilt request mints afresh.
+    expect(
+      resolveKeyedRequest({pendingIntents: {}}, buildGenerationRequest(INPUTS), 'user-a', NOW, 'key-fresh')
+    ).toMatchObject({idempotencyKey: 'key-fresh', isReplay: false})
+  })
+
+  it('mints a new key once an edit has changed the request the old key fingerprinted', () => {
+    const edited = buildGenerationRequest({...INPUTS, expectedPreferencesRevision: 5})
+
+    expect(resolveKeyedRequest(pendingFor(), edited, 'user-a', NOW, 'key-fresh')).toMatchObject({
+      idempotencyKey: 'key-fresh',
+      isReplay: false
+    })
   })
 })

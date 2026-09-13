@@ -28,7 +28,7 @@ interface Props {
   readonly onDismiss: () => void
 }
 
-const PlanConfirmDialog = (props: Props) => {
+const PlanConfirmDialog = (props: Props): React.JSX.Element => {
   const {isVisible, title, body, summaryRows, confirmLabel, dismissLabel, onConfirm, onDismiss} = props
   const {height: windowHeight} = useWindowDimensions()
   const insets = useSafeAreaInsets()

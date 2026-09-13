@@ -1,4 +1,4 @@
-import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
+import {getApiErrorCode, isFeatureDisabledError} from '@utility/ApiErrorUtility'
 
 const NOT_FOUND_STATUS = 404
 
@@ -58,8 +58,10 @@ export const httpStatusOf = (error: unknown): number | null => {
   return typeof status === 'number' ? status : null
 }
 
-export const isFeatureDisabledError = (error: unknown): boolean =>
-  getApiErrorCode(error) === API_ERROR_CODES.featureDisabled
+// Re-exported rather than re-implemented: the predicate belongs with the rest of the error classification in
+// @utility/ApiErrorUtility, where the keyed writes read it too, and this module's consumers keep reading it
+// from the entitlement surface they already depend on.
+export {isFeatureDisabledError}
 
 /**
  * Meaningful only for the resource-less GETs — `/meal-planning/preferences`, `/meal-planning/plans/current`

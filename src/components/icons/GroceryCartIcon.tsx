@@ -39,7 +39,7 @@ const HEADER_LEFT_WHEEL_PATH =
 const HEADER_RIGHT_WHEEL_PATH =
   'M12.75 14.4499C13.2977 14.4499 13.7417 14.0059 13.7417 13.4582C13.7417 12.9105 13.2977 12.4666 12.75 12.4666C12.2023 12.4666 11.7583 12.9105 11.7583 13.4582C11.7583 14.0059 12.2023 14.4499 12.75 14.4499Z'
 
-const GroceryCartIcon = ({color, size, strokeWidth, variant = 'header'}: Props) => {
+const GroceryCartIcon = ({color, size, strokeWidth, variant = 'header'}: Props): React.JSX.Element => {
   const box = VARIANT_BOX[variant]
   const stroke = strokeWidth ?? VARIANT_STROKE[variant]
 

@@ -8,7 +8,7 @@ import {MEAL_PLAN_LOGGED_BADGE_TEXT} from '@constants/strings'
 
 import styles from './index.styled'
 
-const LoggedBadge = () => {
+const LoggedBadge = (): React.JSX.Element => {
   return (
     <View style={styles.badge}>
       <Text style={styles.label}>{MEAL_PLAN_LOGGED_BADGE_TEXT}</Text>

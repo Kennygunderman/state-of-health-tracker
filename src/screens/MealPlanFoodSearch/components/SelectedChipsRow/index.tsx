@@ -13,7 +13,7 @@ interface Props {
    Figma's 32px chip — but the row is 44px tall where Figma draws it 40px (`47:431`, an 8px rung plus one 32px
    chip), which lowers the helper text beneath it; the rationale is recorded once at @components/SelectableChip
    and flagged there for designer review. */
-const SelectedChipsRow = ({foods, onRemove}: Props) => {
+const SelectedChipsRow = ({foods, onRemove}: Props): React.JSX.Element => {
   return (
     <ChipCloud variant="scroll">
       {foods.map(food => (

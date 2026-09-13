@@ -17,7 +17,7 @@ interface Props {
 }
 
 // No entry point to plan settings is drawn in the design; the plan header's one action is the grocery list.
-const PlanSettingsRow = ({onPress}: Props) => (
+const PlanSettingsRow = ({onPress}: Props): React.JSX.Element => (
   <TouchableOpacity
     style={styles.row}
     activeOpacity={Opacity.PRESSED}

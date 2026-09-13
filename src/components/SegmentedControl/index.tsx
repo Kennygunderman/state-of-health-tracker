@@ -34,7 +34,7 @@ const SegmentedControl = <T extends string>({
   onChange,
   scrollProgress,
   variant = 'large'
-}: Props<T>) => {
+}: Props<T>): React.JSX.Element => {
   const [trackWidth, setTrackWidth] = useState(0)
 
   const flexSegments = isFlexSegments(variant)

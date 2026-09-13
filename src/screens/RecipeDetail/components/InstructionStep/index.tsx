@@ -11,7 +11,7 @@ interface Props {
   text: string
 }
 
-const InstructionStep = ({index, text}: Props) => {
+const InstructionStep = ({index, text}: Props): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <View style={styles.badge}>

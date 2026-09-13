@@ -6,6 +6,7 @@ import {
   entryServingText,
   InputMethodEnum,
   isFromMealPlan,
+  LogMealEntryPayload,
   MealEntry
 } from '../MealEntry'
 
@@ -173,5 +174,66 @@ describe('InputMethodEnum', () => {
     expect(decodedUnknown.inputMethod).toBe(InputMethodEnum.LIBRARY)
     expect(isFromMealPlan(decodedUnknown)).toBe(false)
     expect(entryProvenanceLabel(decodedUnknown)).toBeNull()
+  })
+
+  describe('the subset a request body may ask for', () => {
+    const LEGACY_BODY = {
+      name: 'Chicken Breast',
+      servingText: '4 oz',
+      servings: 1,
+      calories: 187,
+      protein: 35,
+      carbs: 0,
+      fat: 4
+    }
+
+    // The value-level twin of ClientInputMethod, derived the same way, because a type cannot be
+    // asserted on at runtime.
+    const clientInputMethods = Object.values(InputMethodEnum).filter(method => method !== InputMethodEnum.MEAL_PLAN)
+
+    it('narrows the stored vocabulary rather than replacing it, keeping all five members requestable-or-not', () => {
+      expect(Object.values(InputMethodEnum)).toHaveLength(5)
+      expect(clientInputMethods).toHaveLength(4)
+      expect(Object.values(InputMethodEnum)).toEqual(expect.arrayContaining(clientInputMethods))
+    })
+
+    it('leaves the planned origin out of the client-selectable set, because only the server writes it', () => {
+      expect(clientInputMethods).not.toContain(InputMethodEnum.MEAL_PLAN)
+      expect(clientInputMethods).not.toContain('meal_plan')
+    })
+
+    it('is exactly library, search, ai_text and ai_photo', () => {
+      expect(clientInputMethods).toEqual(['library', 'search', 'ai_text', 'ai_photo'])
+    })
+
+    it('types a legacy body for every client-selectable method', () => {
+      const clientBodies: LogMealEntryPayload[] = [
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.LIBRARY},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.SEARCH},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.AI_TEXT},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.AI_PHOTO}
+      ]
+
+      expect(clientBodies.map(body => body.inputMethod)).toEqual(clientInputMethods)
+    })
+
+    it('refuses a legacy body that claims the planned origin, and the refusal is the compiler', () => {
+      const plannedClaim: LogMealEntryPayload = {
+        ...LEGACY_BODY,
+        // @ts-expect-error the planned origin is server-written, so this assignment must stay a
+        // compile error — this directive fails the build the day it stops being one, which is the
+        // regression it guards
+        inputMethod: InputMethodEnum.MEAL_PLAN
+      }
+
+      expect(clientInputMethods).not.toContain(plannedClaim.inputMethod)
+    })
+
+    it('still admits the planned origin on a response entry, where the value belongs', () => {
+      const plannedEntry: MealEntry = makeEntry({inputMethod: InputMethodEnum.MEAL_PLAN})
+
+      expect(plannedEntry.inputMethod).toBe(InputMethodEnum.MEAL_PLAN)
+      expect(isFromMealPlan(plannedEntry)).toBe(true)
+    })
   })
 })

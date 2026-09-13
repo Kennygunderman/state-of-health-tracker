@@ -6,6 +6,7 @@ import {
   buildMealMetaText,
   buildNoAlternativesBody,
   buildSwapDateLabel,
+  buildSwapRequest,
   buildSwapTitle,
   currentMealEyebrow,
   isPlanInactive,
@@ -721,5 +722,41 @@ describe('skeletonBarWidth', () => {
   it('returns no width before the column has been measured', () => {
     expect(skeletonBarWidth(0, SKELETON_ALTERNATIVE_ROWS[0].primary)).toBe(0)
     expect(skeletonBarWidth(-1, SKELETON_ALTERNATIVE_ROWS[0].primary)).toBe(0)
+  })
+})
+
+describe('buildSwapRequest', () => {
+  const INPUTS = {
+    planId: 'plan-1',
+    mealId: 'meal-1',
+    recipeVersionId: 'rv-1',
+    portionMultiplier: 1.25,
+    planRevision: 3
+  }
+
+  it('names the meal being replaced, the alternative and the portion the preview bound', () => {
+    expect(buildSwapRequest(INPUTS)).toEqual({
+      action: 'swap',
+      planId: 'plan-1',
+      mealId: 'meal-1',
+      recipeVersionId: 'rv-1',
+      portionMultiplier: 1.25,
+      expectedPlanRevision: 3
+    })
+  })
+
+  // A commit whose response was lost is replayed from these inputs alone, so identical inputs have to rebuild
+  // an identical request — anything else would mint a second key and swap the meal twice.
+  it('rebuilds an identical request from identical inputs', () => {
+    expect(buildSwapRequest(INPUTS)).toEqual(buildSwapRequest({...INPUTS}))
+  })
+
+  it('differs when the chosen alternative or the portion differs', () => {
+    expect(buildSwapRequest({...INPUTS, recipeVersionId: 'rv-2'})).not.toEqual(buildSwapRequest(INPUTS))
+    expect(buildSwapRequest({...INPUTS, portionMultiplier: 1})).not.toEqual(buildSwapRequest(INPUTS))
+  })
+
+  it('carries the plan revision the screen opened on as the revision the write expects', () => {
+    expect(buildSwapRequest({...INPUTS, planRevision: 9}).expectedPlanRevision).toBe(9)
   })
 })

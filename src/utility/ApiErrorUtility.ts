@@ -74,3 +74,33 @@ export function classifyOutcome(error: unknown): ApiOutcome {
 export function isUnknownOutcome(error: unknown): boolean {
   return classifyOutcome(error) === 'unknown'
 }
+
+// The capability signal: the code a mounted backend returns from a gated route while MEAL_PLANNING_ENABLED is
+// off. Defined here, with the rest of the classification, because it is read both by the Macros entitlement
+// (which turns it into the unavailable card) and by the keyed writes (for which it is terminal) — two
+// hand-rolled comparisons would be free to drift.
+export function isFeatureDisabledError(error: unknown): boolean {
+  return getApiErrorCode(error) === API_ERROR_CODES.featureDisabled
+}
+
+// The code of a confirmed refusal that a same-key retry can never resolve, or null when there is nothing to
+// retire. Retryability is stated positively — `retryableCodes` is the caller's closed set of confirmed codes
+// whose own state still offers a same-key retry or an in-place edit — so a code this release has never heard
+// of is terminal by default rather than retryable by default. That direction matters: a key replayed against a
+// refusal the server will repeat forever is one this client would never stop sending, and the AAP's drawn
+// retry states are reserved for the specific outcomes they describe (0.2.5).
+//
+// Null for an unknown outcome as well: the request may have committed before the response was lost, so its
+// key is still the only safe way to ask again and must not be retired (0.7.2).
+export function terminalErrorCode(error: unknown, retryableCodes: ReadonlySet<string>): string | null {
+  if (error === null || error === undefined || isUnknownOutcome(error)) {
+    return null
+  }
+
+  const code = getApiErrorCode(error)
+
+  // A confirmed outcome always carries a readable code — that is what `classifyOutcome` means by confirmed —
+  // so the null branch is unreachable; it resolves to "not terminal" because retiring a key on an outcome
+  // nothing could describe would be the one irreversible choice here.
+  return code === null || retryableCodes.has(code) ? null : code
+}

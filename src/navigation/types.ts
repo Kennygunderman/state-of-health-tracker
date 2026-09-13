@@ -1,5 +1,6 @@
 import {Food} from '@data/models/Food'
 import {MealEntry} from '@data/models/MealEntry'
+import type {NutritionTargetsEditIntent} from '@data/models/NutritionTargets'
 import {NavigatorScreenParams, RouteProp} from '@react-navigation/native'
 import {NativeStackNavigationProp} from '@react-navigation/native-stack'
 
@@ -32,7 +33,14 @@ export type RootStackParamList = {
   'Meal Plan Schedule': StepMode
   'Meal Plan Cooking Budget': StepMode
   'Meal Plan Targets': StepMode
-  'Meal Plan Edit Targets': {mode: 'setup' | 'edit' | 'manual'; returnTo: TargetsReturn}
+  'Meal Plan Edit Targets': {
+    mode: 'setup' | 'edit' | 'manual'
+    returnTo: TargetsReturn
+    // What the opening row asked for, when it asked for something: a Recalculate link sends 'confirm_estimate',
+    // so a save from that screen may claim the estimate it confirms. Absent for a plain edit, whose source is
+    // resolved from the saved targets — the claim follows the route rather than whatever the numbers equal.
+    intent?: NutritionTargetsEditIntent
+  }
   'Meal Plan Generating': {
     context: GenerationContext
     idempotencyKey: string
@@ -50,6 +58,9 @@ export type RootStackParamList = {
 
 // 'add' shows "Add to {meal}" for a library/branded food; 'update' edits the
 // servings of an entry that is already logged.
+// `food` is a Food as pushed, but persisted navigation state rehydrates params
+// from arbitrary JSON, so a restored one is validated with
+// `parseRouteFood(params.food)` before its source or provenance is trusted.
 export type FoodDetailParams =
   | {path: 'add'; mealId: string; mealName: string; food: Food}
   | {path: 'update'; mealId: string; mealName: string; entry: MealEntry}

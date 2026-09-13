@@ -629,11 +629,19 @@ describe('the tracked baseline artifact', () => {
     const afterPath = writeFixture('tracked-baseline-only-after.json', JSON.stringify(rerootedArtifact()))
     const {status, stdout} = runComparator(TRACKED_BASELINE, afterPath)
     const changed = changedLintablePaths()
+    // The files this scenario expects to be reported missing are the ones the change added: a changed file the
+    // baseline already covers is present in a report built out of the baseline, by construction, and the
+    // comparator is right not to call it absent. Selecting the first changed path beyond the baseline instead of
+    // the first changed path keeps that distinction — a change that edits one of the files the baseline already
+    // knew about (App.tsx and .eslintrc.js sort ahead of everything under src/) must not read as a gate defect.
+    const baselinePaths = new Set(rerootedArtifact().map(result => result.filePath.replace(`${LAPTOP_ROOT}/`, '')))
+    const addedByThisChange = changed.filter(relativePath => !baselinePaths.has(relativePath))
 
     expect(changed.length).toBeGreaterThan(0)
+    expect(addedByThisChange.length).toBeGreaterThan(0)
     expect(status).toBe(EXIT_GATE_FAILED)
     expect(stdout).toContain(REQUIRED_NOTE)
-    expect(stdout).toContain(changed[0])
+    expect(stdout).toContain(addedByThisChange[0])
   })
 
   it('exits 0 once the after report covers the baseline paths and the changed files as well', () => {

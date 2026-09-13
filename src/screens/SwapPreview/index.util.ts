@@ -2,6 +2,7 @@ import {RecipeIngredient} from '@data/models/Recipe'
 import {SwapPreview, SwapPreviewAlternative} from '@data/models/SwapAlternative'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams, formatMacroPair, formatSignedCalories} from '@utility/NutritionFormatUtility'
+import {DisplayedIngredient, plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/RecipeIngredientUtility'
 
 import type {MetricGridItem} from '@components/MetricGrid4'
 
@@ -27,14 +28,9 @@ export interface SwapMacroLegendItem {
   valueText: string
 }
 
-/**
- * The quantity fields of a previewed ingredient. Declared as a subset of `RecipeIngredient` rather than the
- * model itself so a row whose pre-formatted `displayText` never arrived still has a type to travel in.
- */
-export type IngredientQuantitySource = Pick<RecipeIngredient, 'quantity'> & {
-  unit?: string | null
-  displayText?: string | null
-}
+// Declared by @utility/RecipeIngredientUtility, which owns the scaling and formatting this screen shares with
+// recipe detail, and re-exported so the screen takes its row shape from its own util
+export type {DisplayedIngredient}
 
 type PreviewNutrition = SwapPreviewAlternative['nutrition']
 
@@ -42,17 +38,12 @@ type PreviewDayTotals = SwapPreview['dayTotalsIfSwapped']
 
 type PreviewTargets = SwapPreview['targets']
 
-const QUANTITY_PRECISION = 100
-
 // A Map rather than an index into MEAL_SLOT_SENTENCE_LABELS: that object literal inherits Object.prototype, so
 // indexing it with a slot code a future server release adds would resolve 'constructor' or 'hasOwnProperty' to an
 // inherited function. A Map carries only its own string entries, so every code the app does not know reads as absent
 const SLOT_SENTENCE_LABELS = new Map<string, string>(Object.entries(MEAL_SLOT_SENTENCE_LABELS))
 
 const isPresent = (segment: string | undefined): segment is string => segment !== undefined && segment.length > 0
-
-// Keeps a quantity away from floating point dust (0.30000000000000004) before it is rendered
-const roundQuantity = (quantity: number): number => Math.round(quantity * QUANTITY_PRECISION) / QUANTITY_PRECISION
 
 const isUsableTarget = (target: number | null | undefined): target is number =>
   typeof target === 'number' && Number.isFinite(target)
@@ -136,22 +127,24 @@ export function formatPreviewSubtitle(portionText: string, totalMinutes: number)
 }
 
 /**
- * The server's `displayText` is the authoritative amount for the portion it already chose, so it wins whenever
- * it arrived; the composed fallback neither converts a unit nor rescales by the portion multiplier.
+ * The ingredient rows of frame 13b — the amounts of the PORTION this preview describes.
+ *
+ * `SwapPreviewResponse` is asymmetric by design: `alternative.nutrition` is the candidate already scaled to
+ * `portionMultiplier`, while `alternative.recipe` is the plain `RecipeVersionResponse`, whose `quantity`,
+ * `gramWeight` and pre-formatted `displayText` are WHOLE-RECIPE amounts for `recipe.yieldServings` servings —
+ * that DTO carries no planned-meal context, so it cannot know the portion. Rendering the stored `displayText`
+ * here therefore put whole-recipe ingredients beside portion-scaled nutrition: '10 oz chicken' against a
+ * 305 cal half of a 2-serving recipe.
+ *
+ * So the same two numbers the server scaled the nutrition by scale the amounts, through the same helper recipe
+ * detail's 'Your portion' column uses. No second, pre-scaled ingredient collection is requested from the
+ * server: both factors are already in this envelope, and a scaled copy would give one number two sources of
+ * truth and put a display-rounding rule in a second place.
  */
-export function formatIngredientQuantity(ingredient: IngredientQuantitySource): string {
-  const displayText = ingredient.displayText?.trim() ?? ''
-
-  if (displayText.length > 0) {
-    return displayText
-  }
-
-  if (!Number.isFinite(ingredient.quantity)) {
-    return ''
-  }
-
-  const amount = String(roundQuantity(ingredient.quantity))
-  const unit = ingredient.unit?.trim() ?? ''
-
-  return unit.length > 0 ? `${amount} ${unit}` : amount
+export function resolvePreviewIngredients(
+  ingredients: readonly RecipeIngredient[],
+  portionMultiplier: number,
+  yieldServings: number
+): DisplayedIngredient[] {
+  return scaleIngredientsForDisplay(ingredients, plannedPortionFactor(portionMultiplier, yieldServings))
 }

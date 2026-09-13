@@ -1,10 +1,8 @@
-import {MealPlan, MealPlanStatus} from '@data/models/MealPlan'
+import {MealPlan} from '@data/models/MealPlan'
 import {MealPlanResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
 import * as io from 'io-ts'
 
 import {convertMealPlanDay} from './convertMealPlanDay'
-
-const KNOWN_PLAN_STATUSES = ['active', 'superseded'] as const satisfies readonly MealPlanStatus[]
 
 export function convertMealPlan(data: io.TypeOf<typeof MealPlanResponse>): MealPlan {
   return {
@@ -13,13 +11,12 @@ export function convertMealPlan(data: io.TypeOf<typeof MealPlanResponse>): MealP
     generationAttempt: data.generationAttempt,
     startDate: data.startDate,
     endDate: data.endDate,
-    // The server owns write eligibility (it answers 409 plan_not_active itself), so reading an unknown status as
-    // active cannot cause an unsafe write, while defaulting to superseded would disable Swap and Log on a good plan.
-    status: (KNOWN_PLAN_STATUSES as readonly string[]).includes(data.status)
-      ? (data.status as MealPlanStatus)
-      : 'active',
-    // Three distinct members by design: the targets as they are now, the snapshot this plan was built against, and
-    // the server's verdict that the two differ — never merged, never recomputed here.
+    // Carried, never defaulted. The status decides whether Swap and Log are offered at all, so reading an
+    // unrecognised one as 'active' would enable writes against a plan the server would refuse; the codec
+    // admits only the two the contract defines.
+    status: data.status,
+    // Three distinct members by design: the targets as they are now, the snapshot this plan was built
+    // against, and the server's verdict that the two differ — never merged, never recomputed here.
     targets: data.targets,
     generationTargets: data.generationTargets,
     targetsStale: data.targetsStale,

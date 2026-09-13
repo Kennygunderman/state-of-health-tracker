@@ -11,7 +11,7 @@ interface Props {
   quantityText: string
 }
 
-const IngredientRow = ({name, quantityText}: Props) => {
+const IngredientRow = ({name, quantityText}: Props): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <Text style={styles.name}>{name}</Text>

@@ -33,6 +33,9 @@ const makeCatalogFood = (overrides: Partial<CatalogFood> = {}): CatalogFood => (
   fat: 1,
   fiber: 1.6,
   defaultPortion: {description: '1 cup', amount: 1, unit: 'cup', gramWeight: 195},
+  // The server's projection of the per-100 g macros onto the 195 g cup, rounded once: 123 x 1.95 = 239.85,
+  // 2.7 x 1.95 = 5.265, 26 x 1.95 = 50.7, 1 x 1.95 = 1.95.
+  defaultPortionNutrition: {calories: 240, protein: 5, carbs: 51, fat: 2},
   allergenTags: [],
   allergenStatus: 'known',
   foodGroup: 'rice',
@@ -80,15 +83,47 @@ describe('mapCatalogFoodToFood', () => {
       name: 'Brown rice, cooked',
       servingAmount: 1,
       servingUnit: 'cup',
-      calories: 123,
-      protein: 2.7,
-      carbs: 26,
-      fat: 1,
+      calories: 240,
+      protein: 5,
+      carbs: 51,
+      fat: 2,
       brand: null,
       source: FoodSourceEnum.CATALOG,
       catalogFoodId: 'catalog-1',
       nutritionProvenance: 'source_backed'
     })
+  })
+
+  // The serving pair is one cup (195 g) while the per-basis macros are per 100 g, so reading them here would
+  // show 123 cal against a 195 g serving — and for a per_100ml food no client-side correction exists, because
+  // density is on no response. Only the server's projection describes the portion the row displays.
+  it('takes the macros from the default-portion projection, never from the per-basis figures', () => {
+    const food = mapCatalogFoodToFood(makeCatalogFood())
+
+    expect(food.calories).not.toBe(123)
+    expect(food.protein).not.toBe(2.7)
+    expect(food.carbs).not.toBe(26)
+    expect(food.fat).not.toBe(1)
+  })
+
+  it('shows a per_100ml food at its projected portion, which no client-side conversion could produce', () => {
+    const oliveOil = makeCatalogFood({
+      id: 'catalog-2',
+      name: 'Olive oil',
+      nutritionBasis: 'per_100ml',
+      calories: 884,
+      protein: 0,
+      carbs: 0,
+      fat: 100,
+      fiber: 0,
+      defaultPortion: {description: '1 tbsp', amount: 1, unit: 'tbsp', gramWeight: 13.5},
+      defaultPortionNutrition: {calories: 130, protein: 0, carbs: 0, fat: 15}
+    })
+    const food = mapCatalogFoodToFood(oliveOil)
+
+    expect(food.calories).toBe(130)
+    expect(food.fat).toBe(15)
+    expect(formatServingText(food)).toBe('1 tbsp')
   })
 
   it('leaves fiber off the food when it is unknown', () => {
@@ -97,10 +132,10 @@ describe('mapCatalogFoodToFood', () => {
       name: 'Brown rice, cooked',
       servingAmount: 1,
       servingUnit: 'cup',
-      calories: 123,
-      protein: 2.7,
-      carbs: 26,
-      fat: 1,
+      calories: 240,
+      protein: 5,
+      carbs: 51,
+      fat: 2,
       brand: null,
       source: FoodSourceEnum.CATALOG,
       catalogFoodId: 'catalog-1',

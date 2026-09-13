@@ -15,6 +15,13 @@ export enum InputMethodEnum {
   MEAL_PLAN = 'meal_plan'
 }
 
+// What a request body may ask for, derived from the stored vocabulary so a
+// member added to the enum cannot become requestable by omission. MEAL_PLAN is
+// stamped only by the server's planned-log path and is the diary's 'From meal
+// plan' origin label, so a request claiming it would assert a plan link the
+// client cannot have.
+export type ClientInputMethod = Exclude<InputMethodEnum, InputMethodEnum.MEAL_PLAN>
+
 export interface MealEntry {
   id: string
   foodId: string | null
@@ -43,7 +50,7 @@ export interface LogMealEntryPayload {
   protein: number
   carbs: number
   fat: number
-  inputMethod?: InputMethodEnum
+  inputMethod?: ClientInputMethod
   rawInput?: string
 }
 

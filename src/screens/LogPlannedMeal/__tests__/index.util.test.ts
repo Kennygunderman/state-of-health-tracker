@@ -17,6 +17,7 @@ import {
   beginServingsDraft,
   buildDiaryBucketOptions,
   buildFractionChipStates,
+  buildPlannedLogRequest,
   buildThisAddsItems,
   canStepLogDate,
   dateOverlineText,
@@ -550,5 +551,44 @@ describe('resolveViewTarget', () => {
   it('opens macros history for any other day', () => {
     expect(resolveViewTarget('2026-07-05', todayDayKey)).toBe('history')
     expect(resolveViewTarget('2026-07-11', todayDayKey)).toBe('history')
+  })
+})
+
+describe('buildPlannedLogRequest', () => {
+  const INPUTS = {
+    planId: 'plan-1',
+    mealId: 'meal-1',
+    servings: 0.66,
+    date: '2026-07-05',
+    diaryMealId: 'dm-1',
+    planRevision: 3
+  }
+
+  it('names the planned meal, the portion eaten, the diary date and the bucket chosen', () => {
+    expect(buildPlannedLogRequest(INPUTS)).toEqual({
+      action: 'log',
+      planId: 'plan-1',
+      mealId: 'meal-1',
+      servings: 0.66,
+      date: '2026-07-05',
+      diaryMealId: 'dm-1',
+      expectedPlanRevision: 3
+    })
+  })
+
+  // A diary entry is the keyed write whose duplicate the user sees directly, so a replay after a lost response
+  // has to rebuild exactly this request rather than log the meal a second time under a new key.
+  it('rebuilds an identical request from identical inputs', () => {
+    expect(buildPlannedLogRequest(INPUTS)).toEqual(buildPlannedLogRequest({...INPUTS}))
+  })
+
+  it('differs when the servings, the date or the diary bucket differ', () => {
+    expect(buildPlannedLogRequest({...INPUTS, servings: 1})).not.toEqual(buildPlannedLogRequest(INPUTS))
+    expect(buildPlannedLogRequest({...INPUTS, date: '2026-07-06'})).not.toEqual(buildPlannedLogRequest(INPUTS))
+    expect(buildPlannedLogRequest({...INPUTS, diaryMealId: 'dm-2'})).not.toEqual(buildPlannedLogRequest(INPUTS))
+  })
+
+  it('keeps the two-decimal fraction the servings control produces', () => {
+    expect(buildPlannedLogRequest({...INPUTS, servings: 0.33}).servings).toBe(0.33)
   })
 })

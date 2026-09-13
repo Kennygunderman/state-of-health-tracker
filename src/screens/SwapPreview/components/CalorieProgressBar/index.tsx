@@ -10,7 +10,7 @@ interface Props {
   targetCalories: number
 }
 
-const CalorieProgressBar = ({ratio, totalCalories, targetCalories}: Props) => {
+const CalorieProgressBar = ({ratio, totalCalories, targetCalories}: Props): React.JSX.Element => {
   return (
     <View
       style={styles.track}

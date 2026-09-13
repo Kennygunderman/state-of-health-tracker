@@ -1,5 +1,7 @@
-import {InputMethodEnum, LogCatalogMealEntryPayload} from '@data/models/MealEntry'
+import {CatalogSourcedFood, Food, parseRouteFood} from '@data/models/Food'
+import {InputMethodEnum, LogCatalogMealEntryPayload, MealEntry} from '@data/models/MealEntry'
 import {NutritionProvenance} from '@data/models/NutritionProvenance'
+import {FoodDetailParams} from '@navigation/types'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
@@ -108,6 +110,26 @@ const CATALOG_PROVENANCE_CAPTIONS: Record<NutritionProvenance, string | null> = 
 export const catalogProvenanceLabel = (provenance: NutritionProvenance | null | undefined): string | null =>
   provenance ? CATALOG_PROVENANCE_CAPTIONS[provenance] : null
 
+// What the screen renders and acts on: either a food it has validated, or an entry it is editing.
+export type FoodDetailSource = {path: 'add'; food: Food} | {path: 'update'; entry: MealEntry}
+
+// Resolves the route params into the source the screen may trust, or null when it may trust neither.
+//
+// The 'add' param is re-validated rather than taken as given, because React Navigation rehydrates persisted
+// state from arbitrary JSON: a restored param is untrusted input, and a food whose source claim cannot be
+// verified must not have its numbers shown or be logged. Failing closed to null is the only honest outcome —
+// the repairs available are inventing a catalog id or discarding a provenance, and either would make this
+// client the author of a claim the server never made.
+export const resolveFoodDetailSource = (params: FoodDetailParams): FoodDetailSource | null => {
+  if (params.path === 'update') {
+    return {path: 'update', entry: params.entry}
+  }
+
+  const food = parseRouteFood(params.food)
+
+  return food ? {path: 'add', food} : null
+}
+
 // Request body for logging a published catalog food by id. servingText is
 // deliberately omitted: the portion the server picks drives the stored label AND
 // the stored per-serving macros together, so it accepts a servingText only when
@@ -118,8 +140,10 @@ export const catalogProvenanceLabel = (provenance: NutritionProvenance | null | 
 // description ('lemon', '1 cup, halves') only by coincidence and is rejected as
 // invalid_serving. Omitting the member is what makes the label and the numbers
 // come from the same portion row.
-export const buildCatalogLogPayload = (catalogFoodId: string, servings: number): LogCatalogMealEntryPayload => ({
-  catalogFoodId,
+// Takes the food rather than its id so the id can only have come from a food the type already proves is
+// catalog-sourced — an arbitrary string, including a library food's own id, cannot be logged down this route.
+export const buildCatalogLogPayload = (food: CatalogSourcedFood, servings: number): LogCatalogMealEntryPayload => ({
+  catalogFoodId: food.catalogFoodId,
   servings,
   inputMethod: InputMethodEnum.SEARCH
 })

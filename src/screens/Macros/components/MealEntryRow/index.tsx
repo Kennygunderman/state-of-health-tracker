@@ -20,7 +20,7 @@ interface Props {
   onSwipeActivated: () => void
 }
 
-const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeActivated}: Props) => {
+const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeActivated}: Props): React.JSX.Element => {
   const servingLabel = entryServingText(entry)
   const provenanceLabel = entryProvenanceLabel(entry)
 

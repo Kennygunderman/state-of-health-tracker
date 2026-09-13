@@ -17,7 +17,7 @@ interface Props {
   size?: 'lg' | 'sm'
 }
 
-const IndeterminateSpinner = ({size = 'lg'}: Props) => {
+const IndeterminateSpinner = ({size = 'lg'}: Props): React.JSX.Element => {
   const rotation = useSharedValue(0)
 
   const isSmall = size === 'sm'

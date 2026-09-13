@@ -23,7 +23,7 @@ interface Props {
   onPress: () => void
 }
 
-const TimeRow = ({slot, name, time, isFirst = false, onPress}: Props) => {
+const TimeRow = ({slot, name, time, isFirst = false, onPress}: Props): React.JSX.Element => {
   return (
     <View style={[styles.row, !isFirst && styles.rowDivided]}>
       <MealIconTile iconKey={mealSlotIconKey(slot)} size="md" strokeWidth={SLOT_ICON_STROKE_WIDTH} />

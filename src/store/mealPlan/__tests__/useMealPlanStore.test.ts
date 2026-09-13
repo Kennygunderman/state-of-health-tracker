@@ -1,11 +1,25 @@
 import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
+import {
+  fingerprintSnapshot,
+  GenerateRequestSnapshot,
+  LogRequestSnapshot,
+  MealPlanRequestSnapshot,
+  RegenerateRequestSnapshot,
+  requestBody,
+  requestIds,
+  SwapRequestSnapshot
+} from '@utility/IdempotencyUtility'
 
 import useMealPlanStore, {
+  buildPendingIntent,
   isPendingIntentExpired,
+  parsePendingIntent,
   PENDING_INTENT_TTL_MS,
   PendingIntent,
+  PendingIntentAction,
   PostLogResult,
   prunePendingIntentsForUser,
+  resolveKeyedRequest,
   resolvePendingIntent,
   selectPersistedState,
   selectPrunedPendingIntents
@@ -23,15 +37,68 @@ const persistedWrites = zustandAsyncStorage.setItem as jest.Mock
 
 const NOW = 1_760_000_000_000
 
-const makePendingIntent = (overrides: Partial<PendingIntent> = {}): PendingIntent => ({
-  userId: 'user-a',
-  key: 'key-1',
-  fingerprint: 'fp-1',
-  planId: 'plan-1',
-  planRevision: 3,
-  createdAt: NOW,
-  ...overrides
-})
+// One valid request per action, so a record is always one this release can replay. A record is only valid in
+// the slot its own action names, which is why every intent here is built for the slot it is filed under.
+interface ActionRequests {
+  generate: GenerateRequestSnapshot
+  regenerate: RegenerateRequestSnapshot
+  swap: SwapRequestSnapshot
+  log: LogRequestSnapshot
+}
+
+const REQUESTS: ActionRequests = {
+  generate: {
+    action: 'generate',
+    startDate: '2026-07-05',
+    expectedPreferencesRevision: 4,
+    expectedTargetsRevision: 2
+  },
+  regenerate: {
+    action: 'regenerate',
+    planId: 'plan-1',
+    expectedPlanRevision: 3,
+    expectedPreferencesRevision: 4,
+    expectedTargetsRevision: 2
+  },
+  swap: {
+    action: 'swap',
+    planId: 'plan-1',
+    mealId: 'meal-1',
+    recipeVersionId: 'rv-1',
+    portionMultiplier: 1.25,
+    expectedPlanRevision: 3
+  },
+  log: {
+    action: 'log',
+    planId: 'plan-1',
+    mealId: 'meal-1',
+    servings: 0.66,
+    date: '2026-07-05',
+    diaryMealId: 'dm-1',
+    expectedPlanRevision: 3
+  }
+}
+
+interface PendingIntentOverrides {
+  action?: PendingIntentAction
+  userId?: string
+  key?: string
+  createdAt?: number
+  request?: MealPlanRequestSnapshot
+}
+
+// Always through buildPendingIntent, which is the only producer of the shape: a hand-written literal could
+// carry a fingerprint that does not describe its own request, which is exactly what the store now refuses.
+const makePendingIntent = (overrides: PendingIntentOverrides = {}): PendingIntent =>
+  buildPendingIntent(
+    overrides.request ?? REQUESTS[overrides.action ?? 'log'],
+    overrides.key ?? 'key-1',
+    overrides.userId ?? 'user-a',
+    overrides.createdAt ?? NOW
+  )
+
+// What AsyncStorage returns: the record as JSON, not the object that was written.
+const throughStorage = (value: unknown): Record<string, unknown> => JSON.parse(JSON.stringify(value))
 
 const makePostLogResult = (overrides: Partial<PostLogResult> = {}): PostLogResult => ({
   entryId: 'entry-1',
@@ -58,14 +125,14 @@ describe('selectPersistedState', () => {
       selectedPlanId: 'plan-1',
       dismissedSuccessBannerFor: 'entry-1',
       postLogResult: makePostLogResult(),
-      pendingIntents: {generate: makePendingIntent()}
+      pendingIntents: {generate: makePendingIntent({action: 'generate'})}
     })
 
     expect(Object.keys(selectPersistedState(useMealPlanStore.getState()))).toEqual(['pendingIntents'])
   })
 
   it('passes the recorded intents through unchanged', () => {
-    const intent = makePendingIntent({key: 'key-9'})
+    const intent = makePendingIntent({action: 'swap', key: 'key-9'})
 
     useMealPlanStore.setState({pendingIntents: {swap: intent}})
 
@@ -128,33 +195,40 @@ describe('selectPrunedPendingIntents', () => {
 
   describe('ownership', () => {
     it('removes an intent minted by another account when the resolving user is known', () => {
-      const foreign = makePendingIntent({userId: 'user-b'})
+      const foreign = makePendingIntent({action: 'generate', userId: 'user-b'})
 
       expect(selectPrunedPendingIntents({generate: foreign}, NOW, 'user-a')).toEqual({})
     })
 
     it('keeps an intent for any account when ownership is unknown at the call site', () => {
-      const foreign = makePendingIntent({userId: 'user-b'})
+      const foreign = makePendingIntent({action: 'generate', userId: 'user-b'})
 
       expect(selectPrunedPendingIntents({generate: foreign}, NOW, null)).toEqual({generate: foreign})
     })
 
     it('removes an expired intent even when ownership is unknown', () => {
-      const expired = makePendingIntent({userId: 'user-b', createdAt: NOW - PENDING_INTENT_TTL_MS})
+      const expired = makePendingIntent({
+        action: 'generate',
+        userId: 'user-b',
+        createdAt: NOW - PENDING_INTENT_TTL_MS
+      })
 
       expect(selectPrunedPendingIntents({generate: expired}, NOW, null)).toEqual({})
     })
   })
 
   it('returns the very same object when every intent is live and owned', () => {
-    const pendingIntents = {generate: makePendingIntent({key: 'key-1'}), log: makePendingIntent({key: 'key-2'})}
+    const pendingIntents = {
+      generate: makePendingIntent({action: 'generate', key: 'key-1'}),
+      log: makePendingIntent({key: 'key-2'})
+    }
 
     expect(selectPrunedPendingIntents(pendingIntents, NOW, 'user-a')).toBe(pendingIntents)
   })
 
   it('keeps only the live owned entries and leaves the input untouched', () => {
-    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const expired = makePendingIntent({action: 'generate', key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({action: 'swap', key: 'foreign', userId: 'user-b'})
     const live = makePendingIntent({key: 'live'})
     const pendingIntents = {generate: expired, swap: foreign, log: live}
 
@@ -166,13 +240,13 @@ describe('selectPrunedPendingIntents', () => {
 describe('resolvePendingIntent', () => {
   describe('user scoping', () => {
     it('returns the intent recorded for the resolving user', () => {
-      const intent = makePendingIntent({userId: 'user-a'})
+      const intent = makePendingIntent({action: 'generate', userId: 'user-a'})
 
       expect(resolvePendingIntent({pendingIntents: {generate: intent}}, 'generate', 'user-a', NOW)).toEqual(intent)
     })
 
     it('returns null for a different user', () => {
-      const intent = makePendingIntent({userId: 'user-a'})
+      const intent = makePendingIntent({action: 'generate', userId: 'user-a'})
 
       expect(resolvePendingIntent({pendingIntents: {generate: intent}}, 'generate', 'user-b', NOW)).toBeNull()
     })
@@ -180,7 +254,7 @@ describe('resolvePendingIntent', () => {
 
   describe('missing intents', () => {
     it('returns null when another action holds the only intent', () => {
-      const intent = makePendingIntent()
+      const intent = makePendingIntent({action: 'generate'})
 
       expect(resolvePendingIntent({pendingIntents: {generate: intent}}, 'swap', 'user-a', NOW)).toBeNull()
     })
@@ -212,32 +286,42 @@ describe('resolvePendingIntent', () => {
 })
 
 describe('recordPendingIntent', () => {
-  it('writes the intent under the action it was minted for', () => {
+  it('writes the intent under the action of its own request', () => {
     const intent = makePendingIntent()
 
-    useMealPlanStore.getState().recordPendingIntent('log', intent)
+    useMealPlanStore.getState().recordPendingIntent(intent)
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({log: intent})
   })
 
-  it('keeps intents recorded for other actions', () => {
-    const generate = makePendingIntent({key: 'key-1'})
-    const swap = makePendingIntent({key: 'key-2'})
+  it('files every action in its own slot, so no record can describe a request it is not filed under', () => {
+    const actions: readonly PendingIntentAction[] = ['generate', 'regenerate', 'swap', 'log']
 
-    useMealPlanStore.getState().recordPendingIntent('generate', generate)
-    useMealPlanStore.getState().recordPendingIntent('swap', swap)
+    actions.forEach(action => useMealPlanStore.getState().recordPendingIntent(makePendingIntent({action})))
+
+    const recorded = useMealPlanStore.getState().pendingIntents
+
+    actions.forEach(action => expect(recorded[action]?.request.action).toBe(action))
+  })
+
+  it('keeps intents recorded for other actions', () => {
+    const generate = makePendingIntent({action: 'generate', key: 'key-1'})
+    const swap = makePendingIntent({action: 'swap', key: 'key-2'})
+
+    useMealPlanStore.getState().recordPendingIntent(generate)
+    useMealPlanStore.getState().recordPendingIntent(swap)
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({generate, swap})
   })
 
   it('sweeps an expired and a foreign sibling while keeping the live one for the same account', () => {
-    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
-    const live = makePendingIntent({key: 'live', createdAt: NOW - 1})
+    const expired = makePendingIntent({action: 'generate', key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({action: 'swap', key: 'foreign', userId: 'user-b'})
+    const live = makePendingIntent({action: 'regenerate', key: 'live', createdAt: NOW - 1})
     const incoming = makePendingIntent({key: 'incoming', createdAt: NOW})
 
     useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign, regenerate: live}})
-    useMealPlanStore.getState().recordPendingIntent('log', incoming)
+    useMealPlanStore.getState().recordPendingIntent(incoming)
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({regenerate: live, log: incoming})
   })
@@ -247,7 +331,7 @@ describe('recordPendingIntent', () => {
     const incoming = makePendingIntent({key: 'incoming'})
 
     useMealPlanStore.setState({pendingIntents: {log: foreign}})
-    useMealPlanStore.getState().recordPendingIntent('log', incoming)
+    useMealPlanStore.getState().recordPendingIntent(incoming)
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({log: incoming})
   })
@@ -255,8 +339,8 @@ describe('recordPendingIntent', () => {
 
 describe('prunePendingIntents', () => {
   it('removes the stale entries and persists the pruned slice', () => {
-    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const expired = makePendingIntent({action: 'generate', key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({action: 'swap', key: 'foreign', userId: 'user-b'})
     const live = makePendingIntent({key: 'live'})
 
     useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign, log: live}})
@@ -269,8 +353,8 @@ describe('prunePendingIntents', () => {
   })
 
   it('prunes by age alone when the signed-in account is unknown', () => {
-    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const expired = makePendingIntent({action: 'generate', key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({action: 'swap', key: 'foreign', userId: 'user-b'})
 
     useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign}})
     useMealPlanStore.getState().prunePendingIntents(NOW, null)
@@ -296,7 +380,11 @@ describe('prunePendingIntents', () => {
 describe('rehydration', () => {
   it('removes an intent that aged out while the app was closed and rewrites storage', async () => {
     const live = makePendingIntent({key: 'live', createdAt: Date.now()})
-    const expired = makePendingIntent({key: 'expired', createdAt: Date.now() - PENDING_INTENT_TTL_MS})
+    const expired = makePendingIntent({
+      action: 'generate',
+      key: 'expired',
+      createdAt: Date.now() - PENDING_INTENT_TTL_MS
+    })
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: live, generate: expired}}, version: 0})
 
@@ -318,7 +406,7 @@ describe('rehydration', () => {
   })
 
   it('keeps a foreign intent for the signing-in account to sweep, since ownership is unknown here', async () => {
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: Date.now()})
+    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: Date.now()})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign}}, version: 0})
 
@@ -326,12 +414,99 @@ describe('rehydration', () => {
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign})
   })
+
+  // Storage can hold a slot this release has no snapshot contract for: a newer build that added a keyed
+  // write, or a hand-edited file. Reading its members by name has to fail closed, because an exception here
+  // escapes the rehydration listener — hydration never finishes, the deferred ownership sweep waits on it
+  // forever, and every keyed action stays unusable until the user clears app storage.
+  describe('a slot this release cannot read', () => {
+    // Well formed in every member parsePendingIntent checks before the snapshot, and filed under the slot its
+    // own discriminant names, so it reaches the member lookup exactly as a newer release's record would. The
+    // request carries the discriminant alone because a prototype name resolves to a function whose `length`
+    // is its arity: a one-member request is what makes the member count agree and the lookup's result be
+    // used, which is the shape a name-keyed table has to survive.
+    const forwardVersionRecord = (action: string): Record<string, unknown> => ({
+      userId: 'user-a',
+      key: 'forward-key',
+      fingerprint: 'forward-fingerprint',
+      planId: null,
+      planRevision: null,
+      createdAt: NOW,
+      request: {action}
+    })
+
+    it.each([
+      ['an action added by a newer release', 'reorder'],
+      ['a name resolving to a one-argument function on Object.prototype', 'hasOwnProperty'],
+      ['a name resolving to the Object constructor', 'constructor'],
+      ['a name resolving to a zero-argument function on Object.prototype', 'toString']
+    ])('completes hydration and drops %s', async (_label, slot) => {
+      const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+
+      persistedReads.mockResolvedValueOnce({
+        state: {pendingIntents: {log: live, [slot]: forwardVersionRecord(slot)}},
+        version: 0
+      })
+
+      await expect(useMealPlanStore.persist.rehydrate()).resolves.toBeUndefined()
+
+      expect(useMealPlanStore.persist.hasHydrated()).toBe(true)
+      expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+      expect(persistedWrites).toHaveBeenCalledTimes(1)
+      expect(persistedWrites.mock.calls[0][1]).toEqual({state: {pendingIntents: {log: live}}, version: 0})
+    })
+
+    it('still runs the ownership sweep that was deferred until hydration finished', async () => {
+      const clock = Date.now()
+      const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
+      const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
+
+      persistedReads.mockResolvedValueOnce({
+        state: {pendingIntents: {generate: foreign, log: live, reorder: forwardVersionRecord('reorder')}},
+        version: 0
+      })
+
+      const hydration = useMealPlanStore.persist.rehydrate()
+
+      prunePendingIntentsForUser('user-a', () => clock)
+
+      await hydration
+
+      expect(useMealPlanStore.persist.hasHydrated()).toBe(true)
+      expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    })
+  })
+
+  // `Object.entries` throws on null and enumerates the characters of a string, so the container itself is a
+  // boundary value and not merely its members. Anything that is not a plain object holds nothing replayable,
+  // so hydration replaces it and the write repairs storage.
+  describe('a persisted slice that is not an object', () => {
+    it.each([
+      ['null', null],
+      ['an array', []],
+      ['a string', 'pendingIntents'],
+      ['a number', 7]
+    ])('completes hydration and replaces %s with an empty slice', async (_label, slice) => {
+      persistedReads.mockResolvedValueOnce({state: {pendingIntents: slice}, version: 0})
+
+      await expect(useMealPlanStore.persist.rehydrate()).resolves.toBeUndefined()
+
+      expect(useMealPlanStore.persist.hasHydrated()).toBe(true)
+      expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+      expect(persistedWrites).toHaveBeenCalledTimes(1)
+      expect(persistedWrites.mock.calls[0][1]).toEqual({state: {pendingIntents: {}}, version: 0})
+    })
+
+    it('answers no unresolved intent from a slice that is not an object', () => {
+      expect(resolvePendingIntent({pendingIntents: null} as never, 'log', 'user-a', NOW)).toBeNull()
+    })
+  })
 })
 
 describe('prunePendingIntentsForUser', () => {
   it('removes a record minted by another account and rewrites the persisted slice', async () => {
     const clock = Date.now()
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: clock})
+    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
     const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign, log: live}}, version: 0})
@@ -351,7 +526,7 @@ describe('prunePendingIntentsForUser', () => {
 
   it('waits for an in-flight hydration instead of being overwritten by it', async () => {
     const clock = Date.now()
-    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: clock})
+    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
     const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign, log: live}}, version: 0})
@@ -371,7 +546,7 @@ describe('prunePendingIntentsForUser', () => {
   })
 
   it('drops the signed-in account own record once it has aged out', () => {
-    const expired = makePendingIntent({userId: 'user-a', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const expired = makePendingIntent({action: 'swap', userId: 'user-a', createdAt: NOW - PENDING_INTENT_TTL_MS})
 
     useMealPlanStore.setState({pendingIntents: {swap: expired}})
     prunePendingIntentsForUser('user-a', () => NOW)
@@ -396,7 +571,7 @@ describe('prunePendingIntentsForUser', () => {
 
 describe('clearPendingIntent', () => {
   it('removes only the intent for the given action', () => {
-    const generate = makePendingIntent({key: 'key-1'})
+    const generate = makePendingIntent({action: 'generate', key: 'key-1'})
     const log = makePendingIntent({key: 'key-2'})
 
     useMealPlanStore.setState({pendingIntents: {generate, log}})
@@ -502,7 +677,10 @@ describe('reset', () => {
       selectedPlanId: 'plan-1',
       dismissedSuccessBannerFor: 'entry-1',
       postLogResult: makePostLogResult(),
-      pendingIntents: {generate: makePendingIntent(), swap: makePendingIntent({key: 'key-2'})}
+      pendingIntents: {
+        generate: makePendingIntent({action: 'generate'}),
+        swap: makePendingIntent({action: 'swap', key: 'key-2'})
+      }
     })
 
     useMealPlanStore.getState().reset()
@@ -515,5 +693,242 @@ describe('reset', () => {
     expect(state.dismissedSuccessBannerFor).toBeNull()
     expect(state.postLogResult).toBeNull()
     expect(state.pendingIntents).toEqual({})
+  })
+})
+
+describe('buildPendingIntent', () => {
+  it('derives the fingerprint from the request, so the record describes itself', () => {
+    const request = REQUESTS.swap
+    const intent = buildPendingIntent(request, 'key-1', 'user-a', NOW)
+
+    expect(intent.fingerprint).toBe(fingerprintSnapshot(request))
+    expect(intent.request).toBe(request)
+  })
+
+  it('derives the plan and revision a keyed write names, rather than accepting them', () => {
+    expect(buildPendingIntent(REQUESTS.regenerate, 'key-1', 'user-a', NOW)).toMatchObject({
+      planId: 'plan-1',
+      planRevision: 3
+    })
+    expect(buildPendingIntent(REQUESTS.swap, 'key-1', 'user-a', NOW)).toMatchObject({planId: 'plan-1', planRevision: 3})
+    expect(buildPendingIntent(REQUESTS.log, 'key-1', 'user-a', NOW)).toMatchObject({planId: 'plan-1', planRevision: 3})
+  })
+
+  it('leaves a generation without a plan, because none exists yet', () => {
+    expect(buildPendingIntent(REQUESTS.generate, 'key-1', 'user-a', NOW)).toMatchObject({
+      planId: null,
+      planRevision: null
+    })
+  })
+
+  it('keeps the key, the account and the mint time exactly as given', () => {
+    expect(buildPendingIntent(REQUESTS.log, 'key-9', 'user-b', 42)).toMatchObject({
+      key: 'key-9',
+      userId: 'user-b',
+      createdAt: 42
+    })
+  })
+})
+
+describe('parsePendingIntent', () => {
+  it('restores a record written by this release for every action', () => {
+    const actions: readonly PendingIntentAction[] = ['generate', 'regenerate', 'swap', 'log']
+
+    actions.forEach(action => {
+      const intent = makePendingIntent({action})
+
+      expect(parsePendingIntent(throughStorage(intent), action)).toEqual(intent)
+    })
+  })
+
+  it('refuses a record from a release that stored no request, which could never be replayed', () => {
+    const legacy = {
+      userId: 'user-a',
+      key: 'key-1',
+      fingerprint: 'fp-1',
+      planId: 'plan-1',
+      planRevision: 3,
+      createdAt: NOW
+    }
+
+    expect(parsePendingIntent(legacy, 'log')).toBeNull()
+  })
+
+  it('refuses a record whose fingerprint does not describe its own request', () => {
+    const tampered = {...throughStorage(makePendingIntent()), fingerprint: 'fp-of-something-else'}
+
+    expect(parsePendingIntent(tampered, 'log')).toBeNull()
+  })
+
+  it('refuses a record whose request belongs to another action', () => {
+    expect(parsePendingIntent(throughStorage(makePendingIntent({action: 'swap'})), 'log')).toBeNull()
+  })
+
+  it('refuses a record whose stored plan or revision contradicts its request', () => {
+    const wrongPlan = {...throughStorage(makePendingIntent({action: 'swap'})), planId: 'plan-2'}
+    const wrongRevision = {...throughStorage(makePendingIntent({action: 'swap'})), planRevision: 4}
+
+    expect(parsePendingIntent(wrongPlan, 'swap')).toBeNull()
+    expect(parsePendingIntent(wrongRevision, 'swap')).toBeNull()
+  })
+
+  it('refuses a generation that claims a plan it cannot have', () => {
+    const claimsPlan = {...throughStorage(makePendingIntent({action: 'generate'})), planId: 'plan-1'}
+
+    expect(parsePendingIntent(claimsPlan, 'generate')).toBeNull()
+  })
+
+  it('refuses a record missing the account, the key or the mint time', () => {
+    const fields: readonly string[] = ['userId', 'key', 'fingerprint', 'createdAt', 'request']
+
+    fields.forEach(field => {
+      const stored = throughStorage(makePendingIntent())
+
+      delete stored[field]
+
+      expect(parsePendingIntent(stored, 'log')).toBeNull()
+    })
+  })
+
+  it('refuses a value that is not a record at all', () => {
+    ;[null, undefined, 'log', 7, [makePendingIntent()]].forEach(value => {
+      expect(parsePendingIntent(value, 'log')).toBeNull()
+    })
+  })
+
+  it('refuses an unusable account or key rather than replaying under one', () => {
+    const emptyUser = {...throughStorage(makePendingIntent()), userId: ''}
+    const emptyKey = {...throughStorage(makePendingIntent()), key: ''}
+    const unusableClock = {...throughStorage(makePendingIntent()), createdAt: 'yesterday'}
+
+    expect(parsePendingIntent(emptyUser, 'log')).toBeNull()
+    expect(parsePendingIntent(emptyKey, 'log')).toBeNull()
+    expect(parsePendingIntent(unusableClock, 'log')).toBeNull()
+  })
+})
+
+describe('cold-start replay', () => {
+  const actions: readonly PendingIntentAction[] = ['generate', 'regenerate', 'swap', 'log']
+
+  // The whole point of persisting an intent: the process that sent the request is gone, so the request has to
+  // come back out of storage byte for byte and go out under the key it was already sent with.
+  it.each(actions)('rebuilds the identical %s request after the app was killed mid-request', async action => {
+    const request = REQUESTS[action]
+    const sent = makePendingIntent({action, key: 'key-sent', createdAt: Date.now()})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {[action]: sent}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    const restored = useMealPlanStore.getState()
+    const replay = resolveKeyedRequest(restored, request, 'user-a', Date.now(), 'key-fresh')
+
+    expect(replay).toEqual({idempotencyKey: 'key-sent', isReplay: true, request})
+    expect(requestBody(replay.request, replay.idempotencyKey)).toEqual(requestBody(request, 'key-sent'))
+    expect(requestIds(replay.request)).toEqual(requestIds(request))
+  })
+
+  it('replays the stored request rather than the one the caller assembled', () => {
+    const intent = makePendingIntent({action: 'swap', key: 'key-sent'})
+    const rebuilt: MealPlanRequestSnapshot = {...REQUESTS.swap}
+
+    const replay = resolveKeyedRequest({pendingIntents: {swap: intent}}, rebuilt, 'user-a', NOW, 'key-fresh')
+
+    // The validated record, not the object the caller passed in: a replay must send what was stored, and the
+    // stored snapshot reaches the caller re-parsed rather than as a live reference into persisted state.
+    expect(replay.request).toEqual(intent.request)
+    expect(replay.request).not.toBe(rebuilt)
+  })
+
+  it('mints a new key when nothing is pending', () => {
+    expect(resolveKeyedRequest({pendingIntents: {}}, REQUESTS.log, 'user-a', NOW, 'key-fresh')).toEqual({
+      idempotencyKey: 'key-fresh',
+      isReplay: false,
+      request: REQUESTS.log
+    })
+  })
+
+  describe('mints a new key rather than reusing a spent one', () => {
+    it.each([
+      ['the chosen alternative changed', {...REQUESTS.swap, recipeVersionId: 'rv-2'} as MealPlanRequestSnapshot],
+      ['the portion changed', {...REQUESTS.swap, portionMultiplier: 1} as MealPlanRequestSnapshot],
+      ['the plan revision moved on', {...REQUESTS.swap, expectedPlanRevision: 4} as MealPlanRequestSnapshot]
+    ])('when %s', (_case, request) => {
+      const intent = makePendingIntent({action: 'swap', key: 'key-sent'})
+
+      expect(resolveKeyedRequest({pendingIntents: {swap: intent}}, request, 'user-a', NOW, 'key-fresh')).toEqual({
+        idempotencyKey: 'key-fresh',
+        isReplay: false,
+        request
+      })
+    })
+
+    it('when the eaten servings changed since the key was minted', () => {
+      const intent = makePendingIntent({key: 'key-sent'})
+      const request: MealPlanRequestSnapshot = {...REQUESTS.log, servings: 2}
+
+      expect(resolveKeyedRequest({pendingIntents: {log: intent}}, request, 'user-a', NOW, 'key-fresh')).toMatchObject({
+        idempotencyKey: 'key-fresh',
+        isReplay: false
+      })
+    })
+
+    it('when the pending intent belongs to another account', () => {
+      const intent = makePendingIntent({key: 'key-sent', userId: 'user-b'})
+
+      expect(
+        resolveKeyedRequest({pendingIntents: {log: intent}}, REQUESTS.log, 'user-a', NOW, 'key-fresh')
+      ).toMatchObject({idempotencyKey: 'key-fresh', isReplay: false})
+    })
+
+    it('when the pending intent has aged out', () => {
+      const intent = makePendingIntent({key: 'key-sent', createdAt: NOW - PENDING_INTENT_TTL_MS})
+
+      expect(
+        resolveKeyedRequest({pendingIntents: {log: intent}}, REQUESTS.log, 'user-a', NOW, 'key-fresh')
+      ).toMatchObject({idempotencyKey: 'key-fresh', isReplay: false})
+    })
+
+    it('when the stored record cannot be trusted to describe its request', () => {
+      const tampered = {...makePendingIntent({key: 'key-sent'}), fingerprint: 'fp-of-something-else'}
+
+      expect(
+        resolveKeyedRequest({pendingIntents: {log: tampered}}, REQUESTS.log, 'user-a', NOW, 'key-fresh')
+      ).toMatchObject({idempotencyKey: 'key-fresh', isReplay: false})
+    })
+  })
+
+  it('consults only the intent of the action being sent', () => {
+    const swap = makePendingIntent({action: 'swap', key: 'key-swap'})
+
+    expect(resolveKeyedRequest({pendingIntents: {swap}}, REQUESTS.log, 'user-a', NOW, 'key-fresh')).toMatchObject({
+      idempotencyKey: 'key-fresh',
+      isReplay: false
+    })
+  })
+
+  it('drops a record no release can replay while the app starts, so its key stops being offered', async () => {
+    const legacy = {
+      userId: 'user-a',
+      key: 'key-legacy',
+      fingerprint: 'fp-1',
+      planId: 'plan-1',
+      planRevision: 3,
+      createdAt: Date.now()
+    }
+    const live = makePendingIntent({action: 'swap', key: 'live', createdAt: Date.now()})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: legacy, swap: live}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({swap: live})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a record filed under an action its request does not name', () => {
+    const misfiled = makePendingIntent({action: 'swap'})
+
+    expect(selectPrunedPendingIntents({log: misfiled}, NOW, 'user-a')).toEqual({})
   })
 })

@@ -1,5 +1,10 @@
 import type {MealPlanPreferences, MealTimeEntry, WeightUnitPref} from '@data/models/MealPlanPreferences'
-import type {NutritionTargetEstimate, NutritionTargets} from '@data/models/NutritionTargets'
+import type {
+  NutritionTargetEstimate,
+  NutritionTargets,
+  SaveEstimatedNutritionTargetsPayload
+} from '@data/models/NutritionTargets'
+import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
 import {
   addDaysToDayKey,
   clampDayKeyToPlan,
@@ -10,6 +15,7 @@ import {
   planStartDateBounds
 } from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
+import {buildSaveEstimatedNutritionTargetsPayload, isPlannerConfirmedTargets} from '@utility/NutritionTargetsUtility'
 import {kilogramsToPounds} from '@utility/UnitConversionUtility'
 
 import {
@@ -54,13 +60,18 @@ export type DisplayedTargetKey = 'calories' | DisplayedMacroKey
 // because hiding the numbers the user is being asked to review is worse than showing ones they must revisit.
 export type DisplayedTargetsSource = 'confirmed' | 'current' | 'estimate' | 'unavailable'
 
-export type GenerateBlockedReason = 'estimate_unavailable'
+// Why a Generate press cannot generate. 'estimate_unavailable' is the state with no figures to work from;
+// 'targets_need_review' is saved figures generation would refuse (legacy, incomplete, or an unreadable source),
+// which the user must confirm or replace themselves — the press must never resolve it by saving the estimate.
+export type GenerateBlockedReason = 'estimate_unavailable' | 'targets_need_review'
 
 export type AnswerRowEditStep = 'goal' | 'diet' | 'dislikes' | 'schedule' | 'cooking'
 
 // What the live Generate press does. 'manual_targets' is the recovery the estimate-unavailable state offers
-// (09b manual entry, 0.2.5); the card copy for that state belongs to resolveDisplayedTargets' 'unavailable'.
-export type GenerateCtaAction = 'generate' | 'manual_targets'
+// (09b manual entry, 0.2.5); 'review_targets' opens the same editor on the saved figures so the user confirms
+// or replaces them explicitly; the card copy for the figureless state belongs to resolveDisplayedTargets'
+// 'unavailable'.
+export type GenerateCtaAction = 'generate' | 'manual_targets' | 'review_targets'
 
 export interface GenerateSequenceInputs {
   targets: NutritionTargets | null
@@ -152,10 +163,24 @@ interface DisplayFigures {
   missing: DisplayedTargetKey[]
 }
 
-// The revision a user with no preferences row carries, which is what the first target save must expect.
-export const NO_TARGETS_REVISION: number = 0
+// What the card leads with: the user's own saved figures ('current'), the calculated estimate ('estimate'), or
+// nothing at all ('none' — no saved value and no estimate to fall back on).
+type PrimaryFigures =
+  | {kind: 'current'; figures: DisplayFigures}
+  | {kind: 'estimate'; figures: DisplayFigures}
+  | {kind: 'none'}
+
+// The revision a user with no preferences row carries, which is what the first target save must expect. Defined
+// with the save payloads it governs and re-exported here for the screens and rows that read it from this module.
+export {NO_TARGETS_REVISION}
 
 const MACRO_KEYS: DisplayedMacroKey[] = ['protein', 'carbs', 'fat']
+
+// One recovery per blocked reason, so a reason can never reach the CTA without one.
+const CTA_ACTION_BY_BLOCKED_REASON: Record<GenerateBlockedReason, GenerateCtaAction> = {
+  estimate_unavailable: 'manual_targets',
+  targets_need_review: 'review_targets'
+}
 
 const ALL_TARGET_KEYS: DisplayedTargetKey[] = ['calories', ...MACRO_KEYS]
 
@@ -183,14 +208,6 @@ const macroRows = (figures: PartialMacroFigures): DisplayedMacro[] =>
 
 const missingMacroKeys = (figures: PartialMacroFigures): DisplayedTargetKey[] =>
   MACRO_KEYS.filter(key => figures[key] === null)
-
-// What generation will accept: the planner's own gate (`complete && source !== 'legacy'`, else 422
-// targets_missing / 409 targets_unconfirmed). Deliberately not what the card displays — see currentFigures.
-const isPlanningConfirmed = (targets: NutritionTargets | null): targets is NutritionTargets =>
-  targets !== null && targets.complete && targets.source !== 'legacy'
-
-const isConfirmedAndFresh = (targets: NutritionTargets | null): boolean =>
-  isPlanningConfirmed(targets) && !targets.stale
 
 // The user's saved figures as the review card shows them, field by field: per 0.5.2 the four values are
 // independently nullable, and `complete` and `source` decide what the planner accepts rather than what the user
@@ -223,6 +240,23 @@ const estimateDisplayFigures = (estimate: NutritionTargetEstimate): DisplayFigur
   macros: macroRows(estimate),
   missing: []
 })
+
+// The one rule for what the targets card leads with, read by the display and by the Generate sequence alike.
+// Two rules here is how the screen came to show one set of figures and save another: the card led with the
+// user's saved numbers while the press confirmed the estimate beside them, replacing what was on screen with
+// figures the user had not agreed to. Both answers now come from this function, so they cannot disagree.
+const resolvePrimaryFigures = (
+  targets: NutritionTargets | null,
+  estimate: NutritionTargetEstimate | null
+): PrimaryFigures => {
+  const current = currentFigures(targets)
+
+  if (current !== null) {
+    return {kind: 'current', figures: current}
+  }
+
+  return estimate === null ? {kind: 'none'} : {kind: 'estimate', figures: estimateDisplayFigures(estimate)}
+}
 
 const joinFragments = (fragments: string[]): string =>
   fragments.length === 0 ? MEAL_PLAN_VALUE_NONE : fragments.join(MEAL_PLAN_VALUE_SEPARATOR)
@@ -309,26 +343,35 @@ const budgetValue = ({budget, noBudgetPreference}: MealPlanPreferences): string 
   return stringWithNamedParameters(MEAL_PLAN_BUDGET_VALUE_TEMPLATE, {amount: Math.round(budget.amount)})
 }
 
-const displayedSource = (
-  hasCurrentFigures: boolean,
-  isAcceptedByPlanner: boolean,
-  hasAnyFigures: boolean
-): DisplayedTargetsSource => {
-  if (!hasAnyFigures) {
+const displayedSource = (primary: PrimaryFigures, targets: NutritionTargets | null): DisplayedTargetsSource => {
+  if (primary.kind === 'none') {
     return 'unavailable'
   }
 
-  if (!hasCurrentFigures) {
+  if (primary.kind === 'estimate') {
     return 'estimate'
   }
 
-  return isAcceptedByPlanner ? 'confirmed' : 'current'
+  return isPlannerConfirmedTargets(targets) ? 'confirmed' : 'current'
 }
 
-// Staleness is not part of this: a confirmed estimate stays the value generation uses until the user reconfirms
-// (0.7.3), so a stale set is still 'confirmed' and merely earns the Recalculate link and the fresh figure beside.
+// Staleness is not part of planner acceptance: a confirmed estimate stays the value generation uses until the
+// user reconfirms (0.7.3), so a stale set is still 'confirmed' and merely earns the Recalculate link and the
+// fresh figure beside it. Both states put the edit link in its recalculating form, which is the affordance that
+// asks for the reconfirmation the Generate press no longer performs on the user's behalf.
 const needsTargetReview = (targets: NutritionTargets | null): boolean =>
-  targets !== null && (targets.stale || !isPlanningConfirmed(targets))
+  targets !== null && (targets.stale || !isPlannerConfirmedTargets(targets))
+
+const resolveBlockedReason = (
+  primaryKind: PrimaryFigures['kind'],
+  refusedByPlanner: boolean
+): GenerateBlockedReason | null => {
+  if (primaryKind === 'none') {
+    return 'estimate_unavailable'
+  }
+
+  return refusedByPlanner ? 'targets_need_review' : null
+}
 
 const startDateDayLabel = (startDate: string, bounds: PlanStartDateBounds): string => {
   if (startDate === bounds.min) {
@@ -343,6 +386,21 @@ const startDateDayLabel = (startDate: string, bounds: PlanStartDateBounds): stri
 }
 
 /**
+ * What a Generate press does, decided from the same primary figures the card renders.
+ *
+ * `requiresTargetConfirmation` is true exactly when the card leads with the estimate, because confirming the
+ * estimate saves it, and a save the user did not ask for may only happen to the numbers they were looking at.
+ * That gives three outcomes rather than the two the screen had:
+ *
+ *  - saved figures the planner accepts (all four present, source not 'legacy'): generate against them, even
+ *    when they are stale. A confirmed estimate is fixed once confirmed and generation keeps using it until the
+ *    user reconfirms through the Recalculate link (0.7.3), so staleness alone neither saves nor blocks.
+ *  - saved figures the planner refuses (legacy, incomplete, or a source this build cannot read): blocked as
+ *    `targets_need_review`. Generation would answer 422 targets_missing / 409 targets_unconfirmed (0.5.2), so
+ *    the press carries the user to the targets editor to confirm or replace those figures explicitly — it never
+ *    silently saves the estimate over them.
+ *  - no figures at all: blocked as `estimate_unavailable`, whose press goes to manual entry (0.2.5).
+ *
  * Both revisions are the values as this screen currently reads them, and each save the sequence performs returns
  * a new one. The caller must thread the revision returned by one step into the next and into the navigation
  * params — a plan decided here cannot know them.
@@ -353,17 +411,33 @@ export const planGenerateSequence = ({
   preferences,
   startDate
 }: GenerateSequenceInputs): GenerateSequencePlan => {
-  const requiresTargetConfirmation = !isConfirmedAndFresh(targets)
+  const primary = resolvePrimaryFigures(targets, estimate)
+  const showsOwnFigures = primary.kind === 'current'
 
   return {
-    requiresTargetConfirmation,
+    requiresTargetConfirmation: primary.kind === 'estimate',
     requiresStartDateSave: startDate !== preferences.reviewStartDate,
     estimateRevision: estimate === null ? null : estimate.estimateRevision,
     expectedTargetsRevision: targets === null ? NO_TARGETS_REVISION : targets.revision,
     expectedPreferencesRevision: preferences.revision,
-    blockedReason: requiresTargetConfirmation && estimate === null ? 'estimate_unavailable' : null
+    blockedReason: resolveBlockedReason(primary.kind, showsOwnFigures && !isPlannerConfirmedTargets(targets))
   }
 }
+
+/**
+ * The estimated-confirmation body the sequence sends before generating, and null when the press confirms
+ * nothing — which is every state where the card leads with the user's own figures, so this is also the proof
+ * that a Generate press cannot rewrite a saved target the user was never shown as an estimate.
+ */
+export const buildTargetConfirmationPayload = (
+  plan: GenerateSequencePlan
+): SaveEstimatedNutritionTargetsPayload | null =>
+  plan.requiresTargetConfirmation && plan.estimateRevision !== null
+    ? buildSaveEstimatedNutritionTargetsPayload({
+        estimateRevision: plan.estimateRevision,
+        targetsRevision: plan.expectedTargetsRevision
+      })
+    : null
 
 /**
  * The user's own saved figures whenever they exist, field by field; the estimate supplies the card only when the
@@ -379,13 +453,13 @@ export const planGenerateSequence = ({
  * estimate-unavailable card in place of the targets card — so the numeric fields read empty rather than nil.
  */
 export const resolveDisplayedTargets = ({targets, estimate, preferences}: DisplayedTargetsInputs): DisplayedTargets => {
-  const current = currentFigures(targets)
-  const figures = current ?? (estimate === null ? null : estimateDisplayFigures(estimate))
-  const needsRecalculate = current !== null && needsTargetReview(targets)
+  const primary = resolvePrimaryFigures(targets, estimate)
+  const figures = primary.kind === 'none' ? null : primary.figures
+  const needsRecalculate = primary.kind === 'current' && needsTargetReview(targets)
   const isManualRoute = targets?.source === 'manual' || preferences.targetRoute === 'manual'
 
   return {
-    source: displayedSource(current !== null, isPlanningConfirmed(targets), figures !== null),
+    source: displayedSource(primary, targets),
     cardLabel: isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_DAILY_TARGETS_OVERLINE,
     calories: figures === null || figures.calories === null ? NO_FIGURE_TEXT : formatCalories(figures.calories),
     unitLabel: MEAL_PLAN_KCAL_UNIT,
@@ -448,11 +522,13 @@ export const resolveStartDateStepState = ({
 
 /**
  * The only disabled Generate states are a pending press and an estimate the confirmation still needs while it
- * loads (0.7.4). A settled `estimate_unavailable` is not one of them: there is nothing left to wait for, so the
- * CTA stays live and carries the user to manual entry (0.2.5) instead of standing dead on the screen.
+ * loads (0.7.4). A settled block is not one of them: there is nothing left to wait for, so the CTA keeps the
+ * drawn label and stays live, carrying the press to the recovery its reason names — manual entry for an
+ * estimate that cannot be calculated (0.2.5), or the targets editor for saved figures generation would refuse —
+ * instead of standing dead on the screen or quietly saving figures of its own choosing.
  */
 export const resolveGenerateCtaState = ({plan, isEstimateLoading, isPending}: GenerateCtaInputs): GenerateCtaState => ({
   label: MEAL_PLAN_GENERATE_BUTTON_TEXT,
   isEnabled: !isPending && !(plan.requiresTargetConfirmation && isEstimateLoading),
-  action: plan.blockedReason === 'estimate_unavailable' ? 'manual_targets' : 'generate'
+  action: plan.blockedReason === null ? 'generate' : CTA_ACTION_BY_BLOCKED_REASON[plan.blockedReason]
 })

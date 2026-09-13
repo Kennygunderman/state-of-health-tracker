@@ -17,7 +17,7 @@ interface Props {
   readonly subcopy?: string
 }
 
-const OptionCard = ({label, selected, onPress, subcopy}: Props) => (
+const OptionCard = ({label, selected, onPress, subcopy}: Props): React.JSX.Element => (
   <TouchableOpacity
     style={[styles.card, selected && styles.cardSelected]}
     activeOpacity={Opacity.PRESSED}

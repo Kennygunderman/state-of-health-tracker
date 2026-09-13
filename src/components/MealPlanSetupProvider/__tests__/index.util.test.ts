@@ -3,6 +3,7 @@ import {MealSlot} from '@data/models/Recipe'
 
 import {
   ALLERGEN_NONE,
+  answerBodySkipped,
   applyAllergenSelection,
   applyBudgetAmount,
   applyLifecycleEvent,
@@ -41,11 +42,13 @@ const makeDirty = (overrides: Partial<MealPlanSetupDirty> = {}): MealPlanSetupDi
 const makeState = (
   draft: Partial<MealPlanSetupDraft> = {},
   dirty: Partial<MealPlanSetupDirty> = {},
-  seeded = false
+  seeded = false,
+  bodyAnswered = false
 ): MealPlanSetupDraftState => ({
   draft: makeDraft(draft),
   dirty: makeDirty(dirty),
-  seeded
+  seeded,
+  bodyAnswered
 })
 
 const ALL_DIRTY: MealPlanSetupDirty = {
@@ -99,6 +102,9 @@ const makeCompleteDraft = (overrides: Partial<MealPlanSetupDraft> = {}): MealPla
     ...overrides
   })
 
+const makeCompleteState = (overrides: Partial<MealPlanSetupDraft> = {}): MealPlanSetupDraftState =>
+  makeState(makeCompleteDraft(overrides))
+
 const makePreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlanPreferences => ({
   setupStatus: 'in_progress',
   setupStep: 'cooking',
@@ -137,6 +143,24 @@ const makePreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlan
   hasActivePlan: true,
   ...overrides
 })
+
+// A user who answered the body step with Skip, exactly as the server stores it: the manual target
+// route is on record, the resume marker sits on the manual target screen, and not one measurement
+// was written — Skip sends `{skipped: true}` and the server writes no measurement columns for it.
+// Every other step of this fixture is answered, so the manual route's six steps are all complete.
+const makeSkippedBodyPreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlanPreferences =>
+  makePreferences({
+    targetRoute: 'manual',
+    setupStep: 'targets_manual',
+    age: null,
+    heightCm: null,
+    weightKg: null,
+    sexForEstimate: null,
+    heightUnitPref: null,
+    weightUnitPref: null,
+    activityLevel: null,
+    ...overrides
+  })
 
 describe('createEmptyDraft', () => {
   it('preselects nothing, so a first-entry wizard shows no answers', () => {
@@ -286,6 +310,9 @@ describe('seedDraftFromPreferences', () => {
     expect(keys).not.toContain('targetRoute')
     expect(keys).not.toContain('reviewStartDate')
     expect(keys).not.toContain('dislikedFoods')
+    // The body-answer marker is state, not a draft field: it is derived from the server-owned
+    // route, so a save must never carry it either.
+    expect(keys).not.toContain('bodyAnswered')
   })
 
   it('marks no step dirty, because seeding is not a user edit', () => {
@@ -769,82 +796,99 @@ describe('stepsForRoute', () => {
 describe('isStepComplete', () => {
   describe('goal', () => {
     it('needs no pace for maintain', () => {
-      expect(isStepComplete(makeDraft({goal: 'maintain'}), 'goal')).toBe(true)
+      expect(isStepComplete(makeState({goal: 'maintain'}), 'goal')).toBe(true)
     })
 
     it('needs a pace for lose and gain', () => {
-      expect(isStepComplete(makeDraft({goal: 'lose'}), 'goal')).toBe(false)
-      expect(isStepComplete(makeDraft({goal: 'gain'}), 'goal')).toBe(false)
-      expect(isStepComplete(makeDraft({goal: 'lose', paceLbPerWeek: 0.5}), 'goal')).toBe(true)
-      expect(isStepComplete(makeDraft({goal: 'gain', paceLbPerWeek: 1.5}), 'goal')).toBe(true)
+      expect(isStepComplete(makeState({goal: 'lose'}), 'goal')).toBe(false)
+      expect(isStepComplete(makeState({goal: 'gain'}), 'goal')).toBe(false)
+      expect(isStepComplete(makeState({goal: 'lose', paceLbPerWeek: 0.5}), 'goal')).toBe(true)
+      expect(isStepComplete(makeState({goal: 'gain', paceLbPerWeek: 1.5}), 'goal')).toBe(true)
     })
 
     it('treats the goal weight as optional', () => {
-      expect(isStepComplete(makeDraft({goal: 'lose', paceLbPerWeek: 1, goalWeightKg: null}), 'goal')).toBe(true)
-      expect(isStepComplete(makeDraft({goal: 'maintain', goalWeightKg: null}), 'goal')).toBe(true)
+      expect(isStepComplete(makeState({goal: 'lose', paceLbPerWeek: 1, goalWeightKg: null}), 'goal')).toBe(true)
+      expect(isStepComplete(makeState({goal: 'maintain', goalWeightKg: null}), 'goal')).toBe(true)
     })
 
     it('is incomplete while no goal is chosen', () => {
-      expect(isStepComplete(makeDraft(), 'goal')).toBe(false)
-      expect(isStepComplete(makeDraft({paceLbPerWeek: 1}), 'goal')).toBe(false)
+      expect(isStepComplete(makeState(), 'goal')).toBe(false)
+      expect(isStepComplete(makeState({paceLbPerWeek: 1}), 'goal')).toBe(false)
     })
   })
 
   describe('body', () => {
     it('needs age, height, weight and sex', () => {
-      expect(isStepComplete(makeCompleteDraft(), 'body')).toBe(true)
+      expect(isStepComplete(makeCompleteState(), 'body')).toBe(true)
     })
 
     it('is incomplete while any measurement is missing', () => {
-      expect(isStepComplete(makeCompleteDraft({age: null}), 'body')).toBe(false)
-      expect(isStepComplete(makeCompleteDraft({heightCm: null}), 'body')).toBe(false)
-      expect(isStepComplete(makeCompleteDraft({weightKg: null}), 'body')).toBe(false)
-      expect(isStepComplete(makeCompleteDraft({sexForEstimate: null}), 'body')).toBe(false)
+      expect(isStepComplete(makeCompleteState({age: null}), 'body')).toBe(false)
+      expect(isStepComplete(makeCompleteState({heightCm: null}), 'body')).toBe(false)
+      expect(isStepComplete(makeCompleteState({weightKg: null}), 'body')).toBe(false)
+      expect(isStepComplete(makeCompleteState({sexForEstimate: null}), 'body')).toBe(false)
     })
 
     it('accepts prefer-not-to-say as an answer to the sex question', () => {
-      expect(isStepComplete(makeCompleteDraft({sexForEstimate: 'prefer_not_to_say'}), 'body')).toBe(true)
+      expect(isStepComplete(makeCompleteState({sexForEstimate: 'prefer_not_to_say'}), 'body')).toBe(true)
+    })
+
+    // The step's other answer. Skip records a route and no measurements, so a rule that reads the
+    // measurements alone calls a completed step unanswered.
+    it('counts a Skip answered in this session, which carries no measurement at all', () => {
+      const skipped = answerBodySkipped(createEmptyDraft())
+
+      expect(skipped.draft.age).toBeNull()
+      expect(isStepComplete(skipped, 'body')).toBe(true)
+    })
+
+    it('counts a Skip saved on an earlier visit, read back from the saved route', () => {
+      expect(isStepComplete(seedDraftFromPreferences(makeSkippedBodyPreferences()), 'body')).toBe(true)
+    })
+
+    it('is unanswered while nothing has been answered and no measurement is entered', () => {
+      expect(isStepComplete(createEmptyDraft(), 'body')).toBe(false)
     })
   })
 
   describe('activity', () => {
     it('needs an activity level', () => {
-      expect(isStepComplete(makeDraft({activityLevel: 'very_active'}), 'activity')).toBe(true)
-      expect(isStepComplete(makeDraft(), 'activity')).toBe(false)
+      expect(isStepComplete(makeState({activityLevel: 'very_active'}), 'activity')).toBe(true)
+      expect(isStepComplete(makeState(), 'activity')).toBe(false)
     })
   })
 
   describe('diet', () => {
     it('needs a diet', () => {
-      expect(isStepComplete(makeDraft({allergens: ['milk']}), 'diet')).toBe(false)
-      expect(isStepComplete(makeDraft({diet: 'vegan', allergens: ['milk']}), 'diet')).toBe(true)
+      expect(isStepComplete(makeState({allergens: ['milk']}), 'diet')).toBe(false)
+      expect(isStepComplete(makeState({diet: 'vegan', allergens: ['milk']}), 'diet')).toBe(true)
     })
 
     it('counts the None sentinel as an allergy answer but an empty list as unanswered', () => {
-      expect(isStepComplete(makeDraft({diet: 'none', allergens: [ALLERGEN_NONE]}), 'diet')).toBe(true)
-      expect(isStepComplete(makeDraft({diet: 'none', allergens: []}), 'diet')).toBe(false)
+      expect(isStepComplete(makeState({diet: 'none', allergens: [ALLERGEN_NONE]}), 'diet')).toBe(true)
+      expect(isStepComplete(makeState({diet: 'none', allergens: []}), 'diet')).toBe(false)
     })
   })
 
   describe('dislikes', () => {
     it('is complete whether or not anything is selected', () => {
-      expect(isStepComplete(makeDraft(), 'dislikes')).toBe(true)
-      expect(isStepComplete(makeDraft({dislikedFoodIds: ['food-olive']}), 'dislikes')).toBe(true)
+      expect(isStepComplete(makeState(), 'dislikes')).toBe(true)
+      expect(isStepComplete(makeState({dislikedFoodIds: ['food-olive']}), 'dislikes')).toBe(true)
     })
   })
 
   describe('schedule', () => {
     it('needs a schedule and a time for each of its slots', () => {
-      expect(isStepComplete(applyMealSchedule(makeState(), 'three').draft, 'schedule')).toBe(true)
-      expect(isStepComplete(applyMealSchedule(makeState(), 'three_plus_snack').draft, 'schedule')).toBe(true)
+      expect(isStepComplete(applyMealSchedule(makeState(), 'three'), 'schedule')).toBe(true)
+      expect(isStepComplete(applyMealSchedule(makeState(), 'three_plus_snack'), 'schedule')).toBe(true)
     })
 
     it('is incomplete while no schedule is chosen', () => {
-      expect(isStepComplete(makeDraft({mealTimes: [{slot: 'breakfast', time: '08:00'}]}), 'schedule')).toBe(false)
+      expect(isStepComplete(makeState({mealTimes: [{slot: 'breakfast', time: '08:00'}]}), 'schedule')).toBe(false)
     })
 
     it('is incomplete while a slot of the chosen schedule has no time', () => {
-      const missingSnack = makeDraft({
+      const missingSnack = makeState({
         mealSchedule: 'three_plus_snack',
         mealTimes: [
           {slot: 'breakfast', time: '08:00'},
@@ -857,7 +901,7 @@ describe('isStepComplete', () => {
     })
 
     it('treats a blank time as unanswered', () => {
-      const blankLunch = makeDraft({
+      const blankLunch = makeState({
         mealSchedule: 'three',
         mealTimes: [
           {slot: 'breakfast', time: '08:00'},
@@ -870,7 +914,7 @@ describe('isStepComplete', () => {
     })
 
     it('ignores a time for a slot the chosen schedule does not use', () => {
-      const extraSnack = makeDraft({
+      const extraSnack = makeState({
         mealSchedule: 'three',
         mealTimes: [
           {slot: 'breakfast', time: '08:00'},
@@ -886,35 +930,35 @@ describe('isStepComplete', () => {
 
   describe('cooking', () => {
     it('needs a cooking-time limit and either budget answer', () => {
-      expect(isStepComplete(makeDraft({cookingTimeLimitMin: 30, noBudgetPreference: true}), 'cooking')).toBe(true)
+      expect(isStepComplete(makeState({cookingTimeLimitMin: 30, noBudgetPreference: true}), 'cooking')).toBe(true)
       expect(
-        isStepComplete(makeDraft({cookingTimeLimitMin: 15, budget: {amount: 120, currency: 'USD'}}), 'cooking')
+        isStepComplete(makeState({cookingTimeLimitMin: 15, budget: {amount: 120, currency: 'USD'}}), 'cooking')
       ).toBe(true)
     })
 
     it('is incomplete while neither budget answer is given', () => {
-      expect(isStepComplete(makeDraft({cookingTimeLimitMin: 60}), 'cooking')).toBe(false)
+      expect(isStepComplete(makeState({cookingTimeLimitMin: 60}), 'cooking')).toBe(false)
     })
 
     it('is incomplete while no cooking-time limit is chosen', () => {
-      expect(isStepComplete(makeDraft({noBudgetPreference: true}), 'cooking')).toBe(false)
-      expect(isStepComplete(makeDraft({budget: {amount: 120, currency: 'USD'}}), 'cooking')).toBe(false)
+      expect(isStepComplete(makeState({noBudgetPreference: true}), 'cooking')).toBe(false)
+      expect(isStepComplete(makeState({budget: {amount: 120, currency: 'USD'}}), 'cooking')).toBe(false)
     })
   })
 
-  it('does not mutate the draft it reads', () => {
-    const draft = makeCompleteDraft()
-    const snapshot = makeCompleteDraft()
+  it('does not mutate the state it reads', () => {
+    const state = makeCompleteState()
+    const snapshot = makeCompleteState()
 
-    stepsForRoute('estimated').forEach(step => isStepComplete(draft, step))
+    stepsForRoute('estimated').forEach(step => isStepComplete(state, step))
 
-    expect(draft).toEqual(snapshot)
+    expect(state).toEqual(snapshot)
   })
 })
 
 describe('completedSteps', () => {
   it('returns every step of the estimated route in wizard order for a fully answered draft', () => {
-    expect(completedSteps(makeCompleteDraft(), 'estimated')).toEqual([
+    expect(completedSteps(makeCompleteState(), 'estimated')).toEqual([
       'goal',
       'body',
       'activity',
@@ -926,13 +970,13 @@ describe('completedSteps', () => {
   })
 
   it('does not penalise a manual-route draft for the activity step it is never asked', () => {
-    const manualDraft = makeCompleteDraft({activityLevel: null, sexForEstimate: 'prefer_not_to_say'})
+    const manualDraft = makeCompleteState({activityLevel: null, sexForEstimate: 'prefer_not_to_say'})
 
     expect(completedSteps(manualDraft, 'manual')).toEqual(['goal', 'body', 'diet', 'dislikes', 'schedule', 'cooking'])
   })
 
   it('counts only the route it was given', () => {
-    const manualDraft = makeCompleteDraft({activityLevel: null})
+    const manualDraft = makeCompleteState({activityLevel: null})
 
     expect(completedSteps(manualDraft, 'estimated')).not.toContain('activity')
     expect(completedSteps(manualDraft, 'estimated')).toHaveLength(6)
@@ -940,12 +984,21 @@ describe('completedSteps', () => {
   })
 
   it('counts only the dislikes step for an untouched draft', () => {
-    expect(completedSteps(createEmptyDraft().draft, 'estimated')).toEqual(['dislikes'])
-    expect(completedSteps(createEmptyDraft().draft, 'manual')).toEqual(['dislikes'])
+    expect(completedSteps(createEmptyDraft(), 'estimated')).toEqual(['dislikes'])
+    expect(completedSteps(createEmptyDraft(), 'manual')).toEqual(['dislikes'])
+  })
+
+  // The counter the wizard header renders on the manual route. A saved Skip is the sixth answer,
+  // so reading it off the measurements reported five of six and re-opened a finished screen.
+  it('counts all six manual-route steps for a resumed user who answered the body step with Skip', () => {
+    const resumed = seedDraftFromPreferences(makeSkippedBodyPreferences())
+
+    expect(completedSteps(resumed, 'manual')).toEqual(['goal', 'body', 'diet', 'dislikes', 'schedule', 'cooking'])
+    expect(completedSteps(resumed, 'manual')).toHaveLength(SETUP_STEPS_MANUAL.length)
   })
 
   it('drops a step again once its answer is cleared', () => {
-    const withoutSchedule = makeCompleteDraft({mealSchedule: null, mealTimes: []})
+    const withoutSchedule = makeCompleteState({mealSchedule: null, mealTimes: []})
 
     expect(completedSteps(withoutSchedule, 'estimated')).toEqual([
       'goal',
@@ -1000,6 +1053,89 @@ describe('the seeded flag', () => {
   })
 })
 
+// The body step is the one step whose answer can leave every field of it empty, so the fact that
+// it was answered is carried on the state rather than inferred from the draft.
+describe('the body-answer marker', () => {
+  it('is unanswered for a first-entry draft', () => {
+    expect(createEmptyDraft().bodyAnswered).toBe(false)
+  })
+
+  // The saved route is the server's own proof that the step was answered: a body-step save is the
+  // only writer of it, and Skip, 'Prefer not to say' and a measured answer all resolve it.
+  it('reads the saved answer off the target route, whichever branch the user took', () => {
+    expect(seedDraftFromPreferences(makePreferences({targetRoute: 'estimated'})).bodyAnswered).toBe(true)
+    expect(seedDraftFromPreferences(makeSkippedBodyPreferences()).bodyAnswered).toBe(true)
+  })
+
+  it('stays unanswered while no route is on record, so the step is asked rather than assumed', () => {
+    expect(seedDraftFromPreferences(makePreferences({targetRoute: null})).bodyAnswered).toBe(false)
+    expect(seedDraftFromPreferences(null).bodyAnswered).toBe(false)
+    expect(seedDraftFromPreferences(undefined).bodyAnswered).toBe(false)
+  })
+
+  // First save: the screen records the Skip before the refetch that would seed it, so the counter
+  // is right the moment the user taps it rather than one request later.
+  it('records a Skip taken in this session', () => {
+    const skipped = answerBodySkipped(createEmptyDraft())
+
+    expect(skipped.bodyAnswered).toBe(true)
+    expect(skipped.dirty).toEqual(makeDirty({body: true}))
+  })
+
+  // Skip records a route; it does not delete figures entered on an earlier pass, which is exactly
+  // what the server does with it.
+  it('clears no measurement the draft already holds', () => {
+    const skipped = answerBodySkipped(makeCompleteState())
+
+    expect(skipped.draft).toEqual(makeCompleteDraft())
+    expect(skipped.bodyAnswered).toBe(true)
+  })
+
+  it('does not mutate the state it answers', () => {
+    const state = makeCompleteState()
+    const snapshot = makeCompleteState()
+
+    answerBodySkipped(state)
+
+    expect(state).toEqual(snapshot)
+  })
+
+  it('leaves a seeded draft seeded', () => {
+    expect(answerBodySkipped(seedDraftFromPreferences(makePreferences())).seeded).toBe(true)
+    expect(answerBodySkipped(createEmptyDraft()).seeded).toBe(false)
+  })
+
+  // Resume: a user who skipped and came back keeps the answer while they edit anything, including
+  // the body screen itself, so the counter cannot drop a step mid-session.
+  it('survives every reducer that edits the draft', () => {
+    const resumed = seedDraftFromPreferences(makeSkippedBodyPreferences())
+
+    expect(setStepFields(resumed, 'body', {age: 34}).bodyAnswered).toBe(true)
+    expect(applyAllergenSelection(resumed, 'soy').bodyAnswered).toBe(true)
+    expect(toggleDislikedFoodId(resumed, 'food-olive').bodyAnswered).toBe(true)
+    expect(setDislikedFoodIds(resumed, ['food-olive']).bodyAnswered).toBe(true)
+    expect(applyMealSchedule(resumed, 'three').bodyAnswered).toBe(true)
+    expect(setMealTime(resumed, 'dinner', '19:00').bodyAnswered).toBe(true)
+    expect(applyBudgetAmount(resumed, 120).bodyAnswered).toBe(true)
+    expect(applyNoBudgetPreference(resumed, true).bodyAnswered).toBe(true)
+  })
+
+  it('is never invented by an edit of a draft whose body step was never answered', () => {
+    expect(setStepFields(createEmptyDraft(), 'body', {age: 34}).bodyAnswered).toBe(false)
+    expect(applyBudgetAmount(createEmptyDraft(), 120).bodyAnswered).toBe(false)
+  })
+
+  // Resume, measured after a skip: the step is answered either way, and a half-entered measurement
+  // never un-answers the Skip that is on record.
+  it('keeps the step complete while a resumed user re-enters measurements one field at a time', () => {
+    const resumed = seedDraftFromPreferences(makeSkippedBodyPreferences())
+    const partial = setStepFields(resumed, 'body', {age: 34})
+
+    expect(isStepComplete(partial, 'body')).toBe(true)
+    expect(isStepComplete(setStepFields(partial, 'body', {heightCm: 177.8}), 'body')).toBe(true)
+  })
+})
+
 describe('clearsSetupDraft', () => {
   it('clears the draft when a generated plan hands the answers to the server', () => {
     expect(clearsSetupDraft('setup_completed')).toBe(true)
@@ -1034,7 +1170,8 @@ describe('applyLifecycleEvent', () => {
   const fullyDirtyDraft = (): MealPlanSetupDraftState => ({
     draft: makeCompleteDraft({budget: {amount: 120, currency: 'USD'}, noBudgetPreference: false}),
     dirty: {...ALL_DIRTY},
-    seeded: true
+    seeded: true,
+    bodyAnswered: true
   })
 
   it('discards every answer of a fully dirty draft once setup completes', () => {
@@ -1052,6 +1189,8 @@ describe('applyLifecycleEvent', () => {
     expect(cleared.draft.weightKg).toBeNull()
     expect(cleared.draft.allergens).toEqual([])
     expect(cleared.seeded).toBe(false)
+    // The next user must be asked the body step rather than inheriting the answer to it.
+    expect(cleared.bodyAnswered).toBe(false)
     expect(Object.values(cleared.dirty).some(Boolean)).toBe(false)
   })
 
@@ -1149,10 +1288,10 @@ describe('determinism', () => {
     expect(applyBudgetAmount(state, 120)).toEqual(applyBudgetAmount(state, 120))
   })
 
-  it('derives the same progress from the same draft', () => {
-    const draft = makeCompleteDraft()
+  it('derives the same progress from the same state', () => {
+    const state = makeCompleteState()
 
-    expect(completedSteps(draft, 'estimated')).toEqual(completedSteps(draft, 'estimated'))
+    expect(completedSteps(state, 'estimated')).toEqual(completedSteps(state, 'estimated'))
     expect(seedDraftFromPreferences(makePreferences())).toEqual(seedDraftFromPreferences(makePreferences()))
   })
 })

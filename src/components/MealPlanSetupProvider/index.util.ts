@@ -31,6 +31,19 @@ export interface MealPlanSetupDraftState {
   // composes the draft with the fetched preferences must stop falling back to a saved optional
   // once this is set.
   seeded: boolean
+  // True once the body step has an answer on record — measured, 'Prefer not to say', or Skip.
+  //
+  // It is here rather than in the draft because the body step is the one step whose answer can
+  // legitimately leave every field of it empty: Skip sends `{skipped: true}` and the server stores
+  // no measurements for it at all, so measurement nullity cannot tell a skipped step from an
+  // unasked one and completeness cannot be read off the draft alone. The server records that
+  // answer in `target_route` — the column a body-step save is the only writer of — and proves the
+  // step answered by it being non-null, which is the proof `seedDraftFromPreferences` reads.
+  //
+  // The draft itself must never carry `targetRoute`: it mirrors the editable payload exactly, and
+  // a server-owned key reaching a save earns 400 `read_only_field`. So the fact lives beside
+  // `seeded` on the state, and every completeness rule takes the state.
+  bodyAnswered: boolean
 }
 
 // The moments the draft stops describing an answer the user is still giving. The provider is
@@ -134,7 +147,8 @@ export const createEmptyDraft = (): MealPlanSetupDraftState => ({
     timeZone: null
   },
   dirty: createCleanDirty(),
-  seeded: false
+  seeded: false,
+  bodyAnswered: false
 })
 
 const DRAFT_CLEARING_EVENTS: Readonly<Record<MealPlanSetupLifecycleEvent, boolean>> = Object.freeze({
@@ -150,8 +164,11 @@ export const clearsSetupDraft = (event: MealPlanSetupLifecycleEvent): boolean =>
 // A draft nobody has seeded or edited already is the empty draft, so clearing it would only hand
 // the provider a new object to re-render for. 'flow_exited' arrives every time the Macros root
 // regains focus — which is most of the time, with no setup in flight — so the no-op matters.
+// `bodyAnswered` is part of what a reset clears, so a state carrying it is not pristine either —
+// every setter that raises it also seeds or dirties, but the predicate says what it means rather
+// than relying on that.
 const isPristineDraft = (state: MealPlanSetupDraftState): boolean =>
-  !state.seeded && !Object.values(state.dirty).some(Boolean)
+  !state.seeded && !state.bodyAnswered && !Object.values(state.dirty).some(Boolean)
 
 // The one reset transition, so the boundaries that end a setup session cannot each invent their
 // own clearing rule and a Continue cannot discard the draft by reporting the step it saved.
@@ -191,7 +208,15 @@ export const seedDraftFromPreferences = (
       timeZone: preferences.timeZone
     },
     dirty: createCleanDirty(),
-    seeded: true
+    seeded: true,
+    // The saved body answer, read from the one column that records it. `targetRoute` is
+    // server-owned and a body-step save is its only writer — Skip and 'Prefer not to say' resolve
+    // it to 'manual', a measured answer to 'estimated' — so non-null means the step was answered
+    // whichever branch it took, and that is exactly how the server's own resume logic proves it.
+    // Reading the measurements instead would call a saved Skip unanswered and re-ask a step the
+    // user already completed. An unrecognized route decodes to null, which re-asks the step rather
+    // than counting an answer nobody can read, so the marker fails closed.
+    bodyAnswered: preferences.targetRoute !== null
   }
 }
 
@@ -202,7 +227,24 @@ export const setStepFields = (
 ): MealPlanSetupDraftState => ({
   draft: {...state.draft, ...fields},
   dirty: {...state.dirty, [step]: true},
-  seeded: state.seeded
+  seeded: state.seeded,
+  bodyAnswered: state.bodyAnswered
+})
+
+// Skip on the About-you screen, which is an ANSWER to the body step and not an absence of one: it
+// routes the user to manual targets and supplies no measurements. It clears none either, exactly
+// as the server does not — Skip records a route, it does not delete figures the user may have
+// entered on an earlier pass — so a later measured answer still finds them in the draft.
+//
+// The body step is marked dirty because the user made this choice in this session; the screen
+// persists it with `{skipped: true}` and the refetch that follows reseeds the draft, which is how
+// every other step's dirty flag clears. Screens cannot reach this module directly, so this is the
+// action the provider exposes for it.
+export const answerBodySkipped = (state: MealPlanSetupDraftState): MealPlanSetupDraftState => ({
+  draft: state.draft,
+  dirty: {...state.dirty, body: true},
+  seeded: state.seeded,
+  bodyAnswered: true
 })
 
 export const applyAllergenSelection = (state: MealPlanSetupDraftState, allergen: string): MealPlanSetupDraftState => {
@@ -274,19 +316,30 @@ const hasCompleteSchedule = (draft: MealPlanSetupDraft): boolean => {
   )
 }
 
-const STEP_COMPLETENESS: Readonly<Record<MealPlanSetupStep, (draft: MealPlanSetupDraft) => boolean>> = Object.freeze({
-  goal: draft => draft.goal !== null && (draft.goal === 'maintain' || draft.paceLbPerWeek !== null),
-  body: draft =>
-    draft.age !== null && draft.heightCm !== null && draft.weightKg !== null && draft.sexForEstimate !== null,
-  activity: draft => draft.activityLevel !== null,
-  diet: draft => draft.diet !== null && draft.allergens.length > 0,
-  dislikes: () => true,
-  schedule: hasCompleteSchedule,
-  cooking: draft => draft.cookingTimeLimitMin !== null && (draft.budget !== null || draft.noBudgetPreference)
-})
+const hasBodyMeasurements = (draft: MealPlanSetupDraft): boolean =>
+  draft.age !== null && draft.heightCm !== null && draft.weightKg !== null && draft.sexForEstimate !== null
 
-export const isStepComplete = (draft: MealPlanSetupDraft, step: MealPlanSetupStep): boolean =>
-  STEP_COMPLETENESS[step](draft)
+// Completeness is a property of the whole setup state rather than of the draft, because one step's
+// answer is not held in any editable field: a body step answered with Skip carries no measurements
+// on the server and therefore none in the draft. Every other rule reads the draft only.
+const STEP_COMPLETENESS: Readonly<Record<MealPlanSetupStep, (state: MealPlanSetupDraftState) => boolean>> =
+  Object.freeze({
+    goal: ({draft}) => draft.goal !== null && (draft.goal === 'maintain' || draft.paceLbPerWeek !== null),
+    // Either branch of the step counts as answered. `bodyAnswered` is the saved answer — Skip,
+    // 'Prefer not to say' or a measured one — and the measurements cover the answer the user is
+    // giving right now, before anything is persisted. Requiring the measurements alone is what
+    // called a saved Skip incomplete: the manual route would report six steps done as five and
+    // re-open a screen the user had finished.
+    body: state => state.bodyAnswered || hasBodyMeasurements(state.draft),
+    activity: ({draft}) => draft.activityLevel !== null,
+    diet: ({draft}) => draft.diet !== null && draft.allergens.length > 0,
+    dislikes: () => true,
+    schedule: ({draft}) => hasCompleteSchedule(draft),
+    cooking: ({draft}) => draft.cookingTimeLimitMin !== null && (draft.budget !== null || draft.noBudgetPreference)
+  })
 
-export const completedSteps = (draft: MealPlanSetupDraft, route: TargetRoute): MealPlanSetupStep[] =>
-  stepsForRoute(route).filter(step => isStepComplete(draft, step))
+export const isStepComplete = (state: MealPlanSetupDraftState, step: MealPlanSetupStep): boolean =>
+  STEP_COMPLETENESS[step](state)
+
+export const completedSteps = (state: MealPlanSetupDraftState, route: TargetRoute): MealPlanSetupStep[] =>
+  stepsForRoute(route).filter(step => isStepComplete(state, step))

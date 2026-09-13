@@ -10,7 +10,7 @@ interface Props {
   message: string
 }
 
-const DashedPlaceholder = ({message}: Props) => (
+const DashedPlaceholder = ({message}: Props): React.JSX.Element => (
   <View style={styles.container}>
     <Text style={styles.message}>{message}</Text>
   </View>

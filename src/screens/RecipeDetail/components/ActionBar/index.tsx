@@ -12,7 +12,7 @@ interface Props {
   isEnabled: boolean
 }
 
-const ActionBar = ({onLogMeal, onSwap, logLabel, swapLabel, isEnabled}: Props) => {
+const ActionBar = ({onLogMeal, onSwap, logLabel, swapLabel, isEnabled}: Props): React.JSX.Element => {
   return (
     <SetupFooter
       hairline

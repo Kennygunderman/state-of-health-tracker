@@ -27,7 +27,7 @@ interface Props {
   onPress: () => void
 }
 
-const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props) => {
+const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props): React.JSX.Element => {
   const rowStyle = [styles.row, isFirst && styles.rowFirst, isLast && styles.rowLast]
   const rowContentStyle = [styles.rowContent, !isFirst && styles.rowContentDivider]
   const nameStyle = [styles.name, isAdded && styles.nameAdded]

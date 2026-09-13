@@ -25,6 +25,7 @@ import {
 
 import {
   buildAnswerRows,
+  buildTargetConfirmationPayload,
   GenerateSequencePlan,
   NO_TARGETS_REVISION,
   planGenerateSequence,
@@ -144,31 +145,94 @@ describe('planGenerateSequence', () => {
     expect(plan.blockedReason).toBeNull()
   })
 
-  it('asks for confirmation for stale, legacy, incomplete and absent targets', () => {
-    const sequenceFor = (targets: NutritionTargets | null): boolean =>
+  it('confirms the estimate only when the account has no figures of its own to review', () => {
+    const plan = planGenerateSequence({
+      targets: null,
+      estimate: makeEstimate(),
+      preferences: makePreferences(),
+      startDate: '2026-07-04'
+    })
+
+    expect(plan.requiresTargetConfirmation).toBe(true)
+    expect(plan.blockedReason).toBeNull()
+  })
+
+  it('generates against a stale confirmed set and saves nothing over it', () => {
+    const plan = planGenerateSequence({
+      targets: makeTargets({stale: true}),
+      estimate: makeEstimate(),
+      preferences: makePreferences(),
+      startDate: '2026-07-04'
+    })
+
+    expect(plan.requiresTargetConfirmation).toBe(false)
+    expect(plan.blockedReason).toBeNull()
+    expect(buildTargetConfirmationPayload(plan)).toBeNull()
+  })
+
+  it('asks the user to review saved figures the planner refuses rather than saving the estimate over them', () => {
+    const planFor = (targets: NutritionTargets | null): GenerateSequencePlan =>
       planGenerateSequence({
         targets,
         estimate: makeEstimate(),
         preferences: makePreferences(),
         startDate: '2026-07-04'
-      }).requiresTargetConfirmation
+      })
+    const refused = [
+      planFor(makeTargets({source: 'legacy'})),
+      planFor(makeTargets({targets: {calories: 2100, protein: 150, carbs: null, fat: 70}, complete: false})),
+      planFor(makeTargets({targets: {calories: 1900, protein: null, carbs: null, fat: null}, complete: false})),
+      planFor(makeTargets({source: null}))
+    ]
 
-    expect(sequenceFor(makeTargets({stale: true}))).toBe(true)
-    expect(sequenceFor(makeTargets({source: 'legacy'}))).toBe(true)
-    expect(sequenceFor(makeTargets({complete: false}))).toBe(true)
-    expect(sequenceFor(null)).toBe(true)
+    refused.forEach(plan => {
+      expect(plan.requiresTargetConfirmation).toBe(false)
+      expect(plan.blockedReason).toBe('targets_need_review')
+      expect(buildTargetConfirmationPayload(plan)).toBeNull()
+    })
   })
 
-  it('blocks on an absent estimate only when confirmation is required', () => {
-    const blocked = planGenerateSequence({
-      targets: makeTargets({stale: true}),
+  it('confirms nothing the card does not lead with, in every target state', () => {
+    const states: (NutritionTargets | null)[] = [
+      null,
+      makeTargets(),
+      makeTargets({stale: true}),
+      makeTargets({source: 'legacy'}),
+      makeTargets({source: null}),
+      makeTargets({complete: false}),
+      makeTargets({
+        targets: {calories: 1900, protein: null, carbs: null, fat: null},
+        complete: false,
+        source: 'legacy'
+      }),
+      makeTargets({targets: null, complete: false, source: null})
+    ]
+
+    states.forEach(targets => {
+      const inputs = {targets, estimate: makeEstimate(), preferences: makePreferences(), startDate: '2026-07-04'}
+      const plan = planGenerateSequence(inputs)
+      const display = resolveDisplayedTargets(inputs)
+
+      expect(plan.requiresTargetConfirmation).toBe(display.source === 'estimate')
+    })
+  })
+
+  it('blocks on an absent estimate only when there are no figures at all', () => {
+    const nothingAtAll = planGenerateSequence({
+      targets: null,
       estimate: null,
       preferences: makePreferences(),
       startDate: '2026-07-04'
     })
-    const withEstimate = planGenerateSequence({
+    const everyColumnUnset = planGenerateSequence({
+      targets: makeTargets({targets: null, complete: false, source: null}),
+      estimate: null,
+      preferences: makePreferences(),
+      startDate: '2026-07-04'
+    })
+    const staleWithoutEstimate = planGenerateSequence({
       targets: makeTargets({stale: true}),
-      estimate: makeEstimate(),
+      estimate: null,
       preferences: makePreferences(),
       startDate: '2026-07-04'
     })
@@ -179,8 +243,9 @@ describe('planGenerateSequence', () => {
       startDate: '2026-07-04'
     })
 
-    expect(blocked.blockedReason).toBe('estimate_unavailable')
-    expect(withEstimate.blockedReason).toBeNull()
+    expect(nothingAtAll.blockedReason).toBe('estimate_unavailable')
+    expect(everyColumnUnset.blockedReason).toBe('estimate_unavailable')
+    expect(staleWithoutEstimate.blockedReason).toBeNull()
     expect(confirmed.blockedReason).toBeNull()
   })
 
@@ -221,6 +286,49 @@ describe('planGenerateSequence', () => {
     expect(startDateSaveFor('2026-07-04', '2026-07-10')).toBe(true)
     expect(startDateSaveFor(null, '2026-07-04')).toBe(true)
     expect(startDateSaveFor('2026-07-04', '2026-07-04')).toBe(false)
+  })
+})
+
+describe('buildTargetConfirmationPayload', () => {
+  const planFor = (targets: NutritionTargets | null): GenerateSequencePlan =>
+    planGenerateSequence({
+      targets,
+      estimate: makeEstimate({estimateRevision: 12}),
+      preferences: makePreferences(),
+      startDate: '2026-07-04'
+    })
+
+  it('omits the revision pin on a first save, rather than pinning a revision that does not exist', () => {
+    const payload = buildTargetConfirmationPayload(planFor(null))
+
+    expect(payload).toEqual({source: 'estimated', estimateRevision: 12})
+    expect(payload !== null && 'expectedTargetsRevision' in payload).toBe(false)
+    expect(JSON.stringify(payload)).not.toContain('expectedTargetsRevision')
+  })
+
+  it('pins the revision the screen read once the server reports one', () => {
+    // Confirmation only happens when no target figure is saved; a preferences row may still report a revision,
+    // and the pin follows the revision rather than the figures.
+    const payload = buildTargetConfirmationPayload(planFor(makeTargets({targets: null, complete: false, revision: 5})))
+
+    expect(payload).toEqual({source: 'estimated', estimateRevision: 12, expectedTargetsRevision: 5})
+  })
+
+  it('carries no figures of its own, since the server recomputes them', () => {
+    const payload = buildTargetConfirmationPayload(planFor(null))
+    const members = payload === null ? [] : Object.keys(payload)
+
+    expect(members).not.toContain('calories')
+    expect(members).not.toContain('protein')
+    expect(members).not.toContain('carbs')
+    expect(members).not.toContain('fat')
+  })
+
+  it('builds nothing for a press that confirms nothing', () => {
+    expect(buildTargetConfirmationPayload(makePlan())).toBeNull()
+    expect(
+      buildTargetConfirmationPayload(makePlan({requiresTargetConfirmation: true, estimateRevision: null}))
+    ).toBeNull()
   })
 })
 
@@ -689,7 +797,7 @@ describe('resolveGenerateCtaState', () => {
 
   it('stays live once the estimate settles unavailable and carries the press to manual targets', () => {
     const plan = planGenerateSequence({
-      targets: makeTargets({stale: true}),
+      targets: null,
       estimate: null,
       preferences: makePreferences(),
       startDate: '2026-07-04'
@@ -699,6 +807,21 @@ describe('resolveGenerateCtaState', () => {
     expect(plan.blockedReason).toBe('estimate_unavailable')
     expect(cta.isEnabled).toBe(true)
     expect(cta.action).toBe('manual_targets')
+    expect(cta.label).toBe(MEAL_PLAN_GENERATE_BUTTON_TEXT)
+  })
+
+  it('carries the press to the targets editor when the saved figures need reviewing', () => {
+    const plan = planGenerateSequence({
+      targets: makeTargets({source: 'legacy'}),
+      estimate: makeEstimate(),
+      preferences: makePreferences(),
+      startDate: '2026-07-04'
+    })
+    const cta = resolveGenerateCtaState({plan, isEstimateLoading: false, isPending: false})
+
+    expect(plan.blockedReason).toBe('targets_need_review')
+    expect(cta.isEnabled).toBe(true)
+    expect(cta.action).toBe('review_targets')
     expect(cta.label).toBe(MEAL_PLAN_GENERATE_BUTTON_TEXT)
   })
 

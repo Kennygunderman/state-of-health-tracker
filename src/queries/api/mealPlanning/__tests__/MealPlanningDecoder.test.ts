@@ -41,6 +41,22 @@ const withoutMember = <T extends object>(value: T, member: keyof T & string): Re
   return payload
 }
 
+// A payload carrying a value the codec's type no longer admits. The fixture builders are typed against the
+// codecs, so an out-of-vocabulary or malformed value cannot be passed through them — and refusing it is the
+// behaviour under test, which is exactly why it has to be written as untyped wire data.
+const withMembers = <T extends object>(value: T, members: Record<string, unknown>): Record<string, unknown> => ({
+  ...value,
+  ...members
+})
+
+const expectRefused = (codec: io.Decoder<unknown, unknown>, input: unknown): void => {
+  expect(isLeft(codec.decode(input))).toBe(true)
+}
+
+const expectAccepted = (codec: io.Decoder<unknown, unknown>, input: unknown): void => {
+  expect(isRight(codec.decode(input))).toBe(true)
+}
+
 const makeTotals = (
   overrides: Partial<io.TypeOf<typeof MacroTotalsResponse>> = {}
 ): io.TypeOf<typeof MacroTotalsResponse> => ({
@@ -362,16 +378,86 @@ const makeAffectedMeal = (
   ...overrides
 })
 
+// Every code set on this response is closed, and the decoder is where that closure is enforced: the member
+// the client reads as "this user has not started setup" must not be satisfiable by a value the server never
+// defined, or a completed setup reads as a fresh one.
+const PREFERENCE_VOCABULARIES: {member: string; accepted: unknown[]; refused: unknown[]}[] = [
+  {
+    member: 'setupStatus',
+    accepted: ['not_started', 'in_progress', 'ready_for_review', 'completed'],
+    refused: ['awaiting_review', 'NOT_STARTED', 'not started', '', null, 1]
+  },
+  {
+    member: 'setupStep',
+    accepted: ['goal', 'body', 'activity', 'diet', 'dislikes', 'schedule', 'cooking', 'review', 'targets_manual', null],
+    refused: ['brand_new_step', 'targets', '', 3]
+  },
+  {member: 'targetRoute', accepted: ['estimated', 'manual', null], refused: ['calculated', '']},
+  {member: 'goal', accepted: ['lose', 'maintain', 'gain', null], refused: ['recomposition', 'Lose', '']},
+  {member: 'paceLbPerWeek', accepted: [0.5, 1, 1.5, null], refused: [2, 0, 0.75, '1']},
+  {
+    member: 'sexForEstimate',
+    accepted: ['female', 'male', 'prefer_not_to_say', null],
+    refused: ['unspecified', 'Female', '']
+  },
+  {member: 'heightUnitPref', accepted: ['ft_in', 'cm', null], refused: ['inches', 'm', '']},
+  {member: 'weightUnitPref', accepted: ['lb', 'kg', null], refused: ['st', 'lbs', '']},
+  {
+    member: 'activityLevel',
+    accepted: ['not_very_active', 'lightly_active', 'active', 'very_active', null],
+    refused: ['extremely_active', 'sedentary', '']
+  },
+  {
+    member: 'diet',
+    accepted: ['none', 'vegetarian', 'vegan', 'pescatarian', null],
+    refused: ['keto', 'no_specific_diet', '']
+  },
+  {member: 'mealSchedule', accepted: ['three', 'three_plus_snack', null], refused: ['four', 'three_plus_two', '']},
+  {member: 'cookingTimeLimitMin', accepted: [15, 30, 45, 60, null], refused: [90, 20, 0, '30']},
+  {member: 'budgetTier', accepted: [1, 2, 3, null], refused: [0, 4, '2']}
+]
+
 describe('PreferencesResponse', () => {
-  describe('setup vocabulary the client does not recognise', () => {
-    it('carries an unknown setup status and step through verbatim', () => {
+  describe('closed setup and preference vocabularies', () => {
+    it.each(PREFERENCE_VOCABULARIES)('accepts every $member the contract defines', ({member, accepted}) => {
+      accepted.forEach(value => expectAccepted(PreferencesResponse, withMembers(makePreferences(), {[member]: value})))
+    })
+
+    it.each(PREFERENCE_VOCABULARIES)('refuses a $member the contract does not define', ({member, refused}) => {
+      refused.forEach(value => expectRefused(PreferencesResponse, withMembers(makePreferences(), {[member]: value})))
+    })
+
+    it('refuses a meal time whose slot is not one of the four', () => {
+      expectRefused(PreferencesResponse, withMembers(makePreferences(), {mealTimes: [{slot: 'brunch', time: '10:30'}]}))
+    })
+
+    it('accepts a meal time for each of the four slots', () => {
+      expectAccepted(
+        PreferencesResponse,
+        withMembers(makePreferences(), {
+          mealTimes: [
+            {slot: 'breakfast', time: '08:00'},
+            {slot: 'lunch', time: '12:30'},
+            {slot: 'dinner', time: '18:30'},
+            {slot: 'snack', time: '15:30'}
+          ]
+        })
+      )
+    })
+
+    it('keeps the open data lists open, because their values are catalog data rather than contract codes', () => {
       const preferences = decodeRight(
         PreferencesResponse,
-        makePreferences({setupStatus: 'awaiting_review', setupStep: 'brand_new_step'})
+        withMembers(makePreferences(), {
+          allergens: ['sesame', 'a_new_allergen_code'],
+          dislikedFoodGroups: ['mushroom', 'a_new_food_group'],
+          dislikedFoods: [{id: 'catalog-food-11', name: 'Natto', foodGroup: 'a_new_food_group'}]
+        })
       )
 
-      expect(preferences.setupStatus).toBe('awaiting_review')
-      expect(preferences.setupStep).toBe('brand_new_step')
+      expect(preferences.allergens).toEqual(['sesame', 'a_new_allergen_code'])
+      expect(preferences.dislikedFoodGroups).toEqual(['mushroom', 'a_new_food_group'])
+      expect(preferences.dislikedFoods[0].foodGroup).toBe('a_new_food_group')
     })
   })
 
@@ -422,12 +508,13 @@ describe('PreferencesSaveResponse', () => {
     expect(saved.preferences.revision).toBe(4)
   })
 
-  it('carries an unknown nested setup status through verbatim', () => {
-    const payload = {preferences: makePreferences({setupStatus: 'awaiting_review'}), affectedMealCount: 2}
-    const saved = decodeRight(PreferencesSaveResponse, payload)
+  it('refuses a nested setup status the contract does not define', () => {
+    const payload = {
+      preferences: withMembers(makePreferences(), {setupStatus: 'awaiting_review'}),
+      affectedMealCount: 2
+    }
 
-    expect(saved.preferences.setupStatus).toBe('awaiting_review')
-    expect(saved.affectedMealCount).toBe(2)
+    expectRefused(PreferencesSaveResponse, payload)
   })
 })
 
@@ -502,11 +589,29 @@ describe('TargetsSaveResponse', () => {
 })
 
 describe('MealPlanMealResponse', () => {
-  describe('vocabulary the client does not recognise', () => {
-    it('carries an unknown slot through verbatim', () => {
-      expect(decodeRight(MealPlanMealResponse, makeMeal({slot: 'brunch'})).slot).toBe('brunch')
+  describe('the closed slot and provenance members', () => {
+    it('accepts each of the four slots', () => {
+      ;['breakfast', 'lunch', 'dinner', 'snack'].forEach(slot =>
+        expectAccepted(MealPlanMealResponse, withMembers(makeMeal(), {slot}))
+      )
     })
 
+    it('refuses a slot that is not one of the four', () => {
+      ;['brunch', 'Breakfast', 'second_dinner', '', null].forEach(slot =>
+        expectRefused(MealPlanMealResponse, withMembers(makeMeal(), {slot}))
+      )
+    })
+
+    it('refuses a planned recipe that claims any provenance other than source-backed', () => {
+      const meal = makeMeal()
+
+      ;['ingredient_derived', 'ai_estimated', 'user_entered', 'lab_measured'].forEach(nutritionProvenance =>
+        expectRefused(MealPlanMealResponse, {...meal, recipe: {...meal.recipe, nutritionProvenance}})
+      )
+    })
+  })
+
+  describe('vocabulary the client does not recognise', () => {
     it('carries an unknown flag code through verbatim', () => {
       const meal = decodeRight(MealPlanMealResponse, makeMeal({flags: [{code: 'weather', detail: ['storm']}]}))
 
@@ -525,14 +630,13 @@ describe('MealPlanMealResponse', () => {
             iconKey: 'space_food',
             totalMinutes: 25,
             badges: ['not_a_badge'],
-            nutritionProvenance: 'lab_measured'
+            nutritionProvenance: 'source_backed'
           }
         })
       )
 
       expect(meal.recipe.iconKey).toBe('space_food')
       expect(meal.recipe.badges).toEqual(['not_a_badge'])
-      expect(meal.recipe.nutritionProvenance).toBe('lab_measured')
     })
   })
 
@@ -659,9 +763,18 @@ describe('MealPlanDayResponse', () => {
 })
 
 describe('MealPlanResponse', () => {
-  describe('a status the client does not recognise', () => {
-    it('carries the plan status through verbatim', () => {
-      expect(decodeRight(MealPlanResponse, makePlan({status: 'draft'})).status).toBe('draft')
+  describe('the closed status member', () => {
+    it('accepts both statuses the contract defines', () => {
+      expect(decodeRight(MealPlanResponse, makePlan({status: 'active'})).status).toBe('active')
+      expect(decodeRight(MealPlanResponse, makePlan({status: 'superseded'})).status).toBe('superseded')
+    })
+
+    // The status is what decides whether Swap and Log are offered, so an unrecognised one must not read as
+    // an active plan: that would enable writes the server answers with 409 plan_not_active.
+    it('refuses a status the contract does not define', () => {
+      ;['draft', 'ended', 'ACTIVE', '', null].forEach(status =>
+        expectRefused(MealPlanResponse, withMembers(makePlan(), {status}))
+      )
     })
   })
 
@@ -766,8 +879,41 @@ describe('RecipeVersionResponse', () => {
       expect(recipe.ingredients[1].nutritionProvenance).toBe('vendor_declared')
     })
 
-    it('carries an unknown recipe status through verbatim', () => {
-      expect(decodeRight(RecipeVersionResponse, makeRecipeVersion({status: 'archived'})).status).toBe('archived')
+    it('preserves a meal-slot list that contains an unknown code', () => {
+      const recipe = decodeRight(RecipeVersionResponse, makeRecipeVersion({mealSlots: ['lunch', 'brunch']}))
+
+      expect(recipe.mealSlots).toEqual(['lunch', 'brunch'])
+    })
+  })
+
+  describe('the closed status, allergen-status and budget-tier members', () => {
+    it('accepts the values the contract defines', () => {
+      expect(decodeRight(RecipeVersionResponse, makeRecipeVersion({status: 'current'})).status).toBe('current')
+      expect(decodeRight(RecipeVersionResponse, makeRecipeVersion({status: 'retired'})).status).toBe('retired')
+      expect(decodeRight(RecipeVersionResponse, makeRecipeVersion({allergenStatus: 'unknown'})).allergenStatus).toBe(
+        'unknown'
+      )
+      ;[1, 2, 3].forEach(budgetTier =>
+        expectAccepted(RecipeVersionResponse, withMembers(makeRecipeVersion(), {budgetTier}))
+      )
+    })
+
+    it('refuses a status outside current and retired', () => {
+      ;['archived', 'candidate', 'published', '', null].forEach(status =>
+        expectRefused(RecipeVersionResponse, withMembers(makeRecipeVersion(), {status}))
+      )
+    })
+
+    it('refuses an allergen status outside known and unknown', () => {
+      ;['partial', 'Known', '', null].forEach(allergenStatus =>
+        expectRefused(RecipeVersionResponse, withMembers(makeRecipeVersion(), {allergenStatus}))
+      )
+    })
+
+    it('refuses a budget tier outside the three bands', () => {
+      ;[0, 4, 1.5, '2', null].forEach(budgetTier =>
+        expectRefused(RecipeVersionResponse, withMembers(makeRecipeVersion(), {budgetTier}))
+      )
     })
   })
 
@@ -1002,15 +1148,28 @@ describe('GroceryToggleResponse', () => {
 })
 
 describe('AffectedMealResponse', () => {
-  it('carries an unknown slot and flag code through verbatim', () => {
+  it('carries an unknown flag code through verbatim', () => {
     const meal = decodeRight(
       AffectedMealResponse,
-      makeAffectedMeal({slot: 'brunch', flags: [{code: 'weather', detail: ['storm', 'flood']}]})
+      makeAffectedMeal({flags: [{code: 'weather', detail: ['storm', 'flood']}]})
     )
 
-    expect(meal.slot).toBe('brunch')
     expect(meal.flags[0].code).toBe('weather')
     expect(meal.flags[0].detail).toEqual(['storm', 'flood'])
+  })
+
+  // This row navigates the user to one meal of one day to swap it, so an unrecognised slot read as breakfast
+  // would point them at a meal that is not the flagged one.
+  it('refuses a slot that is not one of the four', () => {
+    ;['brunch', 'Dinner', '', null].forEach(slot =>
+      expectRefused(AffectedMealResponse, withMembers(makeAffectedMeal(), {slot}))
+    )
+  })
+
+  it('accepts each of the four slots', () => {
+    ;['breakfast', 'lunch', 'dinner', 'snack'].forEach(slot =>
+      expectAccepted(AffectedMealResponse, withMembers(makeAffectedMeal(), {slot}))
+    )
   })
 })
 
@@ -1041,6 +1200,200 @@ describe('AffectedMealsResponse', () => {
     expect(meals[0].flags[0].detail).toEqual(['milk'])
     expect(meals[1].date).toBe('2026-07-09')
     expect(meals[1].flags[0].code).toBe('dislike')
+  })
+})
+
+// Dates, times, instants and zone names are the members the app compares lexicographically, parses, orders
+// and passes as route parameters. A bare string member would let a malformed one through as trusted domain
+// data, so each format is validated at the decoder — once per member, on every codec that carries one.
+type FormatField = {label: string; codec: io.Decoder<unknown, unknown>; build: (value: unknown) => unknown}
+
+const DAY_KEY_FIELDS: FormatField[] = [
+  {
+    label: 'PreferencesResponse.reviewStartDate',
+    codec: PreferencesResponse,
+    build: value => withMembers(makePreferences(), {reviewStartDate: value})
+  },
+  {
+    label: 'MealPlanResponse.startDate',
+    codec: MealPlanResponse,
+    build: value => withMembers(makePlan(), {startDate: value})
+  },
+  {
+    label: 'MealPlanResponse.endDate',
+    codec: MealPlanResponse,
+    build: value => withMembers(makePlan(), {endDate: value})
+  },
+  {
+    label: 'MealPlanDayResponse.date',
+    codec: MealPlanDayResponse,
+    build: value => withMembers(makeDay(), {date: value})
+  },
+  {
+    label: 'MealPlanMealResponse.loggedEntries[].date',
+    codec: MealPlanMealResponse,
+    build: value => withMembers(makeMeal(), {loggedEntries: [{...makeLoggedEntry(), date: value}]})
+  },
+  {
+    label: 'GroceryListResponse.startDate',
+    codec: GroceryListResponse,
+    build: value => withMembers(makeGroceryList(), {startDate: value})
+  },
+  {
+    label: 'GroceryListResponse.endDate',
+    codec: GroceryListResponse,
+    build: value => withMembers(makeGroceryList(), {endDate: value})
+  },
+  {
+    label: 'AffectedMealResponse.date',
+    codec: AffectedMealResponse,
+    build: value => withMembers(makeAffectedMeal(), {date: value})
+  }
+]
+
+const CLOCK_TIME_FIELDS: FormatField[] = [
+  {
+    label: 'PreferencesResponse.mealTimes[].time',
+    codec: PreferencesResponse,
+    build: value => withMembers(makePreferences(), {mealTimes: [{slot: 'breakfast', time: value}]})
+  },
+  {
+    label: 'MealPlanMealResponse.slotTime',
+    codec: MealPlanMealResponse,
+    build: value => withMembers(makeMeal(), {slotTime: value})
+  }
+]
+
+const TIMESTAMP_FIELDS: FormatField[] = [
+  {
+    label: 'MealPlanMealResponse.loggedEntries[].loggedAt',
+    codec: MealPlanMealResponse,
+    build: value => withMembers(makeMeal(), {loggedEntries: [{...makeLoggedEntry(), loggedAt: value}]})
+  },
+  {
+    label: 'GroceryItemResponse.flag.flaggedAt',
+    codec: GroceryItemResponse,
+    build: value =>
+      withMembers(makeGroceryItem(), {
+        isChecked: true,
+        flag: {
+          previousDisplayText: '2.5 lb',
+          newDisplayText: '3.1 lb',
+          deltaDisplayText: '+0.6 lb',
+          flaggedAt: value
+        }
+      })
+  }
+]
+
+const VALID_DAY_KEYS = ['2026-07-05', '2026-01-01', '2026-12-31', '2024-02-29']
+const INVALID_DAY_KEYS = [
+  '2026-02-30',
+  '2023-02-29',
+  '2026-13-01',
+  '2026-00-10',
+  '2026-07-32',
+  '2026-07-00',
+  '2026-07-5',
+  '26-07-05',
+  '2026/07/05',
+  '2026-07-05T00:00:00.000Z',
+  'yesterday',
+  '',
+  ' 2026-07-05',
+  20260705
+]
+
+const VALID_CLOCK_TIMES = ['00:00', '08:00', '12:30', '15:30', '23:59']
+const INVALID_CLOCK_TIMES = ['24:00', '8:00', '07:60', '25:15', '12:3', '12:30:00', '12.30', '', '1230', 830]
+
+const VALID_TIMESTAMPS = [
+  '2026-07-05T12:30:00.000Z',
+  '2026-07-05T12:30:00Z',
+  '2026-07-05T08:30:00+02:00',
+  '2026-07-05T23:59:59.999Z',
+  '2024-02-29T00:00:00.000Z'
+]
+const INVALID_TIMESTAMPS = [
+  '2026-07-05T08:30:00',
+  '2026-07-05 08:30:00Z',
+  '2026-07-05',
+  '2026-02-30T08:30:00.000Z',
+  '2026-07-05T24:00:00.000Z',
+  '2026-07-05T12:60:00.000Z',
+  '2026-13-05T12:30:00.000Z',
+  '2026-07-05T12:30:00+25:00',
+  'not-a-date',
+  '',
+  1783254600000
+]
+
+describe('wire formats', () => {
+  describe('calendar day keys', () => {
+    it.each(DAY_KEY_FIELDS)('accepts a real calendar day on $label', ({codec, build}) => {
+      VALID_DAY_KEYS.forEach(value => expectAccepted(codec, build(value)))
+    })
+
+    it.each(DAY_KEY_FIELDS)('refuses a malformed or impossible day on $label', ({codec, build}) => {
+      INVALID_DAY_KEYS.forEach(value => expectRefused(codec, build(value)))
+    })
+
+    it('refuses February 30th while accepting a leap-year February 29th', () => {
+      expectRefused(MealPlanDayResponse, withMembers(makeDay(), {date: '2026-02-30'}))
+      expectAccepted(MealPlanDayResponse, withMembers(makeDay(), {date: '2024-02-29'}))
+      expectRefused(MealPlanDayResponse, withMembers(makeDay(), {date: '2100-02-29'}))
+      expectAccepted(MealPlanDayResponse, withMembers(makeDay(), {date: '2000-02-29'}))
+    })
+
+    it('still accepts null on the one day key the contract makes nullable', () => {
+      const preferences = decodeRight(PreferencesResponse, withMembers(makePreferences(), {reviewStartDate: null}))
+
+      expect(preferences.reviewStartDate).toBeNull()
+    })
+  })
+
+  describe('wall-clock times', () => {
+    it.each(CLOCK_TIME_FIELDS)('accepts a zero-padded 24-hour time on $label', ({codec, build}) => {
+      VALID_CLOCK_TIMES.forEach(value => expectAccepted(codec, build(value)))
+    })
+
+    it.each(CLOCK_TIME_FIELDS)('refuses a malformed time on $label', ({codec, build}) => {
+      INVALID_CLOCK_TIMES.forEach(value => expectRefused(codec, build(value)))
+    })
+  })
+
+  describe('instants', () => {
+    it.each(TIMESTAMP_FIELDS)('accepts an ISO instant on $label', ({codec, build}) => {
+      VALID_TIMESTAMPS.forEach(value => expectAccepted(codec, build(value)))
+    })
+
+    // A zone-less date-time names no point in time, and these values are ordered against each other.
+    it.each(TIMESTAMP_FIELDS)('refuses a malformed or zone-less timestamp on $label', ({codec, build}) => {
+      INVALID_TIMESTAMPS.forEach(value => expectRefused(codec, build(value)))
+    })
+  })
+
+  describe('time zone names', () => {
+    it('accepts the IANA names a device reports', () => {
+      ;['America/New_York', 'Europe/London', 'Pacific/Auckland', 'Australia/Adelaide', 'UTC'].forEach(timeZone =>
+        expectAccepted(PreferencesResponse, withMembers(makePreferences(), {timeZone}))
+      )
+    })
+
+    it('accepts the null a user who has never saved a step carries', () => {
+      expect(decodeRight(PreferencesResponse, withMembers(makePreferences(), {timeZone: null})).timeZone).toBeNull()
+    })
+
+    it('refuses a name no time-zone database recognises', () => {
+      expectRefused(PreferencesResponse, withMembers(makePreferences(), {timeZone: 'Mars/Phobos'}))
+      expectRefused(PreferencesResponse, withMembers(makePreferences(), {timeZone: 'America/Atlantis'}))
+    })
+
+    it('refuses a value that is not shaped like a zone name at all', () => {
+      ;['', ' ', 'not a zone', 'America//New_York', '/New_York', 'America/New_York/', '-08:00', 42].forEach(timeZone =>
+        expectRefused(PreferencesResponse, withMembers(makePreferences(), {timeZone}))
+      )
+    })
   })
 })
 

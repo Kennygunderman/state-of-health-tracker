@@ -13,7 +13,7 @@ interface Props {
   onSelect: (mealId: string) => void
 }
 
-const SlotPicker = ({options, selectedMealId, onSelect}: Props) => {
+const SlotPicker = ({options, selectedMealId, onSelect}: Props): React.JSX.Element => {
   return (
     <View style={styles.column}>
       {/* BLITZY [A11Y]: these rows render no colour of their own. Figma authors this picker from the same

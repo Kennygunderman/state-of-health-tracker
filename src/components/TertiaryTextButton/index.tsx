@@ -15,7 +15,7 @@ interface Props {
   disabled?: boolean
 }
 
-const TertiaryTextButton = (props: Props) => {
+const TertiaryTextButton = (props: Props): React.JSX.Element => {
   const {label, onPress, isLoading = false, disabled = false} = props
   const isInactive = isLoading || disabled
 

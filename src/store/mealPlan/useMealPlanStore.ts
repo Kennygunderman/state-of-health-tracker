@@ -1,6 +1,13 @@
 import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
 import {ONE_DAY_MS} from '@utility/DateUtility'
-import {MealPlanActionType} from '@utility/IdempotencyUtility'
+import {
+  fingerprintSnapshot,
+  isMealPlanActionType,
+  matchesFingerprint,
+  MealPlanActionType,
+  MealPlanRequestSnapshot,
+  parseRequestSnapshot
+} from '@utility/IdempotencyUtility'
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
 
@@ -18,6 +25,17 @@ export type PostLogResult = {
 
 export type PendingIntentAction = MealPlanActionType
 
+/**
+ * One unresolved keyed write. `request` is what makes the record replayable: a fingerprint is a one-way
+ * comparison token, so a cold start holding only the key and the fingerprint could not rebuild the body and
+ * would have to mint a second key — turning one intent into two plans, two swaps or two diary entries. With
+ * the snapshot stored, the next launch reconstructs the byte-identical request the key was minted for
+ * (0.7.2).
+ *
+ * `fingerprint`, `planId` and `planRevision` are all derived from `request` by `buildPendingIntent`, which is
+ * the only way to build this shape: supplied independently they could describe a different request than the
+ * one stored beside them, and nothing downstream could tell.
+ */
 export type PendingIntent = {
   userId: string
   key: string
@@ -25,6 +43,17 @@ export type PendingIntent = {
   planId: string | null
   planRevision: number | null
   createdAt: number
+  request: MealPlanRequestSnapshot
+}
+
+/**
+ * Which key the next attempt of a keyed write must carry, and the request it must send. `isReplay` is the
+ * caller's cue that a server answer may be a stored response rather than a fresh commit.
+ */
+export type KeyedRequestPlan = {
+  idempotencyKey: string
+  isReplay: boolean
+  request: MealPlanRequestSnapshot
 }
 
 export type MealPlanStore = {
@@ -46,7 +75,7 @@ export type MealPlanStore = {
   dismissSuccessBanner: (entryId: string) => void
   setPostLogResult: (result: PostLogResult) => void
   clearPostLogResult: () => void
-  recordPendingIntent: (action: PendingIntentAction, intent: PendingIntent) => void
+  recordPendingIntent: (intent: PendingIntent) => void
   clearPendingIntent: (action: PendingIntentAction) => void
   prunePendingIntents: (now: number, userId: string | null) => void
   reset: () => void
@@ -121,12 +150,15 @@ const useMealPlanStore = create<MealPlanStore>()(
        * the clock and the session, so a sibling entry left by the previous account or by a week-old
        * unresolved request goes out with this write instead of surviving until something reads it.
        * The incoming intent is always kept exactly as minted.
+       *
+       * The slot is read from the intent's own `request.action` rather than passed alongside it, so a record
+       * can never be filed under an action it would not reconstruct.
        */
-      recordPendingIntent: (action, intent) =>
+      recordPendingIntent: intent =>
         set(state => ({
           pendingIntents: {
             ...selectPrunedPendingIntents(state.pendingIntents, intent.createdAt, intent.userId),
-            [action]: intent
+            [intent.request.action]: intent
           }
         })),
 
@@ -194,25 +226,116 @@ export const isPendingIntentExpired = (intent: PendingIntent, now: number): bool
   now - intent.createdAt >= PENDING_INTENT_TTL_MS
 
 /**
+ * The only way to build a `PendingIntent`. The fingerprint, the plan id and the plan revision are derived
+ * from the request rather than accepted as arguments, so the stored record is internally consistent by
+ * construction: a later launch that recomputes the fingerprint from `request` must get `fingerprint` back,
+ * which is the check that decides whether the key may be replayed (0.7.2). A `generate` intent precedes any
+ * plan, hence the two null members.
+ */
+export const buildPendingIntent = (
+  request: MealPlanRequestSnapshot,
+  key: string,
+  userId: string,
+  createdAt: number
+): PendingIntent => ({
+  userId,
+  key,
+  fingerprint: fingerprintSnapshot(request),
+  planId: request.action === 'generate' ? null : request.planId,
+  planRevision: request.action === 'generate' ? null : request.expectedPlanRevision,
+  createdAt,
+  request
+})
+
+/**
+ * Validates a record restored from device storage, where it is whatever JSON survived rather than the type it
+ * was written as. Everything is checked, including the record's agreement with itself: a snapshot that does
+ * not parse under the slot it was filed against, or whose recomputed fingerprint differs from the stored one,
+ * or whose derived plan id and revision differ from the stored pair, describes a request this release cannot
+ * reproduce. Such a record is refused rather than repaired — replaying a key under a changed body is what the
+ * server answers with `409 idempotency_conflict` (0.5.1), so minting a new key is the only safe outcome. A
+ * record written by an earlier release, which carries no snapshot at all, fails here for the same reason.
+ */
+export const parsePendingIntent = (value: unknown, action: PendingIntentAction): PendingIntent | null => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const {userId, key, fingerprint, planId, planRevision, createdAt, request} = value as Partial<PendingIntent>
+
+  if (typeof userId !== 'string' || userId.length === 0 || typeof key !== 'string' || key.length === 0) {
+    return null
+  }
+
+  if (typeof fingerprint !== 'string' || fingerprint.length === 0) {
+    return null
+  }
+
+  if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+    return null
+  }
+
+  const snapshot = parseRequestSnapshot(request, action)
+
+  if (snapshot === null || !matchesFingerprint(snapshot, fingerprint)) {
+    return null
+  }
+
+  const intent = buildPendingIntent(snapshot, key, userId, createdAt)
+
+  return planId === intent.planId && planRevision === intent.planRevision ? intent : null
+}
+
+const EMPTY_PENDING_INTENTS: Partial<Record<PendingIntentAction, PendingIntent>> = Object.freeze({})
+
+/**
+ * Whether a restored value can be read as the slice at all. Its TypeScript type describes what this release
+ * writes, not what came back from storage: a truncated file, a hand edit or a newer release's shape can leave
+ * anything there, and `Object.entries` throws on `null` and enumerates the characters of a string. So the
+ * boundary is checked rather than trusted, and anything that is not a plain object is treated as an empty
+ * slice — nothing replayable can be read out of it, and replacing it is what repairs storage.
+ */
+const isPendingIntentSlice = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
  * Drops every intent that has aged out and, when `userId` is given, every intent minted by another
  * account — the record carries that account's id, so hiding it at lookup time is not enough while
  * it is still being written to disk. `userId` is `null` where ownership is not knowable at the call
- * site (cold-start rehydration), which prunes by age only. The input is never mutated, and the very
+ * site (cold-start rehydration), which prunes by age only. A record that is not a valid intent for the slot
+ * it occupies goes out regardless of age or owner: it can never be replayed (`parsePendingIntent`), so
+ * leaving it on disk would only keep a dead key alive. The input is never mutated, and the very
  * same object is returned when nothing is stale so callers can skip the state write and its persist
  * round trip.
+ *
+ * Total over whatever storage returns, because this runs on the rehydration path where the value is still
+ * unverified JSON. A slot naming an action this release does not have — a newer release's keyed write, or a
+ * name that resolves on `Object.prototype` — is dropped like any other unreplayable record: throwing here
+ * would abort hydration itself, leaving the store unhydrated, the deferred ownership sweep waiting forever
+ * and every keyed action unusable until the user cleared app storage.
  */
 export const selectPrunedPendingIntents = (
-  pendingIntents: Partial<Record<PendingIntentAction, PendingIntent>>,
+  pendingIntents: unknown,
   now: number,
   userId: string | null
 ): Partial<Record<PendingIntentAction, PendingIntent>> => {
-  const entries = Object.entries(pendingIntents) as [PendingIntentAction, PendingIntent | undefined][]
-  const live = entries.filter(
-    ([, intent]) => !!intent && !isPendingIntentExpired(intent, now) && (userId === null || intent.userId === userId)
-  )
+  if (!isPendingIntentSlice(pendingIntents)) {
+    return EMPTY_PENDING_INTENTS
+  }
+
+  const entries = Object.entries(pendingIntents)
+  const live = entries.filter(([action, stored]) => {
+    if (!isMealPlanActionType(action)) {
+      return false
+    }
+
+    const intent = parsePendingIntent(stored, action)
+
+    return intent !== null && !isPendingIntentExpired(intent, now) && (userId === null || intent.userId === userId)
+  })
 
   if (live.length === entries.length) {
-    return pendingIntents
+    return pendingIntents as Partial<Record<PendingIntentAction, PendingIntent>>
   }
 
   return Object.fromEntries(live) as Partial<Record<PendingIntentAction, PendingIntent>>
@@ -240,19 +363,55 @@ export const prunePendingIntentsForUser = (userId: string, now: () => number): v
   })
 }
 
+/**
+ * The unresolved intent for one action, or `null` when there is nothing this caller may replay. Validation
+ * runs here rather than being assumed of the state, because after a cold start the slice is whatever came
+ * back from storage — including, until the rehydration prune has replaced it, a value that is not an object
+ * at all. The returned value is the parsed record, so a caller can only ever act on a snapshot this release
+ * understands.
+ */
 export const resolvePendingIntent = (
   state: Pick<MealPlanStore, 'pendingIntents'>,
   action: PendingIntentAction,
   userId: string,
   now: number
 ): PendingIntent | null => {
-  const intent = state.pendingIntents[action]
+  const slice: unknown = state.pendingIntents
+  const stored = isPendingIntentSlice(slice) ? slice[action] : undefined
+  const intent = stored === undefined ? null : parsePendingIntent(stored, action)
 
-  if (!intent || intent.userId !== userId || isPendingIntentExpired(intent, now)) {
+  if (intent === null || intent.userId !== userId || isPendingIntentExpired(intent, now)) {
     return null
   }
 
   return intent
+}
+
+/**
+ * The replay decision, in one place so the four keyed writes cannot answer it differently (0.7.2).
+ *
+ * The request a screen is about to send is fingerprinted and compared with the unresolved intent's: equal
+ * means this is the very request the key was minted for, so the attempt goes out under that key carrying the
+ * *stored* snapshot — the byte-identical replay a lost response requires, which the server answers with the
+ * stored result rather than a second commit. Any difference — an edited preference, a refreshed revision, a
+ * different alternative or portion — means the key is spent, because the server refuses a reused key with a
+ * changed fingerprint (`409 idempotency_conflict`), so the caller's freshly minted key is used instead. The
+ * action is read from the request, so the intent consulted is always the one for the write being made.
+ */
+export const resolveKeyedRequest = (
+  state: Pick<MealPlanStore, 'pendingIntents'>,
+  request: MealPlanRequestSnapshot,
+  userId: string,
+  now: number,
+  freshKey: string
+): KeyedRequestPlan => {
+  const intent = resolvePendingIntent(state, request.action, userId, now)
+
+  if (intent !== null && matchesFingerprint(request, intent.fingerprint)) {
+    return {idempotencyKey: intent.key, isReplay: true, request: intent.request}
+  }
+
+  return {idempotencyKey: freshKey, isReplay: false, request}
 }
 
 export default useMealPlanStore

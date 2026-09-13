@@ -22,7 +22,7 @@ interface Props {
   badge?: FoodListRowBadge
 }
 
-const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props) => {
+const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props): React.JSX.Element => {
   const badgeVariant = resolveBadgeVariant(badge)
 
   return (

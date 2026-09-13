@@ -48,6 +48,12 @@ export function convertCatalogFood(data: io.TypeOf<typeof CatalogFoodResponse>):
       unit: data.defaultPortion.unit,
       gramWeight: data.defaultPortion.gramWeight
     },
+    defaultPortionNutrition: {
+      calories: data.defaultPortionNutrition.calories,
+      protein: data.defaultPortionNutrition.protein,
+      carbs: data.defaultPortionNutrition.carbs,
+      fat: data.defaultPortionNutrition.fat
+    },
     allergenTags: data.allergenTags,
     allergenStatus: (KNOWN_ALLERGEN_STATUSES as string[]).includes(data.allergenStatus)
       ? (data.allergenStatus as CatalogAllergenStatus)

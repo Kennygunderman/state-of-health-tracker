@@ -1,38 +1,115 @@
-import {MacroTargetsResponse, MacroTotalsResponse} from '@queries/api/macros/decoder/MacrosDecoder'
+import {
+  ClockTimeString,
+  DayKeyString,
+  MacroTargetsResponse,
+  MacroTotalsResponse,
+  NullableDayKeyString,
+  NullableNumber,
+  NullableString,
+  NullableTimeZoneString,
+  TimestampString
+} from '@queries/api/macros/decoder/MacrosDecoder'
 import * as io from 'io-ts'
 
 // Mirrors state-of-health-be's src/types/mealPlanning.ts and src/types/recipe.ts response shapes.
-const nullableString = io.union([io.string, io.null])
-const nullableNumber = io.union([io.number, io.null])
+//
+// Lifecycle, status and slot members are literal unions rather than plain strings. The server narrows every
+// one of these columns before it answers, so a value outside the set is a corrupt or mismatched response —
+// and admitting one would let the client read "no setup" as a fresh start, or an ended plan as an active
+// one, from data the server never sent. The sets the contract deliberately leaves open stay loose strings
+// that the converters resolve with a named fallback instead: icon keys, badge codes and nutrition
+// provenance, the open data lists (allergens, food groups, diet and allergen tags, flag details, food
+// state), and the aisle and banner codes the grocery converter maps onto its own catch-all.
 const mealFlag = io.type({code: io.string, detail: io.array(io.string)})
 
+const nullable = <A>(codec: io.Type<A>): io.Type<A | null> => io.union([codec, io.null])
+
+const setupStatusCode = io.union([
+  io.literal('not_started'),
+  io.literal('in_progress'),
+  io.literal('ready_for_review'),
+  io.literal('completed')
+])
+
+const setupStepCode = io.union([
+  io.literal('goal'),
+  io.literal('body'),
+  io.literal('activity'),
+  io.literal('diet'),
+  io.literal('dislikes'),
+  io.literal('schedule'),
+  io.literal('cooking'),
+  io.literal('review'),
+  io.literal('targets_manual')
+])
+
+const targetRouteCode = io.union([io.literal('estimated'), io.literal('manual')])
+
+const goalCode = io.union([io.literal('lose'), io.literal('maintain'), io.literal('gain')])
+
+const paceLbPerWeekValue = io.union([io.literal(0.5), io.literal(1), io.literal(1.5)])
+
+const sexForEstimateCode = io.union([io.literal('female'), io.literal('male'), io.literal('prefer_not_to_say')])
+
+const heightUnitPrefCode = io.union([io.literal('ft_in'), io.literal('cm')])
+
+const weightUnitPrefCode = io.union([io.literal('lb'), io.literal('kg')])
+
+const activityLevelCode = io.union([
+  io.literal('not_very_active'),
+  io.literal('lightly_active'),
+  io.literal('active'),
+  io.literal('very_active')
+])
+
+const dietCode = io.union([
+  io.literal('none'),
+  io.literal('vegetarian'),
+  io.literal('vegan'),
+  io.literal('pescatarian')
+])
+
+const mealScheduleCode = io.union([io.literal('three'), io.literal('three_plus_snack')])
+
+const cookingTimeLimitMinValue = io.union([io.literal(15), io.literal(30), io.literal(45), io.literal(60)])
+
+const budgetTierValue = io.union([io.literal(1), io.literal(2), io.literal(3)])
+
+const mealSlotCode = io.union([io.literal('breakfast'), io.literal('lunch'), io.literal('dinner'), io.literal('snack')])
+
+const planStatusCode = io.union([io.literal('active'), io.literal('superseded')])
+
+const recipeVersionStatusCode = io.union([io.literal('current'), io.literal('retired')])
+
+const allergenStatusCode = io.union([io.literal('known'), io.literal('unknown')])
+
 export const PreferencesResponse = io.type({
-  setupStatus: io.string,
-  setupStep: nullableString,
-  reviewStartDate: nullableString,
-  timeZone: nullableString,
-  targetRoute: nullableString,
+  setupStatus: setupStatusCode,
+  setupStep: nullable(setupStepCode),
+  reviewStartDate: NullableDayKeyString,
+  timeZone: NullableTimeZoneString,
+  targetRoute: nullable(targetRouteCode),
   revision: io.number,
-  goal: nullableString,
-  goalWeightKg: nullableNumber,
-  paceLbPerWeek: nullableNumber,
-  age: nullableNumber,
-  heightCm: nullableNumber,
-  weightKg: nullableNumber,
-  sexForEstimate: nullableString,
-  heightUnitPref: nullableString,
-  weightUnitPref: nullableString,
-  activityLevel: nullableString,
-  diet: nullableString,
+  goal: nullable(goalCode),
+  goalWeightKg: NullableNumber,
+  paceLbPerWeek: nullable(paceLbPerWeekValue),
+  age: NullableNumber,
+  heightCm: NullableNumber,
+  weightKg: NullableNumber,
+  sexForEstimate: nullable(sexForEstimateCode),
+  heightUnitPref: nullable(heightUnitPrefCode),
+  weightUnitPref: nullable(weightUnitPrefCode),
+  activityLevel: nullable(activityLevelCode),
+  diet: nullable(dietCode),
   allergens: io.array(io.string),
   dislikedFoods: io.array(io.type({id: io.string, name: io.string, foodGroup: io.string})),
   dislikedFoodGroups: io.array(io.string),
-  mealSchedule: nullableString,
-  mealTimes: io.array(io.type({slot: io.string, time: io.string})),
-  cookingTimeLimitMin: nullableNumber,
+  mealSchedule: nullable(mealScheduleCode),
+  mealTimes: io.array(io.type({slot: mealSlotCode, time: ClockTimeString})),
+  cookingTimeLimitMin: nullable(cookingTimeLimitMinValue),
   budget: io.union([io.type({amount: io.number, currency: io.string}), io.null]),
   noBudgetPreference: io.boolean,
-  budgetTier: nullableNumber,
+  budgetTier: nullable(budgetTierValue),
   hasActivePlan: io.boolean
 })
 
@@ -44,7 +121,7 @@ export const PreferencesSaveResponse = io.type({
 export const TargetsResponse = io.type({
   targets: io.union([MacroTargetsResponse, io.null]),
   complete: io.boolean,
-  source: nullableString,
+  source: NullableString,
   stale: io.boolean,
   revision: io.number
 })
@@ -57,8 +134,8 @@ export const TargetsSaveResponse = io.type({
 export const MealPlanMealResponse = io.type({
   id: io.string,
   revision: io.number,
-  slot: io.string,
-  slotTime: io.string,
+  slot: mealSlotCode,
+  slotTime: ClockTimeString,
   sortOrder: io.number,
   recipe: io.type({
     versionId: io.string,
@@ -67,7 +144,10 @@ export const MealPlanMealResponse = io.type({
     iconKey: io.string,
     totalMinutes: io.number,
     badges: io.array(io.string),
-    nutritionProvenance: io.string
+    // The one literal in the file: planning admits recipes whose every ingredient is source-backed, so a
+    // planned meal is never an estimate. A different value would mean labelling an estimate as sourced
+    // nutrition, which is the one thing this response is not allowed to do.
+    nutritionProvenance: io.literal('source_backed')
   }),
   portionMultiplier: io.number,
   portionText: io.string,
@@ -76,10 +156,10 @@ export const MealPlanMealResponse = io.type({
   loggedEntries: io.array(
     io.type({
       entryId: io.string,
-      date: io.string,
+      date: DayKeyString,
       mealName: io.string,
       servings: io.number,
-      loggedAt: io.string,
+      loggedAt: TimestampString,
       recipeVersionId: io.string,
       recipeName: io.string
     })
@@ -89,7 +169,7 @@ export const MealPlanMealResponse = io.type({
 
 export const MealPlanDayResponse = io.type({
   id: io.string,
-  date: io.string,
+  date: DayKeyString,
   dayIndex: io.number,
   plannedTotals: MacroTotalsResponse,
   isLastDay: io.boolean,
@@ -100,9 +180,9 @@ export const MealPlanResponse = io.type({
   id: io.string,
   revision: io.number,
   generationAttempt: io.number,
-  startDate: io.string,
-  endDate: io.string,
-  status: io.string,
+  startDate: DayKeyString,
+  endDate: DayKeyString,
+  status: planStatusCode,
   targets: MacroTotalsResponse,
   generationTargets: MacroTotalsResponse,
   targetsStale: io.boolean,
@@ -117,7 +197,7 @@ export const RecipeVersionResponse = io.type({
   versionId: io.string,
   recipeId: io.string,
   version: io.number,
-  status: io.string,
+  status: recipeVersionStatusCode,
   name: io.string,
   description: io.string,
   iconKey: io.string,
@@ -131,8 +211,8 @@ export const RecipeVersionResponse = io.type({
   badges: io.array(io.string),
   dietTags: io.array(io.string),
   allergenTags: io.array(io.string),
-  allergenStatus: io.string,
-  budgetTier: io.number,
+  allergenStatus: allergenStatusCode,
+  budgetTier: budgetTierValue,
   nutritionProvenance: io.string,
   perServing: MacroTotalsResponse,
   ingredients: io.array(
@@ -190,7 +270,7 @@ export const GroceryItemResponse = io.type({
       previousDisplayText: io.string,
       newDisplayText: io.string,
       deltaDisplayText: io.string,
-      flaggedAt: io.string
+      flaggedAt: TimestampString
     }),
     io.null
   ])
@@ -199,8 +279,8 @@ export const GroceryItemResponse = io.type({
 export const GroceryListResponse = io.type({
   planId: io.string,
   planRevision: io.number,
-  startDate: io.string,
-  endDate: io.string,
+  startDate: DayKeyString,
+  endDate: DayKeyString,
   totalCount: io.number,
   checkedCount: io.number,
   // `mealSlot` accompanies only the `updated_after_swap` code, `itemNames` only `amount_increased`.
@@ -219,8 +299,8 @@ export const GroceryToggleResponse = io.type({
 
 export const AffectedMealResponse = io.type({
   mealId: io.string,
-  date: io.string,
-  slot: io.string,
+  date: DayKeyString,
+  slot: mealSlotCode,
   recipeName: io.string,
   flags: io.array(mealFlag)
 })

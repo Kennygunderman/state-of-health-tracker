@@ -11,7 +11,7 @@ interface Props {
   tone?: 'negative' | 'positive' | 'danger'
 }
 
-const DeltaPill = ({text, tone = 'negative'}: Props) => {
+const DeltaPill = ({text, tone = 'negative'}: Props): React.JSX.Element => {
   const containerStyle = [styles.container, tone === 'danger' && styles.containerDanger]
   const labelStyle = [
     styles.label,

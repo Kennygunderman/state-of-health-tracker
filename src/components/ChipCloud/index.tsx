@@ -9,7 +9,7 @@ interface Props {
   variant?: 'wrap' | 'scroll'
 }
 
-const ChipCloud = ({children, variant = 'wrap'}: Props) => {
+const ChipCloud = ({children, variant = 'wrap'}: Props): React.JSX.Element => {
   if (variant === 'scroll') {
     return (
       // The scroll variant is the row that sits under a focused search field (06b keeps its query, note 47:463),

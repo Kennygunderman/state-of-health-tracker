@@ -15,7 +15,7 @@ interface Props {
   items: readonly [MetricGridItem, MetricGridItem, MetricGridItem, MetricGridItem]
 }
 
-const MetricGrid4 = ({items}: Props) => (
+const MetricGrid4 = ({items}: Props): React.JSX.Element => (
   <View style={styles.container}>
     {items.map(item => (
       <View key={item.caption} style={styles.cell}>

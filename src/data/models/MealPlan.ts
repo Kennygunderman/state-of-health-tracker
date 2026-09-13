@@ -12,9 +12,13 @@ export interface MealPlanFlag {
 
 export interface LoggedPlannedEntry {
   entryId: string
+  // The diary date this entry landed on, which is not necessarily the planned date: a 'YYYY-MM-DD' day key,
+  // validated by the decoder because the screens compare it against the plan's own dates.
   date: string
   mealName: string
   servings: number
+  // A zone-bearing ISO instant, validated by the decoder: the entries of a slot are ordered by it, so the
+  // latest is the one the card captions and "View in diary" opens.
   loggedAt: string
   recipeVersionId: string
   recipeName: string
@@ -45,6 +49,7 @@ export interface MealPlanMeal {
   id: string
   revision: number
   slot: MealSlot
+  // A zero-padded 24-hour 'HH:mm' wall-clock time, validated by the decoder.
   slotTime: string
   sortOrder: number
   recipe: PlannedRecipeSummary
@@ -60,6 +65,8 @@ export interface MealPlanMeal {
 
 export interface MealPlanDay {
   id: string
+  // A 'YYYY-MM-DD' day key in the user's stored time zone, validated by the decoder: it is compared
+  // lexicographically against the plan's range and passed as a route parameter.
   date: string
   dayIndex: number
   plannedTotals: MacroTotals
@@ -71,6 +78,8 @@ export interface MealPlan {
   id: string
   revision: number
   generationAttempt: number
+  // 'YYYY-MM-DD' day keys, endDate six days after startDate. Validated by the decoder, because every date
+  // bound in the plan — the day strip, the next week's start, the log screen's range — is derived from them.
   startDate: string
   endDate: string
   status: MealPlanStatus
@@ -103,6 +112,8 @@ export interface MealPlanDayEnvelope {
 // plan tree, because Plan settings names them in a banner without loading the days they belong to.
 export interface AffectedMeal {
   mealId: string
+  // A 'YYYY-MM-DD' day key, validated by the decoder: the settings banner selects the earliest flagged day
+  // from these by comparing them.
   date: string
   slot: MealSlot
   recipeName: string

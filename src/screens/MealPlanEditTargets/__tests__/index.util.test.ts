@@ -1,4 +1,8 @@
-import type {NutritionTargetEstimate, NutritionTargetFeasibilityWarning} from '@data/models/NutritionTargets'
+import type {
+  NutritionTargetEstimate,
+  NutritionTargetFeasibilityWarning,
+  NutritionTargets
+} from '@data/models/NutritionTargets'
 
 import {MEAL_PLAN_TARGET_WARNING_LABELS} from '@constants/strings'
 
@@ -9,8 +13,11 @@ import {
   feasibilityBannerBody,
   MACRO_MAX,
   MACRO_MIN,
+  resolveEditTargetsIntent,
+  resolveTargetsSave,
   resolveTargetsSaveSource,
   sanitizeIntegerInput,
+  TargetsSaveInputs,
   validateEditTargets
 } from '../index.util'
 
@@ -43,6 +50,25 @@ const makeEstimate = (overrides: Partial<NutritionTargetEstimate> = {}): Nutriti
   fat: 65,
   clamped: false,
   clampReason: null,
+  ...overrides
+})
+
+const makeTargets = (overrides: Partial<NutritionTargets> = {}): NutritionTargets => ({
+  targets: {calories: 2100, protein: 150, carbs: 220, fat: 70},
+  complete: true,
+  source: 'estimated',
+  stale: false,
+  revision: 3,
+  ...overrides
+})
+
+// The default is the state the confirmation path arrives in: the screen opened on the estimate, its fields still
+// hold it, and the server already holds a confirmed set at revision 3.
+const makeSaveInputs = (overrides: Partial<TargetsSaveInputs> = {}): TargetsSaveInputs => ({
+  intent: 'confirm_estimate',
+  fields: makeFields(),
+  estimate: makeEstimate(),
+  targets: makeTargets(),
   ...overrides
 })
 
@@ -177,29 +203,239 @@ describe('validateEditTargets', () => {
   })
 })
 
+describe('resolveEditTargetsIntent', () => {
+  it('reads the manual route as manual entry whatever else it is told', () => {
+    expect(resolveEditTargetsIntent({mode: 'manual', targets: null})).toBe('manual_entry')
+    expect(resolveEditTargetsIntent({mode: 'manual', routeIntent: 'confirm_estimate', targets: makeTargets()})).toBe(
+      'manual_entry'
+    )
+  })
+
+  it('honours the intent the opening row stated', () => {
+    expect(
+      resolveEditTargetsIntent({mode: 'edit', routeIntent: 'confirm_estimate', targets: makeTargets({stale: true})})
+    ).toBe('confirm_estimate')
+    expect(resolveEditTargetsIntent({mode: 'setup', routeIntent: 'edit_saved', targets: null})).toBe('edit_saved')
+  })
+
+  it('falls back to editing whatever figures the server already holds', () => {
+    expect(resolveEditTargetsIntent({mode: 'edit', targets: makeTargets()})).toBe('edit_saved')
+    expect(
+      resolveEditTargetsIntent({
+        mode: 'edit',
+        targets: makeTargets({
+          targets: {calories: 1900, protein: null, carbs: null, fat: null},
+          complete: false,
+          source: 'legacy'
+        })
+      })
+    ).toBe('edit_saved')
+  })
+
+  it('falls back to confirming the estimate when the server holds no figure at all', () => {
+    expect(resolveEditTargetsIntent({mode: 'edit', targets: null})).toBe('confirm_estimate')
+    expect(
+      resolveEditTargetsIntent({mode: 'setup', targets: makeTargets({targets: null, complete: false, source: null})})
+    ).toBe('confirm_estimate')
+    expect(
+      resolveEditTargetsIntent({
+        mode: 'edit',
+        targets: makeTargets({
+          targets: {calories: null, protein: null, carbs: null, fat: null},
+          complete: false,
+          source: null
+        })
+      })
+    ).toBe('confirm_estimate')
+  })
+})
+
 describe('resolveTargetsSaveSource', () => {
-  it('reserves estimated for an untouched estimate, since only the server may declare a save estimated', () => {
-    expect(resolveTargetsSaveSource(makeFields(), makeEstimate())).toBe('estimated')
-    expect(resolveTargetsSaveSource(makeFields({calories: ' 1940 '}), makeEstimate())).toBe('estimated')
+  it('claims estimated only for an explicit confirmation whose fields still hold the estimate', () => {
+    expect(resolveTargetsSaveSource(makeSaveInputs())).toBe('estimated')
+    expect(resolveTargetsSaveSource(makeSaveInputs({fields: makeFields({calories: ' 1940 '})}))).toBe('estimated')
   })
 
-  it('reports manual when a single digit was edited', () => {
-    expect(resolveTargetsSaveSource(makeFields({calories: '1941'}), makeEstimate())).toBe('manual')
-    expect(resolveTargetsSaveSource(makeFields({fat: '64'}), makeEstimate())).toBe('manual')
+  it('reports manual when a single digit was edited away from the estimate', () => {
+    expect(resolveTargetsSaveSource(makeSaveInputs({fields: makeFields({calories: '1941'})}))).toBe('manual')
+    expect(resolveTargetsSaveSource(makeSaveInputs({fields: makeFields({fat: '64'})}))).toBe('manual')
   })
 
-  it('reports manual when no estimate is available', () => {
-    expect(resolveTargetsSaveSource(makeFields(), null)).toBe('manual')
+  it('reports manual for an edit of saved targets even when the entered numbers equal the estimate', () => {
+    const source = resolveTargetsSaveSource(
+      makeSaveInputs({intent: 'edit_saved', targets: makeTargets({source: 'manual'})})
+    )
+
+    expect(source).toBe('manual')
+  })
+
+  it('reports manual on the manual route even when the entered numbers equal the estimate', () => {
+    expect(resolveTargetsSaveSource(makeSaveInputs({intent: 'manual_entry', targets: null}))).toBe('manual')
+  })
+
+  it('reports manual when no estimate is available to confirm', () => {
+    expect(resolveTargetsSaveSource(makeSaveInputs({estimate: null}))).toBe('manual')
   })
 
   it('reports manual when a field is empty or unparseable', () => {
-    expect(resolveTargetsSaveSource(makeFields({protein: ''}), makeEstimate())).toBe('manual')
-    expect(resolveTargetsSaveSource(makeFields({protein: 'abc'}), makeEstimate())).toBe('manual')
+    expect(resolveTargetsSaveSource(makeSaveInputs({fields: makeFields({protein: ''})}))).toBe('manual')
+    expect(resolveTargetsSaveSource(makeSaveInputs({fields: makeFields({protein: 'abc'})}))).toBe('manual')
   })
 
   it('compares against the estimate as the whole number this screen renders', () => {
-    expect(resolveTargetsSaveSource(makeFields({calories: '1940'}), makeEstimate({calories: 1940.4}))).toBe('estimated')
-    expect(resolveTargetsSaveSource(makeFields({calories: '1941'}), makeEstimate({calories: 1940.4}))).toBe('manual')
+    expect(
+      resolveTargetsSaveSource(
+        makeSaveInputs({fields: makeFields({calories: '1940'}), estimate: makeEstimate({calories: 1940.4})})
+      )
+    ).toBe('estimated')
+    expect(
+      resolveTargetsSaveSource(
+        makeSaveInputs({fields: makeFields({calories: '1941'}), estimate: makeEstimate({calories: 1940.4})})
+      )
+    ).toBe('manual')
+  })
+})
+
+describe('resolveTargetsSave', () => {
+  it('sends nothing for a form that does not parse', () => {
+    expect(resolveTargetsSave(makeSaveInputs({fields: makeFields({carbs: ''})}))).toEqual({kind: 'invalid'})
+    expect(resolveTargetsSave(makeSaveInputs({fields: makeFields({carbs: 'abc'})}))).toEqual({kind: 'invalid'})
+  })
+
+  it('sends nothing when the fields still hold the confirmed values the server has', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({
+        intent: 'edit_saved',
+        fields: makeFields({calories: '2100', protein: '150', carbs: '220', fat: '70'}),
+        targets: makeTargets()
+      })
+    )
+
+    expect(decision).toEqual({kind: 'unchanged'})
+  })
+
+  it('keeps a stale confirmed estimate as it stands rather than re-declaring it manual', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({
+        intent: 'edit_saved',
+        fields: makeFields({calories: '2100', protein: '150', carbs: '220', fat: '70'}),
+        targets: makeTargets({stale: true})
+      })
+    )
+
+    expect(decision).toEqual({kind: 'unchanged'})
+  })
+
+  it('adopts an untouched legacy set as the user\u2019s own, since the planner refuses it as it stands', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({
+        intent: 'edit_saved',
+        fields: makeFields({calories: '2100', protein: '150', carbs: '220', fat: '70'}),
+        targets: makeTargets({source: 'legacy'})
+      })
+    )
+
+    expect(decision).toEqual({
+      kind: 'save',
+      source: 'manual',
+      payload: {source: 'manual', calories: 2100, protein: 150, carbs: 220, fat: 70, expectedTargetsRevision: 3}
+    })
+  })
+
+  it('saves the completed figures of an incomplete set rather than reporting it unchanged', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({
+        intent: 'edit_saved',
+        fields: makeFields({calories: '2100', protein: '150', carbs: '220', fat: '70'}),
+        targets: makeTargets({targets: {calories: 2100, protein: 150, carbs: null, fat: 70}, complete: false})
+      })
+    )
+
+    expect(decision.kind).toBe('save')
+    expect(decision).toMatchObject({source: 'manual'})
+  })
+
+  it('records an explicit confirmation even when the recalculated figures equal the stale ones', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({
+        intent: 'confirm_estimate',
+        fields: makeFields(),
+        estimate: makeEstimate({estimateRevision: 11}),
+        targets: makeTargets({targets: {calories: 1940, protein: 146, carbs: 194, fat: 65}, stale: true})
+      })
+    )
+
+    expect(decision).toEqual({
+      kind: 'save',
+      source: 'estimated',
+      payload: {source: 'estimated', estimateRevision: 11, expectedTargetsRevision: 3}
+    })
+  })
+
+  it('saves exactly the numbers entered when a field was edited', () => {
+    const decision = resolveTargetsSave(
+      makeSaveInputs({intent: 'edit_saved', fields: makeFields({calories: '2000', fat: '70'})})
+    )
+
+    expect(decision).toEqual({
+      kind: 'save',
+      source: 'manual',
+      payload: {source: 'manual', calories: 2000, protein: 146, carbs: 194, fat: 70, expectedTargetsRevision: 3}
+    })
+  })
+
+  describe('the revision a save pins', () => {
+    it('omits the pin on a first save, for both the estimated and the manual body', () => {
+      const confirmation = resolveTargetsSave(makeSaveInputs({targets: null}))
+      const manual = resolveTargetsSave(
+        makeSaveInputs({intent: 'manual_entry', fields: makeFields({calories: '2000'}), targets: null})
+      )
+
+      expect(confirmation).toEqual({
+        kind: 'save',
+        source: 'estimated',
+        payload: {source: 'estimated', estimateRevision: 4}
+      })
+      expect(manual).toEqual({
+        kind: 'save',
+        source: 'manual',
+        payload: {source: 'manual', calories: 2000, protein: 146, carbs: 194, fat: 65}
+      })
+
+      const bodies = [confirmation, manual].map(decision => (decision.kind === 'save' ? decision.payload : null))
+
+      bodies.forEach(payload => {
+        expect(payload).not.toBeNull()
+        expect(payload !== null && 'expectedTargetsRevision' in payload).toBe(false)
+        expect(JSON.stringify(payload)).not.toContain('expectedTargetsRevision')
+      })
+    })
+
+    it('omits the pin for a preferences row that has never confirmed a target', () => {
+      const decision = resolveTargetsSave(
+        makeSaveInputs({targets: makeTargets({targets: null, complete: false, source: null, revision: 0})})
+      )
+
+      expect(decision).toEqual({
+        kind: 'save',
+        source: 'estimated',
+        payload: {source: 'estimated', estimateRevision: 4}
+      })
+    })
+
+    it('carries the read revision on every later save', () => {
+      const confirmation = resolveTargetsSave(makeSaveInputs({targets: makeTargets({revision: 8})}))
+      const manual = resolveTargetsSave(
+        makeSaveInputs({
+          intent: 'edit_saved',
+          fields: makeFields({calories: '2000'}),
+          targets: makeTargets({revision: 8})
+        })
+      )
+
+      expect(confirmation).toMatchObject({payload: {expectedTargetsRevision: 8}})
+      expect(manual).toMatchObject({payload: {expectedTargetsRevision: 8}})
+    })
   })
 })
 

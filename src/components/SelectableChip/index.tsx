@@ -33,7 +33,13 @@ interface Props {
   onPress: () => void
 }
 
-const SelectableChip = ({label, selected, removable = false, expandTouchTarget = false, onPress}: Props) => {
+const SelectableChip = ({
+  label,
+  selected,
+  removable = false,
+  expandTouchTarget = false,
+  onPress
+}: Props): React.JSX.Element => {
   const isRemovable = removable && selected
   const removeHint = isRemovable
     ? stringWithNamedParameters(MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE, {name: label})

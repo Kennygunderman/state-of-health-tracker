@@ -3,7 +3,8 @@ import type {NutritionTargets} from '@data/models/NutritionTargets'
 import type {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import type {MealSlot} from '@data/models/Recipe'
 import type {GenerationContext, RootStackParamList} from '@navigation/types'
-import {API_ERROR_CODES, classifyOutcome, getApiErrorCode} from '@utility/ApiErrorUtility'
+import {API_ERROR_CODES, classifyOutcome, getApiErrorCode, terminalErrorCode} from '@utility/ApiErrorUtility'
+import {MealPlanRequestSnapshot} from '@utility/IdempotencyUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 
 import type {StatusBadgeVariant} from '@components/StatusBadgeCircle'
@@ -29,6 +30,7 @@ import {
   MEAL_PLAN_GENERATION_FAILED_BODY,
   MEAL_PLAN_GENERATION_FAILED_TITLE,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
+  MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY,
   MEAL_PLAN_LIMITING_CONSTRAINT_LABELS,
   MEAL_PLAN_MEALS_PER_DAY_VALUES,
   MEAL_PLAN_NO_MATCH_BODY,
@@ -63,9 +65,12 @@ export interface GenerationAction {
   label: string
 }
 
+// The secondary action is optional because a terminal card during setup has exactly one honest move: there is
+// no plan to go back to and the refused key may not be retried, so it offers the edit alone rather than
+// padding the footer with an action that would repeat the refusal.
 export interface GenerationActionPair {
   primary: GenerationAction
-  secondary: GenerationAction
+  secondary: GenerationAction | null
 }
 
 export interface GenerationSummaryRow {
@@ -110,6 +115,15 @@ export interface GenerationTerminalRecovery {
   route: keyof RootStackParamList | null
 }
 
+// The route's own params, which are what a cold start restores the screen from — so the request is rebuilt
+// from them rather than held in memory by whatever navigated here.
+export interface GenerationRequestInputs {
+  context: GenerationContext
+  startDate: string
+  expectedPreferencesRevision: number
+  expectedTargetsRevision: number
+}
+
 const NO_VALUE = ''
 
 // Must stay identical to the sentinel MealPlanSetupProvider and MealPlanDiet own: 'none' is mutually
@@ -117,16 +131,17 @@ const NO_VALUE = ''
 // them. It is re-declared rather than imported because a helper may not cross a component folder.
 const ALLERGEN_NONE = 'none'
 
-// Outcomes a same-key retry can never resolve: the request was refused for a reason only a fresh
-// decision elsewhere can clear, so they get their own copy and no retry action.
-const TERMINAL_COPY_CODES: ReadonlySet<string> = new Set<string>([
-  API_ERROR_CODES.staleRevision,
-  API_ERROR_CODES.planOverlap,
-  API_ERROR_CODES.upcomingExists,
-  API_ERROR_CODES.preferencesIncomplete,
-  API_ERROR_CODES.targetsMissing,
-  API_ERROR_CODES.targetsUnconfirmed,
-  API_ERROR_CODES.idempotencyConflict
+// The two confirmed answers this screen still has a move for, and the only ones that are not terminal. Stated
+// as the exception rather than terminality being stated as a list, because the list can never be complete:
+// every other confirmed refusal — a validation error, the capability being off, a code a later server release
+// introduces — is final for the idempotency key that earned it, and a key that is never retired is replayed on
+// every cold start for as long as the intent survives (0.7.2).
+//
+// `plan_generation_failed` keeps 10b's same-key retry and `no_matching_meals` keeps 10c's edit; the AAP
+// reserves those drawn states for exactly these two outcomes (0.2.5).
+const RETRYABLE_CONFIRMED_CODES: ReadonlySet<string> = new Set<string>([
+  API_ERROR_CODES.planGenerationFailed,
+  API_ERROR_CODES.noMatchingMeals
 ])
 
 // The two plan-state refusals deliberately carry no card copy: the plan this attempt named has already moved
@@ -137,9 +152,16 @@ const PLAN_STATE_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([
   API_ERROR_CODES.planNotActive
 ])
 
-// Derived rather than listed, so "a terminal code either has card copy or is a plan-state code" holds by
-// construction rather than by memory: a code added to neither set is simply not terminal.
-const TERMINAL_CODES: ReadonlySet<string> = new Set<string>([...TERMINAL_COPY_CODES, ...PLAN_STATE_TERMINAL_CODES])
+// Meal planning itself is off behind a mounted backend, so no card on this screen would be true for long and
+// none of its next moves exist. Like the plan-state refusals it leaves immediately — to the Macros tab, where
+// the entitlement router turns the very same signal into the unavailable card (0.2.5).
+const UNAVAILABLE_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([API_ERROR_CODES.featureDisabled])
+
+// Whether a terminal outcome draws a card at all. The two families above answer with a destination instead,
+// so they render no copy and no footer; every other terminal code states what moved on a card the user can
+// read and leave from.
+const leavesScreenWithoutCard = (terminalCode: string): boolean =>
+  PLAN_STATE_TERMINAL_CODES.has(terminalCode) || UNAVAILABLE_TERMINAL_CODES.has(terminalCode)
 
 const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
   'cooking_time',
@@ -270,7 +292,15 @@ const VIEW_COPY: Record<Exclude<GenerationViewKind, 'terminal'>, GenerationViewC
   unconfirmed: {headline: MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE, body: MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY}
 }
 
-const resolveErrorKind = (error: unknown): GenerationViewKind => {
+// The three states an error can still act on, each reached by naming its own outcome. Anything that is not
+// one of them has already been classified terminal by `terminalErrorCode`, so no fallback state has to stand
+// in for "confirmed, but not a case this module lists" — which is what previously sent a 400, a 503 and any
+// future code into 10b's same-key retry with the key left pending.
+const resolveErrorKind = (error: unknown, terminalCode: string | null): GenerationViewKind => {
+  if (terminalCode !== null) {
+    return 'terminal'
+  }
+
   if (classifyOutcome(error) === 'unknown') {
     return 'unconfirmed'
   }
@@ -281,30 +311,43 @@ const resolveErrorKind = (error: unknown): GenerationViewKind => {
     return 'noMatch'
   }
 
-  if (code !== null && TERMINAL_CODES.has(code)) {
-    return 'terminal'
+  if (code === API_ERROR_CODES.planGenerationFailed) {
+    return 'failed'
   }
 
-  // Every other confirmed answer draws the failure state, plan_generation_failed and a code this
-  // release does not recognise alike: the server described this attempt, so "your answers are saved"
-  // is true, and 10b is the only confirmed state offering both a same-key retry and an edit.
-  return 'failed'
+  // Unreachable: a confirmed answer carries a readable code, and one that is neither of the two above is
+  // terminal. The unconfirmed variant is the fail-safe because it is the only state that promises nothing.
+  return 'unconfirmed'
 }
 
 // 'idle' and 'success' are transient frames — the screen fires the mutation on mount and leaves on
 // success — so they render the spinner rather than nothing, which is what keeps the cold-start replay
 // path from showing a blank screen before its request is in flight.
-const resolveViewKind = (status: GenerationRequestStatus, error: unknown): GenerationViewKind =>
-  status === 'error' ? resolveErrorKind(error) : 'pending'
+const resolveViewKind = (
+  status: GenerationRequestStatus,
+  error: unknown,
+  terminalCode: string | null
+): GenerationViewKind => (status === 'error' ? resolveErrorKind(error, terminalCode) : 'pending')
 
 const resolveViewCopy = (kind: GenerationViewKind, terminalCode: string | null): GenerationViewCopy => {
   if (kind !== 'terminal') {
     return VIEW_COPY[kind]
   }
 
-  const terminal = terminalCode === null ? undefined : ownEntry(TERMINAL_COPY, terminalCode)
+  if (terminalCode === null || leavesScreenWithoutCard(terminalCode)) {
+    return EMPTY_COPY
+  }
 
-  return terminal === undefined ? EMPTY_COPY : {headline: terminal.title, body: terminal.body}
+  const terminal = ownEntry(TERMINAL_COPY, terminalCode)
+
+  // A refusal this release has no copy for still has to say something true and offer the same way out, so it
+  // borrows the wording every terminal card shares rather than rendering an empty card.
+  return terminal === undefined
+    ? {
+        headline: MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY.title,
+        body: MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY.body
+      }
+    : {headline: terminal.title, body: terminal.body}
 }
 
 const generationAction = (kind: GenerationActionKind): GenerationAction => ({kind, label: ACTION_LABELS[kind]})
@@ -312,12 +355,28 @@ const generationAction = (kind: GenerationActionKind): GenerationAction => ({kin
 // The ordered pair is the footer order, which is how Figma 10c's inversion is expressed: when nothing
 // matched, editing a preference is the primary move and retrying the same answers is the secondary one.
 // A regeneration keeps its existing plan, so its secondary action returns to that plan instead of to setup.
-const resolveActions = (kind: GenerationViewKind, context: GenerationContext): GenerationActionPair | null => {
-  if (kind === 'pending' || kind === 'terminal') {
+const resolveActions = (
+  kind: GenerationViewKind,
+  context: GenerationContext,
+  terminalCode: string | null
+): GenerationActionPair | null => {
+  if (kind === 'pending') {
     return null
   }
 
   const isRegenerate = context.kind === 'regenerate'
+
+  // A terminal card names what moved but cannot resolve it here, and this screen draws no back button while
+  // the tab bar is hidden — so the footer is the only way off it. Retry is deliberately absent: the key has
+  // been retired, and the same request would earn the same refusal.
+  if (kind === 'terminal') {
+    return terminalCode === null || leavesScreenWithoutCard(terminalCode)
+      ? null
+      : {
+          primary: generationAction('editPreferences'),
+          secondary: isRegenerate ? generationAction('backToPlan') : null
+        }
+  }
 
   if (kind === 'noMatch') {
     return {
@@ -337,8 +396,11 @@ export const resolveGenerationView = (
   error: unknown,
   context: GenerationContext
 ): GenerationView => {
-  const kind = resolveViewKind(status, error)
-  const terminalCode = kind === 'terminal' ? getApiErrorCode(error) : null
+  // The terminal code is read first, from the shared classification, and the view kind follows from it: the
+  // same answer must not be terminal for the key lifecycle and retryable for the card, or the intent would be
+  // retired under a screen still offering to replay it.
+  const terminalCode = status === 'error' ? terminalErrorCode(error, RETRYABLE_CONFIRMED_CODES) : null
+  const kind = resolveViewKind(status, error, terminalCode)
   const chrome = VIEW_CHROME[kind]
   const copy = resolveViewCopy(kind, terminalCode)
 
@@ -351,21 +413,29 @@ export const resolveGenerationView = (
     headlineSize: chrome.headlineSize,
     body: copy.body,
     showAllergiesBanner: chrome.showAllergiesBanner,
-    actions: resolveActions(kind, context),
+    actions: resolveActions(kind, context, terminalCode),
     terminalCode
   }
 }
 
-// clearsPendingIntent is true for every terminal code because a confirmed terminal answer resolves the
-// keyed intent: leaving it pending would replay a key the server has already refused on the next cold
-// start. A plan-state refusal additionally needs the current plan refetched and the screen left, since the
-// plan the attempt named is no longer the one the user has; a copy code says its next move on the card, so
-// it neither toasts nor routes.
+// Every terminal code retires the keyed intent, including one this release has never seen: a confirmed answer
+// describes the attempt the key was minted for, and leaving the intent pending would replay that key on the
+// next cold start against a refusal the server will only repeat. Which recovery follows is the family's:
+//
+// - a plan-state refusal leaves for the authoritative plan with the stale-plan toast and a refetch, because
+//   the plan the attempt named is no longer the one the user has;
+// - the capability being off leaves for the Macros tab and refetches, so the entitlement router draws the
+//   unavailable card from the same signal — a toast would only repeat what that card says;
+// - every other refusal states its next move on a card the user reads and leaves through the footer, so it
+//   neither toasts nor routes.
+//
+// The two retryable codes and an unknown outcome are not terminal and have no recovery: their key is still
+// the only safe way to ask again.
 export const resolveTerminalRecovery = (
   terminalCode: string | null,
   context: GenerationContext
 ): GenerationTerminalRecovery | null => {
-  if (terminalCode === null || !TERMINAL_CODES.has(terminalCode)) {
+  if (terminalCode === null || RETRYABLE_CONFIRMED_CODES.has(terminalCode)) {
     return null
   }
 
@@ -378,7 +448,40 @@ export const resolveTerminalRecovery = (
     }
   }
 
+  if (UNAVAILABLE_TERMINAL_CODES.has(terminalCode)) {
+    return {clearsPendingIntent: true, refetchesCurrentPlan: true, toast: null, route: Screens.MACROS}
+  }
+
   return {clearsPendingIntent: true, refetchesCurrentPlan: false, toast: null, route: null}
+}
+
+/**
+ * The request this screen's attempt sends, as the snapshot stored beside its idempotency key. Built here
+ * because the two shapes a generating screen can carry are its own: a regeneration replaces one identified
+ * plan at a known revision, while setup and next-week generations name a start date. `nextWeek` carries that
+ * date on the context itself, which is preferred over the route's copy so the two can never disagree.
+ *
+ * Pairing this with `resolveKeyedRequest` is what makes a lost response recoverable: the same inputs rebuild
+ * the same request, so the stored key is replayed byte-identically instead of a second plan being generated
+ * under a new one (0.7.2).
+ */
+export const buildGenerationRequest = (inputs: GenerationRequestInputs): MealPlanRequestSnapshot => {
+  if (inputs.context.kind === 'regenerate') {
+    return {
+      action: 'regenerate',
+      planId: inputs.context.planId,
+      expectedPlanRevision: inputs.context.planRevision,
+      expectedPreferencesRevision: inputs.expectedPreferencesRevision,
+      expectedTargetsRevision: inputs.expectedTargetsRevision
+    }
+  }
+
+  return {
+    action: 'generate',
+    startDate: inputs.context.kind === 'nextWeek' ? inputs.context.startDate : inputs.startDate,
+    expectedPreferencesRevision: inputs.expectedPreferencesRevision,
+    expectedTargetsRevision: inputs.expectedTargetsRevision
+  }
 }
 
 const dietValue = (preferences: MealPlanPreferences): string =>

@@ -2,6 +2,7 @@ import {MealPlanMeal, MealPlanStatus} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {SwapAlternative} from '@data/models/SwapAlternative'
 import {API_ERROR_CODES, getApiErrorCode, isUnknownOutcome} from '@utility/ApiErrorUtility'
+import {SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
 
@@ -97,6 +98,16 @@ export interface MealMetaInput {
   calories: number | null | undefined
   protein: number | null | undefined
   totalMinutes: number | null | undefined
+}
+
+// The route's params plus the alternative the preview bound: what a cold start restores a commit from, rather
+// than state held in memory by the screen that navigated here.
+export interface SwapCommitInputs {
+  planId: string
+  mealId: string
+  recipeVersionId: string
+  portionMultiplier: number
+  planRevision: number
 }
 
 const NO_ALTERNATIVES: readonly SwapAlternative[] = Object.freeze([])
@@ -302,6 +313,24 @@ export function rendersAlternatives(view: SwapView): view is SwapViewWithAlterna
  */
 export function retiresPendingIntent(view: SwapView): boolean {
   return view.kind === 'terminal' && view.terminal.source === 'swap'
+}
+
+/**
+ * The request a swap commit sends, as the snapshot stored beside its idempotency key. The swap flow owns this
+ * shape — the plan and meal it opened on, the alternative and portion the preview bound — so a launch after a
+ * lost response rebuilds the identical request from the same inputs and replays the stored key rather than
+ * committing a second swap under a new one (0.7.2). Pair it with `resolveKeyedRequest`, which compares this
+ * snapshot's fingerprint with the stored intent's.
+ */
+export function buildSwapRequest(inputs: SwapCommitInputs): SwapRequestSnapshot {
+  return {
+    action: 'swap',
+    planId: inputs.planId,
+    mealId: inputs.mealId,
+    recipeVersionId: inputs.recipeVersionId,
+    portionMultiplier: inputs.portionMultiplier,
+    expectedPlanRevision: inputs.planRevision
+  }
 }
 
 // A status the day query has not answered yet is not an inactive plan: the flow stays available until the server

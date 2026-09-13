@@ -38,6 +38,8 @@ export type WeightUnitPref = 'lb' | 'kg'
 
 export interface MealTimeEntry {
   slot: MealSlot
+  // A zero-padded 24-hour 'HH:mm' wall-clock time. The decoder validates it on the way in and the schedule
+  // screen produces the same form on the way out, so '8:00' and '24:00' are neither read nor written.
   time: string
 }
 
@@ -55,8 +57,17 @@ export interface BudgetPreference {
 export interface MealPlanPreferences {
   setupStatus: SetupStatus
   setupStep: SetupStep | null
+  // A 'YYYY-MM-DD' day key, null until the user changes the start date away from the default; and the IANA
+  // zone name the server computes "today" and every date bound in. Both validated by the decoder, so a
+  // malformed day key never reaches a date comparison and an unknown zone never reaches a date format.
   reviewStartDate: string | null
   timeZone: string | null
+  // Which target route the user is on, and — because a body-step save is its only writer — the
+  // server's record THAT the body step was answered: 'manual' after Skip or 'Prefer not to say',
+  // 'estimated' after a measured answer, null while the step is unanswered. It is the only proof
+  // of a saved Skip, which stores no measurements at all, so resume logic reads this rather than
+  // testing age/height/weight/sex for null. Server-owned: absent from MealPlanPreferencesUpdate
+  // below, because sending it back earns 400 read_only_field.
   targetRoute: TargetRoute | null
   revision: number
   goal: Goal | null

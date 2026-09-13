@@ -48,7 +48,7 @@ const TargetsCard = ({
   editLabel,
   estimateFigure,
   onEditPress
-}: Props) => {
+}: Props): React.JSX.Element => {
   return (
     <View style={styles.card}>
       <View style={styles.headerRow} hitSlop={TARGETS_HEADER_ROW_HIT_SLOP}>

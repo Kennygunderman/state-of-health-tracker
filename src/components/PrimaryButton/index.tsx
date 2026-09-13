@@ -18,7 +18,7 @@ interface Props {
   width?: DimensionValue
 }
 
-const PrimaryButton = (props: Props) => {
+const PrimaryButton = (props: Props): React.JSX.Element => {
   const {label, isLoading = false, disabled = false, onPress, style, width = '100%'} = props
   const pressBlocked = isPressBlocked(isLoading, disabled)
   const dimmed = isDimmed(isLoading, disabled)

@@ -21,7 +21,7 @@ interface SplitProps {
 
 type Props = StackedProps | SplitProps
 
-const SetupFooter = (props: Props) => {
+const SetupFooter = (props: Props): React.JSX.Element => {
   const {hairline = false} = props
   const insets = useSafeAreaInsets()
   const shell: StyleProp<ViewStyle> = [

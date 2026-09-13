@@ -15,7 +15,7 @@ interface Props {
 }
 
 // Node 38:62 draws every chip unselected; its note (38:152) delegates the selected treatment to FoodDetail's chips.
-const FractionChips = ({servings, onSelect}: Props) => {
+const FractionChips = ({servings, onSelect}: Props): React.JSX.Element => {
   const chips = buildFractionChipStates(servings)
 
   return (

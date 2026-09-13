@@ -30,7 +30,7 @@ interface Props {
   onChangeText: (text: string) => void
 }
 
-const ServingsStepper = ({value, onDecrement, onIncrement, onChangeText}: Props) => {
+const ServingsStepper = ({value, onDecrement, onIncrement, onChangeText}: Props): React.JSX.Element => {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState<ServingsFieldDraft | null>(null)
 

@@ -13,7 +13,7 @@ interface Props {
   isFirst?: boolean
 }
 
-const MacroLegendRow = ({label, valueText, dotColor, isFirst = false}: Props) => (
+const MacroLegendRow = ({label, valueText, dotColor, isFirst = false}: Props): React.JSX.Element => (
   <View style={[styles.container, !isFirst && styles.rowDivider]}>
     <View style={[styles.dot, dotFill(dotColor)]} />
 
