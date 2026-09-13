@@ -1,14 +1,11 @@
 import {MealSchedule, MealTimeEntry} from '@data/models/MealPlanPreferences'
 import {MealSlot, RecipeIconKey} from '@data/models/Recipe'
 import {Sizes, Stroke} from '@styles/sizes'
+import {formatSlotTime} from '@utility/MealPlanDateUtility'
 
 import {PickerItem} from '@components/Picker'
 
-import {
-  MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
-  MEAL_PLAN_TIME_AM_SUFFIX,
-  MEAL_PLAN_TIME_PM_SUFFIX
-} from '@constants/strings'
+import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT} from '@constants/strings'
 
 export const PICKER_MINUTE_STEP = 15
 
@@ -21,11 +18,8 @@ export const SLOT_ICON_STROKE_WIDTH: number = (Stroke.MEAL_GLYPH_TILE * Sizes.IC
 
 const HOURS_PER_DAY = 24
 const MINUTES_PER_HOUR = 60
-const HOURS_PER_MERIDIEM = 12
 const TIME_PART_DIGITS = 2
 const TIME_PART_PAD = '0'
-const TIME_VALUE_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/
-const UNKNOWN_TIME_LABEL = ''
 const UNSET_TIME_VALUE = ''
 
 const PICKER_OPTION_COUNT = (HOURS_PER_DAY * MINUTES_PER_HOUR) / PICKER_MINUTE_STEP
@@ -60,25 +54,13 @@ export const mealSlotsForSchedule = (schedule: MealSchedule | null): readonly Me
 
 export const mealSlotIconKey = (slot: MealSlot): RecipeIconKey => SLOT_ICON_KEYS[slot]
 
-export const formatMealTimeLabel = (time: string): string => {
-  const parts = TIME_VALUE_PATTERN.exec(time)
-
-  if (!parts) return UNKNOWN_TIME_LABEL
-
-  const hourOfDay = Number(parts[1])
-  const minutes = parts[2]
-  const hourOfMeridiem = hourOfDay % HOURS_PER_MERIDIEM
-  const hour = hourOfMeridiem === 0 ? HOURS_PER_MERIDIEM : hourOfMeridiem
-  const meridiem = hourOfDay < HOURS_PER_MERIDIEM ? MEAL_PLAN_TIME_AM_SUFFIX : MEAL_PLAN_TIME_PM_SUFFIX
-
-  return `${hour}:${minutes} ${meridiem}`
-}
-
+// Labelled through the shared formatter the time pills, the review row and the plan settings row already use,
+// so a picker option and the pill it fills can never render the same stored time differently.
 export const buildMealTimePickerItems = (): PickerItem[] =>
   Array.from({length: PICKER_OPTION_COUNT}, (_unused, index) => {
     const value = timeValueFromMinutes(index * PICKER_MINUTE_STEP)
 
-    return {label: formatMealTimeLabel(value), value}
+    return {label: formatSlotTime(value), value}
   })
 
 // One entry per slot of the chosen schedule and nothing else: dropping a slot the draft has no time for

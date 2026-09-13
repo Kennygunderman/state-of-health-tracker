@@ -1,11 +1,11 @@
 import {MealTimeEntry} from '@data/models/MealPlanPreferences'
+import {formatSlotTime} from '@utility/MealPlanDateUtility'
 
 import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT} from '@constants/strings'
 
 import {
   buildMealTimePickerItems,
   buildMealTimesPayload,
-  formatMealTimeLabel,
   mealSlotIconKey,
   mealSlotsForSchedule,
   PICKER_MINUTE_STEP,
@@ -89,30 +89,6 @@ describe('buildMealTimesPayload', () => {
   })
 })
 
-describe('formatMealTimeLabel', () => {
-  it('reads midnight and noon as twelve rather than zero', () => {
-    expect(formatMealTimeLabel('00:00')).toBe('12:00 AM')
-    expect(formatMealTimeLabel('12:00')).toBe('12:00 PM')
-  })
-
-  it('drops the leading zero from the hour and switches meridiem at noon', () => {
-    expect(formatMealTimeLabel('08:00')).toBe('8:00 AM')
-    expect(formatMealTimeLabel('11:59')).toBe('11:59 AM')
-    expect(formatMealTimeLabel('18:30')).toBe('6:30 PM')
-    expect(formatMealTimeLabel('23:45')).toBe('11:45 PM')
-  })
-
-  describe('malformed input', () => {
-    it('returns an empty label instead of a half-formatted time', () => {
-      expect(formatMealTimeLabel('')).toBe('')
-      expect(formatMealTimeLabel('8:00')).toBe('')
-      expect(formatMealTimeLabel('24:00')).toBe('')
-      expect(formatMealTimeLabel('12:60')).toBe('')
-      expect(formatMealTimeLabel('breakfast')).toBe('')
-    })
-  })
-})
-
 describe('buildMealTimePickerItems', () => {
   it('offers one option per step across the whole day', () => {
     expect(buildMealTimePickerItems()).toHaveLength((24 * 60) / PICKER_MINUTE_STEP)
@@ -132,10 +108,24 @@ describe('buildMealTimePickerItems', () => {
     expect(items.filter(item => !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.value))).toEqual([])
   })
 
-  it('labels every option the way the time pill formats it, so the two can never disagree', () => {
+  it('labels every option through the shared slot-time formatter, so the option and the pill it fills agree', () => {
     const items = buildMealTimePickerItems()
 
-    expect(items.filter(item => item.label !== formatMealTimeLabel(item.value))).toEqual([])
+    expect(items.filter(item => item.label !== formatSlotTime(item.value))).toEqual([])
+  })
+
+  // The picker is where a user reads a time before choosing it, so its own labels are pinned here rather
+  // than left to the shared formatter's suite alone
+  it('reads midnight and noon as twelve and drops the hour of the leading zero', () => {
+    const labelFor = (value: string): string | undefined =>
+      buildMealTimePickerItems().find(item => item.value === value)?.label
+
+    expect(labelFor('00:00')).toBe('12:00 AM')
+    expect(labelFor('08:00')).toBe('8:00 AM')
+    expect(labelFor('12:00')).toBe('12:00 PM')
+    expect(labelFor('15:30')).toBe('3:30 PM')
+    expect(labelFor('18:30')).toBe('6:30 PM')
+    expect(labelFor('23:45')).toBe('11:45 PM')
   })
 })
 

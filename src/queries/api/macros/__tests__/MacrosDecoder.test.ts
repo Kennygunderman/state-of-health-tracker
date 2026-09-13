@@ -45,6 +45,13 @@ describe('MealEntryResponse', () => {
       expect(entry.nutritionProvenance).toBeUndefined()
     })
 
+    it('leaves both meal planning keys off the decoded entry instead of assigning them as undefined', () => {
+      const entry = expectRight(MealEntryResponse.decode(makeEntryPayload()))
+
+      expect('mealPlanMealId' in entry).toBe(false)
+      expect('nutritionProvenance' in entry).toBe(false)
+    })
+
     it('carries every legacy member through unchanged', () => {
       const entry = expectRight(MealEntryResponse.decode(makeEntryPayload()))
 

@@ -1,3 +1,7 @@
+// Type-only, so it is erased at compile time: this file reads no store state and adds no runtime edge to it.
+// The union is declared once, on the store's `postLogResult.viewTarget`, and naming it here keeps the decision
+// below and the payload it is written into a single type rather than two identical unions.
+import type {PostLogViewTarget} from '@store/mealPlan/useMealPlanStore'
 import {addDays, format} from 'date-fns'
 
 import {compareIsoDateStrings} from './DateUtility'
@@ -118,3 +122,16 @@ export const planStartDateBounds = ({now, activePlanEndDate}: PlanStartDateBound
     max: successorWeekKey !== null && successorWeekKey > horizonKey ? successorWeekKey : horizonKey
   }
 }
+
+/**
+ * The sole owner of the Diary-versus-History decision: a logged planned meal opens the Diary segment when its
+ * diary date is today, and Macros History on any other date. Both surfaces that offer it — the post-log success
+ * banner and every logged meal card's "View in diary" — resolve it here, so they can never disagree about a meal
+ * logged onto a past or future plan day.
+ *
+ * "Today" is injected as an already-formatted key (callers pass `formatDayKey(now)`) rather than read from a
+ * clock, which leaves this a pure comparison of two fixed-width day keys and therefore timezone-proof for the
+ * same reason `isDayKeyWithin` is.
+ */
+export const resolvePostLogViewTarget = (entryDayKey: string, todayDayKey: string): PostLogViewTarget =>
+  entryDayKey === todayDayKey ? 'diary' : 'history'

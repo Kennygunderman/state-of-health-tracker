@@ -7,9 +7,32 @@ type StackReturnRoute = Extract<TargetsReturn, {kind: 'stack'}>['route']
 
 type ReturnTab = Extract<TargetsReturn, {kind: 'tab'}>['tab']
 
-type ParentNavigateAction = {
-  [Tab in keyof HomeTabsParamList]: {target: 'parent'; kind: 'navigate'; tab: Tab; params?: HomeTabsParamList[Tab]}
-}[keyof HomeTabsParamList]
+// `Extract` proves every tab a `TargetsReturn` can name is registered in `HomeTabs`. No params member
+// exists because a nested screen param would reset the target tab's own stack, and the tab return has to
+// resume the screen that tab retained.
+type ParentNavigateAction = {target: 'parent'; kind: 'navigate'; tab: Extract<keyof HomeTabsParamList, ReturnTab>}
+
+// Mapped over the param list so a route and its params stay correlated. `popTo` params are optional
+// because the target screen is already on the stack holding its own, and v7 `popTo` params replace them:
+// `TargetsReturn` carries no honest source for the review screen's `StepMode` or Plan Settings' `planId`,
+// so synthesising either would corrupt the screen being returned to.
+type StackPopToAction = {
+  [Route in keyof RootStackParamList]: {
+    target: 'stack'
+    kind: 'popTo'
+    route: Route
+    params?: RootStackParamList[Route]
+  }
+}[keyof RootStackParamList]
+
+type StackNavigateAction = {
+  [Route in keyof RootStackParamList]: {
+    target: 'stack'
+    kind: 'navigate'
+    route: Route
+    params: RootStackParamList[Route]
+  }
+}[keyof RootStackParamList]
 
 /**
  * `target` names the navigator an action is dispatched against: `'stack'` is the MacrosStack navigation
@@ -17,8 +40,8 @@ type ParentNavigateAction = {
  */
 export type TabReturnAction =
   | {target: 'stack'; kind: 'popToTop'}
-  | {target: 'stack'; kind: 'popTo'; route: keyof RootStackParamList}
-  | {target: 'stack'; kind: 'navigate'; route: keyof RootStackParamList}
+  | StackPopToAction
+  | StackNavigateAction
   | ParentNavigateAction
 
 // The `never` parameter turns an unhandled union arm into a compile error, while `[x].slice(0, 0)` keeps
@@ -33,8 +56,8 @@ const stackReturnActions = (route: StackReturnRoute): TabReturnAction[] => {
       return [{target: 'stack', kind: 'popTo', route: Screens.PLAN_SETTINGS}]
     case 'diet':
       // The manual-target route carries on forward through the wizard, so Diet sits ahead of the editor
-      // on the stack rather than behind it.
-      return [{target: 'stack', kind: 'navigate', route: Screens.MEAL_PLAN_DIET}]
+      // on the stack rather than behind it, and it resumes the setup run the skipped step belonged to.
+      return [{target: 'stack', kind: 'navigate', route: Screens.MEAL_PLAN_DIET, params: {mode: 'setup'}}]
     default:
       return noActionsFor(route)
   }
@@ -48,9 +71,11 @@ const tabReturnActions = (tab: ReturnTab): TabReturnAction[] => {
         {target: 'parent', kind: 'navigate', tab: Screens.ACCOUNT}
       ]
     case 'ProgressStack':
+      // Named without a nested screen so Progress resumes whichever of its screens the user left, rather
+      // than being reset to the tab's initial route.
       return [
         {target: 'stack', kind: 'popToTop'},
-        {target: 'parent', kind: 'navigate', tab: 'ProgressStack', params: {screen: Screens.PROGRESS}}
+        {target: 'parent', kind: 'navigate', tab: 'ProgressStack'}
       ]
     case 'MacrosStack':
       return [{target: 'stack', kind: 'popToTop'}]

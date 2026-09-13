@@ -1,10 +1,17 @@
 import {StyleSheet} from 'react-native'
 
+import type {PlanSummaryTone} from './index.util'
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
 import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+// A colour string rather than a TextStyle, because the shared SummaryRows API takes `valueColor?: string`
+// and the screen fills that prop from here; 'default' resolves to undefined so SummaryRows keeps its own
+// value colour, which is what Figma 38:531 draws.
+export const regenerateSummaryValueColor = (tone: PlanSummaryTone): string | undefined =>
+  tone === 'accent' ? Theme.colors.accentGreen : undefined
 
 // The screen gutter and iPad cap belong to ContentColumn, the pinned footer's
 // padding, fill, hairline and safe-area inset to SetupFooter, and the row and

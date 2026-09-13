@@ -57,6 +57,10 @@ const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props) =
 
         {isAdded ? (
           <View style={styles.addedControl}>
+            {/* BLITZY [A11Y]: this white check over the accent-green `addedControl` surface is Figma `47:388`
+                over `47:387` and measures 2.45:1, below the 3:1 non-text minimum. Upheld exactly and flagged
+                at `addedControl` in this folder's stylesheet, which records the remedies; the coordinated
+                decision covering every control sharing this pair is in the register in `@styles/theme`. */}
             <Svg width={Sizes.ICON_LG} height={Sizes.ICON_LG} viewBox="0 0 22 22" fill="none">
               <Path
                 d="M7.111 10.354L9.939 13.182L14.889 8.232"

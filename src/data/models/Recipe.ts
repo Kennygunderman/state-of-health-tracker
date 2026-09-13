@@ -50,7 +50,7 @@ export interface RecipeVersion {
   version: number
   status: 'current' | 'retired'
   name: string
-  description: string | null
+  description: string
   iconKey: RecipeIconKey
   instructions: string[]
   yieldServings: number

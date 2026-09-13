@@ -27,6 +27,7 @@ const FractionChips = ({servings, onSelect}: Props) => {
           activeOpacity={Opacity.PRESSED}
           hitSlop={CHIP_HIT_SLOP}
           accessibilityRole="button"
+          accessibilityLabel={chip.accessibilityLabel}
           accessibilityState={{selected: chip.isSelected}}
           onPress={() => onSelect(chip.fraction.value)}>
           <Text style={[styles.chipLabel, chip.isSelected && styles.chipLabelSelected]}>{chip.fraction.glyph}</Text>

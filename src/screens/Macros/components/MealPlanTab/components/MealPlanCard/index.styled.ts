@@ -20,14 +20,21 @@ export default StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    columnGap: Spacing.X_SMALL,
+    rowGap: Spacing.XX_SMALL,
     paddingVertical: Spacing.SMALL
   },
   metaLeftGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    columnGap: Spacing.X_SMALL
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    columnGap: Spacing.X_SMALL,
+    rowGap: Spacing.XX_SMALL
   },
   metaText: {
+    flexShrink: 1,
     fontSize: FontSize.OVERLINE,
     fontWeight: FontWeight.SEMIBOLD,
     letterSpacing: LetterSpacing.OVERLINE,
@@ -35,6 +42,8 @@ export default StyleSheet.create({
     color: Theme.colors.textMuted
   },
   metaCalories: {
+    flexShrink: 0,
+    marginLeft: 'auto',
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
@@ -45,6 +54,9 @@ export default StyleSheet.create({
     alignItems: 'center',
     columnGap: Spacing.SMALL,
     paddingBottom: Spacing.SMALL
+  },
+  contentRowFlush: {
+    paddingBottom: 0
   },
   tileMuted: {
     opacity: Opacity.LOGGED_TILE
@@ -75,7 +87,9 @@ export default StyleSheet.create({
   swappedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    columnGap: Spacing.TIGHT
+    columnGap: Spacing.TIGHT,
+    marginLeft: Sizes.TILE + Spacing.SMALL,
+    paddingBottom: Spacing.SMALL
   },
   swappedCaption: {
     flexShrink: 1,
@@ -83,6 +97,11 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
+  },
+  swappedLinkButton: {
+    flexShrink: 0,
+    minHeight: Sizes.TOUCH_TARGET,
+    justifyContent: 'center'
   },
   swappedLink: {
     flexShrink: 0,

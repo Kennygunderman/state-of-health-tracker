@@ -2,21 +2,34 @@ import {createEmptyMacroTotals} from '@data/models/Macros'
 import {Meal} from '@data/models/Meal'
 import {MIN_SERVINGS, PerServingMacros} from '@utility/ServingsUtility'
 
-import {CAL_LABEL, CARBS_LABEL, FAT_LABEL, LOG_WEIGHT_TODAY_LABEL, PROTEIN_LABEL} from '@constants/strings'
+import {
+  CAL_LABEL,
+  CARBS_LABEL,
+  FAT_LABEL,
+  LOG_WEIGHT_TODAY_LABEL,
+  MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_SERVING_FRACTION_NAMES,
+  PROTEIN_LABEL,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 import {
+  beginServingsDraft,
   buildDiaryBucketOptions,
   buildFractionChipStates,
   buildThisAddsItems,
   canStepLogDate,
   dateOverlineText,
+  isServingsDraftStale,
   logDateStepperLabel,
   MAX_PLANNED_SERVINGS,
   nextPlannedServings,
+  nextServingsDraft,
   parsePlannedServingsInput,
   plannedPortionSnapshot,
   resolveDiaryBucket,
   resolveViewTarget,
+  servingsFieldText,
   stepLogDate,
   thisAddsTotals
 } from '../index.util'
@@ -49,6 +62,17 @@ const makeRenamedDiaryMeals = (): Meal[] => [
   makeDiaryMeal({id: 'meal-second', name: 'Second Meal', sortOrder: 5}),
   makeDiaryMeal({id: 'meal-first', name: 'First Meal', sortOrder: 1})
 ]
+
+const makePartlyRenamedDiaryMeals = (): Meal[] => [
+  makeDiaryMeal({id: 'meal-dinner', name: 'Dinner', sortOrder: 3}),
+  makeDiaryMeal({id: 'meal-brunch', name: 'Brunch', sortOrder: 1}),
+  makeDiaryMeal({id: 'meal-lunch', name: 'Lunch', sortOrder: 2})
+]
+
+const fractionAccessibilityLabel = (glyph: string): string =>
+  stringWithNamedParameters(MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE, {
+    fraction: MEAL_PLAN_SERVING_FRACTION_NAMES[glyph]
+  })
 
 describe('plannedPortionSnapshot', () => {
   const fullPrecisionPortion = makePlannedPortion({calories: 420.4, protein: 32.5, carbs: 44.6, fat: 11.4})
@@ -205,6 +229,66 @@ describe('parsePlannedServingsInput', () => {
   })
 })
 
+describe('beginServingsDraft', () => {
+  it('seeds the draft with the formatted authoritative value', () => {
+    expect(beginServingsDraft(1.5)).toEqual({text: '1½', baseValue: 1.5})
+    expect(beginServingsDraft(2)).toEqual({text: '2', baseValue: 2})
+    expect(beginServingsDraft(MIN_SERVINGS)).toEqual({text: '¼', baseValue: MIN_SERVINGS})
+  })
+})
+
+describe('nextServingsDraft', () => {
+  it('bases a parseable keystroke on the value the screen adopts from it', () => {
+    expect(nextServingsDraft('2', 1)).toEqual({text: '2', baseValue: 2})
+    expect(nextServingsDraft('1,5', 1)).toEqual({text: '1,5', baseValue: 1.5})
+    expect(nextServingsDraft('.5', 1)).toEqual({text: '.5', baseValue: 0.5})
+  })
+
+  it('bases partial and invalid text on the value already held, keeping the text as typed', () => {
+    expect(nextServingsDraft('', 1)).toEqual({text: '', baseValue: 1})
+    expect(nextServingsDraft('0.', 1)).toEqual({text: '0.', baseValue: 1})
+    expect(nextServingsDraft('11', 1)).toEqual({text: '11', baseValue: 1})
+  })
+})
+
+describe('isServingsDraftStale', () => {
+  it('has nothing to rebase without a draft', () => {
+    expect(isServingsDraftStale(null, 1)).toBe(false)
+  })
+
+  it('leaves a draft alone when the value only echoes the keystroke it was typed against', () => {
+    expect(isServingsDraftStale(nextServingsDraft('2', 1), 2)).toBe(false)
+    expect(isServingsDraftStale(nextServingsDraft('0.', 1), 1)).toBe(false)
+    expect(isServingsDraftStale(beginServingsDraft(1), 1)).toBe(false)
+  })
+
+  it('marks the draft stale once the value moves for a reason the field did not originate', () => {
+    expect(isServingsDraftStale(beginServingsDraft(1), 1.25)).toBe(true)
+    expect(isServingsDraftStale(nextServingsDraft('0.', 1), 0.5)).toBe(true)
+    expect(isServingsDraftStale(nextServingsDraft('2', 1), 1)).toBe(true)
+  })
+})
+
+describe('servingsFieldText', () => {
+  it('formats the authoritative value when there is no draft', () => {
+    expect(servingsFieldText(1.5, null)).toBe('1½')
+    expect(servingsFieldText(MIN_SERVINGS, null)).toBe('¼')
+    expect(servingsFieldText(MAX_PLANNED_SERVINGS, null)).toBe('10')
+  })
+
+  it('shows the text as typed while the draft still matches the value', () => {
+    expect(servingsFieldText(2, nextServingsDraft('2', 1))).toBe('2')
+    expect(servingsFieldText(1, nextServingsDraft('', 1))).toBe('')
+    expect(servingsFieldText(1, nextServingsDraft('0.', 1))).toBe('0.')
+  })
+
+  it('shows the authoritative value the moment the draft goes stale', () => {
+    expect(servingsFieldText(1.25, beginServingsDraft(1))).toBe('1¼')
+    expect(servingsFieldText(0.5, nextServingsDraft('0.', 1))).toBe('½')
+    expect(servingsFieldText(1, nextServingsDraft('2', 1))).toBe('1')
+  })
+})
+
 describe('buildFractionChipStates', () => {
   it('returns one chip per serving fraction, in chip order', () => {
     expect(buildFractionChipStates(1).map(chip => chip.fraction.value)).toEqual([0.25, 0.33, 0.5, 0.66, 0.75])
@@ -225,6 +309,29 @@ describe('buildFractionChipStates', () => {
   it('leaves every chip unselected when no fraction matches', () => {
     expect(buildFractionChipStates(1.2).map(chip => chip.isSelected)).toEqual([false, false, false, false, false])
     expect(buildFractionChipStates(2).map(chip => chip.isSelected)).toEqual([false, false, false, false, false])
+  })
+
+  it('names every chip with its fraction spelled out rather than leaving the glyph to be pronounced', () => {
+    expect(buildFractionChipStates(1).map(chip => chip.accessibilityLabel)).toEqual([
+      fractionAccessibilityLabel('¼'),
+      fractionAccessibilityLabel('⅓'),
+      fractionAccessibilityLabel('½'),
+      fractionAccessibilityLabel('⅔'),
+      fractionAccessibilityLabel('¾')
+    ])
+  })
+
+  it('has a spelled-out name for every serving fraction, so no chip falls back to its glyph', () => {
+    const chips = buildFractionChipStates(1)
+
+    expect(chips.every(chip => MEAL_PLAN_SERVING_FRACTION_NAMES[chip.fraction.glyph] !== undefined)).toBe(true)
+    expect(chips.every(chip => !chip.accessibilityLabel.includes(chip.fraction.glyph))).toBe(true)
+  })
+
+  it('carries the same names whatever is selected', () => {
+    expect(buildFractionChipStates(0.5).map(chip => chip.accessibilityLabel)).toEqual(
+      buildFractionChipStates(2).map(chip => chip.accessibilityLabel)
+    )
   })
 })
 
@@ -307,6 +414,60 @@ describe('buildDiaryBucketOptions', () => {
       {mealId: 'meal-first', label: 'First Meal', sortOrder: 1},
       {mealId: 'meal-second', label: 'Second Meal', sortOrder: 5}
     ])
+  })
+
+  describe('when only some planned slots match a diary bucket', () => {
+    const planSlots = ['breakfast', 'lunch', 'dinner'] as const
+
+    it('keeps the fallback bucket the resolver preselects for the unmatched slot', () => {
+      const meals = makePartlyRenamedDiaryMeals()
+      const preselected = resolveDiaryBucket(meals, 'breakfast')
+
+      expect(preselected).toEqual({
+        option: {mealId: 'meal-brunch', label: 'Brunch', sortOrder: 1},
+        isFallback: true
+      })
+      expect(buildDiaryBucketOptions(meals, planSlots)).toContainEqual(preselected.option)
+    })
+
+    it('still offers every canonical match, ordered by sort order', () => {
+      expect(buildDiaryBucketOptions(makePartlyRenamedDiaryMeals(), planSlots)).toEqual([
+        {mealId: 'meal-brunch', label: 'Brunch', sortOrder: 1},
+        {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
+        {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3}
+      ])
+    })
+
+    it('offers a bucket the picker can show for every planned slot', () => {
+      const meals = makePartlyRenamedDiaryMeals()
+      const offeredIds = buildDiaryBucketOptions(meals, planSlots).map(option => option.mealId)
+
+      planSlots.forEach(slot => {
+        expect(offeredIds).toContain(resolveDiaryBucket(meals, slot).option?.mealId)
+      })
+    })
+
+    it('leaves out a renamed bucket the resolver can never select', () => {
+      const meals = [
+        makeDiaryMeal({id: 'meal-lunch', name: 'Lunch', sortOrder: 2}),
+        makeDiaryMeal({id: 'meal-dinner', name: 'Dinner', sortOrder: 3}),
+        makeDiaryMeal({id: 'meal-supper', name: 'Late Supper', sortOrder: 4})
+      ]
+
+      expect(resolveDiaryBucket(meals, 'breakfast').option?.mealId).toBe('meal-lunch')
+      expect(buildDiaryBucketOptions(meals, planSlots)).toEqual([
+        {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
+        {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3}
+      ])
+    })
+
+    it('leaves the meals it was given unchanged', () => {
+      const meals = makePartlyRenamedDiaryMeals()
+
+      buildDiaryBucketOptions(meals, planSlots)
+
+      expect(meals).toEqual(makePartlyRenamedDiaryMeals())
+    })
   })
 
   it('leaves the meals it was given unchanged', () => {

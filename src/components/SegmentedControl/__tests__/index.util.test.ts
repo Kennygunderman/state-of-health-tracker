@@ -1,4 +1,13 @@
-import {isFlexSegments, segmentWidthFor} from '../index.util'
+import {Sizes} from '@styles/sizes'
+
+import {
+  envelopeFootprintFor,
+  isFlexSegments,
+  optionBoxHeightFor,
+  segmentEnvelopeInsetFor,
+  segmentWidthFor,
+  visualTrackHeightFor
+} from '../index.util'
 
 describe('segmentWidthFor', () => {
   describe('unusable track width', () => {
@@ -57,6 +66,153 @@ describe('segmentWidthFor', () => {
     it('reclaims both insets for the segments when the caller passes a zero inset', () => {
       expect(segmentWidthFor(353, 2, 0)).toBe(176.5)
     })
+  })
+})
+
+describe('visualTrackHeightFor', () => {
+  it('draws the large track at 36, the pill plus the inset above and below it', () => {
+    expect(visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)).toBe(36)
+  })
+
+  it('draws the compact track at 29, the height the small and unit controls are designed at', () => {
+    expect(visualTrackHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_TRACK_INSET)).toBe(29)
+  })
+
+  it('grows with a pill enlarged by a scaled-up label', () => {
+    expect(visualTrackHeightFor(40, Sizes.SEGMENT_TRACK_INSET)).toBe(44)
+  })
+
+  it('insets both edges, never one only', () => {
+    expect(visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)).not.toBe(
+      Sizes.SEGMENT_H + Sizes.SEGMENT_TRACK_INSET
+    )
+  })
+})
+
+describe('segmentEnvelopeInsetFor', () => {
+  describe('track drawn below the minimum target', () => {
+    it('needs 4 px on each edge to lift the 36 px large track to the 44 px target', () => {
+      expect(segmentEnvelopeInsetFor(36, Sizes.TOUCH_TARGET)).toBe(4)
+    })
+
+    it('needs 7.5 px on each edge to lift the 29 px compact track to the target', () => {
+      expect(segmentEnvelopeInsetFor(29, Sizes.TOUCH_TARGET)).toBe(7.5)
+    })
+
+    it('is the value the large envelope token carries, derived from the tokens themselves', () => {
+      const trackHeight = visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)
+
+      expect(segmentEnvelopeInsetFor(trackHeight, Sizes.TOUCH_TARGET)).toBe(Sizes.SEGMENT_ENVELOPE_INSET_V)
+    })
+
+    it('is the value the compact envelope token carries, derived from the tokens themselves', () => {
+      const trackHeight = visualTrackHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_TRACK_INSET)
+
+      expect(segmentEnvelopeInsetFor(trackHeight, Sizes.TOUCH_TARGET)).toBe(Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V)
+    })
+  })
+
+  describe('track already at or above the target', () => {
+    it('asks for nothing when the drawn track exactly meets the target', () => {
+      expect(segmentEnvelopeInsetFor(Sizes.TOUCH_TARGET, Sizes.TOUCH_TARGET)).toBe(0)
+    })
+
+    it('asks for nothing when a scaled-up label has already taken the track past the target', () => {
+      expect(segmentEnvelopeInsetFor(48, Sizes.TOUCH_TARGET)).toBe(0)
+    })
+
+    it('never returns a negative inset, which would crop the drawn track', () => {
+      expect(segmentEnvelopeInsetFor(60, Sizes.TOUCH_TARGET)).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  describe('unusable input', () => {
+    it('asks for nothing on a NaN track height instead of a NaN margin', () => {
+      expect(segmentEnvelopeInsetFor(Number.NaN, Sizes.TOUCH_TARGET)).toBe(0)
+    })
+
+    it('asks for nothing on an infinite track height', () => {
+      expect(segmentEnvelopeInsetFor(Number.NEGATIVE_INFINITY, Sizes.TOUCH_TARGET)).toBe(0)
+    })
+
+    it('stays finite for every input, so a style value can never be corrupted', () => {
+      expect(Number.isFinite(segmentEnvelopeInsetFor(Number.POSITIVE_INFINITY, Sizes.TOUCH_TARGET))).toBe(true)
+    })
+  })
+})
+
+describe('optionBoxHeightFor (the box the user actually presses)', () => {
+  it('gives a large option exactly the 44 px target, with no hit slop involved', () => {
+    expect(optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)).toBe(
+      Sizes.TOUCH_TARGET
+    )
+  })
+
+  it('gives a compact option exactly the 44 px target, with no hit slop involved', () => {
+    expect(
+      optionBoxHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+    ).toBe(Sizes.TOUCH_TARGET)
+  })
+
+  it('fits its envelope exactly, so the parent bounds React Native clips to cannot cut the target short', () => {
+    const optionBox = optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+
+    expect(optionBox).toBeLessThanOrEqual(Sizes.TOUCH_TARGET)
+    expect(optionBox).toBeGreaterThanOrEqual(Sizes.TOUCH_TARGET)
+  })
+
+  it('stays at or above the target once a scaled-up label enlarges the pill', () => {
+    expect(optionBoxHeightFor(40, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)).toBeGreaterThanOrEqual(
+      Sizes.TOUCH_TARGET
+    )
+  })
+
+  it('is taller than the track it is drawn over, which is the whole reason the envelope exists', () => {
+    const optionBox = optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+    const trackHeight = visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)
+
+    expect(optionBox).toBeGreaterThan(trackHeight)
+    expect(trackHeight).toBeLessThan(Sizes.TOUCH_TARGET)
+  })
+})
+
+describe('envelopeFootprintFor (what the control occupies in layout)', () => {
+  it('occupies the drawn 36 px track for the large variant, so nothing on the screen moves', () => {
+    const optionBox = optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+
+    expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_ENVELOPE_INSET_V)).toBe(
+      visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)
+    )
+  })
+
+  it('occupies the drawn 29 px track for the compact variants', () => {
+    const optionBox = optionBoxHeightFor(
+      Sizes.SEGMENT_COMPACT_H,
+      Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V,
+      Sizes.SEGMENT_TRACK_INSET
+    )
+
+    expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V)).toBe(
+      visualTrackHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_TRACK_INSET)
+    )
+  })
+
+  it('keeps the footprint equal to the drawn track at every text size, not only the reference one', () => {
+    const pillHeights = [Sizes.SEGMENT_H, 36, 40, 48]
+
+    pillHeights.forEach(pillHeight => {
+      const optionBox = optionBoxHeightFor(pillHeight, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+
+      expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_ENVELOPE_INSET_V)).toBe(
+        visualTrackHeightFor(pillHeight, Sizes.SEGMENT_TRACK_INSET)
+      )
+    })
+  })
+
+  it('gives both insets back, never one only', () => {
+    expect(envelopeFootprintFor(Sizes.TOUCH_TARGET, Sizes.SEGMENT_ENVELOPE_INSET_V)).not.toBe(
+      Sizes.TOUCH_TARGET - Sizes.SEGMENT_ENVELOPE_INSET_V
+    )
   })
 })
 

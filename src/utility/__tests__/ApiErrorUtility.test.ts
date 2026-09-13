@@ -1,3 +1,4 @@
+import {NoMatchingMealsOutcome, PlanGenerationFailedOutcome} from '@data/models/PlanGenerationResult'
 import {AxiosError, AxiosResponse} from 'axios'
 
 import {API_ERROR_CODES, classifyOutcome, getApiErrorCode, isUnknownOutcome} from '../ApiErrorUtility'
@@ -12,6 +13,14 @@ describe('API_ERROR_CODES', () => {
   it('declares invalid_payload as a code of its own, distinct from invalid_request', () => {
     expect(API_ERROR_CODES.invalidPayload).toBe('invalid_payload')
     expect(API_ERROR_CODES.invalidPayload).not.toBe(API_ERROR_CODES.invalidRequest)
+  })
+
+  it('pins the two wire strings PlanGenerationResult derives its failure discriminants from', () => {
+    const noMatchingMealsStatus: NoMatchingMealsOutcome['status'] = API_ERROR_CODES.noMatchingMeals
+    const planGenerationFailedStatus: PlanGenerationFailedOutcome['status'] = API_ERROR_CODES.planGenerationFailed
+
+    expect(noMatchingMealsStatus).toBe('no_matching_meals')
+    expect(planGenerationFailedStatus).toBe('plan_generation_failed')
   })
 })
 

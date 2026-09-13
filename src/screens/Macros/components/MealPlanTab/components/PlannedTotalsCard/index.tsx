@@ -20,7 +20,9 @@ interface Props {
 const PlannedTotalsCard = ({dayName, targetText, figure, unitText, legend}: Props) => (
   <View style={styles.card}>
     <View style={styles.headerRow}>
-      <SectionOverline text={dayName} />
+      <View style={styles.dayNameSlot}>
+        <SectionOverline text={dayName} />
+      </View>
 
       <Text style={styles.targetText}>{targetText}</Text>
     </View>

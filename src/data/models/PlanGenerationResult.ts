@@ -1,3 +1,5 @@
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+
 import {MealPlan} from './MealPlan'
 import {SetupStep} from './MealPlanPreferences'
 
@@ -27,17 +29,20 @@ export interface NoMatchingMeals {
   allergiesKept: true
 }
 
+// 'generated' and 'unconfirmed' are client-only labels — the API never sends them, so they stay plain
+// literals; the two failure statuses below are machine codes the API does send and are therefore read from
+// API_ERROR_CODES, the single registry, rather than restated here.
 export interface PlanGeneratedOutcome {
   status: 'generated'
   plan: MealPlan
 }
 
 export interface NoMatchingMealsOutcome extends NoMatchingMeals {
-  status: 'no_matching_meals'
+  status: typeof API_ERROR_CODES.noMatchingMeals
 }
 
 export interface PlanGenerationFailedOutcome {
-  status: 'plan_generation_failed'
+  status: typeof API_ERROR_CODES.planGenerationFailed
 }
 
 export interface PlanGenerationUnconfirmedOutcome {

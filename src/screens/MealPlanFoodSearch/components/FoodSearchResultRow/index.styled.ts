@@ -57,7 +57,9 @@ export default StyleSheet.create({
      so changing only this control would fork the selection language. Either remedy clears the
      threshold if a designer chooses one — a near-black glyph on the accent-green surface
      (`Theme.colors.background` on `accentGreen` measures 7.67:1), or a darker selected surface
-     keeping the white glyph. Flagged here for designer review. */
+     keeping the white glyph. Flagged here for designer review; the coordinated decision covering
+     every control that shares this pair is recorded in the accessible-colour register in
+     `@styles/theme`. */
   addedControl: {
     width: Sizes.ICON_LG,
     height: Sizes.ICON_LG,

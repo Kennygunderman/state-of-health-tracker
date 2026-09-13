@@ -9,25 +9,16 @@ import GroceryCartIcon from '@components/icons/GroceryCartIcon'
 import SectionOverline from '@components/SectionOverline'
 import Text from '@components/Text'
 
-import {
-  MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL,
-  MEAL_PLAN_NEXT_WEEK_LINK_TEXT,
-  MEAL_PLAN_THIS_WEEK_LINK_TEXT,
-  MEAL_PLAN_TITLE
-} from '@constants/strings'
+import {MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL, MEAL_PLAN_TITLE} from '@constants/strings'
 
-import styles, {GROCERY_BUTTON_HIT_SLOP} from './index.styled'
+import styles from './index.styled'
 
 interface Props {
   rangeText: string
   onGroceryPressed: () => void
-  switchLink?: 'next' | 'this'
-  onSwitchPressed?: () => void
 }
 
-const PlanHeader = ({rangeText, onGroceryPressed, switchLink, onSwitchPressed}: Props): React.JSX.Element => {
-  const switchLinkText = switchLink === 'next' ? MEAL_PLAN_NEXT_WEEK_LINK_TEXT : MEAL_PLAN_THIS_WEEK_LINK_TEXT
-
+const PlanHeader = ({rangeText, onGroceryPressed}: Props): React.JSX.Element => {
   return (
     <View style={styles.row}>
       <View style={styles.titleBlock}>
@@ -36,29 +27,16 @@ const PlanHeader = ({rangeText, onGroceryPressed, switchLink, onSwitchPressed}: 
         <Text style={styles.title}>{MEAL_PLAN_TITLE}</Text>
       </View>
 
-      <View style={styles.actions}>
-        {!!switchLink && !!onSwitchPressed && (
-          <TouchableOpacity
-            activeOpacity={Opacity.PRESSED}
-            accessibilityRole="button"
-            accessibilityLabel={switchLinkText}
-            onPress={onSwitchPressed}>
-            <Text style={styles.switchLink} numberOfLines={1}>
-              {switchLinkText}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.groceryButton}
-          activeOpacity={Opacity.PRESSED}
-          accessibilityRole="button"
-          accessibilityLabel={MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL}
-          hitSlop={GROCERY_BUTTON_HIT_SLOP}
-          onPress={onGroceryPressed}>
+      <TouchableOpacity
+        style={styles.groceryButton}
+        activeOpacity={Opacity.PRESSED}
+        accessibilityRole="button"
+        accessibilityLabel={MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL}
+        onPress={onGroceryPressed}>
+        <View style={styles.groceryDisc}>
           <GroceryCartIcon variant="header" color={Theme.colors.text} />
-        </TouchableOpacity>
-      </View>
+        </View>
+      </TouchableOpacity>
     </View>
   )
 }

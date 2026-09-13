@@ -2,6 +2,7 @@ import * as io from 'io-ts'
 
 const optionalString = io.union([io.string, io.null, io.undefined])
 const nullableNumber = io.union([io.number, io.null])
+const nullableString = io.union([io.string, io.null])
 
 export const MacroTotalsResponse = io.type({
   calories: io.number,
@@ -17,22 +18,26 @@ export const MacroTargetsResponse = io.type({
   fat: nullableNumber
 })
 
-export const MealEntryResponse = io.type({
-  id: io.string,
-  foodId: optionalString,
-  name: io.string,
-  servingText: optionalString,
-  servings: io.number,
-  calories: io.number,
-  protein: io.number,
-  carbs: io.number,
-  fat: io.number,
-  inputMethod: io.string,
-  loggedAt: io.string,
+export const MealEntryResponse = io.intersection([
+  io.type({
+    id: io.string,
+    foodId: optionalString,
+    name: io.string,
+    servingText: optionalString,
+    servings: io.number,
+    calories: io.number,
+    protein: io.number,
+    carbs: io.number,
+    fat: io.number,
+    inputMethod: io.string,
+    loggedAt: io.string
+  }),
   // null on legacy diary rows; absent when the server predates meal planning
-  mealPlanMealId: optionalString,
-  nutritionProvenance: optionalString
-})
+  io.partial({
+    mealPlanMealId: nullableString,
+    nutritionProvenance: nullableString
+  })
+])
 
 export const MealResponse = io.type({
   id: io.string,

@@ -31,10 +31,16 @@ export const Sizes = {
 
   SEGMENT_TRACK_INSET: 2,
   SEGMENT_COMPACT_INSET_V: 5,
+  SEGMENT_H: 32,
+  SEGMENT_COMPACT_H: 25,
+  SEGMENT_ENVELOPE_INSET_V: 4,
+  SEGMENT_COMPACT_ENVELOPE_INSET_V: 7.5,
   BANNER_ICON_INSET_T: 1,
   BANNER_TEXT_INSET_T: 2,
   ROW_VALUE_INSET_T: 2,
   ROW_VALUE_INSET_B: 0.5,
+  // The trailing-chevron slot a row's layout advances by (Figma 36:71 / 36:538), not the glyph canvas.
+  CHEVRON_SLOT: 8,
   PROGRESS_SEGMENT_W: 33,
   PROGRESS_SEGMENT_H: 4,
   PROGRESS_BAR_H: 6,
@@ -91,6 +97,7 @@ export const Opacity = {
 
   LOGGED_TILE: 0.6,
   PRESSED: 0.6,
+  PRESSED_CTA: 0.5,
   HERO_ART: 0.5,
   DISABLED: 0.5,
   CHIP_GLYPH: 0.8

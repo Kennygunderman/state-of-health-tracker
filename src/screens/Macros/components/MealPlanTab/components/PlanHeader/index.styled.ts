@@ -1,18 +1,10 @@
-import {Insets, StyleSheet} from 'react-native'
+import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
-
-/* BLITZY [A11Y]: 49:34's disc is CONTROL_SM, and CONTROL_SM + 2 x XX_SMALL = TOUCH_TARGET (44px). */
-export const GROCERY_BUTTON_HIT_SLOP: Insets = {
-  top: Spacing.XX_SMALL,
-  right: Spacing.XX_SMALL,
-  bottom: Spacing.XX_SMALL,
-  left: Spacing.XX_SMALL
-}
 
 export default StyleSheet.create({
   row: {
@@ -34,18 +26,15 @@ export default StyleSheet.create({
     letterSpacing: LetterSpacing.TITLE,
     color: Theme.colors.text
   },
-  // 49:9 draws no week-switch link: these two back the AAP-inferred one, shown only when an upcoming plan exists.
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: Spacing.SMALL
-  },
-  switchLink: {
-    fontSize: FontSize.LABEL,
-    fontWeight: FontWeight.SEMIBOLD,
-    color: Theme.colors.accentGreen
-  },
+  // The target is TOUCH_TARGET wide while the drawn disc stays CONTROL_SM: right-aligning the disc keeps it
+  // flush with the content column and grows the target inwards, so it never extends past the row's bounds.
   groceryButton: {
+    width: Sizes.TOUCH_TARGET,
+    height: Sizes.TOUCH_TARGET,
+    alignItems: 'flex-end',
+    justifyContent: 'center'
+  },
+  groceryDisc: {
     width: Sizes.CONTROL_SM,
     height: Sizes.CONTROL_SM,
     alignItems: 'center',

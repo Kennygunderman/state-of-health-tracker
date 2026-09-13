@@ -2,6 +2,7 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight} from '@styles/fontSize'
+import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -21,6 +22,9 @@ export default StyleSheet.create({
     paddingHorizontal: 0,
     borderRadius: BorderRadius.BUTTON,
     backgroundColor: Theme.colors.tile
+  },
+  innerDisabled: {
+    opacity: Opacity.DISABLED
   },
   label: {
     fontWeight: FontWeight.SEMIBOLD,

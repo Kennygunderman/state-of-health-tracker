@@ -2,9 +2,31 @@ import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 
 const NOT_FOUND_STATUS = 404
 
+/**
+ * The `meal_planning_enabled` value shipped in `setDefaults`. It is `false` so an install that has never
+ * activated a console value hides the feature instead of showing it unseeded.
+ */
+export const PACKAGED_MEAL_PLANNING_ENABLED = false
+
 export type MealPlanAvailability = 'enabled' | 'disabled' | 'unavailable'
 
+/** Mirrors `remoteConfig().lastFetchStatus`. */
+export type RemoteConfigFetchStatus = 'success' | 'failure' | 'no_fetch_yet' | 'throttled'
+
+/** Mirrors `remoteConfig().getValue(key).getSource()`: `'remote'` only once a console value was activated. */
+export type RemoteConfigValueSource = 'static' | 'default' | 'remote'
+
+export interface MealPlanningFlagInputs {
+  lastFetchStatus: RemoteConfigFetchStatus
+  valueSource: RemoteConfigValueSource
+  value: boolean
+}
+
 export interface MealPlanEntitlementInputs {
+  /**
+   * Must come from `resolveMealPlanningFlagEnabled`: a bare `getValue(…).asBoolean()` read cannot separate a
+   * never-activated default from an activated console value, so it cannot fail closed.
+   */
   isFlagEnabled: boolean
   preferencesError: unknown
   currentPlanError: unknown
@@ -19,6 +41,16 @@ export interface MealPlanEntitlement {
   isGatedRequestAllowed: boolean
   hasPlan: boolean
 }
+
+/**
+ * Fail-closed across the four Remote Config states a single boolean cannot separate. Only a value the SDK has
+ * activated from the console (`valueSource === 'remote'`) may enable the feature, so a never-fetched or
+ * offline install stays at the packaged `false`. `lastFetchStatus` names which state this is and deliberately
+ * does not change the outcome — that invariance is the retention rule: the SDK caches an activated value
+ * across launches, so a failed or throttled fetch keeps returning the last activated value, including `true`.
+ */
+export const resolveMealPlanningFlagEnabled = (flag: MealPlanningFlagInputs): boolean =>
+  flag.valueSource === 'remote' ? flag.value : PACKAGED_MEAL_PLANNING_ENABLED
 
 export const httpStatusOf = (error: unknown): number | null => {
   const status = (error as {response?: {status?: unknown}} | null)?.response?.status
@@ -61,12 +93,15 @@ export const resolveMealPlanEntitlement = ({
     isRoutesMissingError(preferencesError) ||
     isRoutesMissingError(currentPlanError) ||
     isRoutesMissingError(targetsError)
-  const isUnavailable = isGatedRouteDisabled || areRoutesMissing
 
   return {
-    availability: isUnavailable ? 'unavailable' : 'enabled',
+    availability: isGatedRouteDisabled || areRoutesMissing ? 'unavailable' : 'enabled',
     isSegmentedControlVisible: true,
-    isCatalogVisible: !isUnavailable,
+    // The two unavailability signals part company here. `/catalog/*` is never gated by the server's
+    // MEAL_PLANNING_ENABLED flag, so signal (a) — a mounted backend answering a gated route with
+    // `feature_disabled` — still serves catalog search and Add Food keeps its section. Only signal (b), a
+    // rolled-back backend whose `/catalog/*` routes are absent too, removes it while the flag is on.
+    isCatalogVisible: !areRoutesMissing,
     isGatedRequestAllowed: true,
     hasPlan
   }

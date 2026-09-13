@@ -2,7 +2,7 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
-import {Sizes, Stroke} from '@styles/sizes'
+import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -48,6 +48,10 @@ export default StyleSheet.create({
   containerDisc: {
     minHeight: Sizes.CONTROL
   },
+  /* BLITZY [A11Y]: the disc implements Figma `49:282` exactly and carries `49:283`'s white tick at 2.45:1,
+     below the 3:1 non-text minimum for a required glyph. Matched rather than adjusted because Figma
+     specifies the pair; the remedy is a darker disc or a near-black glyph (`background` on `accentGreen`
+     measures 7.67:1). See the accessible-colour register in `@styles/theme`. */
   checkDisc: {
     width: Sizes.ICON_MD,
     height: Sizes.ICON_MD,
@@ -112,6 +116,12 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.accentGreen
   },
+  /* BLITZY [A11Y]: the action label implements Figma `38:396` + `38:397` exactly — white on the accent pill
+     above at 600/13px — measuring 2.45:1 against the 4.5:1 AA default, the widest shortfall in this
+     palette (13px/600 is not WCAG large text). Figma specifies the pair and outranks that default, so it is
+     matched rather than adjusted. White is already maximum contrast, so only the pill can move
+     (`background` on `accentGreen` measures 7.67:1). See the accessible-colour register in
+     `@styles/theme`. */
   primaryActionLabel: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
@@ -128,5 +138,8 @@ export default StyleSheet.create({
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text
+  },
+  actionPending: {
+    opacity: Opacity.DISABLED
   }
 })

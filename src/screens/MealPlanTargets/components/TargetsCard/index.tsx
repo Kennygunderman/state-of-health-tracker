@@ -3,7 +3,6 @@ import React from 'react'
 import {TouchableOpacity, View} from 'react-native'
 
 import {Opacity} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 import BigNumberRow from '@components/BigNumberRow'
@@ -11,7 +10,9 @@ import MacroLegendRow from '@components/MacroLegendRow'
 import SectionOverline from '@components/SectionOverline'
 import Text from '@components/Text'
 
-import styles from './index.styled'
+import {MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE, stringWithNamedParameters} from '@constants/strings'
+
+import styles, {TARGETS_EDIT_HIT_SLOP, TARGETS_HEADER_ROW_HIT_SLOP} from './index.styled'
 
 export type TargetsCardMacroKey = 'protein' | 'carbs' | 'fat'
 
@@ -50,14 +51,19 @@ const TargetsCard = ({
 }: Props) => {
   return (
     <View style={styles.card}>
-      <View style={styles.headerRow}>
-        <SectionOverline text={label} />
+      <View style={styles.headerRow} hitSlop={TARGETS_HEADER_ROW_HIT_SLOP}>
+        <View style={styles.labelSlot}>
+          <SectionOverline text={label} />
+        </View>
 
         <TouchableOpacity
+          style={styles.editAction}
           activeOpacity={Opacity.PRESSED}
-          hitSlop={Spacing.MEDIUM}
+          hitSlop={TARGETS_EDIT_HIT_SLOP}
           accessibilityRole="button"
-          accessibilityLabel={editLabel}
+          accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE, {
+            action: editLabel
+          })}
           onPress={onEditPress}>
           <Text style={styles.editLink}>{editLabel}</Text>
         </TouchableOpacity>

@@ -1,9 +1,4 @@
-import {
-  MEAL_ENTRY_ESTIMATED_LABEL,
-  MEAL_ENTRY_FROM_MEAL_PLAN_LABEL,
-  MEAL_ENTRY_INGREDIENT_DERIVED_LABEL,
-  MEAL_ENTRY_SOURCE_BACKED_LABEL
-} from '@constants/strings'
+import {convertMealEntry} from '@queries/api/macros/converter/convertDailyMacros'
 
 import {
   entryCalories,
@@ -25,6 +20,27 @@ const makeEntry = (overrides: Partial<MealEntry> = {}): MealEntry => ({
   carbs: 0,
   fat: 4,
   inputMethod: InputMethodEnum.LIBRARY,
+  loggedAt: '2026-07-03T12:00:00.000Z',
+  mealPlanMealId: null,
+  nutritionProvenance: null,
+  ...overrides
+})
+
+type MealEntryWire = Parameters<typeof convertMealEntry>[0]
+
+// The two meal-planning members carry explicit nulls so the payload stays valid
+// whether the codec declares them nullable-required or an optional fragment.
+const makeEntryResponse = (overrides: Partial<MealEntryWire> = {}): MealEntryWire => ({
+  id: 'entry-1',
+  foodId: 'food-1',
+  name: 'Chicken Breast',
+  servingText: '4 oz',
+  servings: 1,
+  calories: 187,
+  protein: 35,
+  carbs: 0,
+  fat: 4,
+  inputMethod: 'library',
   loggedAt: '2026-07-03T12:00:00.000Z',
   mealPlanMealId: null,
   nutritionProvenance: null,
@@ -82,32 +98,32 @@ describe('entryProvenanceLabel', () => {
 
   describe('meal-plan origin', () => {
     it('captions a planned entry that carries no provenance', () => {
-      expect(labelFor(InputMethodEnum.MEAL_PLAN, null)).toBe(MEAL_ENTRY_FROM_MEAL_PLAN_LABEL)
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, null)).toBe('From meal plan')
     })
 
     it('keeps the origin caption for a planned entry, so the origin outranks every provenance branch', () => {
-      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ai_estimated')).toBe(MEAL_ENTRY_FROM_MEAL_PLAN_LABEL)
-      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'source_backed')).toBe(MEAL_ENTRY_FROM_MEAL_PLAN_LABEL)
-      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ingredient_derived')).toBe(MEAL_ENTRY_FROM_MEAL_PLAN_LABEL)
-      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'user_entered')).toBe(MEAL_ENTRY_FROM_MEAL_PLAN_LABEL)
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ai_estimated')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'source_backed')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ingredient_derived')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'user_entered')).toBe('From meal plan')
     })
   })
 
   describe('stored provenance', () => {
     it('captions a source-backed entry', () => {
-      expect(labelFor(InputMethodEnum.SEARCH, 'source_backed')).toBe(MEAL_ENTRY_SOURCE_BACKED_LABEL)
+      expect(labelFor(InputMethodEnum.SEARCH, 'source_backed')).toBe('Source-backed')
     })
 
     it('captions an ingredient-derived entry', () => {
-      expect(labelFor(InputMethodEnum.SEARCH, 'ingredient_derived')).toBe(MEAL_ENTRY_INGREDIENT_DERIVED_LABEL)
+      expect(labelFor(InputMethodEnum.SEARCH, 'ingredient_derived')).toBe('Estimated from ingredients')
     })
 
     it('captions an ai-estimated entry with the short diary estimate caption', () => {
-      expect(labelFor(InputMethodEnum.SEARCH, 'ai_estimated')).toBe(MEAL_ENTRY_ESTIMATED_LABEL)
+      expect(labelFor(InputMethodEnum.SEARCH, 'ai_estimated')).toBe('Estimated')
     })
 
     it('captions an AI-logged entry stored as user-entered as an estimate', () => {
-      expect(labelFor(InputMethodEnum.AI_TEXT, 'user_entered')).toBe(MEAL_ENTRY_ESTIMATED_LABEL)
+      expect(labelFor(InputMethodEnum.AI_TEXT, 'user_entered')).toBe('Estimated')
     })
 
     it('leaves a user-entered entry uncaptioned because client numbers carry no source claim', () => {
@@ -117,7 +133,7 @@ describe('entryProvenanceLabel', () => {
 
   describe('legacy rows written before the provenance column', () => {
     it('still captions an AI-photo entry as an estimate', () => {
-      expect(labelFor(InputMethodEnum.AI_PHOTO, null)).toBe(MEAL_ENTRY_ESTIMATED_LABEL)
+      expect(labelFor(InputMethodEnum.AI_PHOTO, null)).toBe('Estimated')
     })
 
     it('renders no caption for library and search rows', () => {
@@ -135,7 +151,9 @@ describe('entryProvenanceLabel', () => {
         labelFor(InputMethodEnum.SEARCH, 'ai_estimated')
       ]
 
-      expect(new Set(captions.filter(caption => caption !== null && caption.length > 0)).size).toBe(4)
+      expect(captions).toEqual(['From meal plan', 'Source-backed', 'Estimated from ingredients', 'Estimated'])
+      expect(captions.every(caption => caption !== null && caption.length > 0)).toBe(true)
+      expect(new Set(captions).size).toBe(captions.length)
     })
   })
 })
@@ -149,9 +167,10 @@ describe('InputMethodEnum', () => {
     expect(Object.values(InputMethodEnum)).not.toContain('barcode_scan')
   })
 
-  it('renders a row whose unknown wire method decoded to LIBRARY as neither planned nor captioned', () => {
-    const decodedUnknown = makeEntry({inputMethod: InputMethodEnum.LIBRARY, nutritionProvenance: null})
+  it('decodes an unknown wire input method to LIBRARY, leaving the row neither planned nor captioned', () => {
+    const decodedUnknown = convertMealEntry(makeEntryResponse({inputMethod: 'barcode_scan'}))
 
+    expect(decodedUnknown.inputMethod).toBe(InputMethodEnum.LIBRARY)
     expect(isFromMealPlan(decodedUnknown)).toBe(false)
     expect(entryProvenanceLabel(decodedUnknown)).toBeNull()
   })

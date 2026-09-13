@@ -1,7 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
-import {Opacity, Stroke} from '@styles/sizes'
+import {Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -31,8 +31,5 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
     color: Theme.colors.danger
-  },
-  checkboxPending: {
-    opacity: Opacity.DISABLED
   }
 })

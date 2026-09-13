@@ -1155,9 +1155,11 @@ export const MEAL_PLAN_ANSWER_MEALS_LABEL = 'Daily meals'
 
 export const MEAL_PLAN_GENERATE_BUTTON_TEXT = 'Generate my weekly plan'
 
-// The review and settings rows compose a value out of a variable number of fragments ('Lose weight · 170 lb ·
-// 1 lb a week'), so the middot is a join separator here rather than being baked into a fixed template the way
-// MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE bakes its own.
+// The one middot for every variable-arity join in the planner: the review and settings rows ('Lose weight ·
+// 170 lb · 1 lb a week'), the recipe hero context pill ('Midday plate · Sat Jul 5 · 12:30 PM') and the swap
+// meal-meta line ('540 cal · 38g protein · 15 min'). Each of the three drops a missing segment together with
+// its separator, which is why the middot is a join separator here rather than being baked into a fixed
+// template the way MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE bakes its own.
 export const MEAL_PLAN_VALUE_SEPARATOR = ' · '
 
 // Same characters as MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR, kept separate because a row listing the user's own
@@ -1168,7 +1170,19 @@ export const MEAL_PLAN_LIST_SEPARATOR = ', '
 // a blank, a 'null' or an 'undefined'.
 export const MEAL_PLAN_VALUE_NONE = 'None'
 
-export const MEAL_PLAN_WEIGHT_VALUE_TEMPLATE = '{value} {unit}'
+// Every 'number then unit' value the planner renders (182.2 lb, 178 cm, 1,940 kcal, ¾ cup). The unit is data,
+// so the space that joins it to its figure is copy rather than a detail of whichever helper produced the figure.
+export const MEAL_PLAN_UNIT_VALUE_TEMPLATE = '{value} {unit}'
+
+// The same template under the name the review screen's weight row means.
+export const MEAL_PLAN_WEIGHT_VALUE_TEMPLATE = MEAL_PLAN_UNIT_VALUE_TEMPLATE
+
+// 'Sat, Jul 5' — the weekday and date as the swap screen's day line reads them (13, 13c).
+export const MEAL_PLAN_WEEKDAY_DATE_TEMPLATE = '{weekday}, {date}'
+
+// 'Sat Jul 5' — the same pair without the comma, for the recipe hero context pill (49:543), whose stylesheet
+// uppercases the text: set in caps beside two middots, a comma reads as noise rather than as punctuation.
+export const MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE = '{weekday} {date}'
 
 export const MEAL_PLAN_MACRO_LABELS: Record<string, string> = {
   protein: 'Protein',
@@ -1328,6 +1342,11 @@ export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {n} meals'
 export const MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE = '{slot} · {time}'
 
 export const MEAL_PLAN_MEAL_CALORIES_TEMPLATE = '{calories} cal'
+
+// The fixed-arity MEAL_PLAN_MEAL_META_TEMPLATE below bakes this same fragment for the plan card, where all
+// three figures are always present; this is the standalone form a variable-arity meta line needs to drop the
+// protein segment on its own, alongside MEAL_PLAN_MEAL_CALORIES_TEMPLATE and MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE.
+export const MEAL_PLAN_MEAL_PROTEIN_TEMPLATE = '{protein} protein'
 
 export const MEAL_PLAN_MEAL_META_TEMPLATE = '{portion} · {minutes} min · {protein} protein'
 
@@ -1712,6 +1731,17 @@ export const MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Increase serving
 // Matches the visible 'Servings' label above the stepper so the spoken and seen labels agree (WCAG 2.5.3).
 export const MEAL_PLAN_SERVINGS_FIELD_ACCESSIBILITY_LABEL = 'Servings'
 
+// Screen readers pronounce the vulgar-fraction glyphs inconsistently, so each serving chip is named in words.
+export const MEAL_PLAN_SERVING_FRACTION_NAMES: Record<string, string> = {
+  '¼': 'one quarter',
+  '⅓': 'one third',
+  '½': 'one half',
+  '⅔': 'two thirds',
+  '¾': 'three quarters'
+}
+
+export const MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE = 'Set serving fraction to {fraction}'
+
 export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
 
 export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
@@ -1727,3 +1757,10 @@ export const GROCERY_ITEM_ACCESSIBILITY_TEMPLATE = '{name}, {quantity}'
 // States the increase in words so the danger colour is never the only signal carrying the flag (WCAG 1.4.1).
 export const GROCERY_FLAG_ROW_ACCESSIBILITY_TEMPLATE =
   '{name}, amount went up. Now {newAmount}, was {oldAmount}, a change of {delta}.'
+
+// Templates rather than fixed strings so the accessible name always opens with the label actually drawn —
+// 'Edit' or 'Recalculate' here, 'Change' below — which keeps the spoken name a superset of the visible one
+// for voice control (WCAG 2.5.3) while naming the object the action applies to.
+export const MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE = '{action} daily nutrition targets'
+
+export const MEAL_PLAN_PLAN_START_ACTION_ACCESSIBILITY_TEMPLATE = '{action} plan start date'

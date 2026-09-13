@@ -1,4 +1,7 @@
 // Machine-readable codes the API returns in the `error` field of a 4xx or 5xx response body.
+// `noMatchingMeals` and `planGenerationFailed` are also the discriminants of PlanGenerationResult's outcome
+// union (data/models/PlanGenerationResult.ts reads them through `typeof`), so renaming either entry or
+// changing its string is a wire-contract change, not a local rename.
 export const API_ERROR_CODES = {
   featureDisabled: 'feature_disabled',
   quotaExceeded: 'quota_exceeded',

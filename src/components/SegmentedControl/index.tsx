@@ -53,9 +53,12 @@ const SegmentedControl = <T extends string>({
   })
 
   return (
-    <View
-      style={[styles.track, variant === 'large' && styles.trackLarge, !flexSegments && styles.trackCompact]}
-      onLayout={onLayout}>
+    <View style={[styles.envelope, flexSegments ? styles.envelopeLarge : styles.envelopeCompact]} onLayout={onLayout}>
+      <View
+        style={[styles.trackSurface, flexSegments ? styles.trackSurfaceLarge : styles.trackSurfaceCompact]}
+        pointerEvents="none"
+      />
+
       {flexSegments && scrollProgress && segmentWidth > 0 && (
         <Animated.View style={[styles.indicator, indicatorWidth(segmentWidth), indicatorStyle]} />
       )}
@@ -66,22 +69,25 @@ const SegmentedControl = <T extends string>({
         return (
           <TouchableOpacity
             key={option.key}
-            style={[
-              styles.segment,
-              !flexSegments && styles.segmentCompact,
-              !scrollProgress && isSelected && styles.segmentSelected
-            ]}
+            style={[styles.option, !flexSegments && styles.optionCompact]}
             activeOpacity={0.7}
             accessibilityRole="tab"
             accessibilityState={{selected: isSelected}}
             accessibilityLabel={option.label}
             onPress={() => onChange(option.key)}>
-            <Text
-              style={[styles.label, !flexSegments && styles.labelCompact, isSelected && styles.labelSelected]}
-              numberOfLines={1}
-              adjustsFontSizeToFit>
-              {option.label}
-            </Text>
+            <View
+              style={[
+                styles.segment,
+                !flexSegments && styles.segmentCompact,
+                !scrollProgress && isSelected && styles.segmentSelected
+              ]}>
+              <Text
+                style={[styles.label, !flexSegments && styles.labelCompact, isSelected && styles.labelSelected]}
+                numberOfLines={1}
+                adjustsFontSizeToFit>
+                {option.label}
+              </Text>
+            </View>
           </TouchableOpacity>
         )
       })}

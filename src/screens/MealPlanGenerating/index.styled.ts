@@ -28,25 +28,35 @@ export default StyleSheet.create({
   contentBlockCentered: {
     alignItems: 'center'
   },
+  // badgeBlock alone hugs its content, which is what contentBlockCentered displaces: the 64px disc is the
+  // only node 10 and 10b centre horizontally. Every other block keeps the full content width and centres
+  // its text instead (textCentered), because alignItems: 'center' on the parent would otherwise shrink each
+  // wrapper to its content and pull the stretched summaryCard in with it.
   badgeBlock: {
     paddingTop: Spacing.SMALL
   },
   headlineBlock: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.GUTTER
   },
   headlineBlockPending: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.LARGE
   },
   bodyBlock: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.SMALL
   },
   cardBlock: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.LARGE
   },
   constraintCardBlock: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.GUTTER
   },
   bannerBlock: {
+    alignSelf: 'stretch',
     paddingTop: Spacing.MEDIUM
   },
   headline: {

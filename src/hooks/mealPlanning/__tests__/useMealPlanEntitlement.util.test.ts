@@ -6,11 +6,91 @@ import {
   isRoutesMissingError,
   MealPlanEntitlement,
   MealPlanEntitlementInputs,
-  resolveMealPlanEntitlement
+  MealPlanningFlagInputs,
+  PACKAGED_MEAL_PLANNING_ENABLED,
+  RemoteConfigFetchStatus,
+  RemoteConfigValueSource,
+  resolveMealPlanEntitlement,
+  resolveMealPlanningFlagEnabled
 } from '../useMealPlanEntitlement.util'
+
+const FETCH_STATUSES: RemoteConfigFetchStatus[] = ['success', 'failure', 'no_fetch_yet', 'throttled']
 
 const makeApiError = (status: number, code?: string): unknown => ({
   response: {status, data: code === undefined ? {} : {error: code}}
+})
+
+const makeFlagInputs = (
+  lastFetchStatus: RemoteConfigFetchStatus,
+  valueSource: RemoteConfigValueSource,
+  value: boolean
+): MealPlanningFlagInputs => ({lastFetchStatus, valueSource, value})
+
+describe('resolveMealPlanningFlagEnabled', () => {
+  describe('before any console value has been activated', () => {
+    it('is false on a never-fetched install, where the packaged default is in force', () => {
+      const flag = makeFlagInputs('no_fetch_yet', 'default', PACKAGED_MEAL_PLANNING_ENABLED)
+
+      expect(resolveMealPlanningFlagEnabled(flag)).toBe(false)
+    })
+
+    it('is false when the very first fetch failed, so the packaged default still governs', () => {
+      const flag = makeFlagInputs('failure', 'default', PACKAGED_MEAL_PLANNING_ENABLED)
+
+      expect(resolveMealPlanningFlagEnabled(flag)).toBe(false)
+    })
+
+    it('fails closed on a default carrying true, because no console value has been activated', () => {
+      const flag = makeFlagInputs('no_fetch_yet', 'default', true)
+
+      expect(resolveMealPlanningFlagEnabled(flag)).toBe(false)
+    })
+
+    it('is false for a static value, the source the SDK reports when it holds no default', () => {
+      const flag = makeFlagInputs('success', 'static', true)
+
+      expect(resolveMealPlanningFlagEnabled(flag)).toBe(false)
+    })
+  })
+
+  describe('after a successful fetchAndActivate', () => {
+    it('is true when the activated console value is true', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('success', 'remote', true))).toBe(true)
+    })
+
+    it('is false when the activated console value is false', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('success', 'remote', false))).toBe(false)
+    })
+  })
+
+  // The SDK caches an activated value across launches, so a fetch that does not succeed leaves that value in
+  // force instead of falling back to the packaged default.
+  describe('when a later fetch does not succeed', () => {
+    it('retains an activated true after a failed fetch', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('failure', 'remote', true))).toBe(true)
+    })
+
+    it('retains an activated false after a failed fetch', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('failure', 'remote', false))).toBe(false)
+    })
+
+    it('retains an activated true when the minimum fetch interval throttled the fetch', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('throttled', 'remote', true))).toBe(true)
+    })
+
+    it('retains an activated false when the minimum fetch interval throttled the fetch', () => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs('throttled', 'remote', false))).toBe(false)
+    })
+  })
+
+  it('lets the value source decide, so no fetch status can change the outcome', () => {
+    FETCH_STATUSES.forEach(status => {
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs(status, 'remote', true))).toBe(true)
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs(status, 'remote', false))).toBe(false)
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs(status, 'default', true))).toBe(false)
+      expect(resolveMealPlanningFlagEnabled(makeFlagInputs(status, 'static', true))).toBe(false)
+    })
+  })
 })
 
 describe('resolveMealPlanEntitlement', () => {
@@ -25,11 +105,30 @@ describe('resolveMealPlanEntitlement', () => {
   const featureDisabledError = makeApiError(503, API_ERROR_CODES.featureDisabled)
   const bareNotFoundError = makeApiError(404)
 
-  describe('the Remote Config flag', () => {
-    it('is disabled when the packaged default or an explicit false flag is in force', () => {
-      const entitlement = resolveMealPlanEntitlement({...baseInputs, isFlagEnabled: false})
+  const entitlementForFlag = (flag: MealPlanningFlagInputs): MealPlanEntitlement =>
+    resolveMealPlanEntitlement({...baseInputs, isFlagEnabled: resolveMealPlanningFlagEnabled(flag)})
 
-      expect(entitlement.availability).toBe('disabled')
+  describe('the Remote Config flag', () => {
+    it('is disabled on a never-fetched install', () => {
+      const flag = makeFlagInputs('no_fetch_yet', 'default', PACKAGED_MEAL_PLANNING_ENABLED)
+
+      expect(entitlementForFlag(flag).availability).toBe('disabled')
+    })
+
+    it('is disabled when the activated console value is false', () => {
+      expect(entitlementForFlag(makeFlagInputs('success', 'remote', false)).availability).toBe('disabled')
+    })
+
+    it('is enabled when the activated console value is true', () => {
+      expect(entitlementForFlag(makeFlagInputs('success', 'remote', true)).availability).toBe('enabled')
+    })
+
+    it('stays enabled when a failed fetch retains an activated true', () => {
+      expect(entitlementForFlag(makeFlagInputs('failure', 'remote', true)).availability).toBe('enabled')
+    })
+
+    it('stays disabled when a failed fetch retains an activated false', () => {
+      expect(entitlementForFlag(makeFlagInputs('failure', 'remote', false)).availability).toBe('disabled')
     })
 
     it('stays disabled when the flag is off and a gated route also reports feature_disabled', () => {
@@ -108,6 +207,54 @@ describe('resolveMealPlanEntitlement', () => {
     })
   })
 
+  describe("Add Food's ungated catalog section", () => {
+    it('stays visible while the feature is enabled', () => {
+      expect(resolveMealPlanEntitlement(baseInputs).isCatalogVisible).toBe(true)
+    })
+
+    it('stays visible when a gated route reports feature_disabled, since /catalog/* is never gated', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: featureDisabledError})
+
+      expect(entitlement.availability).toBe('unavailable')
+      expect(entitlement.isCatalogVisible).toBe(true)
+    })
+
+    it('stays visible when the current-plan query reports feature_disabled', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, currentPlanError: featureDisabledError})
+
+      expect(entitlement.isCatalogVisible).toBe(true)
+    })
+
+    it('is hidden after a rollback, whose backend has no /catalog/* routes either', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, currentPlanError: bareNotFoundError})
+
+      expect(entitlement.availability).toBe('unavailable')
+      expect(entitlement.isCatalogVisible).toBe(false)
+    })
+
+    it('is hidden when a bare 404 comes from the preferences or the targets query', () => {
+      const fromPreferences = resolveMealPlanEntitlement({...baseInputs, preferencesError: bareNotFoundError})
+      const fromTargets = resolveMealPlanEntitlement({...baseInputs, targetsError: bareNotFoundError})
+
+      expect(fromPreferences.isCatalogVisible).toBe(false)
+      expect(fromTargets.isCatalogVisible).toBe(false)
+    })
+
+    it('is hidden when the Remote Config flag is off', () => {
+      expect(resolveMealPlanEntitlement({...baseInputs, isFlagEnabled: false}).isCatalogVisible).toBe(false)
+    })
+
+    it('is hidden when both unavailability signals fire together', () => {
+      const entitlement = resolveMealPlanEntitlement({
+        ...baseInputs,
+        preferencesError: featureDisabledError,
+        currentPlanError: bareNotFoundError
+      })
+
+      expect(entitlement.isCatalogVisible).toBe(false)
+    })
+  })
+
   describe('derived flags', () => {
     it('keeps the segmented control, the catalog and gated requests when enabled', () => {
       const expected: MealPlanEntitlement = {
@@ -133,8 +280,21 @@ describe('resolveMealPlanEntitlement', () => {
       expect(resolveMealPlanEntitlement({...baseInputs, isFlagEnabled: false})).toEqual(expected)
     })
 
-    it('keeps the segmented control but hides the catalog when unavailable', () => {
+    it('keeps the catalog when only server-side planning is disabled', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: featureDisabledError})
+      const expected: MealPlanEntitlement = {
+        availability: 'unavailable',
+        isSegmentedControlVisible: true,
+        isCatalogVisible: true,
+        isGatedRequestAllowed: true,
+        hasPlan: false
+      }
+
+      expect(entitlement).toEqual(expected)
+    })
+
+    it('keeps the segmented control but hides the catalog when the routes are missing', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: bareNotFoundError})
       const expected: MealPlanEntitlement = {
         availability: 'unavailable',
         isSegmentedControlVisible: true,

@@ -1,3 +1,4 @@
+import {InputMethodEnum, LogCatalogMealEntryPayload} from '@data/models/MealEntry'
 import {NutritionProvenance} from '@data/models/NutritionProvenance'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
@@ -106,3 +107,19 @@ const CATALOG_PROVENANCE_CAPTIONS: Record<NutritionProvenance, string | null> = 
 
 export const catalogProvenanceLabel = (provenance: NutritionProvenance | null | undefined): string | null =>
   provenance ? CATALOG_PROVENANCE_CAPTIONS[provenance] : null
+
+// Request body for logging a published catalog food by id. servingText is
+// deliberately omitted: the portion the server picks drives the stored label AND
+// the stored per-serving macros together, so it accepts a servingText only when
+// it equals one of that food's stored portion descriptions and otherwise derives
+// the canonical one from the default portion. A client cannot honour that — the
+// catalog food carries the portion's amount and unit but not its description, so
+// a reconstructed '<amount> <unit>' ('1 each', '152 g') matches a real
+// description ('lemon', '1 cup, halves') only by coincidence and is rejected as
+// invalid_serving. Omitting the member is what makes the label and the numbers
+// come from the same portion row.
+export const buildCatalogLogPayload = (catalogFoodId: string, servings: number): LogCatalogMealEntryPayload => ({
+  catalogFoodId,
+  servings,
+  inputMethod: InputMethodEnum.SEARCH
+})

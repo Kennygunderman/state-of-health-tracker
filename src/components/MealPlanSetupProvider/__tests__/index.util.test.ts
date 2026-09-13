@@ -1,11 +1,14 @@
 import {MealPlanPreferences, MealTimeEntry} from '@data/models/MealPlanPreferences'
+import {MealSlot} from '@data/models/Recipe'
 
 import {
   ALLERGEN_NONE,
   applyAllergenSelection,
   applyBudgetAmount,
+  applyLifecycleEvent,
   applyMealSchedule,
   applyNoBudgetPreference,
+  clearsSetupDraft,
   completedSteps,
   createEmptyDraft,
   DEFAULT_MEAL_TIMES,
@@ -13,10 +16,14 @@ import {
   MealPlanSetupDirty,
   MealPlanSetupDraft,
   MealPlanSetupDraftState,
+  MealPlanSetupLifecycleEvent,
+  MealPlanSetupStep,
   seedDraftFromPreferences,
   setDislikedFoodIds,
   setMealTime,
   setStepFields,
+  SETUP_STEPS_ESTIMATED,
+  SETUP_STEPS_MANUAL,
   stepsForRoute,
   toggleDislikedFoodId
 } from '../index.util'
@@ -33,11 +40,38 @@ const makeDirty = (overrides: Partial<MealPlanSetupDirty> = {}): MealPlanSetupDi
 
 const makeState = (
   draft: Partial<MealPlanSetupDraft> = {},
-  dirty: Partial<MealPlanSetupDirty> = {}
+  dirty: Partial<MealPlanSetupDirty> = {},
+  seeded = false
 ): MealPlanSetupDraftState => ({
   draft: makeDraft(draft),
-  dirty: makeDirty(dirty)
+  dirty: makeDirty(dirty),
+  seeded
 })
+
+const ALL_DIRTY: MealPlanSetupDirty = {
+  goal: true,
+  body: true,
+  activity: true,
+  diet: true,
+  dislikes: true,
+  schedule: true,
+  cooking: true
+}
+
+const LIFECYCLE_EVENTS: MealPlanSetupLifecycleEvent[] = [
+  'setup_completed',
+  'setup_dismissed',
+  'signed_out',
+  'flow_exited',
+  'step_saved'
+]
+
+const CLEARING_EVENTS: MealPlanSetupLifecycleEvent[] = [
+  'setup_completed',
+  'setup_dismissed',
+  'signed_out',
+  'flow_exited'
+]
 
 const makeCompleteDraft = (overrides: Partial<MealPlanSetupDraft> = {}): MealPlanSetupDraft =>
   makeDraft({
@@ -202,6 +236,12 @@ describe('seedDraftFromPreferences', () => {
       noBudgetPreference: false,
       timeZone: 'America/New_York'
     })
+  })
+
+  it('normalises a saved budget to the one currency this release sends, keeping the amount', () => {
+    const {draft} = seedDraftFromPreferences(makePreferences({budget: {amount: 90, currency: 'EUR'}}))
+
+    expect(draft.budget).toEqual({amount: 90, currency: 'USD'})
   })
 
   it('reduces the fetched disliked foods to their ids in the order the server sent them', () => {
@@ -640,10 +680,22 @@ describe('applyBudgetAmount / applyNoBudgetPreference', () => {
       expect(result.draft.noBudgetPreference).toBe(false)
     })
 
-    it('keeps a currency the draft already carries', () => {
+    // This release sends exactly one currency, so the draft — which is what the cooking step's
+    // payload is built from — may never carry another one, whatever it held before the edit.
+    it('stamps USD over a currency the draft was carrying', () => {
       const state = makeState({budget: {amount: 90, currency: 'EUR'}})
 
-      expect(applyBudgetAmount(state, 150).draft.budget).toEqual({amount: 150, currency: 'EUR'})
+      expect(applyBudgetAmount(state, 150).draft.budget).toEqual({amount: 150, currency: 'USD'})
+    })
+
+    it('leaves no path by which a non-USD currency reaches the save payload', () => {
+      const seeded = seedDraftFromPreferences(makePreferences({budget: {amount: 90, currency: 'GBP'}}))
+      const edited = applyBudgetAmount(seeded, 200)
+      const reEntered = applyBudgetAmount(applyBudgetAmount(seeded, null), 75)
+
+      expect(seeded.draft.budget).toEqual({amount: 90, currency: 'USD'})
+      expect(edited.draft.budget).toEqual({amount: 200, currency: 'USD'})
+      expect(reEntered.draft.budget).toEqual({amount: 75, currency: 'USD'})
     })
   })
 
@@ -903,6 +955,187 @@ describe('completedSteps', () => {
       'dislikes',
       'cooking'
     ])
+  })
+})
+
+describe('the seeded flag', () => {
+  it('leaves a first-entry draft unseeded, so a screen may still read the saved answers', () => {
+    expect(createEmptyDraft().seeded).toBe(false)
+  })
+
+  it('marks a draft filled from the saved preferences as seeded', () => {
+    expect(seedDraftFromPreferences(makePreferences()).seeded).toBe(true)
+  })
+
+  it('leaves the draft unseeded when there is nothing saved to seed it from', () => {
+    expect(seedDraftFromPreferences(null).seeded).toBe(false)
+    expect(seedDraftFromPreferences(undefined).seeded).toBe(false)
+  })
+
+  // The point of the flag: once the draft holds the saved answers, a null in it is the answer the
+  // user cleared — an optional goal weight removed on frame 02 — and a screen composing the draft
+  // with the fetched preferences must not fill it back in.
+  it('survives clearing an optional answer, so the cleared value stays the user answer', () => {
+    const cleared = setStepFields(seedDraftFromPreferences(makePreferences()), 'goal', {goalWeightKg: null})
+
+    expect(cleared.seeded).toBe(true)
+    expect(cleared.draft.goalWeightKg).toBeNull()
+  })
+
+  it('survives every reducer that edits the draft', () => {
+    const seeded = seedDraftFromPreferences(makePreferences())
+
+    expect(applyAllergenSelection(seeded, 'soy').seeded).toBe(true)
+    expect(toggleDislikedFoodId(seeded, 'food-olive').seeded).toBe(true)
+    expect(setDislikedFoodIds(seeded, ['food-olive']).seeded).toBe(true)
+    expect(applyMealSchedule(seeded, 'three').seeded).toBe(true)
+    expect(setMealTime(seeded, 'dinner', '19:00').seeded).toBe(true)
+    expect(applyBudgetAmount(seeded, 120).seeded).toBe(true)
+    expect(applyNoBudgetPreference(seeded, true).seeded).toBe(true)
+  })
+
+  it('is never invented by an edit of an unseeded draft', () => {
+    expect(setStepFields(createEmptyDraft(), 'goal', {goal: 'lose'}).seeded).toBe(false)
+    expect(applyBudgetAmount(createEmptyDraft(), 120).seeded).toBe(false)
+  })
+})
+
+describe('clearsSetupDraft', () => {
+  it('clears the draft when a generated plan hands the answers to the server', () => {
+    expect(clearsSetupDraft('setup_completed')).toBe(true)
+  })
+
+  it('clears the draft when the user dismisses setup with Not now', () => {
+    expect(clearsSetupDraft('setup_dismissed')).toBe(true)
+  })
+
+  it('clears the draft when the session ends at sign-out', () => {
+    expect(clearsSetupDraft('signed_out')).toBe(true)
+  })
+
+  // The navigation boundary MacrosStack reports: no setup route is left on the stack, which is how
+  // a generated plan and 'Not now' both end.
+  it('clears the draft when the flow is left behind', () => {
+    expect(clearsSetupDraft('flow_exited')).toBe(true)
+  })
+
+  // A Continue persists its own step and the later steps still derive from the earlier answers,
+  // so reporting a saved step must not discard the draft the user is still filling in.
+  it('keeps the draft when a step has just been persisted', () => {
+    expect(clearsSetupDraft('step_saved')).toBe(false)
+  })
+
+  it('decides every lifecycle event rather than falling through undefined', () => {
+    expect(LIFECYCLE_EVENTS.map(event => clearsSetupDraft(event))).toEqual([true, true, true, true, false])
+  })
+})
+
+describe('applyLifecycleEvent', () => {
+  const fullyDirtyDraft = (): MealPlanSetupDraftState => ({
+    draft: makeCompleteDraft({budget: {amount: 120, currency: 'USD'}, noBudgetPreference: false}),
+    dirty: {...ALL_DIRTY},
+    seeded: true
+  })
+
+  it('discards every answer of a fully dirty draft once setup completes', () => {
+    expect(applyLifecycleEvent(fullyDirtyDraft(), 'setup_completed')).toEqual(createEmptyDraft())
+  })
+
+  it('discards every answer of a fully dirty draft when the user taps Not now', () => {
+    expect(applyLifecycleEvent(fullyDirtyDraft(), 'setup_dismissed')).toEqual(createEmptyDraft())
+  })
+
+  it('discards every answer of a fully dirty draft at sign-out, leaving nothing for the next user', () => {
+    const cleared = applyLifecycleEvent(fullyDirtyDraft(), 'signed_out')
+
+    expect(cleared).toEqual(createEmptyDraft())
+    expect(cleared.draft.weightKg).toBeNull()
+    expect(cleared.draft.allergens).toEqual([])
+    expect(cleared.seeded).toBe(false)
+    expect(Object.values(cleared.dirty).some(Boolean)).toBe(false)
+  })
+
+  // The reset MacrosStack actually dispatches when the Macros root regains focus: a finished or
+  // abandoned wizard session leaves nothing behind for a later visit in the same app session.
+  it('discards every answer of a fully dirty draft when the flow is left behind', () => {
+    expect(applyLifecycleEvent(fullyDirtyDraft(), 'flow_exited')).toEqual(createEmptyDraft())
+  })
+
+  it('discards a seeded draft the user never edited, so no saved answer lingers in memory', () => {
+    const seeded = seedDraftFromPreferences(makePreferences())
+
+    expect(applyLifecycleEvent(seeded, 'flow_exited')).toEqual(createEmptyDraft())
+  })
+
+  it('returns the draft untouched when a step was merely persisted', () => {
+    const state = fullyDirtyDraft()
+
+    expect(applyLifecycleEvent(state, 'step_saved')).toBe(state)
+  })
+
+  // Returning to the Macros root happens constantly with no setup in flight, so clearing an
+  // untouched draft must not hand the provider a new object to re-render for.
+  it('leaves an untouched draft alone for every clearing event, object identity included', () => {
+    const state = createEmptyDraft()
+
+    expect(CLEARING_EVENTS.map(event => applyLifecycleEvent(state, event))).toEqual([state, state, state, state])
+    expect(CLEARING_EVENTS.every(event => applyLifecycleEvent(state, event) === state)).toBe(true)
+  })
+
+  it('does not mutate the state it clears', () => {
+    const state = fullyDirtyDraft()
+    const snapshot = fullyDirtyDraft()
+
+    applyLifecycleEvent(state, 'setup_dismissed')
+
+    expect(state).toEqual(snapshot)
+  })
+
+  it('returns a fresh draft each time, so two cleared sessions share no array', () => {
+    const first = applyLifecycleEvent(fullyDirtyDraft(), 'setup_completed')
+    const second = applyLifecycleEvent(fullyDirtyDraft(), 'setup_completed')
+
+    expect(first).toEqual(second)
+    expect(first.draft).not.toBe(second.draft)
+    expect(first.draft.allergens).not.toBe(second.draft.allergens)
+  })
+
+  it('is idempotent on an already-empty draft', () => {
+    expect(applyLifecycleEvent(createEmptyDraft(), 'setup_completed')).toEqual(createEmptyDraft())
+  })
+})
+
+describe('the module tables', () => {
+  it('freezes the default meal times a schedule is seeded from', () => {
+    const rewritten = DEFAULT_MEAL_TIMES as Record<MealSlot, string>
+
+    rewritten.breakfast = '05:00'
+
+    expect(Object.isFrozen(DEFAULT_MEAL_TIMES)).toBe(true)
+    expect(DEFAULT_MEAL_TIMES.breakfast).toBe('08:00')
+    expect(applyMealSchedule(createEmptyDraft(), 'three').draft.mealTimes).toEqual([
+      {slot: 'breakfast', time: '08:00'},
+      {slot: 'lunch', time: '12:30'},
+      {slot: 'dinner', time: '18:30'}
+    ])
+  })
+
+  it('freezes both route step lists so a consumer cannot reorder or extend the wizard', () => {
+    expect(Object.isFrozen(SETUP_STEPS_ESTIMATED)).toBe(true)
+    expect(Object.isFrozen(SETUP_STEPS_MANUAL)).toBe(true)
+    expect(() => (SETUP_STEPS_ESTIMATED as MealPlanSetupStep[]).push('goal')).toThrow(TypeError)
+    expect(() => (SETUP_STEPS_MANUAL as MealPlanSetupStep[]).push('activity')).toThrow(TypeError)
+    expect(SETUP_STEPS_ESTIMATED).toHaveLength(7)
+    expect(SETUP_STEPS_MANUAL).toHaveLength(6)
+  })
+
+  it('still hands stepsForRoute callers a mutable copy of their own', () => {
+    const steps = stepsForRoute('estimated')
+
+    steps.push('goal')
+
+    expect(SETUP_STEPS_ESTIMATED).toHaveLength(7)
+    expect(stepsForRoute('estimated')).toHaveLength(7)
   })
 })
 

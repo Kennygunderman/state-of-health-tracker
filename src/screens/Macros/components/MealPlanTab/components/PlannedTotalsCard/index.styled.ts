@@ -17,15 +17,23 @@ export default StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    columnGap: Spacing.SMALL
+    columnGap: Spacing.SMALL,
+    flexWrap: 'wrap',
+    rowGap: Spacing.XX_SMALL
+  },
+  dayNameSlot: {
+    flexGrow: 0,
+    flexShrink: 1
   },
   targetText: {
+    flexShrink: 0,
+    marginLeft: 'auto',
     fontSize: FontSize.LABEL,
     lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
   },
   // Carries the gap below the figure row as well: Figma owns it on the divider's own
-  // wrapper frame, which this six-key sheet deliberately does not have, and paddingTop
+  // wrapper frame, which this sheet deliberately does not have, and paddingTop
   // cannot open space above a node whose height is fixed at one pixel.
   figureRow: {
     paddingTop: Spacing.X_SMALL,

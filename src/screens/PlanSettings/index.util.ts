@@ -9,13 +9,10 @@ import {
 } from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import type {RootStackParamList, StepMode, TargetsReturn} from '@navigation/types'
-import {Theme} from '@styles/theme'
 import {formatPlanDayLabel, formatSlotTime, parseDayKey} from '@utility/MealPlanDateUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 import {centimetersToFeetInches, formatHeightImperial, kilogramsToPounds} from '@utility/UnitConversionUtility'
 import {format} from 'date-fns'
-
-import type {SummaryRow} from '@components/SummaryRows'
 
 import Screens from '@constants/screens'
 import {
@@ -30,10 +27,13 @@ import {
   MEAL_PLAN_KCAL_UNIT,
   MEAL_PLAN_KG_UNIT,
   MEAL_PLAN_LB_UNIT,
+  MEAL_PLAN_LIST_SEPARATOR,
   MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR,
   MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL,
   MEAL_PLAN_PACE_LABELS,
   MEAL_PLAN_SCHEDULE_LABELS,
+  MEAL_PLAN_UNIT_VALUE_TEMPLATE,
+  MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_SENTENCE_LABELS,
   PLAN_REGENERATE_DIALOG_BODY_TEMPLATE,
   PLAN_REGENERATE_DIALOG_RANGE_TEMPLATE,
@@ -109,13 +109,15 @@ export interface PlanSettingsFooterInput {
   targetsStale: boolean
 }
 
+export type PlanSummaryTone = 'default' | 'accent'
+
+export interface PlanRegenerateSummaryRow {
+  label: string
+  value: string
+  tone: PlanSummaryTone
+}
+
 type PlanTargetValues = NutritionTargets['targets']
-
-const VALUE_SEPARATOR = ' \u00b7 '
-
-const LIST_SEPARATOR = ', '
-
-const UNIT_SEPARATOR = ' '
 
 const WEEKDAY_FORMAT = 'EEEE'
 
@@ -125,7 +127,8 @@ const SINGLE_ITEM = 1
 
 const ALLERGEN_NONE = 'none'
 
-const withUnit = (value: string, unit: string): string => `${value}${UNIT_SEPARATOR}${unit}`
+const withUnit = (value: string, unit: string): string =>
+  stringWithNamedParameters(MEAL_PLAN_UNIT_VALUE_TEMPLATE, {value, unit})
 
 const toOneDecimal = (value: number): string =>
   String(Math.round(value * WEIGHT_PRECISION_FACTOR) / WEIGHT_PRECISION_FACTOR)
@@ -135,7 +138,7 @@ const toOneDecimal = (value: number): string =>
 const joinValueParts = (parts: (string | null)[]): string => {
   const present = parts.filter((part): part is string => part !== null && part.length > 0)
 
-  return present.length > 0 ? present.join(VALUE_SEPARATOR) : PLAN_SETTINGS_NOT_SET_VALUE
+  return present.length > 0 ? present.join(MEAL_PLAN_VALUE_SEPARATOR) : PLAN_SETTINGS_NOT_SET_VALUE
 }
 
 // A code outside the mapped set resolves to null rather than to itself, so a value from a newer server release
@@ -203,13 +206,13 @@ const formatAllergens = (allergens: string[]): string | null => {
     .map(allergen => labelFor(MEAL_PLAN_ALLERGEN_LABELS, allergen))
     .filter((label): label is string => label !== null)
 
-  return labels.length > 0 ? labels.join(LIST_SEPARATOR) : null
+  return labels.length > 0 ? labels.join(MEAL_PLAN_LIST_SEPARATOR) : null
 }
 
 const formatDislikedFoods = (foods: DislikedFoodSummary[]): string | null => {
   const names = foods.map(food => food.name).filter(name => name.length > 0)
 
-  return names.length > 0 ? names.join(LIST_SEPARATOR) : null
+  return names.length > 0 ? names.join(MEAL_PLAN_LIST_SEPARATOR) : null
 }
 
 // Times follow the saved slot order (breakfast, lunch, dinner, then snack) rather than the clock, so the row
@@ -217,7 +220,7 @@ const formatDislikedFoods = (foods: DislikedFoodSummary[]): string | null => {
 const formatMealTimes = (mealTimes: MealTimeEntry[]): string | null => {
   const times = mealTimes.map(entry => formatSlotTime(entry.time)).filter(time => time.length > 0)
 
-  return times.length > 0 ? times.join(LIST_SEPARATOR) : null
+  return times.length > 0 ? times.join(MEAL_PLAN_LIST_SEPARATOR) : null
 }
 
 const formatCookingTime = (minutes: number | null): string | null =>
@@ -389,7 +392,9 @@ const joinFlaggedMeals = (descriptions: string[]): string => {
   const leading = descriptions.slice(0, -1)
   const last = descriptions[descriptions.length - 1]
 
-  return leading.length > 0 ? `${leading.join(LIST_SEPARATOR)}${PLAN_SETTINGS_FLAGGED_MEALS_CONJUNCTION}${last}` : last
+  return leading.length > 0
+    ? `${leading.join(MEAL_PLAN_LIST_SEPARATOR)}${PLAN_SETTINGS_FLAGGED_MEALS_CONJUNCTION}${last}`
+    : last
 }
 
 /**
@@ -456,21 +461,23 @@ const loggedFoodValue = (loggedEntryCount: number): string => {
 
 // The three rows of the regenerate dialog (38:531), every value bound: the drawn '21 replaced' and 'Kept' are
 // sample content.
-export const buildRegenerateSummaryRows = (summary: MealPlanSummary): SummaryRow[] => [
+export const buildRegenerateSummaryRows = (summary: MealPlanSummary): PlanRegenerateSummaryRow[] => [
   {
     label: PLAN_REGENERATE_PLANNED_MEALS_LABEL,
-    value: stringWithNamedParameters(PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE, {n: summary.plannedMeals})
+    value: stringWithNamedParameters(PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE, {n: summary.plannedMeals}),
+    tone: 'default'
   },
   {
     label: PLAN_REGENERATE_GROCERY_LIST_LABEL,
-    value: summary.groceryItemCount > 0 ? PLAN_REGENERATE_GROCERY_REBUILT_TEXT : PLAN_REGENERATE_GROCERY_EMPTY_TEXT
+    value: summary.groceryItemCount > 0 ? PLAN_REGENERATE_GROCERY_REBUILT_TEXT : PLAN_REGENERATE_GROCERY_EMPTY_TEXT,
+    tone: 'default'
   },
   {
     label: PLAN_REGENERATE_LOGGED_FOOD_LABEL,
     value: loggedFoodValue(summary.loggedEntryCount),
-    // The one accented value on the dialog: what survives a regeneration is the reassurance. A colour token
-    // read as row data, never a style — SummaryRows applies it through its own valueTextColor helper.
-    valueColor: Theme.colors.accentGreen
+    // 'accent' marks the one emphasised value on the 16b dialog — what survives a regeneration is the
+    // reassurance — and becomes a colour token in the screen's styled layer before the rows reach SummaryRows.
+    tone: 'accent'
   }
 ]
 

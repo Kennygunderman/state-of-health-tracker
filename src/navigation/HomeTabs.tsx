@@ -26,7 +26,9 @@ import WorkoutsStack from './WorkoutsStack'
 export type HomeTabsParamList = {
   MacrosStack: NavigatorScreenParams<RootStackParamList>
   WorkoutsStack: undefined
-  ProgressStack: NavigatorScreenParams<ProgressStackParamList>
+  // Params are optional so a tab return can resume the stack's retained screen; a caller that wants a
+  // specific inner screen still passes one.
+  ProgressStack: NavigatorScreenParams<ProgressStackParamList> | undefined
   [Screens.RUNS]: undefined
   [Screens.ACCOUNT]: undefined
 }
@@ -35,9 +37,9 @@ const Tab = createBottomTabNavigator<HomeTabsParamList>()
 
 const TAB_ICON_SIZE = 22
 
-// Figma draws the tab bar only on the Macros states (frames 11, 11b, 11c, 15b),
-// so these full-screen meal-planning routes hide it while the six shipped
-// MacrosStack routes keep their existing behaviour.
+// The tab bar belongs to the Macros states (frames 11, 11b, 11c, 15b). Figma's 11b draws neither it nor the
+// segmented control; the app keeps both there as the divergence AAP 0.1.4 (iii) authorises. These full-screen
+// meal-planning routes hide the bar, while the six shipped MacrosStack routes keep their existing behaviour.
 const FULL_SCREEN_MACROS_ROUTES: readonly string[] = [
   Screens.MEAL_PLAN_INTRO,
   Screens.MEAL_PLAN_GOAL,
@@ -59,7 +61,7 @@ const FULL_SCREEN_MACROS_ROUTES: readonly string[] = [
   Screens.PLAN_SETTINGS
 ]
 
-const HomeTabs = () => {
+const HomeTabs = (): React.JSX.Element => {
   return (
     <Tab.Navigator
       screenOptions={({route}) => {

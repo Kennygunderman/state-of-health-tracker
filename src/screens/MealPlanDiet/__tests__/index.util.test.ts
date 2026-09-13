@@ -1,6 +1,16 @@
+import {Diet} from '@data/models/MealPlanPreferences'
+
 import {MEAL_PLAN_ALLERGEN_LABELS, MEAL_PLAN_DIET_LABELS} from '@constants/strings'
 
-import {ALLERGEN_NONE_CODE, buildAllergenChips, DIET_OPTIONS, dietWizardProgress, validateDietStep} from '../index.util'
+import {
+  AllergenChip,
+  ALLERGEN_NONE_CODE,
+  buildAllergenChips,
+  DIET_OPTIONS,
+  DietOption,
+  dietWizardProgress,
+  validateDietStep
+} from '../index.util'
 
 const FIGMA_CHIP_ORDER = ['none', 'milk', 'eggs', 'peanuts', 'tree_nuts', 'soy', 'wheat', 'fish', 'shellfish', 'sesame']
 
@@ -141,6 +151,46 @@ describe('DIET_OPTIONS', () => {
       MEAL_PLAN_DIET_LABELS.vegan,
       MEAL_PLAN_DIET_LABELS.pescatarian
     ])
+  })
+
+  // The table is module-global: the option cards read it on every render, so nothing may rewrite
+  // which diets this screen offers or what they are called.
+  it('freezes the table so a consumer cannot add, drop or reorder a diet', () => {
+    expect(Object.isFrozen(DIET_OPTIONS)).toBe(true)
+    expect(() => (DIET_OPTIONS as DietOption[]).push({value: 'vegan', label: 'Anything'})).toThrow(TypeError)
+    expect(() => (DIET_OPTIONS as DietOption[]).reverse()).toThrow(TypeError)
+    expect(DIET_OPTIONS.map(option => option.value)).toEqual(['none', 'vegetarian', 'vegan', 'pescatarian'])
+  })
+
+  it('freezes each entry so a consumer cannot relabel a diet in place', () => {
+    const [first] = DIET_OPTIONS as DietOption[]
+    const rewritten = first as {value: Diet; label: string}
+
+    rewritten.label = 'Anything'
+
+    expect(DIET_OPTIONS.every(option => Object.isFrozen(option))).toBe(true)
+    expect(DIET_OPTIONS[0].label).toBe(MEAL_PLAN_DIET_LABELS.none)
+  })
+})
+
+describe('the allergen table behind the chips', () => {
+  it('keeps the ten codes and their order after an attempt to rewrite the cloud', () => {
+    const chips = buildAllergenChips([]) as AllergenChip[]
+
+    chips.push({code: 'milk', label: 'Milk again', selected: true, removable: true})
+    chips.reverse()
+
+    expect(buildAllergenChips([]).map(chip => chip.code)).toEqual(FIGMA_CHIP_ORDER)
+    expect(buildAllergenChips([])).toHaveLength(FIGMA_CHIP_ORDER.length)
+  })
+
+  it('derives a fresh chip array per call, so a caller may sort or filter its own copy', () => {
+    const first = buildAllergenChips(['milk'])
+    const second = buildAllergenChips(['milk'])
+
+    expect(first).toEqual(second)
+    expect(first).not.toBe(second)
+    expect(Object.isFrozen(first)).toBe(false)
   })
 })
 

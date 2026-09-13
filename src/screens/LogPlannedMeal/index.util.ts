@@ -1,6 +1,5 @@
 import {Meal} from '@data/models/Meal'
 import {MealSlot} from '@data/models/Recipe'
-import type {PostLogViewTarget} from '@store/mealPlan/useMealPlanStore'
 import {formatIsoDayMonthDay} from '@utility/DateUtility'
 import {
   addDaysToDayKey,
@@ -11,6 +10,7 @@ import {
 } from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
 import {
+  formatServingsDisplay,
   isFractionSelected,
   MIN_SERVINGS,
   PerServingMacros,
@@ -22,7 +22,16 @@ import {
 
 import type {MetricGridItem} from '@components/MetricGrid4'
 
-import {CAL_LABEL, CARBS_LABEL, FAT_LABEL, LOG_WEIGHT_TODAY_LABEL, PROTEIN_LABEL} from '@constants/strings'
+import {
+  CAL_LABEL,
+  CARBS_LABEL,
+  FAT_LABEL,
+  LOG_WEIGHT_TODAY_LABEL,
+  MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_SERVING_FRACTION_NAMES,
+  PROTEIN_LABEL,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 export const MAX_PLANNED_SERVINGS = 10
 
@@ -40,6 +49,12 @@ const CANONICAL_DIARY_BUCKET_NAMES: Record<MealSlot, string> = {
 export interface FractionChipState {
   fraction: ServingFraction
   isSelected: boolean
+  accessibilityLabel: string
+}
+
+export interface ServingsFieldDraft {
+  text: string
+  baseValue: number
 }
 
 export interface DiaryBucketOption {
@@ -64,6 +79,15 @@ const toBucketOption = (meal: Meal): DiaryBucketOption => ({
 })
 
 const bySortOrder = (meals: Meal[]): Meal[] => [...meals].sort((first, second) => first.sortOrder - second.sortOrder)
+
+const optionsBySortOrder = (options: DiaryBucketOption[]): DiaryBucketOption[] =>
+  [...options].sort((first, second) => first.sortOrder - second.sortOrder)
+
+// Screen-reader pronunciation of ¼ ⅓ ½ ⅔ ¾ is platform-dependent, so the chip carries the fraction spelled out.
+const fractionChipAccessibilityLabel = (fraction: ServingFraction): string =>
+  stringWithNamedParameters(MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE, {
+    fraction: MEAL_PLAN_SERVING_FRACTION_NAMES[fraction.glyph] ?? fraction.glyph
+  })
 
 // The diary stores one rounded per-serving snapshot and renders value * servings, so the planned portion has to
 // be rounded to that snapshot before it is scaled. Scaling the raw planned floats instead would leave the card
@@ -114,8 +138,33 @@ export function parsePlannedServingsInput(text: string): number | null {
   return rounded
 }
 
+// The servings field has to keep raw keystrokes ('', '0.', '1,') while they are being typed, yet follow the
+// authoritative value whenever something other than this field moves it — a stepper press, a fraction chip, a parent
+// reset or a refetch. baseValue records the value the text was typed against: the screen adopts a parseable keystroke
+// and ignores anything else, so a draft whose baseValue no longer equals the value was overtaken from outside and is
+// rebased, while an echo of the user's own keystroke is not.
+export function beginServingsDraft(value: number): ServingsFieldDraft {
+  return {text: formatServingsDisplay(value), baseValue: value}
+}
+
+export function nextServingsDraft(text: string, value: number): ServingsFieldDraft {
+  return {text, baseValue: parsePlannedServingsInput(text) ?? value}
+}
+
+export function isServingsDraftStale(draft: ServingsFieldDraft | null, value: number): boolean {
+  return draft !== null && draft.baseValue !== value
+}
+
+export function servingsFieldText(value: number, draft: ServingsFieldDraft | null): string {
+  return draft === null || isServingsDraftStale(draft, value) ? formatServingsDisplay(value) : draft.text
+}
+
 export function buildFractionChipStates(servings: number): readonly FractionChipState[] {
-  return SERVING_FRACTIONS.map(fraction => ({fraction, isSelected: isFractionSelected(servings, fraction.value)}))
+  return SERVING_FRACTIONS.map(fraction => ({
+    fraction,
+    isSelected: isFractionSelected(servings, fraction.value),
+    accessibilityLabel: fractionChipAccessibilityLabel(fraction)
+  }))
 }
 
 export function resolveDiaryBucket(meals: Meal[], slot: MealSlot): DiaryBucketResolution {
@@ -130,11 +179,25 @@ export function resolveDiaryBucket(meals: Meal[], slot: MealSlot): DiaryBucketRe
   return {option: lowestSortOrder === undefined ? null : toBucketOption(lowestSortOrder), isFallback: true}
 }
 
+// A partially renamed diary day (Brunch, Lunch, Dinner against breakfast/lunch/dinner slots) resolves the unmatched
+// slot to a fallback bucket, so the canonical matches alone would omit the very bucket the picker preselects. The
+// option list is therefore the union of the matches and every bucket resolveDiaryBucket can land on for this plan.
 export function buildDiaryBucketOptions(meals: Meal[], planSlots: readonly MealSlot[]): readonly DiaryBucketOption[] {
   const plannedNames = planSlots.map(bucketName)
   const planBuckets = meals.filter(meal => plannedNames.some(name => matchesBucketName(meal, name)))
 
-  return bySortOrder(planBuckets.length > 0 ? planBuckets : meals).map(toBucketOption)
+  if (planBuckets.length === 0) return bySortOrder(meals).map(toBucketOption)
+
+  const resolved = planSlots
+    .map(slot => resolveDiaryBucket(meals, slot).option)
+    .filter((option): option is DiaryBucketOption => option !== null)
+
+  const byMealId = new Map<string, DiaryBucketOption>()
+
+  planBuckets.map(toBucketOption).forEach(option => byMealId.set(option.mealId, option))
+  resolved.forEach(option => byMealId.set(option.mealId, option))
+
+  return optionsBySortOrder([...byMealId.values()])
 }
 
 export function canStepLogDate(dayKey: string, direction: 1 | -1, planStartDate: string, planEndDate: string): boolean {
@@ -153,6 +216,6 @@ export function logDateStepperLabel(dayKey: string, now: Date): string {
   return dayKey === formatDayKey(now) ? LOG_WEIGHT_TODAY_LABEL : formatPlanDayLabel(dayKey)
 }
 
-export function resolveViewTarget(entryDayKey: string, todayDayKey: string): PostLogViewTarget {
-  return entryDayKey === todayDayKey ? 'diary' : 'history'
-}
+// The Diary-versus-History rule is shared with the plan tab's logged cards, so it lives in
+// @utility/MealPlanDateUtility and this screen only re-exports it under the name its callers use.
+export {resolvePostLogViewTarget as resolveViewTarget} from '@utility/MealPlanDateUtility'

@@ -1,18 +1,11 @@
 import {MacroTargets} from './Macros'
+import {ActivityLevel, Goal, PaceLbPerWeek, SexForEstimate} from './MealPlanPreferences'
 
 export type NutritionTargetSource = 'estimated' | 'manual' | 'legacy'
 
 export type NutritionTargetClampReason = 'floor' | 'below_bmr' | 'ceiling'
 
 export type NutritionTargetFeasibilityWarning = 'macro_energy_mismatch' | 'below_catalog_min' | 'above_catalog_max'
-
-export type Goal = 'lose' | 'maintain' | 'gain'
-
-export type SexForEstimate = 'female' | 'male' | 'prefer_not_to_say'
-
-export type ActivityLevel = 'not_very_active' | 'lightly_active' | 'active' | 'very_active'
-
-export type PaceLbPerWeek = 0.5 | 1 | 1.5
 
 export interface NutritionTargets {
   targets: MacroTargets | null

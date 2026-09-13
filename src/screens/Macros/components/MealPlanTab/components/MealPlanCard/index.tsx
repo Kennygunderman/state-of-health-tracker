@@ -86,60 +86,66 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
     {recipe: meal.recipe.name}
   )
 
+  // The card itself carries no role and no press: only the meta and content rows open the recipe, so the Swap,
+  // primary and diary-link controls stay separate accessibility elements instead of collapsing into one button.
+  // That is also why the swapped caption sits outside the open-recipe region — its link is itself a pressable —
+  // and why the content row goes flush there: the caption row then carries the card's bottom gap.
   return (
-    <TouchableOpacity
-      style={[styles.card, flagText !== null && styles.cardFlagged]}
-      activeOpacity={Opacity.PRESSED}
-      accessibilityRole="button"
-      accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {
-        recipe: meal.recipe.name
-      })}
-      onPress={onOpen}>
-      <View style={styles.metaRow}>
-        <View style={styles.metaLeftGroup}>
-          <Text style={styles.metaText}>{metaText}</Text>
+    <View style={[styles.card, flagText !== null && styles.cardFlagged]}>
+      <TouchableOpacity
+        activeOpacity={Opacity.PRESSED}
+        accessibilityRole="button"
+        accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {
+          recipe: meal.recipe.name
+        })}
+        onPress={onOpen}>
+        <View style={styles.metaRow}>
+          <View style={styles.metaLeftGroup}>
+            <Text style={styles.metaText}>{metaText}</Text>
 
-          {isLogged && <LoggedBadge />}
+            {isLogged && <LoggedBadge />}
+          </View>
+
+          <Text style={styles.metaCalories}>{caloriesText}</Text>
         </View>
 
-        <Text style={styles.metaCalories}>{caloriesText}</Text>
-      </View>
+        <View style={[styles.contentRow, previousEntry !== null && styles.contentRowFlush]}>
+          <View style={[isLogged && styles.tileMuted]}>
+            <MealIconTile iconKey={meal.recipe.iconKey} />
+          </View>
 
-      <View style={styles.contentRow}>
-        <View style={[isLogged && styles.tileMuted]}>
-          <MealIconTile iconKey={meal.recipe.iconKey} />
+          <View style={styles.textColumn}>
+            <Text style={[styles.recipeName, isLogged && styles.recipeNameLogged]}>{meal.recipe.name}</Text>
+
+            <Text style={styles.recipeMeta}>{recipeMetaText}</Text>
+
+            {flagText !== null && <Text style={styles.flagText}>{flagText}</Text>}
+          </View>
         </View>
+      </TouchableOpacity>
 
-        <View style={styles.textColumn}>
-          <Text style={[styles.recipeName, isLogged && styles.recipeNameLogged]}>{meal.recipe.name}</Text>
+      {/* Figma draws no swapped-after-logging card: the replacement is never presented as logged, so it
+          renders unlogged and this caption names the meal that went to the diary, where it is untouched. */}
+      {previousEntry !== null && (
+        <View style={styles.swappedRow}>
+          <Text style={styles.swappedCaption}>
+            {stringWithNamedParameters(MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE, {
+              recipe: previousEntry.recipeName
+            })}
+          </Text>
 
-          <Text style={styles.recipeMeta}>{recipeMetaText}</Text>
-
-          {flagText !== null && <Text style={styles.flagText}>{flagText}</Text>}
-
-          {/* Figma draws no swapped-after-logging card: the replacement is never presented as logged, so it
-              renders unlogged and this caption names the meal that went to the diary, where it is untouched. */}
-          {previousEntry !== null && (
-            <View style={styles.swappedRow}>
-              <Text style={styles.swappedCaption}>
-                {stringWithNamedParameters(MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE, {
-                  recipe: previousEntry.recipeName
-                })}
-              </Text>
-
-              <Text
-                style={styles.swappedLink}
-                accessibilityRole="button"
-                accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE, {
-                  recipe: previousEntry.recipeName
-                })}
-                onPress={onViewDiary}>
-                {MEAL_PLAN_VIEW_IN_DIARY_BUTTON_TEXT}
-              </Text>
-            </View>
-          )}
+          <TouchableOpacity
+            style={styles.swappedLinkButton}
+            activeOpacity={Opacity.PRESSED}
+            accessibilityRole="button"
+            accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE, {
+              recipe: previousEntry.recipeName
+            })}
+            onPress={onViewDiary}>
+            <Text style={styles.swappedLink}>{MEAL_PLAN_VIEW_IN_DIARY_BUTTON_TEXT}</Text>
+          </TouchableOpacity>
         </View>
-      </View>
+      )}
 
       <View style={styles.actionRow}>
         <TouchableOpacity
@@ -164,7 +170,7 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
           <Text style={styles.pillLabelPrimary}>{primaryLabel}</Text>
         </TouchableOpacity>
       </View>
-    </TouchableOpacity>
+    </View>
   )
 }
 

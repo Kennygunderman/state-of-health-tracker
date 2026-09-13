@@ -83,17 +83,22 @@ export default StyleSheet.create({
   },
   footerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    columnGap: Spacing.SMALL,
+    rowGap: Spacing.XX_SMALL,
     paddingTop: Spacing.MEDIUM
   },
   footerNote: {
+    flexShrink: 1,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
     lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
   },
   footerTotal: {
+    flexShrink: 0,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.accentGreen

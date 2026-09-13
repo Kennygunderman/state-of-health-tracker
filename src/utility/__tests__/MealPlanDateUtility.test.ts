@@ -11,7 +11,8 @@ import {
   isLastPlanDay,
   parseDayKey,
   planDates,
-  planStartDateBounds
+  planStartDateBounds,
+  resolvePostLogViewTarget
 } from '../MealPlanDateUtility'
 
 // The time-dependent helpers take `now` as a parameter, so fixtures inject it instead of faking the system clock
@@ -539,6 +540,45 @@ describe('planStartDateBounds', () => {
     expect(tiedPlan.default).toBe('2026-07-05')
     expect(earlierPlan.min).toBe('2026-07-04')
     expect(earlierPlan.default).toBe('2026-07-05')
+  })
+})
+
+describe('resolvePostLogViewTarget', () => {
+  const TODAY = '2026-07-08'
+
+  it('opens the diary for an entry logged onto today', () => {
+    expect(resolvePostLogViewTarget(TODAY, TODAY)).toBe('diary')
+  })
+
+  it('opens macros history for an entry logged onto an earlier plan day', () => {
+    expect(resolvePostLogViewTarget(PLAN_START, TODAY)).toBe('history')
+  })
+
+  it('opens macros history for an entry logged onto a later plan day', () => {
+    expect(resolvePostLogViewTarget('2026-07-09', TODAY)).toBe('history')
+    expect(resolvePostLogViewTarget(PLAN_END, TODAY)).toBe('history')
+  })
+
+  it('reads the adjacent day across a year boundary as history, not today', () => {
+    expect(resolvePostLogViewTarget('2025-12-31', '2026-01-01')).toBe('history')
+    expect(resolvePostLogViewTarget('2026-01-01', '2026-01-01')).toBe('diary')
+  })
+
+  // The decision takes "today" from the caller, so the whole of the current day resolves to the diary
+  // no matter what time the entry was logged at
+  it('takes today from the injected now rather than a clock', () => {
+    const now = new Date(2026, 6, 8, 23, 59)
+
+    expect(resolvePostLogViewTarget(TODAY, formatDayKey(now))).toBe('diary')
+    expect(resolvePostLogViewTarget(PLAN_START, formatDayKey(now))).toBe('history')
+  })
+
+  it('returns the same target however often it is asked', () => {
+    expect([
+      resolvePostLogViewTarget(TODAY, TODAY),
+      resolvePostLogViewTarget(TODAY, TODAY),
+      resolvePostLogViewTarget(PLAN_START, TODAY)
+    ]).toEqual(['diary', 'diary', 'history'])
   })
 })
 

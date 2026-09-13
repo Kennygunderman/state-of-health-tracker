@@ -47,11 +47,20 @@ import {
 
 export type DisplayedMacroKey = 'protein' | 'carbs' | 'fat'
 
-export type DisplayedTargetsSource = 'confirmed' | 'estimate' | 'unavailable'
+export type DisplayedTargetKey = 'calories' | DisplayedMacroKey
+
+// 'confirmed' and 'current' both carry the user's own saved figures; they differ in what generation will do with
+// them. 'current' is a set the planner refuses (legacy or incomplete, 0.5.2) and the review card still shows,
+// because hiding the numbers the user is being asked to review is worse than showing ones they must revisit.
+export type DisplayedTargetsSource = 'confirmed' | 'current' | 'estimate' | 'unavailable'
 
 export type GenerateBlockedReason = 'estimate_unavailable'
 
 export type AnswerRowEditStep = 'goal' | 'diet' | 'dislikes' | 'schedule' | 'cooking'
+
+// What the live Generate press does. 'manual_targets' is the recovery the estimate-unavailable state offers
+// (09b manual entry, 0.2.5); the card copy for that state belongs to resolveDisplayedTargets' 'unavailable'.
+export type GenerateCtaAction = 'generate' | 'manual_targets'
 
 export interface GenerateSequenceInputs {
   targets: NutritionTargets | null
@@ -90,6 +99,7 @@ export interface DisplayedTargets {
   caption: string
   editLabel: string
   freshEstimateCalories: string | null
+  missingTargetKeys: DisplayedTargetKey[]
 }
 
 export interface AnswerRow {
@@ -129,19 +139,25 @@ export interface GenerateCtaInputs {
 export interface GenerateCtaState {
   label: string
   isEnabled: boolean
+  action: GenerateCtaAction
 }
 
-interface TargetFigures {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
+// The four target fields are independently nullable on the wire (0.5.2), so a figure set carries each of them
+// as it found it and names the ones it has no value for rather than implying a gap is a zero.
+type PartialMacroFigures = {[K in DisplayedMacroKey]: number | null}
+
+interface DisplayFigures {
+  calories: number | null
+  macros: DisplayedMacro[]
+  missing: DisplayedTargetKey[]
 }
 
 // The revision a user with no preferences row carries, which is what the first target save must expect.
 export const NO_TARGETS_REVISION: number = 0
 
 const MACRO_KEYS: DisplayedMacroKey[] = ['protein', 'carbs', 'fat']
+
+const ALL_TARGET_KEYS: DisplayedTargetKey[] = ['calories', ...MACRO_KEYS]
 
 // The slots in the order the wire carries them. The day view orders meals by time, but a review row lists the
 // schedule the user set, and a snack at 15:30 belongs after dinner in that list rather than between lunch and
@@ -154,38 +170,59 @@ const NO_FIGURE_TEXT = ''
 
 const labelFrom = (labels: Record<string, string>, code: string): string | undefined => labels[code]
 
-const isConfirmedSource = (targets: NutritionTargets | null): targets is NutritionTargets =>
+// One row per macro that has a value, in MACRO_KEYS order; a macro the server holds no value for contributes no
+// row and is named in `missing` instead, so a saved protein target survives a missing carb target.
+// MACRO_KEYS is a closed local union the label map covers in full, so it is indexed directly; labelFrom exists
+// for the preference codes below, which arrive from the server and may name something this build cannot label.
+const macroRows = (figures: PartialMacroFigures): DisplayedMacro[] =>
+  MACRO_KEYS.flatMap(key => {
+    const value = figures[key]
+
+    return value === null ? [] : [{key, label: MEAL_PLAN_MACRO_LABELS[key], valueText: formatMacroGrams(value)}]
+  })
+
+const missingMacroKeys = (figures: PartialMacroFigures): DisplayedTargetKey[] =>
+  MACRO_KEYS.filter(key => figures[key] === null)
+
+// What generation will accept: the planner's own gate (`complete && source !== 'legacy'`, else 422
+// targets_missing / 409 targets_unconfirmed). Deliberately not what the card displays — see currentFigures.
+const isPlanningConfirmed = (targets: NutritionTargets | null): targets is NutritionTargets =>
   targets !== null && targets.complete && targets.source !== 'legacy'
 
-const isConfirmedAndFresh = (targets: NutritionTargets | null): boolean => isConfirmedSource(targets) && !targets.stale
+const isConfirmedAndFresh = (targets: NutritionTargets | null): boolean =>
+  isPlanningConfirmed(targets) && !targets.stale
 
-// `complete` is the server's promise that all four columns are set; the quartet is still read field by field so
-// a response that contradicts it falls back to the estimate instead of publishing a fabricated zero.
-const confirmedFigures = (targets: NutritionTargets | null): TargetFigures | null => {
-  if (!isConfirmedSource(targets) || targets.targets === null) {
+// The user's saved figures as the review card shows them, field by field: per 0.5.2 the four values are
+// independently nullable, and `complete` and `source` decide what the planner accepts rather than what the user
+// is shown. So any saved value at all makes this the set being reviewed — a legacy set, a calories-only account,
+// a calorie target beside one macro — and the estimate never stands in for the part the server does not hold.
+// The card omits a row it has no figure for and names the key in `missing`; the review row on Plan settings
+// drops its whole macro fragment instead, because a single text fragment cannot state two of three macros.
+const currentFigures = (targets: NutritionTargets | null): DisplayFigures | null => {
+  if (targets === null || targets.targets === null) {
     return null
   }
 
   const {calories, protein, carbs, fat} = targets.targets
+  const macroFigures: PartialMacroFigures = {protein, carbs, fat}
+  const macros = macroRows(macroFigures)
 
-  if (calories === null || protein === null || carbs === null || fat === null) {
+  if (calories === null && macros.length === 0) {
     return null
   }
 
-  return {calories, protein, carbs, fat}
+  return {
+    calories,
+    macros,
+    missing: calories === null ? ['calories', ...missingMacroKeys(macroFigures)] : missingMacroKeys(macroFigures)
+  }
 }
 
-const estimateFigures = (estimate: NutritionTargetEstimate): TargetFigures => ({
+const estimateDisplayFigures = (estimate: NutritionTargetEstimate): DisplayFigures => ({
   calories: estimate.calories,
-  protein: estimate.protein,
-  carbs: estimate.carbs,
-  fat: estimate.fat
+  macros: macroRows(estimate),
+  missing: []
 })
-
-// MACRO_KEYS is a closed local union the label map covers in full, so it is indexed directly; labelFrom exists
-// for the preference codes below, which arrive from the server and may name something this build cannot label.
-const macroRows = (figures: TargetFigures): DisplayedMacro[] =>
-  MACRO_KEYS.map(key => ({key, label: MEAL_PLAN_MACRO_LABELS[key], valueText: formatMacroGrams(figures[key])}))
 
 const joinFragments = (fragments: string[]): string =>
   fragments.length === 0 ? MEAL_PLAN_VALUE_NONE : fragments.join(MEAL_PLAN_VALUE_SEPARATOR)
@@ -272,13 +309,26 @@ const budgetValue = ({budget, noBudgetPreference}: MealPlanPreferences): string 
   return stringWithNamedParameters(MEAL_PLAN_BUDGET_VALUE_TEMPLATE, {amount: Math.round(budget.amount)})
 }
 
-const displayedSource = (hasConfirmedFigures: boolean, hasAnyFigures: boolean): DisplayedTargetsSource => {
+const displayedSource = (
+  hasCurrentFigures: boolean,
+  isAcceptedByPlanner: boolean,
+  hasAnyFigures: boolean
+): DisplayedTargetsSource => {
   if (!hasAnyFigures) {
     return 'unavailable'
   }
 
-  return hasConfirmedFigures ? 'confirmed' : 'estimate'
+  if (!hasCurrentFigures) {
+    return 'estimate'
+  }
+
+  return isAcceptedByPlanner ? 'confirmed' : 'current'
 }
+
+// Staleness is not part of this: a confirmed estimate stays the value generation uses until the user reconfirms
+// (0.7.3), so a stale set is still 'confirmed' and merely earns the Recalculate link and the fresh figure beside.
+const needsTargetReview = (targets: NutritionTargets | null): boolean =>
+  targets !== null && (targets.stale || !isPlanningConfirmed(targets))
 
 const startDateDayLabel = (startDate: string, bounds: PlanStartDateBounds): string => {
   if (startDate === bounds.min) {
@@ -316,26 +366,34 @@ export const planGenerateSequence = ({
 }
 
 /**
- * `freshEstimateCalories` is inferred: no frame draws it. It carries the recalculated figure that sits beside a
- * confirmed target the inputs have since moved past, which is the only state where the edit link offers a
- * recalculation rather than an edit. An 'unavailable' source has no figures at all — the screen shows the
+ * The user's own saved figures whenever they exist, field by field; the estimate supplies the card only when the
+ * server holds no target value at all. The two never mix in one card, so a set the planner will refuse is still
+ * reviewed as the user's own numbers with the fresh estimate offered beside it as the recalculation, and a field
+ * the server has no value for reads as absent — `missingTargetKeys` names it — rather than borrowing the
+ * estimate's number for it.
+ *
+ * `freshEstimateCalories` is inferred: no frame draws it. It carries the recalculated figure that sits beside
+ * saved targets the inputs or an outside write have moved past, which is the only state where the edit link
+ * offers a recalculation rather than an edit — and because that state requires saved figures, the fresh figure
+ * can never duplicate the headline. An 'unavailable' source has no figures at all — the screen shows the
  * estimate-unavailable card in place of the targets card — so the numeric fields read empty rather than nil.
  */
 export const resolveDisplayedTargets = ({targets, estimate, preferences}: DisplayedTargetsInputs): DisplayedTargets => {
-  const confirmed = confirmedFigures(targets)
-  const figures = confirmed ?? (estimate === null ? null : estimateFigures(estimate))
-  const needsRecalculate = targets !== null && (targets.stale || targets.source === 'legacy')
+  const current = currentFigures(targets)
+  const figures = current ?? (estimate === null ? null : estimateDisplayFigures(estimate))
+  const needsRecalculate = current !== null && needsTargetReview(targets)
   const isManualRoute = targets?.source === 'manual' || preferences.targetRoute === 'manual'
 
   return {
-    source: displayedSource(confirmed !== null, figures !== null),
+    source: displayedSource(current !== null, isPlanningConfirmed(targets), figures !== null),
     cardLabel: isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_DAILY_TARGETS_OVERLINE,
-    calories: figures === null ? NO_FIGURE_TEXT : formatCalories(figures.calories),
+    calories: figures === null || figures.calories === null ? NO_FIGURE_TEXT : formatCalories(figures.calories),
     unitLabel: MEAL_PLAN_KCAL_UNIT,
-    macros: figures === null ? [] : macroRows(figures),
+    macros: figures === null ? [] : figures.macros,
     caption: MEAL_PLAN_TARGETS_CAPTION,
     editLabel: needsRecalculate ? MEAL_PLAN_RECALCULATE_LINK_TEXT : MEAL_PLAN_EDIT_LINK_TEXT,
-    freshEstimateCalories: needsRecalculate && estimate !== null ? formatCalories(estimate.calories) : null
+    freshEstimateCalories: needsRecalculate && estimate !== null ? formatCalories(estimate.calories) : null,
+    missingTargetKeys: figures === null ? ALL_TARGET_KEYS : figures.missing
   }
 }
 
@@ -388,11 +446,13 @@ export const resolveStartDateStepState = ({
   }
 }
 
-export const resolveGenerateCtaState = ({plan, isEstimateLoading, isPending}: GenerateCtaInputs): GenerateCtaState => {
-  const isEstimateBlocking = isEstimateLoading || plan.blockedReason === 'estimate_unavailable'
-
-  return {
-    label: MEAL_PLAN_GENERATE_BUTTON_TEXT,
-    isEnabled: !isPending && !(plan.requiresTargetConfirmation && isEstimateBlocking)
-  }
-}
+/**
+ * The only disabled Generate states are a pending press and an estimate the confirmation still needs while it
+ * loads (0.7.4). A settled `estimate_unavailable` is not one of them: there is nothing left to wait for, so the
+ * CTA stays live and carries the user to manual entry (0.2.5) instead of standing dead on the screen.
+ */
+export const resolveGenerateCtaState = ({plan, isEstimateLoading, isPending}: GenerateCtaInputs): GenerateCtaState => ({
+  label: MEAL_PLAN_GENERATE_BUTTON_TEXT,
+  isEnabled: !isPending && !(plan.requiresTargetConfirmation && isEstimateLoading),
+  action: plan.blockedReason === 'estimate_unavailable' ? 'manual_targets' : 'generate'
+})

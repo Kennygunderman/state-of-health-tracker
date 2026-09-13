@@ -1,17 +1,25 @@
+import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
+
 import useMealPlanStore, {
   isPendingIntentExpired,
   PENDING_INTENT_TTL_MS,
   PendingIntent,
   PostLogResult,
+  prunePendingIntentsForUser,
   resolvePendingIntent,
-  selectPersistedState
+  selectPersistedState,
+  selectPrunedPendingIntents
 } from '../useMealPlanStore'
 
-// Mocking the persist adapter instead of AsyncStorage keeps the suite free of native modules, and a
-// getItem resolving null makes rehydration a no-op so it can never overwrite a seeded state.
+// Mocking the persist adapter instead of AsyncStorage keeps the suite free of native modules; the
+// default getItem resolves null so hydration restores nothing and cannot overwrite a seeded state,
+// and the rehydration cases below queue their own stored payload for the read they drive.
 jest.mock('@store/zustandAsyncStorage', () => ({
   zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
 }))
+
+const persistedReads = zustandAsyncStorage.getItem as jest.Mock
+const persistedWrites = zustandAsyncStorage.setItem as jest.Mock
 
 const NOW = 1_760_000_000_000
 
@@ -34,9 +42,12 @@ const makePostLogResult = (overrides: Partial<PostLogResult> = {}): PostLogResul
   ...overrides
 })
 
-beforeEach(() => {
-  jest.clearAllMocks()
+// Draining hydration before each case keeps the rehydration prune — the store's only wall-clock
+// read — from firing mid-test against an intent seeded at a fixed past timestamp.
+beforeEach(async () => {
+  await useMealPlanStore.persist.rehydrate()
   useMealPlanStore.getState().reset()
+  jest.clearAllMocks()
 })
 
 describe('selectPersistedState', () => {
@@ -91,6 +102,64 @@ describe('isPendingIntentExpired', () => {
     const intent = makePendingIntent({createdAt: NOW - PENDING_INTENT_TTL_MS - 1})
 
     expect(isPendingIntentExpired(intent, NOW)).toBe(true)
+  })
+})
+
+describe('selectPrunedPendingIntents', () => {
+  describe('age', () => {
+    it('keeps an intent one millisecond inside the window', () => {
+      const intent = makePendingIntent({createdAt: NOW - PENDING_INTENT_TTL_MS + 1})
+
+      expect(selectPrunedPendingIntents({log: intent}, NOW, 'user-a')).toEqual({log: intent})
+    })
+
+    it('removes an intent exactly one window old', () => {
+      const intent = makePendingIntent({createdAt: NOW - PENDING_INTENT_TTL_MS})
+
+      expect(selectPrunedPendingIntents({log: intent}, NOW, 'user-a')).toEqual({})
+    })
+
+    it('removes an intent older than the window', () => {
+      const intent = makePendingIntent({createdAt: NOW - PENDING_INTENT_TTL_MS - 1})
+
+      expect(selectPrunedPendingIntents({log: intent}, NOW, 'user-a')).toEqual({})
+    })
+  })
+
+  describe('ownership', () => {
+    it('removes an intent minted by another account when the resolving user is known', () => {
+      const foreign = makePendingIntent({userId: 'user-b'})
+
+      expect(selectPrunedPendingIntents({generate: foreign}, NOW, 'user-a')).toEqual({})
+    })
+
+    it('keeps an intent for any account when ownership is unknown at the call site', () => {
+      const foreign = makePendingIntent({userId: 'user-b'})
+
+      expect(selectPrunedPendingIntents({generate: foreign}, NOW, null)).toEqual({generate: foreign})
+    })
+
+    it('removes an expired intent even when ownership is unknown', () => {
+      const expired = makePendingIntent({userId: 'user-b', createdAt: NOW - PENDING_INTENT_TTL_MS})
+
+      expect(selectPrunedPendingIntents({generate: expired}, NOW, null)).toEqual({})
+    })
+  })
+
+  it('returns the very same object when every intent is live and owned', () => {
+    const pendingIntents = {generate: makePendingIntent({key: 'key-1'}), log: makePendingIntent({key: 'key-2'})}
+
+    expect(selectPrunedPendingIntents(pendingIntents, NOW, 'user-a')).toBe(pendingIntents)
+  })
+
+  it('keeps only the live owned entries and leaves the input untouched', () => {
+    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const live = makePendingIntent({key: 'live'})
+    const pendingIntents = {generate: expired, swap: foreign, log: live}
+
+    expect(selectPrunedPendingIntents(pendingIntents, NOW, 'user-a')).toEqual({log: live})
+    expect(pendingIntents).toEqual({generate: expired, swap: foreign, log: live})
   })
 })
 
@@ -160,6 +229,169 @@ describe('recordPendingIntent', () => {
 
     expect(useMealPlanStore.getState().pendingIntents).toEqual({generate, swap})
   })
+
+  it('sweeps an expired and a foreign sibling while keeping the live one for the same account', () => {
+    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const live = makePendingIntent({key: 'live', createdAt: NOW - 1})
+    const incoming = makePendingIntent({key: 'incoming', createdAt: NOW})
+
+    useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign, regenerate: live}})
+    useMealPlanStore.getState().recordPendingIntent('log', incoming)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({regenerate: live, log: incoming})
+  })
+
+  it('keeps the incoming intent even when it replaces a foreign entry under the same action', () => {
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const incoming = makePendingIntent({key: 'incoming'})
+
+    useMealPlanStore.setState({pendingIntents: {log: foreign}})
+    useMealPlanStore.getState().recordPendingIntent('log', incoming)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: incoming})
+  })
+})
+
+describe('prunePendingIntents', () => {
+  it('removes the stale entries and persists the pruned slice', () => {
+    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+    const live = makePendingIntent({key: 'live'})
+
+    useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign, log: live}})
+    persistedWrites.mockClear()
+    useMealPlanStore.getState().prunePendingIntents(NOW, 'user-a')
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+    expect(persistedWrites.mock.calls[0][0]).toBe('meal-plan-store')
+  })
+
+  it('prunes by age alone when the signed-in account is unknown', () => {
+    const expired = makePendingIntent({key: 'expired', createdAt: NOW - PENDING_INTENT_TTL_MS})
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b'})
+
+    useMealPlanStore.setState({pendingIntents: {generate: expired, swap: foreign}})
+    useMealPlanStore.getState().prunePendingIntents(NOW, null)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({swap: foreign})
+  })
+
+  it('leaves the slice and the storage adapter untouched when nothing is stale', () => {
+    const live = makePendingIntent()
+
+    useMealPlanStore.setState({pendingIntents: {log: live}})
+
+    const before = useMealPlanStore.getState().pendingIntents
+
+    persistedWrites.mockClear()
+    useMealPlanStore.getState().prunePendingIntents(NOW, 'user-a')
+
+    expect(useMealPlanStore.getState().pendingIntents).toBe(before)
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
+})
+
+describe('rehydration', () => {
+  it('removes an intent that aged out while the app was closed and rewrites storage', async () => {
+    const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+    const expired = makePendingIntent({key: 'expired', createdAt: Date.now() - PENDING_INTENT_TTL_MS})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: live, generate: expired}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores a live intent without writing storage back', async () => {
+    const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: live}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
+
+  it('keeps a foreign intent for the signing-in account to sweep, since ownership is unknown here', async () => {
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: Date.now()})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign})
+  })
+})
+
+describe('prunePendingIntentsForUser', () => {
+  it('removes a record minted by another account and rewrites the persisted slice', async () => {
+    const clock = Date.now()
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: clock})
+    const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign, log: live}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign, log: live})
+
+    persistedWrites.mockClear()
+    prunePendingIntentsForUser('user-a', () => clock)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+    expect(persistedWrites.mock.calls[0][0]).toBe('meal-plan-store')
+    expect(persistedWrites.mock.calls[0][1]).toEqual({state: {pendingIntents: {log: live}}, version: 0})
+  })
+
+  it('waits for an in-flight hydration instead of being overwritten by it', async () => {
+    const clock = Date.now()
+    const foreign = makePendingIntent({key: 'foreign', userId: 'user-b', createdAt: clock})
+    const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign, log: live}}, version: 0})
+
+    const hydration = useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.persist.hasHydrated()).toBe(false)
+
+    prunePendingIntentsForUser('user-a', () => clock)
+    persistedWrites.mockClear()
+
+    await hydration
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: live})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+    expect(persistedWrites.mock.calls[0][1]).toEqual({state: {pendingIntents: {log: live}}, version: 0})
+  })
+
+  it('drops the signed-in account own record once it has aged out', () => {
+    const expired = makePendingIntent({userId: 'user-a', createdAt: NOW - PENDING_INTENT_TTL_MS})
+
+    useMealPlanStore.setState({pendingIntents: {swap: expired}})
+    prunePendingIntentsForUser('user-a', () => NOW)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+
+  it('leaves the slice and storage untouched when every record belongs to the signed-in account', () => {
+    const live = makePendingIntent({userId: 'user-a'})
+
+    useMealPlanStore.setState({pendingIntents: {log: live}})
+
+    const before = useMealPlanStore.getState().pendingIntents
+
+    persistedWrites.mockClear()
+    prunePendingIntentsForUser('user-a', () => live.createdAt)
+
+    expect(useMealPlanStore.getState().pendingIntents).toBe(before)
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
 })
 
 describe('clearPendingIntent', () => {
@@ -212,17 +444,40 @@ describe('setPostLogResult', () => {
     expect(useMealPlanStore.getState().postLogResult).toEqual(result)
     expect(useMealPlanStore.getState().dismissedSuccessBannerFor).toBeNull()
   })
+
+  it('ignores a replay carrying the entry the user already dismissed', () => {
+    const result = makePostLogResult()
+
+    useMealPlanStore.getState().setPostLogResult(result)
+    useMealPlanStore.getState().dismissSuccessBanner(result.entryId)
+    useMealPlanStore.getState().setPostLogResult(result)
+
+    expect(useMealPlanStore.getState().postLogResult).toBeNull()
+    expect(useMealPlanStore.getState().dismissedSuccessBannerFor).toBe('entry-1')
+  })
+
+  it('raises the banner again for a second serving logged as its own entry', () => {
+    const first = makePostLogResult()
+    const second = makePostLogResult({entryId: 'entry-2'})
+
+    useMealPlanStore.getState().setPostLogResult(first)
+    useMealPlanStore.getState().dismissSuccessBanner(first.entryId)
+    useMealPlanStore.getState().setPostLogResult(second)
+
+    expect(useMealPlanStore.getState().postLogResult).toEqual(second)
+    expect(useMealPlanStore.getState().dismissedSuccessBannerFor).toBeNull()
+  })
 })
 
 describe('dismissSuccessBanner', () => {
-  it('records the dismissed entry without discarding the payload', () => {
+  it('discards the payload and records the dismissed entry', () => {
     const result = makePostLogResult()
 
     useMealPlanStore.getState().setPostLogResult(result)
     useMealPlanStore.getState().dismissSuccessBanner(result.entryId)
 
     expect(useMealPlanStore.getState().dismissedSuccessBannerFor).toBe('entry-1')
-    expect(useMealPlanStore.getState().postLogResult).toEqual(result)
+    expect(useMealPlanStore.getState().postLogResult).toBeNull()
   })
 })
 

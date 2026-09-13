@@ -22,28 +22,37 @@ interface Props {
 
 const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): React.JSX.Element => {
   const rowStyle = [styles.row, !isFirst && styles.rowDivider]
-  const checkboxStyle = [styles.checkbox, isPending && styles.checkboxPending]
+  const checkboxStyle = styles.checkbox
   const checkboxState = variant
   const accessibilityLabel = stringWithNamedParameters(GROCERY_ITEM_ACCESSIBILITY_TEMPLATE, {
     name: item.name,
     quantity: item.displayText
   })
 
+  const handleToggle = () => {
+    if (isPending) {
+      return
+    }
+
+    onToggle()
+  }
+
   return (
     <TouchableOpacity
       style={rowStyle}
       activeOpacity={Opacity.PRESSED}
+      disabled={isPending}
       accessibilityRole="checkbox"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{checked: item.isChecked, busy: isPending}}
-      onPress={onToggle}>
+      accessibilityState={{checked: item.isChecked, busy: isPending, disabled: isPending}}
+      onPress={handleToggle}>
       {/* CheckboxSquare declares its own checkbox role, so hiding it keeps the row a single announcement. */}
       <View style={checkboxStyle} accessible={false} importantForAccessibility="no-hide-descendants">
         <CheckboxSquare
           state={checkboxState}
           disabled={isPending}
           accessibilityLabel={accessibilityLabel}
-          onPress={onToggle}
+          onPress={handleToggle}
         />
       </View>
 

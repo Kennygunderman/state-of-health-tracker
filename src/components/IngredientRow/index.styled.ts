@@ -1,7 +1,6 @@
 import {StyleSheet} from 'react-native'
 
 import FontSize, {FontWeight} from '@styles/fontSize'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
@@ -9,8 +8,7 @@ export default StyleSheet.create({
     flexDirection: 'row',
     alignSelf: 'stretch',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    columnGap: Spacing.SMALL
+    alignItems: 'center'
   },
   name: {
     flex: 1,

@@ -40,7 +40,9 @@ import {
 import MacroDonut, {MACRO_COLORS} from './components/MacroDonut'
 import styles from './index.styled'
 import {
+  buildCatalogLogPayload,
   buildMacroBreakdown,
+  catalogProvenanceLabel,
   dominantMacroKey,
   formatDetailSubtitle,
   formatMacroSummary,
@@ -66,6 +68,7 @@ const FoodDetailScreen = () => {
   const macroSource = params.path === 'add' ? params.food : params.entry
   const servingText = params.path === 'add' ? formatServingText(params.food) : params.entry.servingText
   const brand = params.path === 'add' ? params.food.brand : null
+  const provenanceCaption = params.path === 'add' ? catalogProvenanceLabel(params.food.nutritionProvenance) : null
 
   const perServing: PerServingMacros = {
     calories: macroSource.calories,
@@ -91,42 +94,51 @@ const FoodDetailScreen = () => {
     const {mealId, food} = params
 
     try {
-      let foodId = food.id
-      let inputMethod = InputMethodEnum.LIBRARY
-
-      // Branded results live in the external catalog — persist a copy into the
-      // user's library first, then log against the created food
-      if (food.source === FoodSourceEnum.BRANDED) {
-        const createdFood = await createFoodMutation.mutateAsync({
-          name: food.name,
-          servingAmount: food.servingAmount,
-          servingUnit: food.servingUnit ?? undefined,
-          calories: food.calories,
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
-          brand: food.brand ?? undefined,
-          source: FoodSourceEnum.BRANDED
+      // A published catalog food is logged by id: the server resolves the row and
+      // derives the snapshot, so no library copy is created and no macros are sent
+      if (food.source === FoodSourceEnum.CATALOG && food.catalogFoodId) {
+        await logMealEntryMutation.mutateAsync({
+          mealId,
+          payload: buildCatalogLogPayload(food.catalogFoodId, servings)
         })
+      } else {
+        let foodId = food.id
+        let inputMethod = InputMethodEnum.LIBRARY
 
-        foodId = createdFood.id
-        inputMethod = InputMethodEnum.SEARCH
-      }
+        // Branded results live in the external catalog — persist a copy into the
+        // user's library first, then log against the created food
+        if (food.source === FoodSourceEnum.BRANDED) {
+          const createdFood = await createFoodMutation.mutateAsync({
+            name: food.name,
+            servingAmount: food.servingAmount,
+            servingUnit: food.servingUnit ?? undefined,
+            calories: food.calories,
+            protein: food.protein,
+            carbs: food.carbs,
+            fat: food.fat,
+            brand: food.brand ?? undefined,
+            source: FoodSourceEnum.BRANDED
+          })
 
-      await logMealEntryMutation.mutateAsync({
-        mealId,
-        payload: {
-          foodId,
-          name: food.name,
-          servingText: formatServingText(food),
-          servings,
-          calories: food.calories,
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
-          inputMethod
+          foodId = createdFood.id
+          inputMethod = InputMethodEnum.SEARCH
         }
-      })
+
+        await logMealEntryMutation.mutateAsync({
+          mealId,
+          payload: {
+            foodId,
+            name: food.name,
+            servingText: formatServingText(food),
+            servings,
+            calories: food.calories,
+            protein: food.protein,
+            carbs: food.carbs,
+            fat: food.fat,
+            inputMethod
+          }
+        })
+      }
 
       // Land back on Add Food (not Macros) so more items can be added to the
       // same meal without re-entering the flow
@@ -184,6 +196,8 @@ const FoodDetailScreen = () => {
           })}
         </View>
       </View>
+
+      {provenanceCaption && <Text style={styles.provenanceCaption}>{provenanceCaption}</Text>}
 
       <View style={styles.servingsCard}>
         <View style={styles.servingsRow}>

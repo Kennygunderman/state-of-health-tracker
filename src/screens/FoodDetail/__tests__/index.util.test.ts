@@ -1,6 +1,8 @@
-import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
+import {Food, FoodSourceEnum, formatServingText} from '@data/models/Food'
+import {InputMethodEnum} from '@data/models/MealEntry'
 
 import {
+  buildCatalogLogPayload,
   buildDonutSegments,
   buildMacroBreakdown,
   catalogProvenanceLabel,
@@ -90,9 +92,21 @@ describe('formatDetailSubtitle', () => {
 
 describe('catalogProvenanceLabel', () => {
   it('captions each sourced provenance with its catalog badge label', () => {
-    expect(catalogProvenanceLabel('source_backed')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.source_backed)
-    expect(catalogProvenanceLabel('ingredient_derived')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.ingredient_derived)
-    expect(catalogProvenanceLabel('ai_estimated')).toBe(CATALOG_PROVENANCE_BADGE_LABELS.ai_estimated)
+    expect(catalogProvenanceLabel('source_backed')).toBe('Source-backed')
+    expect(catalogProvenanceLabel('ingredient_derived')).toBe('Estimated from ingredients')
+    expect(catalogProvenanceLabel('ai_estimated')).toBe('AI estimate')
+  })
+
+  it('keeps the three badge labels non-empty and distinct, so an estimate never reads as source-backed', () => {
+    const labels = [
+      catalogProvenanceLabel('source_backed'),
+      catalogProvenanceLabel('ingredient_derived'),
+      catalogProvenanceLabel('ai_estimated')
+    ]
+
+    expect(labels).toEqual(['Source-backed', 'Estimated from ingredients', 'AI estimate'])
+    expect(labels.every(label => label !== null && label.length > 0)).toBe(true)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 
   it('never captions user-entered nutrition, so client-supplied values are not shown as verified', () => {
@@ -102,5 +116,68 @@ describe('catalogProvenanceLabel', () => {
   it('returns no caption when provenance is missing', () => {
     expect(catalogProvenanceLabel(undefined)).toBeNull()
     expect(catalogProvenanceLabel(null)).toBeNull()
+  })
+})
+
+describe('buildCatalogLogPayload', () => {
+  it('sends the catalog id, the eaten servings and the search input method', () => {
+    expect(buildCatalogLogPayload('catalog-food-1', 2)).toEqual({
+      catalogFoodId: 'catalog-food-1',
+      servings: 2,
+      inputMethod: InputMethodEnum.SEARCH
+    })
+    expect(InputMethodEnum.SEARCH).toBe('search')
+  })
+
+  it('omits servingText, so the server derives the canonical portion description and the macros it labels', () => {
+    const payload = buildCatalogLogPayload('catalog-food-1', 1)
+
+    expect('servingText' in payload).toBe(false)
+    expect(Object.keys(payload).sort()).toEqual(['catalogFoodId', 'inputMethod', 'servings'])
+  })
+
+  // A stored description is rarely '<amount> <unit>': the release data has 'lemon' for 1 each and
+  // '1 cup, halves' for 152 g. Reconstructing the text client-side would be rejected as
+  // invalid_serving, so neither the reconstruction nor a guessed canonical value may be sent.
+  it('sends no portion text even when the stored description and the amount-unit pair disagree', () => {
+    const food: Food = {
+      id: 'catalog-food-1',
+      name: 'Strawberries, raw',
+      // What the catalog food carries through AddFood's mapper: the portion's amount and unit,
+      // never its description ('½ cup'), which reconstructs as '0.5 cup'.
+      servingAmount: 0.5,
+      servingUnit: 'cup',
+      calories: 24,
+      protein: 0,
+      carbs: 6,
+      fat: 0,
+      brand: null,
+      source: FoodSourceEnum.CATALOG,
+      catalogFoodId: 'catalog-food-1',
+      nutritionProvenance: 'source_backed'
+    }
+
+    const payload = buildCatalogLogPayload(food.catalogFoodId as string, 1)
+
+    expect(formatServingText(food)).toBe('0.5 cup')
+    expect(payload).not.toHaveProperty('servingText')
+    expect(Object.values(payload)).not.toContain('0.5 cup')
+    expect(Object.values(payload)).not.toContain('½ cup')
+  })
+
+  it('carries no library identity the catalog route would reject — no foodId, name or macros', () => {
+    const payload = buildCatalogLogPayload('catalog-food-1', 1.5)
+
+    expect(payload).not.toHaveProperty('foodId')
+    expect(payload).not.toHaveProperty('name')
+    expect(payload).not.toHaveProperty('calories')
+    expect(payload).not.toHaveProperty('protein')
+    expect(payload).not.toHaveProperty('carbs')
+    expect(payload).not.toHaveProperty('fat')
+  })
+
+  it('passes fractional servings through unrounded', () => {
+    expect(buildCatalogLogPayload('catalog-food-1', 0.33).servings).toBe(0.33)
+    expect(buildCatalogLogPayload('catalog-food-1', 2.5).servings).toBe(2.5)
   })
 })

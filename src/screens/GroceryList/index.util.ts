@@ -101,10 +101,12 @@ export function groceryEyebrow(view: GroceryView): GroceryEyebrow {
 
   const {startDate, endDate, checkedCount, totalCount} = view.list
 
+  // The tone tracks whether a plan is active, never which string is shown: 14b's counter (37:191) carries the same
+  // accent as 14's range (37:35), and muted belongs to the no-plan state alone (37:372).
   if (view.kind === 'list' && checkedCount > 0) {
     return {
       text: stringWithNamedParameters(GROCERY_CHECKED_PROGRESS_TEMPLATE, {checked: checkedCount, total: totalCount}),
-      tone: 'muted'
+      tone: 'green'
     }
   }
 

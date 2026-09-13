@@ -8,6 +8,13 @@ import {formatServingsDisplay} from '@utility/ServingsUtility'
 
 import {MetricGridItem} from '@components/MetricGrid4'
 
+import {
+  MEAL_PLAN_UNIT_VALUE_TEMPLATE,
+  MEAL_PLAN_VALUE_SEPARATOR,
+  MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE,
+  stringWithNamedParameters
+} from '@constants/strings'
+
 export type IngredientDisplayMode = 'portion' | 'full'
 
 export type RecipeDetailErrorBranch = 'not_found' | 'inline'
@@ -32,7 +39,6 @@ export interface ActionBarState {
   isEnabled: boolean
 }
 
-const CONTEXT_PILL_SEPARATOR = ' \u00b7 '
 const QUANTITY_PRECISION = 100
 const UNSCALED_FACTOR = 1
 const NOT_FOUND_STATUS = 404
@@ -67,7 +73,7 @@ const formatIngredientQuantity = (ingredient: RecipeIngredient, factor: number):
   const amount = formatServingsDisplay(roundQuantity(ingredient.quantity * factor))
   const unit = ingredient.unit.trim()
 
-  return unit.length > 0 ? `${amount} ${unit}` : amount
+  return unit.length > 0 ? stringWithNamedParameters(MEAL_PLAN_UNIT_VALUE_TEMPLATE, {value: amount, unit}) : amount
 }
 
 // One Math.round per value, applied once to the scaled figure: rounding an already-rounded value or summing
@@ -121,9 +127,13 @@ export function buildContextPillText(
   slotLabels: Record<string, string | undefined>
 ): string {
   const {weekday} = dayStripLabel(dayKey)
-  const segments = [slotLabels[slot], `${weekday} ${formatPlanDayLabel(dayKey)}`, formatSlotTime(slotTime)]
+  const segments = [
+    slotLabels[slot],
+    stringWithNamedParameters(MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE, {weekday, date: formatPlanDayLabel(dayKey)}),
+    formatSlotTime(slotTime)
+  ]
 
-  return segments.filter(isPresent).join(CONTEXT_PILL_SEPARATOR)
+  return segments.filter(isPresent).join(MEAL_PLAN_VALUE_SEPARATOR)
 }
 
 // A code the converter could not map to copy is dropped rather than rendered raw, so a badge the server

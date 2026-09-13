@@ -2,6 +2,7 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import FontSize from '@styles/fontSize'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
@@ -15,6 +16,8 @@ import Text from '@components/Text'
 
 import styles from './index.styled'
 
+const LINK_ACTION_HIT_SLOP_V = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
+
 interface Props {
   tone?: 'neutral' | 'success' | 'error'
   glyph?: 'info' | 'tick' | 'disc' | 'warning' | 'alert'
@@ -22,8 +25,10 @@ interface Props {
   body: string
   actionLabel?: string
   onAction?: () => void
+  isActionPending?: boolean
   secondaryActionLabel?: string
   onSecondaryAction?: () => void
+  isSecondaryActionPending?: boolean
 }
 
 const InfoBanner = ({
@@ -33,8 +38,10 @@ const InfoBanner = ({
   body,
   actionLabel,
   onAction,
+  isActionPending = false,
   secondaryActionLabel,
-  onSecondaryAction
+  onSecondaryAction,
+  isSecondaryActionPending = false
 }: Props): React.JSX.Element => {
   const resolvedGlyph = glyph ?? (tone === 'error' ? 'alert' : 'info')
   const isError = tone === 'error'
@@ -71,6 +78,16 @@ const InfoBanner = ({
           ? styles.successBody
           : styles.neutralBody
   const bodyElement = <Text style={bodyStyle}>{body}</Text>
+  const handleAction = () => {
+    if (!isActionPending) {
+      onAction?.()
+    }
+  }
+  const handleSecondaryAction = () => {
+    if (!isSecondaryActionPending) {
+      onSecondaryAction?.()
+    }
+  }
 
   return (
     <View
@@ -91,24 +108,28 @@ const InfoBanner = ({
           <View style={styles.actionRow}>
             {hasPrimaryAction && (
               <TouchableOpacity
-                style={styles.primaryAction}
+                style={[styles.primaryAction, isActionPending && styles.actionPending]}
                 activeOpacity={Opacity.PRESSED}
                 hitSlop={{top: Spacing.TIGHT, bottom: Spacing.TIGHT}}
+                disabled={isActionPending}
                 accessibilityRole="button"
                 accessibilityLabel={actionLabel}
-                onPress={onAction}>
+                accessibilityState={{disabled: isActionPending, busy: isActionPending}}
+                onPress={handleAction}>
                 <Text style={styles.primaryActionLabel}>{actionLabel}</Text>
               </TouchableOpacity>
             )}
 
             {hasSecondaryAction && (
               <TouchableOpacity
-                style={styles.secondaryAction}
+                style={[styles.secondaryAction, isSecondaryActionPending && styles.actionPending]}
                 activeOpacity={Opacity.PRESSED}
                 hitSlop={{top: Spacing.TIGHT, bottom: Spacing.TIGHT}}
+                disabled={isSecondaryActionPending}
                 accessibilityRole="button"
                 accessibilityLabel={secondaryActionLabel}
-                onPress={onSecondaryAction}>
+                accessibilityState={{disabled: isSecondaryActionPending, busy: isSecondaryActionPending}}
+                onPress={handleSecondaryAction}>
                 <Text style={styles.secondaryActionLabel}>{secondaryActionLabel}</Text>
               </TouchableOpacity>
             )}
@@ -119,10 +140,18 @@ const InfoBanner = ({
       {!isError && hasPrimaryAction && (
         <TouchableOpacity
           activeOpacity={Opacity.PRESSED}
+          hitSlop={{
+            top: LINK_ACTION_HIT_SLOP_V,
+            bottom: LINK_ACTION_HIT_SLOP_V,
+            left: Spacing.X_SMALL,
+            right: Spacing.X_SMALL
+          }}
+          disabled={isActionPending}
           accessibilityRole="button"
           accessibilityLabel={actionLabel}
-          onPress={onAction}>
-          <Text style={styles.linkAction}>{actionLabel}</Text>
+          accessibilityState={{disabled: isActionPending, busy: isActionPending}}
+          onPress={handleAction}>
+          <Text style={[styles.linkAction, isActionPending && styles.actionPending]}>{actionLabel}</Text>
         </TouchableOpacity>
       )}
     </View>

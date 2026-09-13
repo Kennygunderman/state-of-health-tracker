@@ -1,18 +1,10 @@
-import {MealPlanFlag, MealPlanFlagCode} from '@data/models/MealPlan'
+import {AffectedMeal, MealPlanFlag, MealPlanFlagCode} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {AffectedMealsResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
 import * as io from 'io-ts'
 
 const KNOWN_MEAL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
 const KNOWN_FLAG_CODES: MealPlanFlagCode[] = ['diet', 'allergen', 'dislike', 'cooking_time']
-
-export interface AffectedMeal {
-  mealId: string
-  date: string
-  slot: MealSlot
-  recipeName: string
-  flags: MealPlanFlag[]
-}
 
 export function convertAffectedMeals(data: io.TypeOf<typeof AffectedMealsResponse>): AffectedMeal[] {
   return data.meals.map(meal => ({

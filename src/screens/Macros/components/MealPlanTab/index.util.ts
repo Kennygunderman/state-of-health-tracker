@@ -2,7 +2,6 @@ import {CurrentMealPlans, MealPlan, MealPlanFlag, MealPlanMeal} from '@data/mode
 import {MealPlanPreferences, SetupStatus, SetupStep} from '@data/models/MealPlanPreferences'
 import {httpStatusOf, isRoutesMissingError, MealPlanAvailability} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import {RootStackParamList} from '@navigation/types'
-import type {PostLogViewTarget} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {clampDayKeyToPlan, defaultSelectedPlanDate, isLastPlanDay} from '@utility/MealPlanDateUtility'
 
@@ -13,16 +12,44 @@ const NOT_FOUND_STATUS = 404
 
 const STALE_PLAN_CODES: readonly string[] = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
 
-const SETUP_STEP_ROUTES: Record<SetupStep, keyof RootStackParamList> = {
-  goal: Screens.MEAL_PLAN_GOAL,
-  body: Screens.MEAL_PLAN_ABOUT_YOU,
-  activity: Screens.MEAL_PLAN_ACTIVITY,
-  diet: Screens.MEAL_PLAN_DIET,
-  dislikes: Screens.MEAL_PLAN_FOOD_PREFERENCES,
-  schedule: Screens.MEAL_PLAN_SCHEDULE,
-  cooking: Screens.MEAL_PLAN_COOKING_BUDGET,
-  review: Screens.MEAL_PLAN_TARGETS,
-  targets_manual: Screens.MEAL_PLAN_EDIT_TARGETS
+type SetupResumeRoute =
+  | typeof Screens.MEAL_PLAN_GOAL
+  | typeof Screens.MEAL_PLAN_ABOUT_YOU
+  | typeof Screens.MEAL_PLAN_ACTIVITY
+  | typeof Screens.MEAL_PLAN_DIET
+  | typeof Screens.MEAL_PLAN_FOOD_PREFERENCES
+  | typeof Screens.MEAL_PLAN_SCHEDULE
+  | typeof Screens.MEAL_PLAN_COOKING_BUDGET
+  | typeof Screens.MEAL_PLAN_TARGETS
+  | typeof Screens.MEAL_PLAN_EDIT_TARGETS
+
+/**
+ * Route and params in one value, correlated by construction: the mapped type pairs each resume route with
+ * that route's own entry in `RootStackParamList`, so a payload cannot be attached to the wrong screen and
+ * the caller navigates without inventing params of its own. Every resume target requires params — the eight
+ * wizard screens take a `StepMode`, and the manual-target editor takes its own mode-and-return pair.
+ */
+export type SetupResumeTarget = {
+  [Route in SetupResumeRoute]: {route: Route; params: RootStackParamList[Route]}
+}[SetupResumeRoute]
+
+// Factories rather than stored values: each call hands the caller its own params object, so a screen that
+// adjusts what it received cannot rewrite the resume target of every later session.
+const SETUP_RESUME_TARGETS: Record<SetupStep, () => SetupResumeTarget> = {
+  goal: () => ({route: Screens.MEAL_PLAN_GOAL, params: {mode: 'setup'}}),
+  body: () => ({route: Screens.MEAL_PLAN_ABOUT_YOU, params: {mode: 'setup'}}),
+  activity: () => ({route: Screens.MEAL_PLAN_ACTIVITY, params: {mode: 'setup'}}),
+  diet: () => ({route: Screens.MEAL_PLAN_DIET, params: {mode: 'setup'}}),
+  dislikes: () => ({route: Screens.MEAL_PLAN_FOOD_PREFERENCES, params: {mode: 'setup'}}),
+  schedule: () => ({route: Screens.MEAL_PLAN_SCHEDULE, params: {mode: 'setup'}}),
+  cooking: () => ({route: Screens.MEAL_PLAN_COOKING_BUDGET, params: {mode: 'setup'}}),
+  review: () => ({route: Screens.MEAL_PLAN_TARGETS, params: {mode: 'setup'}}),
+  // The manual-target route carries on forward through the wizard into Diet, so the editor resumes in its
+  // blank manual mode and returns by navigating there rather than popping back to a screen behind it.
+  targets_manual: () => ({
+    route: Screens.MEAL_PLAN_EDIT_TARGETS,
+    params: {mode: 'manual', returnTo: {kind: 'stack', route: 'diet'}}
+  })
 }
 
 const EMPTY_PLAN_CTAS: Record<SetupStatus, EmptyPlanCta> = {
@@ -34,11 +61,17 @@ const EMPTY_PLAN_CTAS: Record<SetupStatus, EmptyPlanCta> = {
 
 export type EmptyPlanCta = 'create' | 'continueSetupStep' | 'continueSetupReview' | 'planNextWeek'
 
+/**
+ * `isSavedCopy` marks the one plan state that is not live: the plan comes from the persisted
+ * `mealPlanCurrent` cache while the request behind it is failing, so the tab renders it read-only under the
+ * neutral "showing your last saved plan" banner. A healthy background refetch leaves it `false` — the plan
+ * re-renders in place and stays writable.
+ */
 export type MealPlanBodyOutcome =
   | {kind: 'unavailable'}
   | {kind: 'loading'}
   | {kind: 'error'}
-  | {kind: 'plan'; plan: MealPlan}
+  | {kind: 'plan'; plan: MealPlan; isSavedCopy: boolean}
   | {kind: 'empty'; cta: EmptyPlanCta}
 
 export interface MealPlanBodyInputs {
@@ -89,10 +122,18 @@ const isLaterEntry = (candidate: LoggedEntryRef, incumbent: LoggedEntryRef): boo
     : candidate.loggedAt > incumbent.loggedAt
 
 /**
- * Branch order is load-bearing. Unavailability is the entitlement verdict rather than a re-reading of the
- * responses; a decoded stale-plan or resource-route failure outranks an in-flight refetch so it cannot be
- * hidden behind a spinner; and no error path may fall through to `empty`, which would claim the user has no
- * plan when the request merely failed.
+ * Branch order is load-bearing.
+ *
+ * Unavailability is the entitlement verdict rather than a re-reading of the responses. A decoded stale-plan
+ * or resource-route failure invalidates the plan itself, so it outranks everything below — including a plan
+ * the cache still holds, which that answer has just contradicted, and an in-flight refetch, behind whose
+ * spinner it would be hidden.
+ *
+ * Every other failure leaves the saved plan standing: `mealPlanCurrent` is persisted precisely so the week
+ * survives a lost connection, so a plan in hand is rendered read-only as a saved copy rather than replaced
+ * by an error card that hides a week the user can still read. The error card is for having nothing to show.
+ * No error path may fall through to `empty`, which would claim the user has no plan when the request merely
+ * failed.
  */
 export function resolveMealPlanBody(inputs: MealPlanBodyInputs): MealPlanBodyOutcome {
   const {availability, preferences, preferencesError, plans, currentPlanError, isLoading, selectedPlanId} = inputs
@@ -106,27 +147,31 @@ export function resolveMealPlanBody(inputs: MealPlanBodyInputs): MealPlanBodyOut
   }
 
   const plan = resolveSelectedPlan(plans, selectedPlanId)
+  const isRefreshFailing = hasError(preferencesError) || hasError(currentPlanError)
 
-  if (isLoading && plan === null) {
+  if (plan !== null) {
+    return {kind: 'plan', plan, isSavedCopy: isRefreshFailing}
+  }
+
+  if (isLoading) {
     return {kind: 'loading'}
   }
 
-  if (hasError(preferencesError) || hasError(currentPlanError)) {
+  if (isRefreshFailing) {
     return {kind: 'error'}
-  }
-
-  if (plan !== null) {
-    return {kind: 'plan', plan}
   }
 
   return {kind: 'empty', cta: resolveEmptyPlanCta(preferences)}
 }
 
-// Resuming setup opens the saved step itself, so a returning user never meets the introduction again.
-export function resolveSetupStepRoute(step: SetupStep | null): keyof RootStackParamList {
-  const route = step === null ? undefined : SETUP_STEP_ROUTES[step]
+/**
+ * Resuming setup opens the saved step itself, so a returning user never meets the introduction again. A step
+ * a newer server introduced resolves to the first step rather than to a screen this build cannot render.
+ */
+export function resolveSetupResumeTarget(step: SetupStep | null): SetupResumeTarget {
+  const target = step === null ? undefined : SETUP_RESUME_TARGETS[step]
 
-  return route ?? Screens.MEAL_PLAN_GOAL
+  return (target ?? SETUP_RESUME_TARGETS.goal)()
 }
 
 export function resolveSelectedPlan(
@@ -152,17 +197,22 @@ export function resolveSelectedPlan(
   return fallback
 }
 
-// `null` is the value the caller stores back: a selection naming a plan the server no longer returns has to
-// be cleared, or it would keep shadowing the plan actually on screen.
+/**
+ * The value the caller stores back. A selection naming a plan the server no longer returns has to be
+ * cleared, or it would keep shadowing the plan actually on screen — but only a concrete `{current,
+ * upcoming}` response can establish that. An unfetched response carries no evidence either way, so the
+ * selection is preserved through it; clearing it there would drop the user back onto the default plan on
+ * every cold start, one render before the upcoming week they had chosen arrived.
+ */
 export function resolveStalePlanSelection(
   plans: CurrentMealPlans | undefined,
   selectedPlanId: string | null
 ): string | null {
-  if (selectedPlanId === null) {
-    return null
+  if (selectedPlanId === null || plans === undefined) {
+    return selectedPlanId
   }
 
-  const matchesReturnedPlan = plans?.current?.id === selectedPlanId || plans?.upcoming?.id === selectedPlanId
+  const matchesReturnedPlan = plans.current?.id === selectedPlanId || plans.upcoming?.id === selectedPlanId
 
   return matchesReturnedPlan ? selectedPlanId : null
 }
@@ -183,7 +233,14 @@ export function resolvePlanSwitchLink(
   return selected !== null && selected.id === upcoming.id ? 'this' : 'next'
 }
 
-// An existing upcoming plan turns the offer into a way to reach it, because a second one cannot be created.
+/**
+ * The offer is always about a week other than the one on screen. An existing upcoming plan turns it into a
+ * way to reach that week, because a second one cannot be created.
+ *
+ * Viewing the upcoming plan itself therefore leaves nothing to offer: reaching it is where the user already
+ * is, and a further week would be a second plan starting after today, which the server refuses. The card
+ * gets no action rather than one that reopens the plan already on screen.
+ */
 export function resolveLastDayAction(
   plans: CurrentMealPlans | undefined,
   selectedPlanId: string | null,
@@ -195,7 +252,13 @@ export function resolveLastDayAction(
     return null
   }
 
-  return (plans?.upcoming ?? null) !== null ? 'viewNextWeek' : 'planAnotherWeek'
+  const upcoming = plans?.upcoming ?? null
+
+  if (upcoming === null) {
+    return 'planAnotherWeek'
+  }
+
+  return plan.id === upcoming.id ? null : 'viewNextWeek'
 }
 
 export function resolveSelectedPlanDate(plan: MealPlan, storedDate: string | null, now: Date): string {
@@ -245,9 +308,9 @@ export function resolveMealFlagReason(flags: MealPlanFlag[]): string | null {
     : PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
 }
 
-export function resolveViewTarget(entryDayKey: string, nowDayKey: string): PostLogViewTarget {
-  return entryDayKey === nowDayKey ? 'diary' : 'history'
-}
+// The Diary-versus-History rule is shared with the post-log banner on the logging screen, so it lives in
+// @utility/MealPlanDateUtility and this tab only re-exports it under the name its callers use.
+export {resolvePostLogViewTarget as resolveViewTarget} from '@utility/MealPlanDateUtility'
 
 // The width one of `itemCount` equally flexed siblings takes inside `availableWidth`, once the gaps between
 // them are removed.

@@ -21,7 +21,7 @@ import {
   resolvePlanSwitchLink,
   resolveSelectedPlan,
   resolveSelectedPlanDate,
-  resolveSetupStepRoute,
+  resolveSetupResumeTarget,
   resolveStalePlanSelection,
   resolveViewTarget
 } from '../index.util'
@@ -262,18 +262,18 @@ describe('resolveMealPlanBody', () => {
 
       const outcome = resolveMealPlanBody(makeBodyInputs({isLoading: true, plans: makePlans(plan, null)}))
 
-      expect(outcome).toEqual({kind: 'plan', plan})
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: false})
     })
   })
 
-  describe('undecodable failures', () => {
-    it('reports an error for a network failure carrying no response', () => {
+  describe('undecodable failures with nothing to show', () => {
+    it('reports an error for a network failure carrying no response and no cached plan', () => {
       const outcome = resolveMealPlanBody(makeBodyInputs({currentPlanError: networkError}))
 
       expect(outcome).toEqual({kind: 'error'})
     })
 
-    it('reports an error for a 5xx whose body decodes to no error code', () => {
+    it('reports an error for a 5xx whose body decodes to no error code and leaves no plan', () => {
       const outcome = resolveMealPlanBody(makeBodyInputs({preferencesError: undecodableError}))
 
       expect(outcome).toEqual({kind: 'error'})
@@ -289,13 +289,111 @@ describe('resolveMealPlanBody', () => {
     })
   })
 
+  describe('a saved plan the cache still holds', () => {
+    it('keeps the saved week on screen when the refetch fails with no response at all', () => {
+      const plan = makePlan()
+
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: networkError, plans: makePlans(plan, null)})
+      )
+
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: true})
+    })
+
+    it('keeps the saved week on screen when the refetch answers an undecodable 5xx', () => {
+      const plan = makePlan()
+
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: undecodableError, plans: makePlans(plan, null)})
+      )
+
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: true})
+    })
+
+    it('keeps the saved week on screen when only the preferences request failed', () => {
+      const plan = makePlan()
+
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({preferencesError: networkError, plans: makePlans(plan, null)})
+      )
+
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: true})
+    })
+
+    it('keeps the saved week on screen when a failed refetch is still in flight', () => {
+      const plan = makePlan()
+
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: networkError, isLoading: true, plans: makePlans(plan, null)})
+      )
+
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: true})
+    })
+
+    it('keeps the saved upcoming week on screen when it is the only plan held', () => {
+      const plan = makeUpcomingPlan()
+
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: networkError, plans: makePlans(null, plan)})
+      )
+
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: true})
+    })
+
+    it('never replaces a readable saved week with the error card', () => {
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: networkError, plans: makePlans(makePlan(), null)})
+      )
+
+      expect(outcome.kind).not.toBe('error')
+      expect(outcome.kind).not.toBe('loading')
+      expect(outcome.kind).not.toBe('empty')
+    })
+
+    it('discards the cached week when a decoded stale_plan contradicts it', () => {
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: stalePlanError, plans: makePlans(makePlan(), null)})
+      )
+
+      expect(outcome).toEqual({kind: 'error'})
+    })
+
+    it('discards the cached week when a decoded plan_not_active contradicts it', () => {
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({currentPlanError: planNotActiveError, plans: makePlans(makePlan(), null)})
+      )
+
+      expect(outcome).toEqual({kind: 'error'})
+    })
+
+    it('discards the cached week when a resource route answered 404', () => {
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({preferencesError: legacyNotFoundError, plans: makePlans(makePlan(), null)})
+      )
+
+      expect(outcome).toEqual({kind: 'error'})
+    })
+
+    it('shows nothing at all rather than a saved week while the feature is unavailable', () => {
+      const outcome = resolveMealPlanBody(
+        makeBodyInputs({
+          availability: 'unavailable',
+          currentPlanError: routesMissingError,
+          plans: makePlans(makePlan(), null)
+        })
+      )
+
+      expect(outcome).toEqual({kind: 'unavailable'})
+    })
+  })
+
   describe('a plan to show', () => {
     it('returns the selected plan', () => {
       const plan = makePlan()
 
       const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(plan, makeUpcomingPlan())}))
 
-      expect(outcome).toEqual({kind: 'plan', plan})
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: false})
     })
 
     it('returns the upcoming plan when it is the only one', () => {
@@ -303,7 +401,7 @@ describe('resolveMealPlanBody', () => {
 
       const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(null, plan)}))
 
-      expect(outcome).toEqual({kind: 'plan', plan})
+      expect(outcome).toEqual({kind: 'plan', plan, isSavedCopy: false})
     })
   })
 
@@ -352,27 +450,69 @@ describe('resolveMealPlanBody', () => {
   })
 })
 
-describe('resolveSetupStepRoute', () => {
+describe('resolveSetupResumeTarget', () => {
   it('opens the saved step itself, so a returning user never meets the introduction again', () => {
-    expect(resolveSetupStepRoute('goal')).toBe(Screens.MEAL_PLAN_GOAL)
-    expect(resolveSetupStepRoute('body')).toBe(Screens.MEAL_PLAN_ABOUT_YOU)
-    expect(resolveSetupStepRoute('activity')).toBe(Screens.MEAL_PLAN_ACTIVITY)
-    expect(resolveSetupStepRoute('diet')).toBe(Screens.MEAL_PLAN_DIET)
-    expect(resolveSetupStepRoute('dislikes')).toBe(Screens.MEAL_PLAN_FOOD_PREFERENCES)
-    expect(resolveSetupStepRoute('schedule')).toBe(Screens.MEAL_PLAN_SCHEDULE)
-    expect(resolveSetupStepRoute('cooking')).toBe(Screens.MEAL_PLAN_COOKING_BUDGET)
-    expect(resolveSetupStepRoute('review')).toBe(Screens.MEAL_PLAN_TARGETS)
-    expect(resolveSetupStepRoute('targets_manual')).toBe(Screens.MEAL_PLAN_EDIT_TARGETS)
+    expect(resolveSetupResumeTarget('goal')).toEqual({route: Screens.MEAL_PLAN_GOAL, params: {mode: 'setup'}})
+    expect(resolveSetupResumeTarget('body')).toEqual({route: Screens.MEAL_PLAN_ABOUT_YOU, params: {mode: 'setup'}})
+    expect(resolveSetupResumeTarget('activity')).toEqual({route: Screens.MEAL_PLAN_ACTIVITY, params: {mode: 'setup'}})
+    expect(resolveSetupResumeTarget('diet')).toEqual({route: Screens.MEAL_PLAN_DIET, params: {mode: 'setup'}})
+    expect(resolveSetupResumeTarget('dislikes')).toEqual({
+      route: Screens.MEAL_PLAN_FOOD_PREFERENCES,
+      params: {mode: 'setup'}
+    })
+    expect(resolveSetupResumeTarget('schedule')).toEqual({route: Screens.MEAL_PLAN_SCHEDULE, params: {mode: 'setup'}})
+    expect(resolveSetupResumeTarget('cooking')).toEqual({
+      route: Screens.MEAL_PLAN_COOKING_BUDGET,
+      params: {mode: 'setup'}
+    })
+  })
+
+  it('opens review in setup mode once every answer is in', () => {
+    expect(resolveSetupResumeTarget('review')).toEqual({route: Screens.MEAL_PLAN_TARGETS, params: {mode: 'setup'}})
+  })
+
+  it('resumes the manual-target route in the blank editor that carries on into diet', () => {
+    expect(resolveSetupResumeTarget('targets_manual')).toEqual({
+      route: Screens.MEAL_PLAN_EDIT_TARGETS,
+      params: {mode: 'manual', returnTo: {kind: 'stack', route: 'diet'}}
+    })
+  })
+
+  it('carries params for every step, so no resume target can be navigated to without them', () => {
+    const steps: SetupStep[] = [
+      'goal',
+      'body',
+      'activity',
+      'diet',
+      'dislikes',
+      'schedule',
+      'cooking',
+      'review',
+      'targets_manual'
+    ]
+
+    steps.forEach(step => expect(resolveSetupResumeTarget(step).params).toBeDefined())
+  })
+
+  it('hands out its own params object each time, so an edited target cannot leak into the next resume', () => {
+    const first = resolveSetupResumeTarget('goal')
+    const second = resolveSetupResumeTarget('goal')
+
+    expect(first.params).not.toBe(second.params)
+    expect(first.params).toEqual(second.params)
   })
 
   it('starts at the goal step when no step is saved', () => {
-    expect(resolveSetupStepRoute(null)).toBe(Screens.MEAL_PLAN_GOAL)
+    expect(resolveSetupResumeTarget(null)).toEqual({route: Screens.MEAL_PLAN_GOAL, params: {mode: 'setup'}})
   })
 
   it('starts at the goal step for a step a newer server introduced', () => {
     const unrecognizedStep: string = 'onboarding_v2'
 
-    expect(resolveSetupStepRoute(unrecognizedStep as SetupStep)).toBe(Screens.MEAL_PLAN_GOAL)
+    expect(resolveSetupResumeTarget(unrecognizedStep as SetupStep)).toEqual({
+      route: Screens.MEAL_PLAN_GOAL,
+      params: {mode: 'setup'}
+    })
   })
 })
 
@@ -434,8 +574,22 @@ describe('resolveStalePlanSelection', () => {
     expect(resolveStalePlanSelection(makePlans(makeUpcomingPlan(), null), CURRENT_PLAN_ID)).toBeNull()
   })
 
+  it('keeps the chosen week while the plans response has not arrived yet', () => {
+    expect(resolveStalePlanSelection(undefined, UPCOMING_PLAN_ID)).toBe(UPCOMING_PLAN_ID)
+  })
+
+  it('clears the chosen week only once a response has proved it stale', () => {
+    expect(resolveStalePlanSelection(undefined, 'plan-from-last-month')).toBe('plan-from-last-month')
+    expect(resolveStalePlanSelection(makePlans(makePlan(), null), 'plan-from-last-month')).toBeNull()
+  })
+
+  it('clears a selection against a response that returns no plan at all', () => {
+    expect(resolveStalePlanSelection(makePlans(null, null), UPCOMING_PLAN_ID)).toBeNull()
+  })
+
   it('stores no selection when none is held', () => {
     expect(resolveStalePlanSelection(makePlans(makePlan(), null), null)).toBeNull()
+    expect(resolveStalePlanSelection(undefined, null)).toBeNull()
   })
 })
 
@@ -468,6 +622,30 @@ describe('resolveLastDayAction', () => {
 
   it('offers another week on the last day when nothing is upcoming', () => {
     expect(resolveLastDayAction(makePlans(makePlan(), null), null, PLAN_END_DATE)).toBe('planAnotherWeek')
+  })
+
+  it('offers nothing that reopens the upcoming plan already on screen', () => {
+    expect(resolveLastDayAction(makePlans(makePlan(), makeUpcomingPlan()), UPCOMING_PLAN_ID, UPCOMING_END_DATE)).toBe(
+      null
+    )
+  })
+
+  it('offers nothing on the last day of an upcoming plan that is the only one held', () => {
+    expect(resolveLastDayAction(makePlans(null, makeUpcomingPlan()), null, UPCOMING_END_DATE)).toBeNull()
+  })
+
+  it('offers nothing on the last day of an upcoming plan selected by id with no current plan', () => {
+    expect(resolveLastDayAction(makePlans(null, makeUpcomingPlan()), UPCOMING_PLAN_ID, UPCOMING_END_DATE)).toBeNull()
+  })
+
+  it('still offers the upcoming week from the current plan while the upcoming one exists', () => {
+    expect(resolveLastDayAction(makePlans(makePlan(), makeUpcomingPlan()), CURRENT_PLAN_ID, PLAN_END_DATE)).toBe(
+      'viewNextWeek'
+    )
+  })
+
+  it('offers nothing on the current plan last day while the upcoming plan is the one on screen', () => {
+    expect(resolveLastDayAction(makePlans(makePlan(), makeUpcomingPlan()), UPCOMING_PLAN_ID, PLAN_END_DATE)).toBeNull()
   })
 
   it('offers nothing on a day that is not the plan last day', () => {

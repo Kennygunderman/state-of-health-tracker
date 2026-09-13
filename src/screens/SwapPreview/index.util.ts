@@ -44,9 +44,10 @@ type PreviewTargets = SwapPreview['targets']
 
 const QUANTITY_PRECISION = 100
 
-// Typed with undefined so a slot code a future server release adds falls back to the code itself instead of
-// rendering the word 'undefined' in the pill
-const SLOT_SENTENCE_LABELS: Record<string, string | undefined> = MEAL_SLOT_SENTENCE_LABELS
+// A Map rather than an index into MEAL_SLOT_SENTENCE_LABELS: that object literal inherits Object.prototype, so
+// indexing it with a slot code a future server release adds would resolve 'constructor' or 'hasOwnProperty' to an
+// inherited function. A Map carries only its own string entries, so every code the app does not know reads as absent
+const SLOT_SENTENCE_LABELS = new Map<string, string>(Object.entries(MEAL_SLOT_SENTENCE_LABELS))
 
 const isPresent = (segment: string | undefined): segment is string => segment !== undefined && segment.length > 0
 
@@ -77,7 +78,7 @@ export function deriveCalorieDelta(calorieDelta: number): SwapCalorieDelta | nul
   return {text: formatSignedCalories(calorieDelta, CAL_LABEL), tone: calorieDelta < 0 ? 'negative' : 'positive'}
 }
 
-/** Fraction of the target the day would reach, capped at 1 so the bar's fill can never overflow its track. */
+/** Fraction of the target the day would reach, clamped to 0–1 so the bar's fill can neither overflow nor invert. */
 export function calorieProgressRatio(total: number, target: number | null | undefined): number {
   if (!isUsableTarget(target) || target <= 0) {
     return 0
@@ -87,7 +88,7 @@ export function calorieProgressRatio(total: number, target: number | null | unde
     return 0
   }
 
-  return Math.min(total / target, 1)
+  return Math.max(0, Math.min(total / target, 1))
 }
 
 export function buildSwapMacroLegend(
@@ -115,11 +116,14 @@ export function buildThisMealMetrics(
 /** Natural case ('Replacing lunch · Sat Jul 5'); RecipeHero's context pill applies the uppercase itself. */
 export function formatReplacingContext(slot: string, dateKey: string): string {
   const {weekday} = dayStripLabel(dateKey)
+  const date = `${weekday} ${formatPlanDayLabel(dateKey)}`
+  const label = SLOT_SENTENCE_LABELS.get(slot)
 
-  return stringWithNamedParameters(SWAP_PREVIEW_REPLACING_TEMPLATE, {
-    slot: SLOT_SENTENCE_LABELS[slot] ?? slot,
-    date: `${weekday} ${formatPlanDayLabel(dateKey)}`
-  })
+  if (!isPresent(label)) {
+    return date
+  }
+
+  return stringWithNamedParameters(SWAP_PREVIEW_REPLACING_TEMPLATE, {slot: label, date})
 }
 
 export function formatPreviewSubtitle(portionText: string, totalMinutes: number): string {

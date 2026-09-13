@@ -198,11 +198,21 @@ describe('groceryEyebrow', () => {
     expect(groceryEyebrow(view)).toEqual({text: PLAN_RANGE_TEXT, tone: 'green'})
   })
 
-  it('shows checked progress in muted once items are checked', () => {
+  it('keeps the active-plan green once items are checked and changes only the text', () => {
     const list = makeList({totalCount: 14, checkedCount: 6})
     const view = resolveGroceryView(makeQuery({data: list}), PLAN_ID)
 
-    expect(groceryEyebrow(view)).toEqual({text: CHECKED_PROGRESS_TEXT, tone: 'muted'})
+    expect(groceryEyebrow(view)).toEqual({text: CHECKED_PROGRESS_TEXT, tone: 'green'})
+  })
+
+  it('reserves the muted tone for the no-plan state, so the tone follows the plan and not the text', () => {
+    const beforeChecking = resolveGroceryView(makeQuery({data: makeList({checkedCount: 0})}), PLAN_ID)
+    const whileChecking = resolveGroceryView(makeQuery({data: makeList({totalCount: 14, checkedCount: 6})}), PLAN_ID)
+    const withoutPlan = resolveGroceryView(makeQuery(), null)
+
+    expect(groceryEyebrow(beforeChecking).tone).toBe('green')
+    expect(groceryEyebrow(whileChecking).tone).toBe('green')
+    expect(groceryEyebrow(withoutPlan).tone).toBe('muted')
   })
 
   it('shows the no-plan eyebrow in muted when no plan is active', () => {

@@ -49,7 +49,14 @@ const AlternativeRow = ({alternative, meta, onPress, isFirst}: Props) => {
         <Text style={styles.meta}>{meta}</Text>
       </View>
 
-      <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} strokeWidth={Stroke.BOLD} />
+      {/*
+        The 8pt slot is what the row's flex layout advances by, so the text column keeps its reconciled
+        width; the larger icon canvas overflows the slot horizontally exactly as the design's glyph
+        overflows its own, and its drawn ink stays inside the 8pt box.
+      */}
+      <View style={styles.chevronSlot}>
+        <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} strokeWidth={Stroke.BOLD} />
+      </View>
     </TouchableOpacity>
   )
 }

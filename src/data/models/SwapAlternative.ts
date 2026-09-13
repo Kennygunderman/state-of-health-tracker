@@ -1,4 +1,4 @@
-import {MacroTargets, MacroTotals} from './Macros'
+import {MacroTotals} from './Macros'
 import {MealPlanDay, MealPlanMeal} from './MealPlan'
 import {RecipeIconKey, RecipeVersion} from './Recipe'
 
@@ -27,7 +27,9 @@ export interface SwapPreviewAlternative {
 export interface SwapPreview {
   alternative: SwapPreviewAlternative
   dayTotalsIfSwapped: MacroTotals
-  targets: MacroTargets
+  // MacroTotals, not the per-field-nullable MacroTargets of NutritionTargets: a preview exists only inside a
+  // plan, and a plan is only generated once targets are complete and confirmed, so all four are numbers here.
+  targets: MacroTotals
   // Signed: negative when the swap lowers the day's calories, positive when it raises them.
   calorieDelta: number
   planRevision: number

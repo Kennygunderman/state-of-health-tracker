@@ -1,7 +1,8 @@
 import type {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import type {NutritionTargets} from '@data/models/NutritionTargets'
 import type {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
-import type {GenerationContext} from '@navigation/types'
+import type {MealSlot} from '@data/models/Recipe'
+import type {GenerationContext, RootStackParamList} from '@navigation/types'
 import {API_ERROR_CODES, classifyOutcome, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 
@@ -34,6 +35,7 @@ import {
   MEAL_PLAN_NO_MATCH_TITLE,
   MEAL_PLAN_SAVED_ANSWERS_HEADER,
   MEAL_PLAN_SELECTED_VALUE_TEMPLATE,
+  MEAL_PLAN_STALE_PLAN_TOAST,
   MEAL_PLAN_TARGETS_KCAL_TEMPLATE,
   MEAL_PLAN_TARGETS_ROW_LABEL,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
@@ -98,6 +100,16 @@ export interface GenerationView {
   terminalCode: string | null
 }
 
+// What a terminal outcome has to do on its way out, named rather than performed: the persisted intent, the
+// plan query and the navigator all live outside a pure derivation, so the screen applies these while this
+// module stays testable without them.
+export interface GenerationTerminalRecovery {
+  clearsPendingIntent: boolean
+  refetchesCurrentPlan: boolean
+  toast: string | null
+  route: keyof RootStackParamList | null
+}
+
 const NO_VALUE = ''
 
 // Must stay identical to the sentinel MealPlanSetupProvider and MealPlanDiet own: 'none' is mutually
@@ -107,7 +119,7 @@ const ALLERGEN_NONE = 'none'
 
 // Outcomes a same-key retry can never resolve: the request was refused for a reason only a fresh
 // decision elsewhere can clear, so they get their own copy and no retry action.
-const TERMINAL_CODES: ReadonlySet<string> = new Set<string>([
+const TERMINAL_COPY_CODES: ReadonlySet<string> = new Set<string>([
   API_ERROR_CODES.staleRevision,
   API_ERROR_CODES.planOverlap,
   API_ERROR_CODES.upcomingExists,
@@ -116,6 +128,18 @@ const TERMINAL_CODES: ReadonlySet<string> = new Set<string>([
   API_ERROR_CODES.targetsUnconfirmed,
   API_ERROR_CODES.idempotencyConflict
 ])
+
+// The two plan-state refusals deliberately carry no card copy: the plan this attempt named has already moved
+// on, so their recovery leaves the screen with the stale-plan toast and a refetch rather than stranding the
+// user on a card whose only honest next move is somewhere else.
+const PLAN_STATE_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([
+  API_ERROR_CODES.stalePlan,
+  API_ERROR_CODES.planNotActive
+])
+
+// Derived rather than listed, so "a terminal code either has card copy or is a plan-state code" holds by
+// construction rather than by memory: a code added to neither set is simply not terminal.
+const TERMINAL_CODES: ReadonlySet<string> = new Set<string>([...TERMINAL_COPY_CODES, ...PLAN_STATE_TERMINAL_CODES])
 
 const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
   'cooking_time',
@@ -129,6 +153,23 @@ const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
 
 const CONSTRAINT_UNITS: readonly LimitingConstraintUnit[] = ['minutes', 'foods', 'percent', 'recipes']
 
+// The closed sets behind the two guards below. A string the server sent is only a SetupStep or a MealSlot
+// once it has been matched against these: the wire types say nothing about what this release understands,
+// and a value that skips the check reaches a map lookup as an arbitrary key.
+const SETUP_STEPS: readonly SetupStep[] = [
+  'goal',
+  'body',
+  'activity',
+  'diet',
+  'dislikes',
+  'schedule',
+  'cooking',
+  'review',
+  'targets_manual'
+]
+
+const MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
+
 // Record<string, string> indexing types as string, so both maps are read through a widened alias to keep
 // the unknown-key branch reachable: a slot or terminal code from a newer server release must never be
 // rendered raw, and an absent entry must fall through rather than reach a formatter as undefined.
@@ -136,7 +177,7 @@ const SLOT_LABELS: Record<string, string | undefined> = MEAL_SLOT_LABELS
 
 const TERMINAL_COPY: Record<string, TerminalOutcomeCopy | undefined> = MEAL_PLAN_GENERATION_TERMINAL_COPY
 
-const CONSTRAINT_EDIT_ROUTES: Record<SetupStep, string> = {
+const CONSTRAINT_EDIT_ROUTES: Record<SetupStep, keyof RootStackParamList> = {
   goal: Screens.MEAL_PLAN_GOAL,
   body: Screens.MEAL_PLAN_TARGETS,
   activity: Screens.MEAL_PLAN_TARGETS,
@@ -147,6 +188,13 @@ const CONSTRAINT_EDIT_ROUTES: Record<SetupStep, string> = {
   review: Screens.MEAL_PLAN_TARGETS,
   targets_manual: Screens.MEAL_PLAN_TARGETS
 }
+
+// Every map above is keyed by a string the server chose, and a plain record[key] answers 'constructor',
+// 'toString', 'hasOwnProperty' and '__proto__' with an inherited function or object. Those pass an
+// `!== undefined` check, so they would reach the UI as "function Object() { [native code] }" or be returned
+// as a route that is not a string at all. Only an own property counts as an entry.
+const ownEntry = <T>(record: Record<string, T | undefined>, key: string): T | undefined =>
+  Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
 
 const ACTION_LABELS: Record<GenerationActionKind, string> = {
   retry: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
@@ -166,6 +214,10 @@ interface GenerationViewChrome {
 // state cannot ship without its chrome. 'noMatch' carries the unconfirmed badge too because it is the
 // only 64px disc StatusBadgeCircle fills neutrally and the component offers no fill override — the
 // 'failure' badge asserts a confirmed failure that an unconfirmed outcome has not observed.
+// 10 and 10b both centre their content column on both axes, and the unconfirmed variant renders in 10b's
+// layout, so those three agree. Only 10c is top-aligned — its column declares neither centring key, its copy
+// is left-aligned and its badge starts at the content edge, because the constraint rows under it are a list
+// to read — and the terminal state, which Figma never draws and whose recovery leaves immediately.
 const VIEW_CHROME: Record<GenerationViewKind, GenerationViewChrome> = {
   pending: {
     isCentered: true,
@@ -175,7 +227,7 @@ const VIEW_CHROME: Record<GenerationViewKind, GenerationViewChrome> = {
     showAllergiesBanner: false
   },
   failed: {
-    isCentered: false,
+    isCentered: true,
     showSpinner: false,
     badgeVariant: 'failure',
     headlineSize: 'default',
@@ -189,7 +241,7 @@ const VIEW_CHROME: Record<GenerationViewKind, GenerationViewChrome> = {
     showAllergiesBanner: true
   },
   unconfirmed: {
-    isCentered: false,
+    isCentered: true,
     showSpinner: false,
     badgeVariant: 'noMatch',
     headlineSize: 'default',
@@ -250,7 +302,7 @@ const resolveViewCopy = (kind: GenerationViewKind, terminalCode: string | null):
     return VIEW_COPY[kind]
   }
 
-  const terminal = terminalCode === null ? undefined : TERMINAL_COPY[terminalCode]
+  const terminal = terminalCode === null ? undefined : ownEntry(TERMINAL_COPY, terminalCode)
 
   return terminal === undefined ? EMPTY_COPY : {headline: terminal.title, body: terminal.body}
 }
@@ -302,6 +354,31 @@ export const resolveGenerationView = (
     actions: resolveActions(kind, context),
     terminalCode
   }
+}
+
+// clearsPendingIntent is true for every terminal code because a confirmed terminal answer resolves the
+// keyed intent: leaving it pending would replay a key the server has already refused on the next cold
+// start. A plan-state refusal additionally needs the current plan refetched and the screen left, since the
+// plan the attempt named is no longer the one the user has; a copy code says its next move on the card, so
+// it neither toasts nor routes.
+export const resolveTerminalRecovery = (
+  terminalCode: string | null,
+  context: GenerationContext
+): GenerationTerminalRecovery | null => {
+  if (terminalCode === null || !TERMINAL_CODES.has(terminalCode)) {
+    return null
+  }
+
+  if (PLAN_STATE_TERMINAL_CODES.has(terminalCode)) {
+    return {
+      clearsPendingIntent: true,
+      refetchesCurrentPlan: true,
+      toast: MEAL_PLAN_STALE_PLAN_TOAST,
+      route: context.kind === 'regenerate' ? Screens.MACROS : Screens.MEAL_PLAN_TARGETS
+    }
+  }
+
+  return {clearsPendingIntent: true, refetchesCurrentPlan: false, toast: null, route: null}
 }
 
 const dietValue = (preferences: MealPlanPreferences): string =>
@@ -377,6 +454,10 @@ const isLimitingConstraintKey = (value: unknown): value is LimitingConstraintKey
 const isLimitingConstraintUnit = (value: unknown): value is LimitingConstraintUnit =>
   CONSTRAINT_UNITS.some(unit => unit === value)
 
+const isSetupStep = (value: unknown): value is SetupStep => SETUP_STEPS.some(step => step === value)
+
+const isMealSlot = (value: unknown): value is MealSlot => MEAL_SLOTS.some(slot => slot === value)
+
 const normalizeSlots = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((slot): slot is string => typeof slot === 'string') : []
 
@@ -399,7 +480,11 @@ const toLimitingConstraint = (entry: unknown): LimitingConstraint | null => {
     value: typeof value === 'number' && Number.isFinite(value) ? value : null,
     unit: isLimitingConstraintUnit(unit) ? unit : null,
     slots: normalizeSlots(slots),
-    editStep
+    // Review is the fallback because every answer is reachable from it, so an editStep from a newer server
+    // release opens a screen that can still resolve the constraint rather than a dead pill. Normalising here
+    // rather than at the route lookup is also what keeps a name like 'constructor' out of every map this
+    // step is later used to key: the returned editStep is always a genuine union member.
+    editStep: isSetupStep(editStep) ? editStep : 'review'
   }
 }
 
@@ -416,10 +501,14 @@ export const extractLimitingConstraints = (error: unknown): LimitingConstraint[]
     .filter((constraint): constraint is LimitingConstraint => constraint !== null)
 }
 
+// The slot strings survive normalization unlabelled because they are the server's payload, so the closed-set
+// check happens here, at the only point one becomes text: a slot this release cannot name contributes
+// nothing to the value rather than rendering its raw code.
 const slotsValue = (slots: string[]): string =>
   slots
-    .map(slot => SLOT_LABELS[slot])
-    .filter((label): label is string => label !== undefined)
+    .filter(isMealSlot)
+    .map(slot => ownEntry(SLOT_LABELS, slot))
+    .filter((label): label is string => typeof label === 'string')
     .join(MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR)
 
 const constraintValue = (constraint: LimitingConstraint, preferences: MealPlanPreferences | null): string => {
@@ -460,15 +549,22 @@ export const buildLimitingConstraintRows = (
     }
   })
 
-// Review is the fallback because every answer is reachable from it, so an editStep from a newer server
-// release opens a screen that can still resolve the constraint rather than a dead pill.
-export const resolveConstraintEditRoute = (editStep: SetupStep): string =>
-  CONSTRAINT_EDIT_ROUTES[editStep] ?? Screens.MEAL_PLAN_TARGETS
+// The guard repeats here even though toLimitingConstraint already normalizes: this export's argument is only
+// as good as its caller, and a SetupStep cast from wire data is still just a string wearing a type's name.
+// Review's own route is the fallback, for the reason toLimitingConstraint states.
+export const resolveConstraintEditRoute = (editStep: SetupStep): keyof RootStackParamList => {
+  const route = isSetupStep(editStep) ? ownEntry(CONSTRAINT_EDIT_ROUTES, editStep) : undefined
+
+  return typeof route === 'string' ? route : CONSTRAINT_EDIT_ROUTES.review
+}
 
 export const resolveConstraintReturnTo = (context: GenerationContext): ConstraintEditReturnTo =>
   context.kind === 'regenerate' ? 'settings' : 'review'
 
-export const resolveActionRoute = (kind: GenerationActionKind, context: GenerationContext): string | null => {
+export const resolveActionRoute = (
+  kind: GenerationActionKind,
+  context: GenerationContext
+): keyof RootStackParamList | null => {
   // Retry stays on this screen and replays the same idempotency key, so it names no route.
   if (kind === 'retry') {
     return null

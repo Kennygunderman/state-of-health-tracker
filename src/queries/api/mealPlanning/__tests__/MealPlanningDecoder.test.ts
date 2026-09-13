@@ -772,13 +772,13 @@ describe('RecipeVersionResponse', () => {
   })
 
   describe('optional and empty members', () => {
-    it('decodes a recipe with no description, instructions or ingredients', () => {
-      const payload = makeRecipeVersion({description: null, instructions: [], ingredients: []})
+    it('decodes a recipe with an empty description, no instructions and no ingredients', () => {
+      const payload = makeRecipeVersion({description: '', instructions: [], ingredients: []})
       const decoded = RecipeVersionResponse.decode(payload)
       const recipe = decodeRight(RecipeVersionResponse, payload)
 
       expect(isRight(decoded)).toBe(true)
-      expect(recipe.description).toBeNull()
+      expect(recipe.description).toBe('')
       expect(recipe.instructions).toEqual([])
       expect(recipe.ingredients).toEqual([])
     })
@@ -1113,6 +1113,12 @@ describe('invalid payloads', () => {
 
   it('rejects a recipe whose ingredient list is a single object', () => {
     const decoded = RecipeVersionResponse.decode({...makeRecipeVersion(), ingredients: makeIngredient()})
+
+    expect(isLeft(decoded)).toBe(true)
+  })
+
+  it('rejects a recipe whose description arrives as null', () => {
+    const decoded = RecipeVersionResponse.decode({...makeRecipeVersion(), description: null})
 
     expect(isLeft(decoded)).toBe(true)
   })

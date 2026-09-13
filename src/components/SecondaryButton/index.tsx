@@ -8,24 +8,42 @@ import {Theme} from '@styles/theme'
 import Text from '@components/Text'
 
 import styles from './index.styled'
-import {isDarkVariant, SecondaryButtonVariant, showsPlusIcon} from './index.util'
+import {isDarkVariant, showsPlusIcon} from './index.util'
 
 export type {SecondaryButtonVariant} from './index.util'
 
-interface Props {
-  label?: string
+interface BaseProps {
+  disabled?: boolean
   onPress: () => void
   style?: StyleProp<ViewStyle>
-  variant?: SecondaryButtonVariant
 }
 
+interface DefaultVariantProps extends BaseProps {
+  label?: string
+  variant?: 'default'
+}
+
+// The dark variant suppresses the plus glyph, so its label is the whole of its content and
+// the only thing that can name it: required here rather than checked at runtime.
+interface DarkVariantProps extends BaseProps {
+  label: string
+  variant: 'dark'
+}
+
+type Props = DefaultVariantProps | DarkVariantProps
+
 const SecondaryButton = (props: Props) => {
-  const {label, onPress, style, variant = 'default'} = props
+  const {label, onPress, style, variant = 'default', disabled = false} = props
   const isDark = isDarkVariant(variant)
 
   return (
-    <TouchableOpacity accessibilityRole="button" onPress={onPress} activeOpacity={0.5}>
-      <View style={[styles.inner, isDark && styles.innerDark, style]}>
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityState={{disabled}}
+      disabled={disabled}
+      onPress={onPress}
+      activeOpacity={0.5}>
+      <View style={[styles.inner, isDark && styles.innerDark, disabled && styles.innerDisabled, style]}>
         {showsPlusIcon(variant) && <AntDesign name="plus" size={16} color={Theme.colors.accentGreen} />}
 
         {label && <Text style={[styles.label, isDark && styles.labelDark]}>{label}</Text>}

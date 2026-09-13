@@ -5,6 +5,7 @@ import {
   Goal,
   HeightUnitPref,
   MealPlanPreferences,
+  MealPlanPreferencesSaveResult,
   MealSchedule,
   PaceLbPerWeek,
   SetupStatus,
@@ -50,11 +51,6 @@ function resolveNumberCode<T extends number>(known: T[], value: number | null): 
   return value !== null && (known as number[]).includes(value) ? (value as T) : null
 }
 
-export interface PreferencesSaveResult {
-  preferences: MealPlanPreferences
-  affectedMealCount: number
-}
-
 export function convertPreferences(data: io.TypeOf<typeof PreferencesResponse>): MealPlanPreferences {
   // An unanswered preference stays null: the server owns no defaults for these, so an unrecognized code
   // resolves to null rather than silently turning "unanswered" into an answer the user never gave.
@@ -95,7 +91,9 @@ export function convertPreferences(data: io.TypeOf<typeof PreferencesResponse>):
   }
 }
 
-export function convertPreferencesSaveResult(data: io.TypeOf<typeof PreferencesSaveResponse>): PreferencesSaveResult {
+export function convertPreferencesSaveResult(
+  data: io.TypeOf<typeof PreferencesSaveResponse>
+): MealPlanPreferencesSaveResult {
   return {
     preferences: convertPreferences(data.preferences),
     affectedMealCount: data.affectedMealCount

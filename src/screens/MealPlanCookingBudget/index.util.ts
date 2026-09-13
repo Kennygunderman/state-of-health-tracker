@@ -25,19 +25,22 @@ import {
 } from '@constants/strings'
 
 export interface CookingTimeOption {
-  value: CookingTimeLimitMin
-  label: string
+  readonly value: CookingTimeLimitMin
+  readonly label: string
 }
 
 // Each limit is prep plus cooking time for one meal, never cooking alone: the planner compares this
 // number with a recipe's total_minutes identically in eligibility, swap alternatives and flags, and
-// this screen sends the number by itself.
-const COOKING_TIME_LIMITS: CookingTimeLimitMin[] = [15, 30, 45, 60]
+// this screen sends the number by itself. The table and its entries are frozen because they are
+// module-global and handed straight to the chip row: rewriting or reordering one in place would
+// change which limits this screen offers for the rest of the session.
+const COOKING_TIME_LIMITS: readonly CookingTimeLimitMin[] = Object.freeze([15, 30, 45, 60] as const)
 
-export const COOKING_TIME_OPTIONS: CookingTimeOption[] = COOKING_TIME_LIMITS.map(value => ({
-  value,
-  label: stringWithNamedParameters(MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE, {minutes: value})
-}))
+export const COOKING_TIME_OPTIONS: readonly CookingTimeOption[] = Object.freeze(
+  COOKING_TIME_LIMITS.map(value =>
+    Object.freeze({value, label: stringWithNamedParameters(MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE, {minutes: value})})
+  )
+)
 
 export const MIN_WEEKLY_BUDGET_USD: number = 1
 
@@ -120,12 +123,32 @@ export interface PlanSummarySource {
   weightUnitPref: WeightUnitPref | null
 }
 
+// The setup steps that own the summary's values, as the provider's dirty map keys them.
+export type PlanSummaryStep = 'goal' | 'body' | 'diet' | 'schedule'
+
+// The draft plus the provenance that says whether its nulls are answers. Structural on purpose:
+// this screen may not import the provider's util, and the provider's dirty record satisfies
+// editedSteps as it stands.
+export interface PlanSummaryDraft {
+  draft: PlanSummarySource
+  seeded: boolean
+  editedSteps?: Partial<Record<PlanSummaryStep, boolean>>
+}
+
 const DEFAULT_WEIGHT_UNIT_PREF: WeightUnitPref = 'lb'
 
-const WEIGHT_UNIT_LABELS: Record<WeightUnitPref, string> = {
+const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.freeze({
   lb: MEAL_PLAN_LB_UNIT,
   kg: MEAL_PLAN_KG_UNIT
-}
+})
+
+const SUMMARY_VALUE_STEPS: Readonly<Record<keyof PlanSummarySource, PlanSummaryStep>> = Object.freeze({
+  goal: 'goal',
+  goalWeightKg: 'goal',
+  diet: 'diet',
+  mealSchedule: 'schedule',
+  weightUnitPref: 'body'
+})
 
 const WEIGHT_PRECISION_FACTOR = 10
 
@@ -152,15 +175,39 @@ const goalRowValue = (goal: Goal, goalWeightKg: number | null, weightUnitPref: W
   })
 }
 
-export const buildPlanSummaryRows = (
-  draft: PlanSummarySource,
-  preferences?: PlanSummarySource | null
-): SummaryRow[] => {
-  const goal = draft.goal ?? preferences?.goal ?? null
-  const goalWeightKg = draft.goalWeightKg ?? preferences?.goalWeightKg ?? null
-  const diet = draft.diet ?? preferences?.diet ?? null
-  const mealSchedule = draft.mealSchedule ?? preferences?.mealSchedule ?? null
-  const weightUnitPref = draft.weightUnitPref ?? preferences?.weightUnitPref ?? null
+// A step is answered once the draft was seeded from the saved preferences or the user edited that
+// step in this session. Either way the draft now holds that step's answer, so a null in it is a
+// value the user cleared — an optional goal weight removed on frame 02 — and must not be filled
+// back in from the saved preferences the draft has already replaced.
+const isStepAnswered = (state: PlanSummaryDraft, step: PlanSummaryStep): boolean =>
+  state.seeded || state.editedSteps?.[step] === true
+
+const answeredValue = <Value>(answered: boolean, draftValue: Value | null, savedValue?: Value | null): Value | null =>
+  answered ? draftValue : (draftValue ?? savedValue ?? null)
+
+const resolveSummarySource = (state: PlanSummaryDraft, preferences?: PlanSummarySource | null): PlanSummarySource => {
+  const {draft} = state
+  const goalAnswered = isStepAnswered(state, SUMMARY_VALUE_STEPS.goal)
+
+  return {
+    goal: answeredValue(goalAnswered, draft.goal, preferences?.goal),
+    goalWeightKg: answeredValue(goalAnswered, draft.goalWeightKg, preferences?.goalWeightKg),
+    diet: answeredValue(isStepAnswered(state, SUMMARY_VALUE_STEPS.diet), draft.diet, preferences?.diet),
+    mealSchedule: answeredValue(
+      isStepAnswered(state, SUMMARY_VALUE_STEPS.mealSchedule),
+      draft.mealSchedule,
+      preferences?.mealSchedule
+    ),
+    weightUnitPref: answeredValue(
+      isStepAnswered(state, SUMMARY_VALUE_STEPS.weightUnitPref),
+      draft.weightUnitPref,
+      preferences?.weightUnitPref
+    )
+  }
+}
+
+export const buildPlanSummaryRows = (state: PlanSummaryDraft, preferences?: PlanSummarySource | null): SummaryRow[] => {
+  const {goal, goalWeightKg, diet, mealSchedule, weightUnitPref} = resolveSummarySource(state, preferences)
   const rows: SummaryRow[] = []
 
   if (goal !== null) {

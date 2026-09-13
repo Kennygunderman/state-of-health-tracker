@@ -19,7 +19,10 @@ export type AllergenCode =
 // the two sentinels diverging would silently corrupt the payload.
 export const ALLERGEN_NONE_CODE = 'none'
 
-const ALLERGEN_CODES: AllergenCode[] = [
+// Frozen because the table is module-global and drives both the chip cloud and the validation:
+// reordering or extending it in place would change which allergens this screen can show as
+// selected, and the nine named codes plus the sentinel are a wire contract, not a display list.
+const ALLERGEN_CODES: readonly AllergenCode[] = Object.freeze([
   ALLERGEN_NONE_CODE,
   'milk',
   'eggs',
@@ -30,7 +33,7 @@ const ALLERGEN_CODES: AllergenCode[] = [
   'fish',
   'shellfish',
   'sesame'
-]
+] as const)
 
 const isAllergenCode = (value: string): value is AllergenCode => ALLERGEN_CODES.some(code => code === value)
 
@@ -39,10 +42,10 @@ const isAllergenCode = (value: string): value is AllergenCode => ALLERGEN_CODES.
 const recognizedAllergens = (allergens: string[]): AllergenCode[] => allergens.filter(isAllergenCode)
 
 export interface AllergenChip {
-  code: AllergenCode
-  label: string
-  selected: boolean
-  removable: boolean
+  readonly code: AllergenCode
+  readonly label: string
+  readonly selected: boolean
+  readonly removable: boolean
 }
 
 export const buildAllergenChips = (selected: string[]): AllergenChip[] => {
@@ -57,16 +60,17 @@ export const buildAllergenChips = (selected: string[]): AllergenChip[] => {
 }
 
 export interface DietOption {
-  value: Diet
-  label: string
+  readonly value: Diet
+  readonly label: string
 }
 
-export const DIET_OPTIONS: DietOption[] = [
-  {value: 'none', label: MEAL_PLAN_DIET_LABELS.none},
-  {value: 'vegetarian', label: MEAL_PLAN_DIET_LABELS.vegetarian},
-  {value: 'vegan', label: MEAL_PLAN_DIET_LABELS.vegan},
-  {value: 'pescatarian', label: MEAL_PLAN_DIET_LABELS.pescatarian}
-]
+const DIET_CODES: readonly Diet[] = Object.freeze(['none', 'vegetarian', 'vegan', 'pescatarian'] as const)
+
+// Frozen entries as well as a frozen table: the option cards read this array on every render, so a
+// consumer relabelling one entry in place would change the copy the screen shows from then on.
+export const DIET_OPTIONS: readonly DietOption[] = Object.freeze(
+  DIET_CODES.map(value => Object.freeze({value, label: MEAL_PLAN_DIET_LABELS[value]}))
+)
 
 export type DietStepErrorCode = 'diet_required' | 'allergens_required'
 

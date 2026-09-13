@@ -39,14 +39,15 @@ export default StyleSheet.create({
   },
   field: {
     flex: 1,
-    // 50px, not the buttons' 44: node 38:55 hugs to 1 stroke + 12 pad + 24 line box + 12 pad + 1
-    // stroke, and row 38:52's own authored height of 58 only balances as 8 padding + 50, so the
-    // field is taller than the buttons by design and the row centres them against it. Pinned rather
-    // than left to hug because that 24px line box is Figma's AUTO value and would drift per
-    // platform; with the height pinned, the authored 12px vertical padding reproduces the stack
-    // exactly (50 - 2 strokes - 24 pad = the 24px line box) and cannot re-inflate the box, so no
-    // lineHeight is set on the input. Composed from tokens because no Sizes entry equals 50.
-    height: Sizes.CONTROL + Spacing.TIGHT,
+    // 50px, not the buttons' 44: node 38:55 authors no dimensions at all — it is sizing.vertical
+    // "hug", and 50 is what it resolves to from 1 stroke + 12 pad + 24 line box + 12 pad + 1
+    // stroke, while row 38:52's own authored height of 58 only balances as 8 padding + 50. So the
+    // field is taller than the buttons by design, and a minimum rather than a fixed height is what
+    // the design actually says. No lineHeight is set on the input: Figma's line height here is AUTO
+    // and an RN lineHeight is a raw dp value that does not follow the OS font scale, so pinning it
+    // would clip scaled text. minHeight reproduces the resting 50 for any platform line box up to
+    // 24 and lets the field grow past it. Composed from tokens because no Sizes entry equals 50.
+    minHeight: Sizes.CONTROL + Spacing.TIGHT,
     paddingVertical: Spacing.SMALL,
     paddingHorizontal: Spacing.MEDIUM,
     textAlign: 'center',

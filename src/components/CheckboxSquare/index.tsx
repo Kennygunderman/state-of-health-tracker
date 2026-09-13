@@ -28,7 +28,8 @@ const CheckboxSquare = (props: Props) => {
       style={[
         styles.container,
         state === 'checkedMuted' && styles.containerCheckedMuted,
-        state === 'checkedEmphasis' && styles.containerCheckedEmphasis
+        state === 'checkedEmphasis' && styles.containerCheckedEmphasis,
+        disabled && styles.containerPending
       ]}
       activeOpacity={Opacity.PRESSED}
       hitSlop={HIT_SLOP}

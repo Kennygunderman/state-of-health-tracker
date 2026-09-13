@@ -35,7 +35,8 @@ const PrimaryButton = (props: Props) => {
       activeOpacity={0.5}
       disabled={pressBlocked}
       accessibilityRole="button"
-      accessibilityState={{disabled: pressBlocked}}>
+      accessibilityLabel={label}
+      accessibilityState={{disabled: pressBlocked, busy: isLoading}}>
       <View style={[styles.inner, dimmed && styles.innerDisabled, style]}>
         {isLoading ? (
           <ActivityIndicator size="small" color={Theme.colors.white} />

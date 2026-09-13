@@ -33,7 +33,6 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
   }
 
   const rowStyle = [styles.row, !isFirst && styles.rowDivider]
-  const checkboxStyle = [isPending && styles.checkboxPending]
 
   const changeText = stringWithNamedParameters(GROCERY_FLAG_CHANGE_TEMPLATE, {
     newAmount: flag.newDisplayText,
@@ -49,22 +48,36 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
     name: item.name
   })
 
+  const handleToggle = () => {
+    if (isPending) {
+      return
+    }
+
+    onToggle()
+  }
+
   return (
     <TouchableOpacity
       style={rowStyle}
       activeOpacity={Opacity.PRESSED}
+      disabled={isPending}
       accessibilityRole="checkbox"
       accessibilityLabel={rowAccessibilityLabel}
-      accessibilityState={{checked: true, busy: isPending}}
-      onPress={onToggle}>
+      accessibilityState={{checked: true, busy: isPending, disabled: isPending}}
+      onPress={handleToggle}>
+      {/* BLITZY [A11Y]: this row renders no colour of its own — its checked-emphasis box and its danger delta
+          pill both come from shared components whose Figma-exact pairs measure below the WCAG minimums (white
+          on accent 2.45:1 against 3:1; danger on dangerTint 4.41:1 against 4.5:1). Both are upheld and
+          flagged at their source, and the coordinated decision is recorded in the accessible-colour register
+          in `@styles/theme`. */}
       {/* CheckboxSquare declares its own checkbox role and exposes no accessibility pass-through, so it is
           hidden here to keep the row a single announced control. */}
-      <View style={checkboxStyle} accessible={false} importantForAccessibility="no-hide-descendants">
+      <View accessible={false} importantForAccessibility="no-hide-descendants">
         <CheckboxSquare
           state="checkedEmphasis"
           disabled={isPending}
           accessibilityLabel={checkboxAccessibilityLabel}
-          onPress={onToggle}
+          onPress={handleToggle}
         />
       </View>
 

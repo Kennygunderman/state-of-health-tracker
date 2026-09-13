@@ -12,7 +12,14 @@ interface Props {
 const ChipCloud = ({children, variant = 'wrap'}: Props) => {
   if (variant === 'scroll') {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cloud}>
+      // The scroll variant is the row that sits under a focused search field (06b keeps its query, note 47:463),
+      // so the scroll view has to hand the first tap to the chip rather than spend it dismissing the keyboard.
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        style={styles.scroll}
+        contentContainerStyle={styles.cloud}>
         {children}
       </ScrollView>
     )

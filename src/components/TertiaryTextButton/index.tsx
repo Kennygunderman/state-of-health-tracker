@@ -2,6 +2,8 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import {Opacity} from '@styles/sizes'
+
 import Text from '@components/Text'
 
 import styles from './index.styled'
@@ -27,7 +29,7 @@ const TertiaryTextButton = (props: Props) => {
     <TouchableOpacity
       style={styles.container}
       onPress={handlePress}
-      activeOpacity={0.5}
+      activeOpacity={Opacity.PRESSED_CTA}
       disabled={isInactive}
       accessibilityRole="button"
       accessibilityLabel={label}

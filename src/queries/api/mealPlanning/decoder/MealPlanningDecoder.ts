@@ -119,7 +119,7 @@ export const RecipeVersionResponse = io.type({
   version: io.number,
   status: io.string,
   name: io.string,
-  description: nullableString,
+  description: io.string,
   iconKey: io.string,
   instructions: io.array(io.string),
   yieldServings: io.number,

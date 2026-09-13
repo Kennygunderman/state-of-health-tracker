@@ -92,6 +92,8 @@ export type FoodDetailRouteProp = RouteProp<RootStackParamList, 'Food Detail'>
 
 export type LogWithAIRouteProp = RouteProp<RootStackParamList, 'Log with AI'>
 
+export type MealPlanIntroRouteProp = RouteProp<RootStackParamList, 'Meal Plan Intro'>
+
 export type MealPlanGoalRouteProp = RouteProp<RootStackParamList, 'Meal Plan Goal'>
 
 export type MealPlanAboutYouRouteProp = RouteProp<RootStackParamList, 'Meal Plan About You'>
