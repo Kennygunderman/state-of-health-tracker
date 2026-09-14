@@ -1,4 +1,5 @@
-import type {GroceryItem, GroceryList, GrocerySection, ToggleGroceryItemResult} from '@data/models/GroceryList'
+import type {GroceryItem, GroceryList, ToggleGroceryItemResult} from '@data/models/GroceryList'
+import {repartitionGroceryList} from '@data/models/GroceryList'
 import type {QueryClient, UseMutationOptions} from '@tanstack/react-query'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 
@@ -16,35 +17,13 @@ export interface ToggleGroceryItemContext {
 const toggleRow = (item: GroceryItem, itemId: string, isChecked: boolean): GroceryItem =>
   item.id === itemId ? {...item, isChecked, flag: null} : item
 
-const countCheckedRows = (sections: GrocerySection[], checkedItems: GroceryItem[]): number =>
-  sections.reduce((total, section) => total + section.items.filter(item => item.isChecked).length, 0) +
-  checkedItems.filter(item => item.isChecked).length
-
-const findAisleRow = (list: GroceryList, itemId: string): GroceryItem | undefined =>
-  list.sections.flatMap(section => section.items).find(item => item.id === itemId)
-
-// Checking follows the response's own partition and moves the row out of its aisle into the checked card, so
-// the row the shopper just ticked is still on screen: GroceryList drops checked rows from the aisles.
-// Unchecking restates the row where it sits, because GroceryItem carries no category (0.5.2) and inventing an
-// aisle would be worse than the settle refetch re-filing it; no row ever leaves the cache.
-const applyToggle = (list: GroceryList, itemId: string, isChecked: boolean): GroceryList => {
-  const promotedRow = isChecked ? findAisleRow(list, itemId) : undefined
-
-  const sections = list.sections.map(section => ({
-    ...section,
-    items:
-      promotedRow === undefined
-        ? section.items.map(item => toggleRow(item, itemId, isChecked))
-        : section.items.filter(item => item.id !== itemId)
-  }))
-
-  const checkedItems =
-    promotedRow === undefined
-      ? list.checkedItems.map(item => toggleRow(item, itemId, isChecked))
-      : [...list.checkedItems.filter(item => item.id !== itemId), toggleRow(promotedRow, itemId, isChecked)]
-
-  return {...list, sections, checkedItems, checkedCount: countCheckedRows(sections, checkedItems)}
-}
+// The toggled row changes collection, which is the whole optimistic effect: GroceryList draws the aisles from
+// the unchecked rows and the checked card from the checked ones, so a ticked row left in its aisle would
+// vanish under the shopper's finger and an unticked row left in the checked card would sit under
+// "Checked · n" while reading as unchecked. repartitionGroceryList moves it and recounts from the rows, so a
+// repeated tap cannot drift the count.
+const applyToggle = (list: GroceryList, itemId: string, isChecked: boolean): GroceryList =>
+  repartitionGroceryList(list, item => toggleRow(item, itemId, isChecked))
 
 export function buildToggleGroceryItemMutationOptions(
   queryClient: QueryClient,

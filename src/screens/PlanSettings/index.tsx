@@ -10,6 +10,10 @@ import {useAffectedMealsQuery} from '@queries/mealPlanning/useAffectedMealsQuery
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {
+  isNutritionTargetsReadFailure,
+  selectNutritionTargets
+} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import BorderRadius from '@styles/borderRadius'
@@ -88,7 +92,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const [isConfirmVisible, setIsConfirmVisible] = useState(false)
 
   const preferences = preferencesQuery.data ?? null
-  const targets = targetsQuery.data ?? null
+  // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route is
+  // gone (AAP 0.7.5) — means the rows fall back to the local target, never clear it.
+  const targets = selectNutritionTargets(targetsQuery)
   const plans = currentPlanQuery.data ?? null
 
   // The plan this screen was opened for. The current and upcoming plans are returned together and the route
@@ -225,14 +231,17 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   // that read 'Not set' for a target the server has not answered for yet (0.2.5).
   const isSettingsLoading = preferencesQuery.isLoading || targetsQuery.isLoading
 
-  const hasReadFailure = !isSettingsLoading && (preferences === null || targetsQuery.isError)
+  // A route-missing targets answer is deliberately not a read failure here: it cannot come back on a retry, so
+  // drawing the retry card for it would offer a dead control. The rows still render from preferences, and
+  // regeneration stays disabled because `targetsRevision` has no answer to pin (AAP 0.7.5).
+  const hasReadFailure = !isSettingsLoading && (preferences === null || isNutritionTargetsReadFailure(targetsQuery))
 
   const onRetryReadsPressed = (): void => {
     if (preferences === null) {
       preferencesQuery.refetch()
     }
 
-    if (targetsQuery.isError) {
+    if (isNutritionTargetsReadFailure(targetsQuery)) {
       targetsQuery.refetch()
     }
   }

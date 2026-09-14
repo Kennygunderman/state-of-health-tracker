@@ -200,15 +200,35 @@ export interface ReviewStepPayload extends SetupStepEnvelope {
   startDate: string
 }
 
-export type SetupStepPayload =
-  | GoalStepPayload
-  | BodyStepPayload
-  | ActivityStepPayload
-  | DietStepPayload
-  | DislikesStepPayload
-  | ScheduleStepPayload
-  | CookingStepPayload
-  | ReviewStepPayload
+// The eight steps that are writable `:step` path segments of PUT /meal-planning/preferences/steps/:step.
+// Named after the server's own `PayloadBearingSetupStep` (backend/src/services/preferences.logic.ts) so the
+// two repositories read as one contract. `SetupStep` above keeps all nine members because it is the stored
+// resume marker the read side reports: 'targets_manual' records that the user took the manual-target route,
+// which saves through PUT /meal-planning/targets, so it carries no step payload and is never a path segment.
+export type PayloadBearingSetupStep = Exclude<SetupStep, 'targets_manual'>
+
+// The payload each writable step accepts, mirroring the server's `StepPayloadByStep` and the eight typed step
+// bodies AAP 0.5.2 enumerates. Deliberately not built on `Record<PayloadBearingSetupStep, …>`: a base record
+// would answer for a step this map has never heard of, whereas these eight keys alone make `SetupStepRequest`
+// below fail to compile until a step added to `SetupStep` is paired with its payload here.
+export interface SetupStepPayloadByStep {
+  goal: GoalStepPayload
+  // Both variants, because the step accepts either the measured answer or Skip.
+  body: BodyStepPayload
+  activity: ActivityStepPayload
+  diet: DietStepPayload
+  dislikes: DislikesStepPayload
+  schedule: ScheduleStepPayload
+  cooking: CookingStepPayload
+  review: ReviewStepPayload
+}
+
+// One request to one writable step, as a discriminated union over the step itself: the only payload that
+// type-checks beside a step is that step's own, and 'targets_manual' cannot be expressed at all. Distributed
+// over the union rather than written out so an impossible pair is a compile error here, not a 400 at runtime.
+export type SetupStepRequest = {
+  [S in PayloadBearingSetupStep]: {step: S; payload: SetupStepPayloadByStep[S]}
+}[PayloadBearingSetupStep]
 
 export interface MealPlanPreferencesSaveResult {
   preferences: MealPlanPreferences

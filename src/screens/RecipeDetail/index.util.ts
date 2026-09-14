@@ -1,8 +1,8 @@
 import {MacroTotals} from '@data/models/Macros'
-import {MealPlanStatus} from '@data/models/MealPlan'
 import {MealSlot, RecipeBadge, RecipeIngredient} from '@data/models/Recipe'
 import {RecipeDetailContext} from '@navigation/types'
 import {dayStripLabel, formatPlanDayLabel, formatSlotTime} from '@utility/MealPlanDateUtility'
+import {isWriteAllowedByVerdict, isWriteVerdictUnknown} from '@utility/MealPlanLifecycleUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
 import {
   DisplayedIngredient,
@@ -38,7 +38,12 @@ export interface MetricGridCaptions {
 
 export interface ActionBarState {
   isVisible: boolean
+  // A press performs the write-bearing navigation. True only for an answered, writable verdict.
   isEnabled: boolean
+  // No verdict has arrived, so the bar takes the app's disabled treatment and ignores presses. Distinct from
+  // `!isEnabled`, which also covers a plan the server has REFUSED writes on — and that one is explained
+  // rather than silently inert.
+  isPending: boolean
 }
 
 // The factor that rounds a nutrition figure without scaling it. Deliberately not ServingsUtility's
@@ -128,11 +133,32 @@ export function shouldShowBadgeCaption(labels: readonly string[]): boolean {
   return labels.length > 0
 }
 
+/**
+ * Whether the action bar is drawn, and whether its two controls do anything.
+ *
+ * `isPlanWritable` is the day envelope's own verdict (`MealPlanDayEnvelope.isWritable`), not the plan's stored
+ * status: a week whose last day has passed stays 'active' in storage so its rows remain readable, and both
+ * writes against it are refused `409 plan_not_active {reason: 'ended'}`. Reading the status here offered Log
+ * and Swap on a finished week.
+ *
+ * THE VERDICT HAS THREE STATES AND THE BAR TREATS THEM DIFFERENTLY. An answered `true` enables the controls.
+ * An answered `false` leaves them pressable and explains on press, which is how AAP 0.2.5 wants a refusal
+ * surfaced — where the user asked for it, not as two controls that quietly do nothing. No answer at all
+ * (`null` on the display-only seeded envelope, `undefined` before any envelope) is neither: the verdict is
+ * computed in the user's saved zone and nothing local may stand in for it, so the bar takes the app's
+ * ordinary disabled treatment until the day route replies. Reporting that state as a refusal would tell a
+ * user whose plan is perfectly live that it is no longer active, because their own request is still in
+ * flight.
+ */
 export function resolveActionBarState(
   contextKind: RecipeDetailContext['kind'],
-  planStatus: MealPlanStatus | null | undefined
+  isPlanWritable: boolean | null | undefined
 ): ActionBarState {
-  return {isVisible: contextKind !== 'preview', isEnabled: planStatus === 'active'}
+  return {
+    isVisible: contextKind !== 'preview',
+    isEnabled: isWriteAllowedByVerdict(isPlanWritable),
+    isPending: isWriteVerdictUnknown(isPlanWritable)
+  }
 }
 
 /**

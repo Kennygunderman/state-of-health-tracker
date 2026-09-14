@@ -3,6 +3,8 @@ import {mutationKeys, queryKeys} from '@queries/keys'
 import {QueryClient} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
+import {orderGrocerySections, resolveGroceryView, shouldShowUncheckAll} from '@screens/GroceryList/index.util'
+
 import {
   buildUncheckAllGroceriesMutationOptions,
   UncheckAllGroceriesContext
@@ -230,7 +232,7 @@ describe('buildUncheckAllGroceriesMutationOptions', () => {
       expect(everyRow(written).every(item => item.flag === null)).toBe(true)
     })
 
-    it('zeroes the checked count while the checked card keeps its rows', async () => {
+    it('zeroes the checked count and empties the checked card, because nothing is checked any more', async () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
 
       const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
@@ -239,9 +241,94 @@ describe('buildUncheckAllGroceriesMutationOptions', () => {
 
       const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
 
+      // The checked card renders every row it is handed under a "Checked · n" heading, so a cleared row left
+      // in it would be filed as checked while reading as unchecked.
       expect(written.checkedCount).toBe(0)
-      expect(written.checkedItems.map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice'])
-      expect(written.checkedItems.every(item => !item.isChecked)).toBe(true)
+      expect(written.checkedItems).toEqual([])
+      expect(written.checkedItems).toHaveLength(written.checkedCount)
+    })
+
+    it('puts every cleared row back among the aisles rather than stranding it in the checked card', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const aisleRows = written.sections.flatMap(section => section.items)
+
+      expect(aisleRows.map(item => item.id).sort()).toEqual([
+        'item-avocado',
+        CHICKEN_ID,
+        'item-rice',
+        'item-salmon',
+        SPINACH_ID
+      ])
+      expect(aisleRows.every(item => !item.isChecked)).toBe(true)
+      expect(aisleRows.every(item => item.flag === null)).toBe(true)
+    })
+
+    it('returns a cleared row to its own aisle when one was stamped on it', async () => {
+      const seeded = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), {
+        ...seeded,
+        checkedItems: seeded.checkedItems.map(item => ({...item, category: 'protein' as const}))
+      })
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const protein = written.sections.find(section => section.category === 'protein')
+
+      expect(protein?.items.map(item => item.id)).toEqual(['item-salmon', CHICKEN_ID, 'item-rice'])
+      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein'])
+    })
+
+    it('leaves an active list readable rather than resolving to the empty-list state', async () => {
+      // The case the false empty state came from: every row checked, so the response carries no aisles at all.
+      const allChecked: GroceryList = {
+        ...makeGroceryList(),
+        totalCount: 2,
+        checkedCount: 2,
+        banner: null,
+        sections: [],
+        checkedItems: [
+          makeItem({id: CHICKEN_ID, name: 'Chicken breast', isChecked: true}),
+          makeItem({id: 'item-rice', name: 'Brown rice', isChecked: true})
+        ]
+      }
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), allChecked)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const view = resolveGroceryView({isLoading: false, isError: false, data: written}, PLAN_ID)
+
+      expect(view.kind).toBe('list')
+      expect(written.sections.flatMap(section => section.items).map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice'])
+      expect(orderGrocerySections(written.sections)).toHaveLength(1)
+    })
+
+    it('keeps the list state for a partly checked list and shows no checked card', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const view = resolveGroceryView({isLoading: false, isError: false, data: written}, PLAN_ID)
+
+      expect(view.kind).toBe('list')
+      expect(written.checkedItems).toHaveLength(0)
+      expect(shouldShowUncheckAll(written.checkedCount)).toBe(false)
     })
 
     it('keeps every row the list holds, so nothing leaves the shopper list before the refetch lands', async () => {
@@ -259,7 +346,7 @@ describe('buildUncheckAllGroceriesMutationOptions', () => {
       expect(everyRow(written)).toHaveLength(written.totalCount)
     })
 
-    it('leaves the unchecked sections and their row order alone', async () => {
+    it('leaves the already-unchecked aisles and their row order alone', async () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
 
       const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
@@ -268,9 +355,26 @@ describe('buildUncheckAllGroceriesMutationOptions', () => {
 
       const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
 
-      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein'])
+      expect(written.sections[0].category).toBe('produce')
       expect(written.sections[0].items.map(item => item.id)).toEqual([SPINACH_ID, 'item-avocado'])
+      expect(written.sections[1].category).toBe('protein')
       expect(written.sections[1].items.map(item => item.id)).toEqual(['item-salmon'])
+    })
+
+    it('files a cleared row the response named no aisle for under the closing catch-all', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      // The response states the aisle per section and holds the checked rows back, so these two have no aisle
+      // to return to; 'Pantry & other' is the heading that already means "everything else" and the settle
+      // refetch re-files them.
+      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein', 'pantry_other'])
+      expect(written.sections[2].items.map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice'])
     })
 
     it('leaves the banner, totals, revision and dates alone', async () => {

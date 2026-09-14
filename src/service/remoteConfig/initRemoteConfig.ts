@@ -1,5 +1,5 @@
-import {MealPlanningFlagInputs, resolveMealPlanningFlagEnabled} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import remoteConfig from '@react-native-firebase/remote-config'
+import {MealPlanningFlagInputs, resolveMealPlanningFlagEnabled} from '@utility/MealPlanEntitlementUtility'
 
 remoteConfig().setDefaults({
   minimum_app_version: '1.4.3',

@@ -15,12 +15,14 @@ export async function regeneratePlan(planId: string, payload: RegeneratePlanPayl
   try {
     const response = await httpPost(Endpoints.RegenerateMealPlan(planId), MealPlanResponse, payload)
 
-    // 201 on the first commit and on every replay of the same key, because the server returns the stored
-    // first response verbatim; 200 is admitted so a replay can never be told apart from a fresh commit.
-    // Every other outcome — 409 stale_plan / plan_not_active / stale_revision / idempotency_conflict,
-    // 422 no_matching_meals, 502 plan_generation_failed, 503 feature_disabled, and any unknown one — rejects
-    // in the transport and propagates unchanged, so the caller keeps the whole error to classify.
-    if ((response?.status !== 201 && response?.status !== 200) || !response.data) {
+    // 201 is the only success, on the first commit and on every replay of the same key: the server stores the
+    // create status alongside the response and returns it unchanged, so a replay answers 201 as well. A 200
+    // here would be undocumented server drift worth failing on rather than mapping blind. Every other outcome
+    // — 409 stale_plan / plan_not_active / stale_revision / idempotency_conflict, 422 no_matching_meals,
+    // 502 plan_generation_failed, 503 feature_disabled, and any unknown one — rejects in the transport before
+    // this guard and propagates unchanged, so the caller keeps the whole error and a confirmed failure stays
+    // distinguishable from an unconfirmed outcome.
+    if (response?.status !== 201 || !response.data) {
       throw new Error(`Unexpected response regenerating meal plan: status=${response?.status}`)
     }
 

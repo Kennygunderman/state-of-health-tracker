@@ -51,8 +51,16 @@ export interface GroceryBannerContent {
   body: string
 }
 
-const isEmptyGroceryList = (list: GroceryList): boolean =>
-  list.totalCount === 0 || (list.checkedCount === 0 && list.sections.every(section => section.items.length === 0))
+const holdsNoRows = (list: GroceryList): boolean =>
+  list.checkedItems.length === 0 && list.sections.every(section => section.items.length === 0)
+
+// The server's count is the authority on emptiness and the rows are the corroboration, so both must agree:
+// a plan that needs no ingredients reports zero and sends none. Requiring both is what stops a list that
+// holds groceries from ever claiming to hold none — the count alone would trust a response that contradicts
+// its own rows, and the rows alone would call an optimistic write mid-flight an empty plan. A non-zero count
+// with no rows to show is left as a list, which renders as its own header with nothing under it rather than
+// as a false claim about the plan.
+const isEmptyGroceryList = (list: GroceryList): boolean => list.totalCount === 0 && holdsNoRows(list)
 
 /**
  * The three ways this screen can show nothing are separate states and never interchangeable: no plan is the 14c

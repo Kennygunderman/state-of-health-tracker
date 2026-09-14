@@ -4,6 +4,7 @@ import {httpStatusOf, isRoutesMissingError, MealPlanAvailability} from '@hooks/m
 import {RootStackParamList} from '@navigation/types'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {clampDayKeyToPlan, defaultSelectedPlanDate, isLastPlanDay} from '@utility/MealPlanDateUtility'
+import {isWriteAllowedByVerdict} from '@utility/MealPlanLifecycleUtility'
 
 import Screens from '@constants/screens'
 import {PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON} from '@constants/strings'
@@ -172,6 +173,28 @@ export function resolveSetupResumeTarget(step: SetupStep | null): SetupResumeTar
   const target = step === null ? undefined : SETUP_RESUME_TARGETS[step]
 
   return (target ?? SETUP_RESUME_TARGETS.goal)()
+}
+
+/**
+ * Whether the day on screen may offer its Swap and Log actions.
+ *
+ * `dayWriteability` is `MealPlanDayEnvelope.isWritable` for the SELECTED day — the server's verdict, computed
+ * against the calendar day of the user's saved IANA zone — and it is the only thing that opens these controls.
+ * Nothing here is derived from the plan's dates or from the device's day: the stored status reads 'active' for
+ * a week that finished last month, and the device's day is not the saved zone's day after travel, so either
+ * one draws two controls the server refuses `409 plan_not_active {reason: 'ended'}`. An unanswered verdict
+ * (`null` from the display-only seed, `undefined` before any envelope) offers nothing.
+ *
+ * The body outcome is taken whole rather than a plan, because the saved-copy case is part of the same
+ * question: a plan restored from the persisted cache while its request fails cannot have its revision trusted
+ * as the `expectedPlanRevision` of a write, and a write refused for a stale revision is a worse answer than a
+ * control that was never offered.
+ */
+export function arePlanActionsOffered(
+  outcome: MealPlanBodyOutcome,
+  dayWriteability: boolean | null | undefined
+): boolean {
+  return outcome.kind === 'plan' && !outcome.isSavedCopy && isWriteAllowedByVerdict(dayWriteability)
 }
 
 export function resolveSelectedPlan(

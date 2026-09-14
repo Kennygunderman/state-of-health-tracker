@@ -5,6 +5,7 @@ import {TouchableOpacity, View} from 'react-native'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import {Theme} from '@styles/theme'
+import {lookupLabel} from '@utility/TextUtility'
 import Svg, {Path} from 'react-native-svg'
 
 import Text from '@components/Text'
@@ -32,7 +33,7 @@ const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props): 
   const rowContentStyle = [styles.rowContent, !isFirst && styles.rowContentDivider]
   const nameStyle = [styles.name, isAdded && styles.nameAdded]
 
-  const categoryLabel = CATALOG_CATEGORY_LABELS[food.category]
+  const categoryLabel = lookupLabel(CATALOG_CATEGORY_LABELS, food.category)
 
   const accessibilityLabel = stringWithNamedParameters(
     isAdded ? MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE : MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE,

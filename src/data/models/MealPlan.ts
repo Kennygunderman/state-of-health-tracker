@@ -3,6 +3,19 @@ import {MealSlot, RecipeBadge, RecipeIconKey} from './Recipe'
 
 export type MealPlanStatus = 'active' | 'superseded'
 
+/**
+ * The plan lifecycle the server computes per request, which is what decides whether Swap and Log may be
+ * offered. `MealPlanStatus` is the stored column and cannot answer that on its own: a plan whose last date has
+ * passed stays 'active' in storage so its rows remain readable, and every write against it is refused
+ * `409 plan_not_active {reason: 'ended'}`. 'active' here means active AND unfinished, in the user's own
+ * calendar day.
+ */
+export type MealPlanLifecycle = 'active' | 'ended' | 'superseded'
+
+// The runtime list behind the lenient resolution of a lifecycle arriving from the server, the way
+// RECIPE_ICON_KEYS backs the icon fallback.
+export const MEAL_PLAN_LIFECYCLES: MealPlanLifecycle[] = ['active', 'ended', 'superseded']
+
 export type MealPlanFlagCode = 'diet' | 'allergen' | 'dislike' | 'cooking_time'
 
 export interface MealPlanFlag {
@@ -101,10 +114,29 @@ export interface CurrentMealPlans {
   upcoming: MealPlan | null
 }
 
+/**
+ * One day read on its own, with the plan facts the screens built on it need.
+ *
+ * `isWritable` is the ONLY member Swap and Log may be gated on. `planStatus` is the stored column, and it
+ * reads 'active' for a week that finished last month — gating on it offers two actions the server answers
+ * `409 plan_not_active` on. `planLifecycle` is why the verdict is what it is, for copy that has to distinguish
+ * a finished week from a replaced plan.
+ *
+ * BOTH ARE `null` WHEN NO SERVER VERDICT IS IN HAND. A verdict is a server-computed value and nothing else:
+ * endedness is judged against the calendar day of the user's SAVED IANA zone, which the app does not hold and
+ * which the AAP keeps as a home zone until their next preferences save — so after travel the device's day and
+ * the saved zone's day disagree, and a client deriving the verdict locally would offer writes the server
+ * refuses `409 plan_not_active {reason: 'ended'}`. The envelope the day query seeds from the cached week
+ * therefore carries `null` here: its `day` is real content to render, and its writeability is simply unknown
+ * until `GET .../days/:date` answers. Gate on `isWritable === true`, never on truthiness, so an unknown
+ * verdict neither offers a write nor claims the plan is dead.
+ */
 export interface MealPlanDayEnvelope {
   planId: string
   planRevision: number
   planStatus: MealPlanStatus
+  planLifecycle: MealPlanLifecycle | null
+  isWritable: boolean | null
   day: MealPlanDay
 }
 

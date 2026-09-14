@@ -1,9 +1,10 @@
-import {MealPlanMeal, MealPlanStatus} from '@data/models/MealPlan'
+import {MealPlanMeal} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {SwapAlternative} from '@data/models/SwapAlternative'
 import {API_ERROR_CODES, getApiErrorCode, isPlanOrCapabilityRefusal, isUnknownOutcome} from '@utility/ApiErrorUtility'
 import {SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
+import {isWriteRefusedByVerdict} from '@utility/MealPlanLifecycleUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
 import {lookupLabel, lookupMember} from '@utility/TextUtility'
 
@@ -370,10 +371,21 @@ export function buildSwapRequest(inputs: SwapCommitInputs): SwapRequestSnapshot 
   }
 }
 
-// A status the day query has not answered yet is not an inactive plan: the flow stays available until the server
-// says the plan was superseded, rather than being disabled by its own loading state.
-export function isPlanInactive(planStatus: MealPlanStatus | null | undefined): boolean {
-  return planStatus !== null && planStatus !== undefined && planStatus !== 'active'
+/**
+ * Whether the plan behind this swap has stopped accepting writes.
+ *
+ * Read from the day envelope's `isWritable` rather than its `planStatus`: a week whose last day has passed
+ * stays 'active' in storage so its rows remain readable, and a commit against it is refused
+ * `409 plan_not_active {reason: 'ended'}`.
+ *
+ * ONLY AN ANSWERED `false` IS A REFUSAL, which is what `isWriteRefusedByVerdict` spells. A verdict the day
+ * query has not answered — `null` on the display-only seed, `undefined` with no envelope — is NOT an inactive
+ * plan: telling the user their plan is gone because a request is still in flight would be a worse lie than
+ * letting them reach a commit the server can still refuse. Whether the commit is OFFERED is a separate
+ * question, answered by the verdict being positively `true`.
+ */
+export function isPlanInactive(isPlanWritable: boolean | null | undefined): boolean {
+  return isWriteRefusedByVerdict(isPlanWritable)
 }
 
 export function isPlanRevisionStale(dayPlanRevision: number | null | undefined, openedPlanRevision: number): boolean {

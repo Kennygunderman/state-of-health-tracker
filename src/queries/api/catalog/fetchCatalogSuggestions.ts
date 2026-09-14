@@ -1,11 +1,16 @@
-import {CatalogFoodSuggestion} from '@data/models/CatalogFood'
+import {CatalogFoodSuggestion, CatalogSuggestionKind} from '@data/models/CatalogFood'
 import {CatalogSuggestionsResponse} from '@queries/api/catalog/decoder/CatalogDecoder'
 import {httpGet} from '@service/http/httpUtil'
 import CrashUtility from '@utility/CrashUtility'
 
 import Endpoints from '@constants/endpoints'
 
-export async function fetchCatalogSuggestions(kind: 'dislike', limit: number = 12): Promise<CatalogFoodSuggestion[]> {
+// Both inputs are required: a default here would be invisible to the cache key built by the query layer,
+// which is how one key came to stand for several different lists.
+export async function fetchCatalogSuggestions(
+  kind: CatalogSuggestionKind,
+  limit: number
+): Promise<CatalogFoodSuggestion[]> {
   try {
     const response = await httpGet(Endpoints.CatalogFoodSuggestions(kind, limit), CatalogSuggestionsResponse)
 

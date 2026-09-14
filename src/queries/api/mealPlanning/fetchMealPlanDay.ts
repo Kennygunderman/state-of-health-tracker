@@ -1,23 +1,17 @@
 import {MealPlanDayEnvelope, MealPlanStatus} from '@data/models/MealPlan'
 import {convertMealPlanDay} from '@queries/api/mealPlanning/converter/convertMealPlanDay'
-import {MealPlanDayResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
+import {MealPlanDayEnvelopeResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
 import {httpGet} from '@service/http/httpUtil'
 import CrashUtility from '@utility/CrashUtility'
-import * as io from 'io-ts'
+import {resolveEnvelopeWriteability} from '@utility/MealPlanLifecycleUtility'
 
 import Endpoints from '@constants/endpoints'
 
-const MealPlanDayEnvelopeResponse = io.type({
-  planId: io.string,
-  planRevision: io.number,
-  planStatus: io.string,
-  day: MealPlanDayResponse
-})
-
-// Decoded as a plain string and resolved here, falling back to 'superseded' rather than 'active': the status is
-// what leaves Swap and Log enabled and lets the screen send planRevision as expectedPlanRevision, so reading an
-// unrecognised value as active would offer a write against a plan the server no longer accepts one for. A day
-// shown read-only is recoverable; that write is not.
+// Decoded as a plain string and resolved here, falling back to 'superseded' rather than 'active': an
+// unrecognised status must never read as the live one. The writeability verdict beside it is resolved the same
+// way by @utility/MealPlanLifecycleUtility. This is the ONLY place an affirmative verdict enters the app: it
+// is a server value, judged against the user's saved-zone calendar day, and no client-side derivation of it
+// exists to disagree with.
 const KNOWN_PLAN_STATUSES: MealPlanStatus[] = ['active', 'superseded']
 
 export async function fetchMealPlanDay(planId: string, date: string): Promise<MealPlanDayEnvelope> {
@@ -29,6 +23,7 @@ export async function fetchMealPlanDay(planId: string, date: string): Promise<Me
     }
 
     const data = response.data
+    const writeability = resolveEnvelopeWriteability(data.planLifecycle, data.isWritable)
 
     return {
       planId: data.planId,
@@ -36,6 +31,10 @@ export async function fetchMealPlanDay(planId: string, date: string): Promise<Me
       planStatus: KNOWN_PLAN_STATUSES.includes(data.planStatus as MealPlanStatus)
         ? (data.planStatus as MealPlanStatus)
         : 'superseded',
+      // The two members Swap and Log are gated on. A finished week is stored 'active', so the status above
+      // cannot answer for them: only these carry the server's own judgement of the user's calendar day.
+      planLifecycle: writeability.lifecycle,
+      isWritable: writeability.isWritable,
       day: convertMealPlanDay(data.day)
     }
   } catch (error) {

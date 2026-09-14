@@ -459,37 +459,54 @@ describe('shouldShowBadgeCaption', () => {
   })
 })
 
+// The input is the day envelope's writeability verdict, which is what distinguishes a week that still accepts
+// writes from one that merely remains stored 'active' after its last day.
 describe('resolveActionBarState', () => {
   describe('preview context', () => {
-    it('hides the action bar for an active plan', () => {
-      expect(resolveActionBarState('preview', 'active')).toEqual({isVisible: false, isEnabled: true})
+    it('hides the action bar for a writable plan', () => {
+      expect(resolveActionBarState('preview', true)).toEqual({isVisible: false, isEnabled: true, isPending: false})
     })
 
-    it('hides the action bar when the plan status has not loaded', () => {
-      expect(resolveActionBarState('preview', null)).toEqual({isVisible: false, isEnabled: false})
-      expect(resolveActionBarState('preview', undefined)).toEqual({isVisible: false, isEnabled: false})
+    it('hides the action bar when the day envelope has not loaded', () => {
+      expect(resolveActionBarState('preview', null)).toEqual({isVisible: false, isEnabled: false, isPending: true})
+      expect(resolveActionBarState('preview', undefined)).toEqual({
+        isVisible: false,
+        isEnabled: false,
+        isPending: true
+      })
     })
 
-    it('hides the action bar for a superseded plan', () => {
-      expect(resolveActionBarState('preview', 'superseded')).toEqual({isVisible: false, isEnabled: false})
+    it('hides the action bar for a plan that no longer accepts writes', () => {
+      expect(resolveActionBarState('preview', false)).toEqual({isVisible: false, isEnabled: false, isPending: false})
     })
   })
 
   describe('plan context', () => {
-    it('shows and enables the action bar for an active plan', () => {
-      expect(resolveActionBarState('plan', 'active')).toEqual({isVisible: true, isEnabled: true})
+    it('shows and enables the action bar for a writable plan', () => {
+      expect(resolveActionBarState('plan', true)).toEqual({isVisible: true, isEnabled: true, isPending: false})
     })
 
-    it('shows but disables the action bar for a superseded plan', () => {
-      expect(resolveActionBarState('plan', 'superseded')).toEqual({isVisible: true, isEnabled: false})
+    // Both ways a plan stops accepting writes arrive as the same verdict: a regeneration replaced it, or its
+    // week has finished — which storage still records as 'active', so nothing else on the envelope says it.
+    // A refusal is answered, so the controls stay pressable and explain themselves rather than going inert.
+    it('shows the action bar pressable but not enabled for a plan that no longer accepts writes', () => {
+      expect(resolveActionBarState('plan', false)).toEqual({isVisible: true, isEnabled: false, isPending: false})
     })
 
-    it('shows but disables the action bar when the plan status is null', () => {
-      expect(resolveActionBarState('plan', null)).toEqual({isVisible: true, isEnabled: false})
+    // The display-only seeded envelope carries null, and no local value may stand in for a verdict computed
+    // in the user's saved zone — so the bar waits rather than claiming the plan is either live or gone.
+    it('shows the action bar pending when the verdict is null', () => {
+      expect(resolveActionBarState('plan', null)).toEqual({isVisible: true, isEnabled: false, isPending: true})
     })
 
-    it('shows but disables the action bar when the plan status is undefined', () => {
-      expect(resolveActionBarState('plan', undefined)).toEqual({isVisible: true, isEnabled: false})
+    it('shows the action bar pending when there is no envelope at all', () => {
+      expect(resolveActionBarState('plan', undefined)).toEqual({isVisible: true, isEnabled: false, isPending: true})
+    })
+
+    it('never reports a verdict as both refused and pending', () => {
+      const states = [true, false, null, undefined].map(verdict => resolveActionBarState('plan', verdict))
+
+      states.forEach(state => expect(state.isEnabled && state.isPending).toBe(false))
     })
   })
 })

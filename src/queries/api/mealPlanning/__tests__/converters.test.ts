@@ -1,6 +1,13 @@
-import {BudgetPreference, MealPlanPreferences} from '@data/models/MealPlanPreferences'
-import {httpGet} from '@service/http/httpUtil'
+import {
+  BudgetPreference,
+  MealPlanPreferences,
+  PayloadBearingSetupStep,
+  SetupStepRequest
+} from '@data/models/MealPlanPreferences'
+import {MealEntryResponse} from '@queries/api/macros/decoder/MacrosDecoder'
+import {httpGet, httpPost, httpPut} from '@service/http/httpUtil'
 import CrashUtility from '@utility/CrashUtility'
+import {isRoutesMissingError, RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
 import {AxiosError, AxiosResponse} from 'axios'
 import * as io from 'io-ts'
 
@@ -34,9 +41,16 @@ import {
 } from '../decoder/MealPlanningDecoder'
 import {fetchCurrentMealPlan} from '../fetchCurrentMealPlan'
 import {fetchNutritionTargets} from '../fetchNutritionTargets'
+import {generatePlan} from '../generatePlan'
+import {logPlannedMeal} from '../logPlannedMeal'
+import {regeneratePlan} from '../regeneratePlan'
+import {saveSetupStep} from '../saveSetupStep'
+import {swapMeal} from '../swapMeal'
 
 jest.mock('@service/http/httpUtil', () => ({
-  httpGet: jest.fn()
+  httpGet: jest.fn(),
+  httpPost: jest.fn(),
+  httpPut: jest.fn()
 }))
 
 jest.mock('@utility/CrashUtility', () => ({
@@ -1948,16 +1962,25 @@ describe('fetchNutritionTargets', () => {
   })
 
   describe('a 404 with no error code in the body', () => {
-    it('resolves to null, because a backend without the route means no server targets', async () => {
+    it('rejects with a RoutesMissingError naming the targets route, the rolled-back-backend signal', async () => {
       mockHttpGet.mockRejectedValue(makeAxiosError(404, {}))
 
-      await expect(fetchNutritionTargets()).resolves.toBeNull()
+      await expect(fetchNutritionTargets()).rejects.toBeInstanceOf(RoutesMissingError)
+      await expect(fetchNutritionTargets()).rejects.toMatchObject({path: Endpoints.MealPlanTargets, status: 404})
+    })
+
+    it('rejects with an error the entitlement recognises, which a resolved null could not carry', async () => {
+      mockHttpGet.mockRejectedValue(makeAxiosError(404, {}))
+
+      const thrown = await fetchNutritionTargets().catch((error: unknown) => error)
+
+      expect(isRoutesMissingError(thrown)).toBe(true)
     })
 
     it('records nothing, so a rolled-back backend does not report a crash per request', async () => {
       mockHttpGet.mockRejectedValue(makeAxiosError(404, {}))
 
-      await fetchNutritionTargets()
+      await expect(fetchNutritionTargets()).rejects.toBeInstanceOf(RoutesMissingError)
 
       expect(mockRecordError).not.toHaveBeenCalled()
     })
@@ -2001,6 +2024,676 @@ describe('fetchNutritionTargets', () => {
 
       await expect(fetchNutritionTargets()).rejects.toBe(error)
       expect(mockRecordError).toHaveBeenCalledTimes(1)
+      expect(mockRecordError).toHaveBeenCalledWith(error)
+    })
+  })
+})
+
+// The keyed writes of this domain, and the one status contract they answer to: the three creates succeed on
+// 201 alone — on the first commit and on every replay of the same key, because the server stores the create
+// status with the response and returns it unchanged — while a swap changes a meal it did not create and is
+// fixed at 200. Any other 2xx is server drift each request fails on rather than mapping blind, which is what
+// the "an answer the contract does not allow" describes below pin.
+const mockHttpPost = jest.mocked(httpPost)
+
+const PLAN_ID = 'plan-1'
+const MEAL_ID = 'meal-lunch'
+
+const resolvePostWith = (status: number, data: unknown): void => {
+  mockHttpPost.mockResolvedValue({status, data})
+}
+
+const postCall = (): [string, unknown, unknown] => {
+  const call = mockHttpPost.mock.calls[0]
+
+  return [call[0], call[1], call[2]]
+}
+
+// The log and swap envelopes are local to their own request files, so the shared codecs they compose are
+// asserted by identity through the envelope's props instead of by importing an envelope that has no other
+// consumer. Identity, not shape: a look-alike codec declared elsewhere would satisfy a structural comparison
+// while validating something other than the contract this domain publishes.
+const envelopeProps = (decoder: unknown): io.Props => (decoder as io.TypeC<io.Props>).props
+
+type WireMealEntry = io.TypeOf<typeof MealEntryResponse>
+
+const makeWireMealEntry = (overrides: Partial<WireMealEntry> = {}): WireMealEntry => ({
+  id: 'entry-9',
+  foodId: null,
+  name: 'Chicken burrito bowl',
+  servingText: '1 serving',
+  servings: 1.5,
+  calories: 610,
+  protein: 45,
+  carbs: 58,
+  fat: 21,
+  inputMethod: 'meal_plan',
+  loggedAt: '2026-07-05T12:30:00.000Z',
+  mealPlanMealId: MEAL_ID,
+  nutritionProvenance: 'ingredient_derived',
+  ...overrides
+})
+
+describe('generatePlan', () => {
+  const PAYLOAD = {
+    startDate: '2026-07-05',
+    idempotencyKey: 'generate-key-1',
+    expectedPreferencesRevision: 4,
+    expectedTargetsRevision: 2
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    it('posts to the plans collection endpoint', async () => {
+      resolvePostWith(201, makePlan())
+
+      await generatePlan(PAYLOAD)
+
+      const [url] = postCall()
+
+      expect(url).toBe(Endpoints.MealPlans)
+      expect(url.endsWith('/meal-planning/plans')).toBe(true)
+    })
+
+    it('validates the answer with the shared plan codec', async () => {
+      resolvePostWith(201, makePlan())
+
+      await generatePlan(PAYLOAD)
+
+      const [, decoder] = postCall()
+
+      expect(decoder).toBe(MealPlanResponse)
+    })
+
+    // Forwarded by reference, not rebuilt: the key was minted once at the press handler and the two revisions
+    // pin what the plan is being generated against, so re-minting or rounding either would manufacture the
+    // 409 each is there to prevent.
+    it('forwards the payload verbatim', async () => {
+      resolvePostWith(201, makePlan())
+
+      await generatePlan(PAYLOAD)
+
+      const [, , body] = postCall()
+
+      expect(body).toBe(PAYLOAD)
+      expect(body).toEqual({
+        startDate: '2026-07-05',
+        idempotencyKey: 'generate-key-1',
+        expectedPreferencesRevision: 4,
+        expectedTargetsRevision: 2
+      })
+    })
+  })
+
+  describe('the 201 that creates a plan', () => {
+    it('converts the created plan', async () => {
+      resolvePostWith(201, makePlan())
+
+      const plan = await generatePlan(PAYLOAD)
+
+      expect(plan.id).toBe('plan-1')
+      expect(plan.revision).toBe(1)
+      expect(plan.status).toBe('active')
+      expect(plan.days).toHaveLength(1)
+      expect(plan.days[0].meals[0].recipe.name).toBe('Chicken burrito bowl')
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('hands back a converted plan rather than the decoded wire object', async () => {
+      const wire = makePlan()
+
+      resolvePostWith(201, wire)
+
+      const plan = await generatePlan(PAYLOAD)
+
+      expect(plan).not.toBe(wire)
+      expect(plan.days).not.toBe(wire.days)
+    })
+  })
+
+  describe('an answer the contract does not allow', () => {
+    // A replay of a committed key answers 201 as well, so a 200 is not "the plan you already created" — it is
+    // a server that no longer returns its stored create status, and reading it as success would hide that.
+    it('rejects a 200 carrying the very plan a 201 would have carried, and records it', async () => {
+      resolvePostWith(200, makePlan())
+
+      await expect(generatePlan(PAYLOAD)).rejects.toThrow('Unexpected response generating meal plan: status=200')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a 201 that carries no plan', async () => {
+      resolvePostWith(201, null)
+
+      await expect(generatePlan(PAYLOAD)).rejects.toThrow('Unexpected response generating meal plan: status=201')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects another 2xx the endpoint never answers with', async () => {
+      resolvePostWith(204, makePlan())
+
+      await expect(generatePlan(PAYLOAD)).rejects.toThrow('Unexpected response generating meal plan: status=204')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('regeneratePlan', () => {
+  const PAYLOAD = {
+    idempotencyKey: 'regenerate-key-1',
+    expectedPlanRevision: 3,
+    expectedPreferencesRevision: 4,
+    expectedTargetsRevision: 2
+  }
+
+  const makeReplacementPlan = (): WirePlan => makePlan({id: 'plan-2', revision: 1, generationAttempt: 2})
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    it('posts to the regenerate endpoint of the plan being replaced', async () => {
+      resolvePostWith(201, makeReplacementPlan())
+
+      await regeneratePlan(PLAN_ID, PAYLOAD)
+
+      const [url] = postCall()
+
+      expect(url).toBe(Endpoints.RegenerateMealPlan(PLAN_ID))
+      expect(url.endsWith('/meal-planning/plans/plan-1/regenerate')).toBe(true)
+    })
+
+    it('validates the answer with the shared plan codec', async () => {
+      resolvePostWith(201, makeReplacementPlan())
+
+      await regeneratePlan(PLAN_ID, PAYLOAD)
+
+      const [, decoder] = postCall()
+
+      expect(decoder).toBe(MealPlanResponse)
+    })
+
+    it('forwards the payload verbatim, `expectedPlanRevision` included', async () => {
+      resolvePostWith(201, makeReplacementPlan())
+
+      await regeneratePlan(PLAN_ID, PAYLOAD)
+
+      const [, , body] = postCall()
+
+      expect(body).toBe(PAYLOAD)
+      expect(body).toEqual({
+        idempotencyKey: 'regenerate-key-1',
+        expectedPlanRevision: 3,
+        expectedPreferencesRevision: 4,
+        expectedTargetsRevision: 2
+      })
+    })
+  })
+
+  describe('the 201 that creates the replacement plan', () => {
+    it('converts the new plan, which is not the one the request named', async () => {
+      resolvePostWith(201, makeReplacementPlan())
+
+      const plan = await regeneratePlan(PLAN_ID, PAYLOAD)
+
+      expect(plan.id).toBe('plan-2')
+      expect(plan.revision).toBe(1)
+      expect(plan.generationAttempt).toBe(2)
+      expect(plan.days[0].meals[0].recipe.name).toBe('Chicken burrito bowl')
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('hands back a converted plan rather than the decoded wire object', async () => {
+      const wire = makeReplacementPlan()
+
+      resolvePostWith(201, wire)
+
+      const plan = await regeneratePlan(PLAN_ID, PAYLOAD)
+
+      expect(plan).not.toBe(wire)
+      expect(plan.days).not.toBe(wire.days)
+    })
+  })
+
+  describe('an answer the contract does not allow', () => {
+    it('rejects a 200 carrying the very plan a 201 would have carried, and records it', async () => {
+      resolvePostWith(200, makeReplacementPlan())
+
+      await expect(regeneratePlan(PLAN_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response regenerating meal plan: status=200'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a 201 that carries no plan', async () => {
+      resolvePostWith(201, null)
+
+      await expect(regeneratePlan(PLAN_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response regenerating meal plan: status=201'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects another 2xx the endpoint never answers with', async () => {
+      resolvePostWith(204, makeReplacementPlan())
+
+      await expect(regeneratePlan(PLAN_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response regenerating meal plan: status=204'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('logPlannedMeal', () => {
+  const PAYLOAD = {
+    servings: 1.5,
+    date: '2026-07-05',
+    diaryMealId: 'diary-meal-3',
+    expectedPlanRevision: 3,
+    idempotencyKey: 'log-key-1'
+  }
+
+  const makeLoggedResponse = () => ({entry: makeWireMealEntry(), mealPlanMeal: makeMeal(), planRevision: 4})
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    it('posts to the log endpoint of the planned meal', async () => {
+      resolvePostWith(201, makeLoggedResponse())
+
+      await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [url] = postCall()
+
+      expect(url).toBe(Endpoints.LogPlannedMeal(PLAN_ID, MEAL_ID))
+      expect(url.endsWith('/meal-planning/plans/plan-1/meals/meal-lunch/log')).toBe(true)
+    })
+
+    it('validates the answer with an envelope composed of the diary and plan codecs', async () => {
+      resolvePostWith(201, makeLoggedResponse())
+
+      await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [, decoder] = postCall()
+
+      expect(envelopeProps(decoder).entry).toBe(MealEntryResponse)
+      expect(envelopeProps(decoder).mealPlanMeal).toBe(MealPlanMealResponse)
+    })
+
+    it('forwards the payload verbatim, so the eaten portion reaches the server unrounded', async () => {
+      resolvePostWith(201, makeLoggedResponse())
+
+      await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [, , body] = postCall()
+
+      expect(body).toBe(PAYLOAD)
+      expect(body).toEqual({
+        servings: 1.5,
+        date: '2026-07-05',
+        diaryMealId: 'diary-meal-3',
+        expectedPlanRevision: 3,
+        idempotencyKey: 'log-key-1'
+      })
+    })
+  })
+
+  describe('the 201 that creates the diary entry', () => {
+    it('converts the entry with the diary converter and the meal with the plan converter', async () => {
+      resolvePostWith(201, makeLoggedResponse())
+
+      const result = await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      expect(result.entry.id).toBe('entry-9')
+      expect(result.entry.servings).toBe(1.5)
+      expect(result.entry.inputMethod).toBe('meal_plan')
+      expect(result.entry.mealPlanMealId).toBe(MEAL_ID)
+      expect(result.entry.nutritionProvenance).toBe('ingredient_derived')
+      expect(result.mealPlanMeal.id).toBe(MEAL_ID)
+      expect(result.mealPlanMeal.recipe.name).toBe('Chicken burrito bowl')
+      expect(result.planRevision).toBe(4)
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('hands back converted members rather than the decoded wire objects', async () => {
+      const wire = makeLoggedResponse()
+
+      resolvePostWith(201, wire)
+
+      const result = await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      expect(result.entry).not.toBe(wire.entry)
+      expect(result.mealPlanMeal).not.toBe(wire.mealPlanMeal)
+    })
+  })
+
+  describe('an answer the contract does not allow', () => {
+    // The replayed status of a committed log is the stored 201, so a 200 carrying a perfectly good entry is
+    // still drift: accepting it would let the server stop replaying create statuses unnoticed.
+    it('rejects a 200 carrying the very entry a 201 would have carried, and records it', async () => {
+      resolvePostWith(200, makeLoggedResponse())
+
+      await expect(logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response logging planned meal: status=200'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a 201 that carries no entry', async () => {
+      resolvePostWith(201, null)
+
+      await expect(logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response logging planned meal: status=201'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects another 2xx the endpoint never answers with', async () => {
+      resolvePostWith(204, makeLoggedResponse())
+
+      await expect(logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)).rejects.toThrow(
+        'Unexpected response logging planned meal: status=204'
+      )
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('swapMeal', () => {
+  const PAYLOAD = {
+    recipeVersionId: 'recipe-version-2',
+    portionMultiplier: 1.25,
+    expectedPlanRevision: 3,
+    idempotencyKey: 'swap-key-1'
+  }
+
+  const makeSwapResponse = () => ({
+    meal: makeMeal({revision: 2, portionMultiplier: 1.25, portionText: '1¼ servings'}),
+    day: makeDay(),
+    planRevision: 4,
+    groceryChangeSummary: {added: 2, removed: 1, increased: 0}
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    it('posts to the swap endpoint of the meal being replaced', async () => {
+      resolvePostWith(200, makeSwapResponse())
+
+      await swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [url] = postCall()
+
+      expect(url).toBe(Endpoints.MealPlanSwap(PLAN_ID, MEAL_ID))
+      expect(url.endsWith('/meal-planning/plans/plan-1/meals/meal-lunch/swap')).toBe(true)
+    })
+
+    it('validates the answer with an envelope composed of the shared plan codecs', async () => {
+      resolvePostWith(200, makeSwapResponse())
+
+      await swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [, decoder] = postCall()
+
+      expect(envelopeProps(decoder).meal).toBe(MealPlanMealResponse)
+      expect(envelopeProps(decoder).day).toBe(MealPlanDayResponse)
+    })
+
+    it('forwards the payload verbatim, so the previewed portion reaches the server unrounded', async () => {
+      resolvePostWith(200, makeSwapResponse())
+
+      await swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [, , body] = postCall()
+
+      expect(body).toBe(PAYLOAD)
+      expect(body).toEqual({
+        recipeVersionId: 'recipe-version-2',
+        portionMultiplier: 1.25,
+        expectedPlanRevision: 3,
+        idempotencyKey: 'swap-key-1'
+      })
+    })
+  })
+
+  describe('the 200 that changes a meal', () => {
+    it('converts the swapped meal and its whole day', async () => {
+      resolvePostWith(200, makeSwapResponse())
+
+      const result = await swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      expect(result.meal.id).toBe(MEAL_ID)
+      expect(result.meal.revision).toBe(2)
+      expect(result.meal.portionMultiplier).toBe(1.25)
+      expect(result.day.date).toBe('2026-07-05')
+      expect(result.day.meals).toHaveLength(1)
+      expect(result.planRevision).toBe(4)
+      expect(result.groceryChangeSummary).toEqual({added: 2, removed: 1, increased: 0})
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('hands back converted members rather than the decoded wire objects', async () => {
+      const wire = makeSwapResponse()
+
+      resolvePostWith(200, wire)
+
+      const result = await swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      expect(result.meal).not.toBe(wire.meal)
+      expect(result.day).not.toBe(wire.day)
+    })
+  })
+
+  describe('an answer the contract does not allow', () => {
+    // A swap replaces the recipe of a meal that already exists, so it creates nothing: a create status here is
+    // drift, and the stored status a replayed swap answers with is the same 200 the first commit answered with.
+    it('rejects a 201, because a swap creates no resource to report created', async () => {
+      resolvePostWith(201, makeSwapResponse())
+
+      await expect(swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)).rejects.toThrow('Unexpected response swapping meal: status=201')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a 200 that carries no body', async () => {
+      resolvePostWith(200, null)
+
+      await expect(swapMeal(PLAN_ID, MEAL_ID, PAYLOAD)).rejects.toThrow('Unexpected response swapping meal: status=200')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+// The one revisioned write in this file, and the half of its contract types cannot state: `SetupStepRequest`
+// proves at compile time that a step travels with its own payload, while these cases prove the request the
+// pair produces — the step as the `:step` path segment, the payload as the body, and nothing but 200 read as
+// a save. Together they are why an impossible step/payload combination can no longer reach the server at all.
+const mockHttpPut = jest.mocked(httpPut)
+
+const TIME_ZONE = 'America/New_York'
+
+// The writable `:step` segments as a table the compiler keeps complete: a step added to
+// `PayloadBearingSetupStep` fails this declaration, so the loop below cannot silently stop covering one, and
+// 'targets_manual' cannot be added to it at all.
+const WRITABLE_STEPS: Readonly<Record<PayloadBearingSetupStep, true>> = {
+  goal: true,
+  body: true,
+  activity: true,
+  diet: true,
+  dislikes: true,
+  schedule: true,
+  cooking: true,
+  review: true
+}
+
+describe('saveSetupStep', () => {
+  const DIET_REQUEST: SetupStepRequest = {
+    step: 'diet',
+    payload: {timeZone: TIME_ZONE, expectedRevision: 6, diet: 'vegetarian', allergens: ['peanuts']}
+  }
+
+  const resolvePutWith = (status: number, data: unknown): void => {
+    mockHttpPut.mockResolvedValue({status, data})
+  }
+
+  const putCall = (): [string, unknown, unknown] => {
+    const call = mockHttpPut.mock.calls[0]
+
+    return [call[0], call[1], call[2]]
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    // The step reaches the server as a path segment and nowhere else, which is what makes the union's
+    // exclusion of 'targets_manual' a real refusal rather than a local convention: no request can name it.
+    it('puts to the path segment of the step it was given', async () => {
+      resolvePutWith(200, makePreferencesSave())
+
+      await saveSetupStep(DIET_REQUEST)
+
+      const [url] = putCall()
+
+      expect(url).toBe(Endpoints.MealPlanPreferenceStep('diet'))
+      expect(url.endsWith('/meal-planning/preferences/steps/diet')).toBe(true)
+    })
+
+    it('validates the answer with the shared preferences-save codec', async () => {
+      resolvePutWith(200, makePreferencesSave())
+
+      await saveSetupStep(DIET_REQUEST)
+
+      const [, decoder] = putCall()
+
+      expect(decoder).toBe(PreferencesSaveResponse)
+    })
+
+    // The payload is the body and the step is not in it: a step segment built from one half of the pair and a
+    // body rebuilt from the other is exactly how the two could drift apart again.
+    it('sends the payload verbatim as the body, with the step left out of it', async () => {
+      resolvePutWith(200, makePreferencesSave())
+
+      await saveSetupStep(DIET_REQUEST)
+
+      const [, , body] = putCall()
+
+      expect(body).toBe(DIET_REQUEST.payload)
+      expect(body).toEqual({
+        timeZone: 'America/New_York',
+        expectedRevision: 6,
+        diet: 'vegetarian',
+        allergens: ['peanuts']
+      })
+      expect(Object.keys(body as object)).not.toContain('step')
+    })
+
+    // Every writable step, each with its own payload rather than one payload cast across eight steps: a cast
+    // here would assert the very pairing the union exists to guarantee instead of exercising it.
+    it('carries each writable step into its own path segment', async () => {
+      const requests: readonly SetupStepRequest[] = [
+        {step: 'goal', payload: {timeZone: TIME_ZONE, expectedRevision: 6, goal: 'lose', paceLbPerWeek: 1}},
+        {step: 'body', payload: {timeZone: TIME_ZONE, expectedRevision: 6, skipped: true}},
+        {step: 'activity', payload: {timeZone: TIME_ZONE, expectedRevision: 6, activityLevel: 'active'}},
+        DIET_REQUEST,
+        {step: 'dislikes', payload: {timeZone: TIME_ZONE, expectedRevision: 6, dislikedFoodIds: ['food-1']}},
+        {
+          step: 'schedule',
+          payload: {
+            timeZone: TIME_ZONE,
+            expectedRevision: 6,
+            mealSchedule: 'three',
+            mealTimes: [
+              {slot: 'breakfast', time: '08:00'},
+              {slot: 'lunch', time: '12:30'},
+              {slot: 'dinner', time: '19:00'}
+            ]
+          }
+        },
+        {
+          step: 'cooking',
+          payload: {
+            timeZone: TIME_ZONE,
+            expectedRevision: 6,
+            cookingTimeLimitMin: 30,
+            budget: null,
+            noBudgetPreference: true
+          }
+        },
+        {step: 'review', payload: {timeZone: TIME_ZONE, expectedRevision: 6, startDate: '2026-07-05'}}
+      ]
+
+      for (const request of requests) {
+        jest.clearAllMocks()
+        resolvePutWith(200, makePreferencesSave())
+
+        await saveSetupStep(request)
+
+        expect(putCall()[0]).toBe(Endpoints.MealPlanPreferenceStep(request.step))
+      }
+
+      expect(new Set(requests.map(request => request.step)).size).toBe(Object.keys(WRITABLE_STEPS).length)
+    })
+  })
+
+  describe('the 200 that saves the step', () => {
+    it('converts the saved row and the affected-meal count the banner reads', async () => {
+      resolvePutWith(200, makePreferencesSave({affectedMealCount: 2}))
+
+      const result = await saveSetupStep(DIET_REQUEST)
+
+      expect(result.affectedMealCount).toBe(2)
+      expect(result.preferences.revision).toBe(makePreferencesSave().preferences.revision)
+      expect(result.preferences.setupStatus).toBe(makePreferencesSave().preferences.setupStatus)
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('hands back a converted result rather than the decoded wire object', async () => {
+      const wire = makePreferencesSave()
+
+      resolvePutWith(200, wire)
+
+      const result = await saveSetupStep(DIET_REQUEST)
+
+      expect(result.preferences).not.toBe(wire.preferences)
+    })
+  })
+
+  describe('an answer the contract does not allow', () => {
+    // A step save updates the one preferences row; it creates nothing, so a create status is drift rather than
+    // the "already saved" answer a replay would give — this route carries no idempotency key at all.
+    it('rejects a 201, because saving a step creates no resource', async () => {
+      resolvePutWith(201, makePreferencesSave())
+
+      await expect(saveSetupStep(DIET_REQUEST)).rejects.toThrow('Unexpected response saving setup step: status=201')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects a 200 that carries no saved row', async () => {
+      resolvePutWith(200, null)
+
+      await expect(saveSetupStep(DIET_REQUEST)).rejects.toThrow('Unexpected response saving setup step: status=200')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('a rejection from the transport', () => {
+    // The concurrency answer the Review sequence and every step screen recover from, which they can only do
+    // while the error arrives whole: refetch, compare the draft, then resolve silently or prompt.
+    it('rethrows a stale-revision refusal unchanged, and records it', async () => {
+      const error = makeAxiosError(409, {error: 'stale_revision', currentRevision: 7})
+
+      mockHttpPut.mockRejectedValue(error)
+
+      await expect(saveSetupStep(DIET_REQUEST)).rejects.toBe(error)
       expect(mockRecordError).toHaveBeenCalledWith(error)
     })
   })

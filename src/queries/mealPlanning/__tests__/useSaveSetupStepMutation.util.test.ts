@@ -1,8 +1,9 @@
 import {
   MealPlanPreferences,
   MealPlanPreferencesSaveResult,
-  SetupStep,
-  SetupStepPayload
+  PayloadBearingSetupStep,
+  ScheduleStepPayload,
+  SetupStepRequest
 } from '@data/models/MealPlanPreferences'
 import {mutationKeys, queryKeys} from '@queries/keys'
 import {MutationFunctionContext, QueryClient, QueryKey} from '@tanstack/react-query'
@@ -20,12 +21,63 @@ const TIME_ZONE = 'America/New_York'
 
 type SetupStepOptions = ReturnType<typeof buildSaveSetupStepMutationOptions>
 
-type SetupStepVariables = {step: SetupStep; payload: SetupStepPayload}
+type SetupStepVariables = SetupStepRequest
 
 const SETUP_STEP_VARIABLES: SetupStepVariables = {
   step: 'diet',
   payload: {timeZone: TIME_ZONE, expectedRevision: 6, diet: 'vegetarian', allergens: ['peanuts']}
 }
+
+// The eight writable `:step` path segments, as a table the compiler keeps complete: a step added to
+// `PayloadBearingSetupStep` fails this declaration, and `targets_manual` cannot be added to it at all.
+const WRITABLE_STEPS: Readonly<Record<PayloadBearingSetupStep, true>> = {
+  goal: true,
+  body: true,
+  activity: true,
+  diet: true,
+  dislikes: true,
+  schedule: true,
+  cooking: true,
+  review: true
+}
+
+const SCHEDULE_PAYLOAD: ScheduleStepPayload = {
+  timeZone: TIME_ZONE,
+  expectedRevision: 6,
+  mealSchedule: 'three',
+  mealTimes: [
+    {slot: 'breakfast', time: '08:00'},
+    {slot: 'lunch', time: '12:30'},
+    {slot: 'dinner', time: '19:00'}
+  ]
+}
+
+const PAIRED_REQUESTS: SetupStepRequest[] = [
+  {step: 'goal', payload: {timeZone: TIME_ZONE, expectedRevision: 6, goal: 'lose', paceLbPerWeek: 1}},
+  {
+    step: 'body',
+    payload: {
+      timeZone: TIME_ZONE,
+      expectedRevision: 6,
+      age: 34,
+      heightCm: 178,
+      weightKg: 82,
+      sexForEstimate: 'male',
+      heightUnitPref: 'ft_in',
+      weightUnitPref: 'lb'
+    }
+  },
+  {step: 'body', payload: {timeZone: TIME_ZONE, expectedRevision: 6, skipped: true}},
+  {step: 'activity', payload: {timeZone: TIME_ZONE, expectedRevision: 6, activityLevel: 'active'}},
+  SETUP_STEP_VARIABLES,
+  {step: 'dislikes', payload: {timeZone: TIME_ZONE, expectedRevision: 6, dislikedFoodIds: ['food-1']}},
+  {step: 'schedule', payload: SCHEDULE_PAYLOAD},
+  {
+    step: 'cooking',
+    payload: {timeZone: TIME_ZONE, expectedRevision: 6, cookingTimeLimitMin: 30, budget: null, noBudgetPreference: true}
+  },
+  {step: 'review', payload: {timeZone: TIME_ZONE, expectedRevision: 6, startDate: DATE}}
+]
 
 const makePreferences = (): MealPlanPreferences => ({
   setupStatus: 'in_progress',
@@ -275,6 +327,56 @@ describe('buildSaveSetupStepMutationOptions', () => {
         serialize(EXPECTED_INVALIDATED_KEYS)
       )
       expect(isQueryInvalidated(queryKeys.mealPlanPreferences)).toBe(true)
+    })
+  })
+})
+
+describe('the setup-step request the factory is typed against', () => {
+  describe('the requests it accepts', () => {
+    it('pairs every writable step with its own payload, the body step in both its measured and skipped forms', () => {
+      expect([...new Set(PAIRED_REQUESTS.map(request => request.step))].sort()).toEqual(
+        Object.keys(WRITABLE_STEPS).sort()
+      )
+      expect(PAIRED_REQUESTS.filter(request => request.step === 'body')).toHaveLength(2)
+    })
+
+    it('hands each of them to onSuccess, which is the variables type the mutation is declared with', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSaveSetupStepMutationOptions(queryClient)
+      const {onSuccess} = options
+
+      if (!onSuccess) {
+        throw new Error('buildSaveSetupStepMutationOptions must declare onSuccess')
+      }
+
+      for (const request of PAIRED_REQUESTS) {
+        await onSuccess(makeSaveResult(), request, undefined, makeFunctionContext())
+      }
+
+      expect(invalidateSpy).toHaveBeenCalledTimes(PAIRED_REQUESTS.length * EXPECTED_INVALIDATED_KEYS.length)
+      expect(isQueryInvalidated(queryKeys.mealPlanPreferences)).toBe(true)
+    })
+  })
+
+  describe('the requests the compiler refuses', () => {
+    it('refuses targets_manual as a step, because it is a stored resume marker and never a path segment', () => {
+      // @ts-expect-error 'targets_manual' is written by PUT /meal-planning/targets and carries no step
+      // payload, so it must stay unbuildable here — this directive fails the build the day the union
+      // starts admitting it, which is the regression it guards
+      const manualRoute: SetupStepRequest = {step: 'targets_manual', payload: {timeZone: TIME_ZONE, startDate: DATE}}
+
+      expect(Object.keys(WRITABLE_STEPS)).not.toContain(manualRoute.step)
+    })
+
+    it('refuses a step carrying the payload of a different step, rather than leaving that to server validation', () => {
+      // @ts-expect-error a schedule payload beside the diet step is exactly the impossible request this
+      // union exists to make unbuildable — the directive fails the build if the pairing ever loosens
+      const mismatched: SetupStepRequest = {step: 'diet', payload: SCHEDULE_PAYLOAD}
+
+      expect(mismatched.step).toBe('diet')
+      expect(Object.keys(mismatched.payload)).not.toContain('diet')
     })
   })
 })

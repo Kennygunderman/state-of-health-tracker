@@ -174,7 +174,7 @@ const RecipeDetailScreen = (): React.JSX.Element => {
           getApiErrorCode(recipeError)
         )
 
-  const actionBarState = resolveActionBarState(context.kind, envelope?.planStatus)
+  const actionBarState = resolveActionBarState(context.kind, envelope?.isWritable)
 
   const recoveredNotFoundRecipe = useRef(false)
 
@@ -224,11 +224,20 @@ const RecipeDetailScreen = (): React.JSX.Element => {
   }
 
   /**
-   * A plan the server has superseded can accept neither write. AAP 0.2.5 answers that where the user asked for
-   * it — the stale-plan toast and a `mealPlanCurrent` refetch — rather than with two controls that do nothing,
-   * so `resolveActionBarState().isEnabled` decides what the press does and never whether it is possible.
+   * A plan the server has superseded — or a week that has finished, which storage still calls active — can
+   * accept neither write, and the envelope's `isWritable` is what says so. AAP 0.2.5 answers that where the
+   * user asked for it — the stale-plan toast and a `mealPlanCurrent` refetch — rather than with two controls
+   * that do nothing, so `isEnabled` decides what the press does and never whether it is possible.
+   *
+   * A verdict that has not arrived is NOT that refusal. The bar renders disabled while `isPending`, so this
+   * branch is normally unreachable; it returns rather than toasting because reaching it would mean telling a
+   * user whose plan is live that it is no longer active, purely because the day request is still in flight.
    */
   const onPlanActionPressed = (route: typeof Screens.LOG_PLANNED_MEAL | typeof Screens.SWAP_MEAL): void => {
+    if (actionBarState.isPending) {
+      return
+    }
+
     if (!actionBarState.isEnabled) {
       showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
       queryClient.refetchQueries({queryKey: queryKeys.mealPlanCurrent})
@@ -404,7 +413,9 @@ const RecipeDetailScreen = (): React.JSX.Element => {
         <ActionBar
           logLabel={MEAL_PLAN_LOG_MEAL_BUTTON_TEXT}
           swapLabel={MEAL_PLAN_SWAP_BUTTON_TEXT}
-          isEnabled
+          // Pressable whenever a verdict has arrived, so a refusal can explain itself on press; disabled only
+          // while none has, which is the app's treatment for a control whose answer is still loading.
+          isEnabled={!actionBarState.isPending}
           onLogMeal={() => onPlanActionPressed(Screens.LOG_PLANNED_MEAL)}
           onSwap={() => onPlanActionPressed(Screens.SWAP_MEAL)}
         />

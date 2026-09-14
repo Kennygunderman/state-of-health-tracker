@@ -113,10 +113,37 @@ describe('resolveGroceryView', () => {
       expect(resolveGroceryView(makeQuery({data: list}), PLAN_ID)).toEqual({kind: 'emptyList', list})
     })
 
-    it('resolves to the empty-list state when nothing is stocked and nothing is checked', () => {
-      const list = makeList({sections: [makeSection('produce', [])], checkedItems: []})
+    it('resolves to the empty-list state when a zero count arrives with an aisle the server emptied', () => {
+      const list = makeList({totalCount: 0, sections: [makeSection('produce', [])], checkedItems: []})
 
       expect(resolveGroceryView(makeQuery({data: list}), PLAN_ID)).toEqual({kind: 'emptyList', list})
+    })
+
+    it('never claims a plan holds no groceries while its own count says it does', () => {
+      const list = makeList({totalCount: 14, sections: [makeSection('produce', [])], checkedItems: []})
+
+      // The empty-list copy is a statement about the plan, so a count that contradicts the rows it arrived
+      // with can never produce it: the screen shows its header with nothing under it instead.
+      expect(resolveGroceryView(makeQuery({data: list}), PLAN_ID)).toEqual({kind: 'list', list})
+    })
+
+    it('never claims a plan holds no groceries while rows are on the list with nothing checked', () => {
+      // The shape an optimistic uncheck-all leaves behind: every row cleared, so checkedCount is 0 and the
+      // checked card is empty while the aisles hold the whole list.
+      const list = makeList({
+        totalCount: 2,
+        checkedCount: 0,
+        sections: [makeSection('produce', [makeItem()]), makeSection('pantry_other', [makeItem({id: 'item-oil'})])],
+        checkedItems: []
+      })
+
+      expect(resolveGroceryView(makeQuery({data: list}), PLAN_ID)).toEqual({kind: 'list', list})
+    })
+
+    it('never claims a plan holds no groceries while only checked rows remain', () => {
+      const list = makeList({totalCount: 1, checkedCount: 1, sections: [], checkedItems: [makeFlaggedItem('item-c')]})
+
+      expect(resolveGroceryView(makeQuery({data: list}), PLAN_ID)).toEqual({kind: 'list', list})
     })
   })
 

@@ -57,10 +57,14 @@ export function convertGroceryList(data: io.TypeOf<typeof GroceryListResponse>):
             itemNames: data.banner.itemNames
           }
         : null,
-    sections: data.sections.map(section => ({
-      category: resolveGroceryCategory(section.category),
-      items: section.items.map(convertGroceryItem)
-    })),
+    // Each sectioned row carries its aisle so an optimistic uncheck can return it there. The response states
+    // the aisle per section and not per row, and it holds back the checked rows, so checkedItems rows get
+    // none: they are re-filed by the next fetch, or by the aisle the row was stamped with when it was ticked.
+    sections: data.sections.map(section => {
+      const category = resolveGroceryCategory(section.category)
+
+      return {category, items: section.items.map(item => ({...convertGroceryItem(item), category}))}
+    }),
     checkedItems: data.checkedItems.map(convertGroceryItem)
   }
 }

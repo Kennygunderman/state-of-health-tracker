@@ -200,6 +200,26 @@ export const CurrentMealPlanResponse = io.type({
   upcoming: io.union([MealPlanResponse, io.null])
 })
 
+/**
+ * The GET /meal-planning/plans/:planId/days/:date envelope, declared here for the same reason as the one
+ * above: the request function and the codec tests read one definition.
+ *
+ * `isWritable` is the server's verdict on whether this plan still accepts writes, computed in the user's
+ * stored zone, and it is REQUIRED — a response without it cannot be gated on, and reading its absence as
+ * writable is the defect the member was added to close. `planStatus` and `planLifecycle` stay loose strings
+ * resolved with a conservative fallback (`@utility/MealPlanLifecycleUtility`), unlike `MealPlanResponse.status`
+ * above: a lifecycle value a newer server introduces should leave the day read-only, not fail the whole read
+ * and leave the screen with nothing.
+ */
+export const MealPlanDayEnvelopeResponse = io.type({
+  planId: io.string,
+  planRevision: io.number,
+  planStatus: io.string,
+  planLifecycle: io.string,
+  isWritable: io.boolean,
+  day: MealPlanDayResponse
+})
+
 export const RecipeVersionResponse = io.type({
   versionId: io.string,
   recipeId: io.string,

@@ -1244,6 +1244,124 @@ describe('applyLifecycleEvent', () => {
   })
 })
 
+// The account boundary as it reaches this module. An account change arrives as one Firebase uid
+// replacing another with no signed-out render in between, and nothing in this tree can observe it:
+// App.tsx gives the session tree the signed-in uid as its React key, so the provider is recreated
+// and starts again from createEmptyDraft(). These cases pin what that has to mean for the answers
+// the draft holds — what you weigh, how old you are, what you can't eat — because a store or query
+// reset cannot reach state held in a mounted Context.
+describe('an account change, one uid replacing another', () => {
+  const outgoingAccountState = (): MealPlanSetupDraftState => ({
+    draft: makeCompleteDraft({
+      budget: {amount: 120, currency: 'USD'},
+      noBudgetPreference: false,
+      allergens: ['milk', 'peanuts'],
+      dislikedFoodIds: ['food-mushroom', 'food-olive'],
+      dislikedFoodGroups: ['mushroom']
+    }),
+    dirty: {...ALL_DIRTY},
+    seeded: true,
+    bodyAnswered: true
+  })
+
+  const ANSWER_BEARING_FIELDS: (keyof MealPlanSetupDraft)[] = [
+    'goal',
+    'goalWeightKg',
+    'paceLbPerWeek',
+    'age',
+    'heightCm',
+    'weightKg',
+    'sexForEstimate',
+    'activityLevel',
+    'diet',
+    'allergens',
+    'dislikedFoodIds',
+    'dislikedFoodGroups',
+    'mealSchedule',
+    'mealTimes',
+    'cookingTimeLimitMin',
+    'budget'
+  ]
+
+  const isEmptyAnswer = (value: unknown): boolean => value === null || (Array.isArray(value) && value.length === 0)
+
+  it('leaves not one answer of the outgoing account in the state the recreated provider starts from', () => {
+    const outgoing = outgoingAccountState()
+    const {draft} = createEmptyDraft()
+
+    ANSWER_BEARING_FIELDS.forEach(field => {
+      expect(isEmptyAnswer(outgoing.draft[field])).toBe(false)
+      expect(isEmptyAnswer(draft[field])).toBe(true)
+    })
+  })
+
+  it('shows the incoming account no progress the outgoing account had made', () => {
+    const outgoing = outgoingAccountState()
+    const recreated = createEmptyDraft()
+
+    expect(completedSteps(outgoing, 'estimated')).toEqual([...SETUP_STEPS_ESTIMATED])
+    expect(completedSteps(recreated, 'estimated')).toEqual(['dislikes'])
+    expect(completedSteps(recreated, 'manual')).toEqual(['dislikes'])
+    expect(isStepComplete(recreated, 'body')).toBe(false)
+    expect(recreated.bodyAnswered).toBe(false)
+    expect(recreated.seeded).toBe(false)
+  })
+
+  // The draft is what the wizard screens render, so a shared array would put the outgoing account's
+  // allergies and dislikes on screen for the incoming one even after the state object was replaced.
+  it('shares no array with the draft the outgoing account was editing', () => {
+    const outgoing = setDislikedFoodIds(outgoingAccountState(), ['food-mushroom'])
+    const recreated = createEmptyDraft()
+
+    expect(recreated.draft.allergens).not.toBe(outgoing.draft.allergens)
+    expect(recreated.draft.dislikedFoodIds).not.toBe(outgoing.draft.dislikedFoodIds)
+    expect(recreated.draft.dislikedFoodGroups).not.toBe(outgoing.draft.dislikedFoodGroups)
+    expect(recreated.draft.mealTimes).not.toBe(outgoing.draft.mealTimes)
+
+    recreated.draft.allergens.push('sesame')
+    recreated.draft.mealTimes.push({slot: 'snack', time: '15:30'})
+
+    expect(outgoing.draft.allergens).toEqual(['milk', 'peanuts'])
+    expect(outgoing.draft.mealTimes).toHaveLength(3)
+  })
+
+  // Seeding is how the incoming account's own answers arrive, and it reads only the preferences it
+  // is given: there is no merge with whatever the provider held, so even a provider that somehow
+  // survived the account change cannot show the outgoing account's answers once it seeds.
+  it('replaces every answer when the incoming account seeds its own preferences', () => {
+    const incoming = makePreferences({
+      age: 51,
+      weightKg: 68.2,
+      heightCm: 162.6,
+      sexForEstimate: 'male',
+      diet: 'vegan',
+      allergens: ['sesame'],
+      dislikedFoods: [],
+      dislikedFoodGroups: [],
+      budget: null,
+      noBudgetPreference: true
+    })
+
+    const seeded = seedDraftFromPreferences(incoming)
+
+    expect(seeded).toEqual(seedDraftFromPreferences(incoming))
+    expect(seeded.draft.age).toBe(51)
+    expect(seeded.draft.weightKg).toBe(68.2)
+    expect(seeded.draft.diet).toBe('vegan')
+    expect(seeded.draft.allergens).toEqual(['sesame'])
+    expect(seeded.draft.dislikedFoodIds).toEqual([])
+    expect(seeded.draft.budget).toBeNull()
+    expect(seeded.draft.noBudgetPreference).toBe(true)
+  })
+
+  // The first render after a remount has no preferences yet, because the incoming account's query is
+  // still in flight. That must show the incoming account nothing rather than the last answers held.
+  it('holds nothing while the incoming account has no preferences yet', () => {
+    expect(seedDraftFromPreferences(null)).toEqual(createEmptyDraft())
+    expect(seedDraftFromPreferences(undefined)).toEqual(createEmptyDraft())
+  })
+})
+
 describe('the module tables', () => {
   it('freezes the default meal times a schedule is seeded from', () => {
     const rewritten = DEFAULT_MEAL_TIMES as Record<MealSlot, string>

@@ -7,6 +7,7 @@ import type {StepMode} from '@navigation/types'
 import {MealPlanTargetsRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
@@ -108,7 +109,9 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   const [conflict, setConflict] = useState<GenerateRevisionConflict | null>(null)
 
   const preferences = preferencesQuery.data ?? null
-  const targets = targetsQuery.data ?? null
+  // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route
+  // is gone (AAP 0.7.5) — means fall back to the local target, never clear it.
+  const targets = selectNutritionTargets(targetsQuery)
   const estimate = estimateQuery.data ?? null
 
   const paramStartDate = params.mode === 'nextWeek' ? params.startDate : null
@@ -191,7 +194,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
         collaborators: {
           saveTargets: saveTargetsMutation.mutateAsync,
           saveSetupStep: saveStepMutation.mutateAsync,
-          refetchTargets: async () => (await targetsQuery.refetch()).data ?? null,
+          refetchTargets: async () => selectNutritionTargets(await targetsQuery.refetch()),
           refetchPreferences: async () => (await preferencesQuery.refetch()).data ?? null,
           refetchEstimate: async () => {
             await estimateQuery.refetch()

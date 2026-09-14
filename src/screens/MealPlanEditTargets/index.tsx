@@ -7,6 +7,7 @@ import type {NutritionTargets} from '@data/models/NutritionTargets'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
 import {MealPlanEditTargetsRouteProp} from '@navigation/types'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
 import {useRoute} from '@react-navigation/native'
@@ -129,7 +130,9 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   // again, so a failure later in the sequence cannot turn one confirmation into two revisions.
   const savedFields = useRef<EditTargetsFields | null>(null)
 
-  const targets = targetsQuery.data ?? null
+  // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route is
+  // gone (AAP 0.7.5) — means fall back to the local target, never clear it.
+  const targets = selectNutritionTargets(targetsQuery)
   const estimate = estimateQuery.data ?? null
 
   const intent = resolveEditTargetsIntent({mode: params.mode, routeIntent: params.intent, targets})
@@ -244,7 +247,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         // the figures this press asserted are compared with them. Equal figures mean the write whose response
         // was lost, or the same edit from another device, already landed — so it resolves silently.
         const refetched = await targetsQuery.refetch()
-        const fresh = refetched.data ?? null
+        const fresh = selectNutritionTargets(refetched)
 
         // The figures the attempt asserted: its own for a manual save, the estimate's for a confirmation —
         // which is the only shape 'estimated' can carry, since that payload sends a revision, not numbers.

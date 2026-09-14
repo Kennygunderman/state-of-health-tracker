@@ -51,10 +51,12 @@ export async function logPlannedMeal(
   try {
     const response = await httpPost(Endpoints.LogPlannedMeal(planId, mealId), LogPlannedMealResponse, payload)
 
-    // 201 on the first commit and on every replay of the same key, because the server returns the stored first
-    // response verbatim; 200 is admitted for the same reason logMealEntry admits it. A non-2xx rejects in the
-    // transport and never reaches this guard, so an unconfirmed outcome stays a rejection the caller can replay.
-    if ((response?.status !== 201 && response?.status !== 200) || !response.data) {
+    // 201 is the only success, on the first commit and on every replay of the same key: the server stores the
+    // create status with the response and returns it unchanged, so a replay answers 201 as well. A 200 here
+    // would be undocumented server drift worth failing on rather than mapping blind, and a non-2xx rejects in
+    // the transport and never reaches this guard — so a confirmed failure and an unconfirmed outcome both stay
+    // rejections the caller classifies and can replay with the same key.
+    if (response?.status !== 201 || !response.data) {
       throw new Error(`Unexpected response logging planned meal: status=${response?.status}`)
     }
 

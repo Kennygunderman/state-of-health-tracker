@@ -1,3 +1,6 @@
+// Type-only, so it is erased at compile time: this registry keeps no runtime dependency on any other module.
+import type {CatalogSuggestionKind} from '@data/models/CatalogFood'
+
 export const queryKeys = {
   exercises: ['exercises'] as const,
   templates: ['templates'] as const,
@@ -26,6 +29,12 @@ export const queryKeys = {
   mealPlanPreferences: ['mealPlanPreferences'] as const,
   nutritionTargets: ['nutritionTargets'] as const,
   targetEstimate: ['targetEstimate'] as const,
+  // Day-independent deliberately, even though which plan is current depends on today's date: this is the one
+  // persisted read (PERSISTED_QUERY_KEYS matches this first segment), the entry useMealPlanDayQuery seeds
+  // initialData from by exact key, and the root every plan mutation invalidates by prefix — so a day-suffixed
+  // key would compile away the seed and leave a post-midnight offline cold start with no entry at all, which
+  // AAP 0.2.5 forbids rendering as the no-plan state. Rollover is bound to freshness in
+  // useCurrentMealPlanQuery instead, which refetches an answer fetched on an earlier day.
   mealPlanCurrent: ['mealPlanCurrent'] as const,
   mealPlanDayAll: ['mealPlanDay'] as const,
   mealPlanDay: (planId: string, date: string) => ['mealPlanDay', planId, date] as const,
@@ -41,7 +50,10 @@ export const queryKeys = {
   affectedMeals: (planId: string) => ['affectedMeals', planId] as const,
   recipeVersion: (recipeVersionId: string) => ['recipeVersion', recipeVersionId] as const,
   catalogSearch: (query: string) => ['catalogSearch', query] as const,
-  catalogSuggestions: ['catalogSuggestions'] as const
+  catalogSuggestionsAll: ['catalogSuggestions'] as const,
+  // Keyed on both request inputs because the server answers a different list for each: a key that omitted the
+  // limit would let one caller read the list another caller asked to be truncated, with nothing marking it stale.
+  catalogSuggestions: (kind: CatalogSuggestionKind, limit: number) => ['catalogSuggestions', kind, limit] as const
 }
 
 export const mutationKeys = {

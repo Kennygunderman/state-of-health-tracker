@@ -9,6 +9,7 @@ import {
   GroceryItemResponse,
   GroceryListResponse,
   GroceryToggleResponse,
+  MealPlanDayEnvelopeResponse,
   MealPlanDayResponse,
   MealPlanMealResponse,
   MealPlanResponse,
@@ -892,6 +893,63 @@ describe('CurrentMealPlanResponse', () => {
     expectRefused(CurrentMealPlanResponse, makePlan())
     expectRefused(CurrentMealPlanResponse, null)
     expectRefused(CurrentMealPlanResponse, [])
+  })
+})
+
+// The codec `fetchMealPlanDay` passes to httpGet, imported for the reason the envelope above states.
+describe('MealPlanDayEnvelopeResponse', () => {
+  const makeEnvelope = (
+    overrides: Partial<io.TypeOf<typeof MealPlanDayEnvelopeResponse>> = {}
+  ): io.TypeOf<typeof MealPlanDayEnvelopeResponse> => ({
+    planId: 'plan-1',
+    planRevision: 3,
+    planStatus: 'active',
+    planLifecycle: 'active',
+    isWritable: true,
+    day: makeDay(),
+    ...overrides
+  })
+
+  it('decodes a live plan’s day with its writeability verdict', () => {
+    const envelope = decodeRight(MealPlanDayEnvelopeResponse, makeEnvelope())
+
+    expect(envelope.planRevision).toBe(3)
+    expect(envelope.planLifecycle).toBe('active')
+    expect(envelope.isWritable).toBe(true)
+    expect(envelope.day.meals).toHaveLength(2)
+  })
+
+  it('decodes a finished week, whose stored status is still active', () => {
+    const envelope = decodeRight(
+      MealPlanDayEnvelopeResponse,
+      makeEnvelope({planStatus: 'active', planLifecycle: 'ended', isWritable: false})
+    )
+
+    expect(envelope.planStatus).toBe('active')
+    expect(envelope.planLifecycle).toBe('ended')
+    expect(envelope.isWritable).toBe(false)
+  })
+
+  // Loose on purpose, unlike MealPlanResponse.status: a lifecycle a newer server introduces should leave the
+  // day read-only (the converter's conservative fallback) rather than fail the whole read.
+  it('carries a lifecycle this build does not recognise through verbatim', () => {
+    expect(decodeRight(MealPlanDayEnvelopeResponse, makeEnvelope({planLifecycle: 'frozen'})).planLifecycle).toBe(
+      'frozen'
+    )
+  })
+
+  // The member the gate is read from, so its absence may never be read as "writable": a response without it
+  // is a contract break rather than a default.
+  it('refuses an envelope with no writeability verdict', () => {
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'isWritable'))
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planLifecycle'))
+    expectRefused(MealPlanDayEnvelopeResponse, withMembers(makeEnvelope(), {isWritable: 'true'}))
+  })
+
+  it('refuses an envelope missing the plan facts a write pins itself to', () => {
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planId'))
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planRevision'))
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'day'))
   })
 })
 

@@ -1,4 +1,5 @@
 import type {GroceryItem, GroceryList, UncheckAllGroceriesResult} from '@data/models/GroceryList'
+import {repartitionGroceryList} from '@data/models/GroceryList'
 import type {QueryClient, UseMutationOptions} from '@tanstack/react-query'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 
@@ -8,17 +9,13 @@ export interface UncheckAllGroceriesContext {
   previousList: GroceryList | undefined
 }
 
-const uncheckRow = (item: GroceryItem): GroceryItem => ({...item, isChecked: false, flag: null})
+const uncheckRow = (item: GroceryItem): GroceryItem =>
+  item.isChecked || item.flag !== null ? {...item, isChecked: false, flag: null} : item
 
-// Every tick clears at once, and the checked card keeps its rows rather than dropping them: GroceryItem
-// carries no category (0.5.2), so only the settle refetch can re-file them under their aisles, and removing
-// them here would take groceries off the shopper's list until it lands.
-const applyUncheckAll = (list: GroceryList): GroceryList => ({
-  ...list,
-  sections: list.sections.map(section => ({...section, items: section.items.map(uncheckRow)})),
-  checkedItems: list.checkedItems.map(uncheckRow),
-  checkedCount: 0
-})
+// Every tick and every flag clears at once, and each cleared row goes back on the list among the aisles:
+// leaving it in the emptied checked card would file it under "Checked · 0" and, with no aisle row left behind
+// it, make a list that still holds groceries read as empty. repartitionGroceryList owns that placement.
+const applyUncheckAll = (list: GroceryList): GroceryList => repartitionGroceryList(list, uncheckRow)
 
 export function buildUncheckAllGroceriesMutationOptions(
   queryClient: QueryClient,

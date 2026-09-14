@@ -2,8 +2,7 @@ import type {MacroTargets} from '@data/models/Macros'
 import type {
   MealPlanPreferences,
   MealPlanPreferencesSaveResult,
-  SetupStep,
-  SetupStepPayload
+  SetupStepRequest
 } from '@data/models/MealPlanPreferences'
 import type {
   NutritionTargetEstimate,
@@ -67,7 +66,7 @@ export type GenerateSequenceOutcome =
 
 export interface GenerateSequenceCollaborators {
   saveTargets: (payload: SaveNutritionTargetsPayload) => Promise<SaveNutritionTargetsResult>
-  saveSetupStep: (variables: {step: SetupStep; payload: SetupStepPayload}) => Promise<MealPlanPreferencesSaveResult>
+  saveSetupStep: (variables: SetupStepRequest) => Promise<MealPlanPreferencesSaveResult>
   refetchTargets: () => Promise<NutritionTargets | null>
   refetchPreferences: () => Promise<MealPlanPreferences | null>
   refetchEstimate: () => Promise<void>
@@ -110,7 +109,9 @@ const TARGETS_CONFLICT_FIELDS: readonly (keyof NutritionTargets & string)[] = Ob
 // reported as a conflict with the plan's start date.
 const REVIEW_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze(['reviewStartDate'])
 
-const REVIEW_STEP: SetupStep = 'review'
+// The literal type, not `SetupStep`: the wider annotation would not narrow against `SetupStepRequest` at the
+// call site below, which is the pairing this step's save has to satisfy.
+const REVIEW_STEP = 'review' as const
 
 /**
  * Whether a recorded confirmation is still the revision the server holds. A commitment records "this press

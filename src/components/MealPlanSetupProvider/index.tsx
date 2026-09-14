@@ -62,12 +62,20 @@ export interface MealPlanSetupContextValue {
 //     call site uses them; they are the API those screens should reach for rather than inventing
 //     a clearing rule, and clearing twice is a no-op.
 //   - a change of account clears by unmounting, and the boundary is the signed-in uid rather than
-//     the signed-in/signed-out flag: App.tsx keys the whole session tree by that uid, so signing
-//     out AND signing straight in as somebody else both recreate this provider with an empty
-//     draft. The distinction matters because the draft holds the answers to 'what do you weigh',
-//     'how old are you' and 'what can't you eat': an account change arrives as one uid replacing
-//     another with no signed-out render in between, a store reset cannot reach mounted Context, and
-//     the flag alone would leave those answers on screen for the incoming account.
+//     the signed-in/signed-out flag: App.tsx gives the session tree the React key
+//     `sessionCacheBindingFor(userId).sessionKey`, so signing out AND signing straight in as
+//     somebody else both recreate this provider with an empty draft. The distinction matters
+//     because the draft holds the answers to 'what do you weigh', 'how old are you' and 'what
+//     can't you eat': an account change arrives as one uid replacing another with no signed-out
+//     render in between, a store reset cannot reach mounted Context, and the flag alone would
+//     leave those answers on screen for the incoming account — along with the navigation state
+//     whose route params carry that account's plan, meal and recipe ids, which nothing inside this
+//     tree could clear either. That remount is deliberately the whole mechanism: this provider
+//     holds flow-scoped edits and reads no identity of its own, so it imports no store and
+//     subscribes to no auth state. The account-change cases in
+//     src/queries/__tests__/queryClient.test.ts and src/store/auth/__tests__/useAuthStore.test.ts
+//     pin the key, the cache partition and the session cleanup the remount rests on, and this
+//     folder's own util test pins what the draft a recreated provider starts from may hold.
 //     useMealPlanStore.reset() in useAuthStore covers the meal-plan state that is not in this tree.
 // A persisted step ('step_saved') deliberately keeps the draft. Resuming a half-finished setup is
 // the server's job (meal_plan_preferences.setup_step), so nothing here is persisted and the only

@@ -1,7 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {createAsyncStoragePersister} from '@tanstack/query-async-storage-persister'
 import {QueryClient} from '@tanstack/react-query'
-import {AsyncStorage as PersistedCacheStorage, Persister} from '@tanstack/react-query-persist-client'
+import {
+  AsyncStorage as PersistedCacheStorage,
+  Persister,
+  PersistQueryClientProviderProps
+} from '@tanstack/react-query-persist-client'
 
 // Only whitelisted queries are persisted to AsyncStorage — everything else is
 // memory-only and refetches on app launch. Exercises are kept on device so the
@@ -22,11 +26,6 @@ export const queryClient = new QueryClient({
       retry: 1
     }
   }
-})
-
-export const asyncStoragePersister = createAsyncStoragePersister({
-  storage: AsyncStorage,
-  key: 'soh-query-cache'
 })
 
 // Everything above is shared by every account that ever signs in on this device; everything below
@@ -112,6 +111,48 @@ export const queryCachePersisterFor = (userId: string | null): Persister => {
     removeClient: stored.removeClient
   }
 }
+
+// The React key of the session tree while nobody is signed in. Any value works as long as it cannot
+// collide with a Firebase uid — those are 28 alphanumeric characters, so a hyphenated word cannot.
+export const SIGNED_OUT_SESSION_KEY = 'signed-out'
+
+export interface SessionCacheBinding {
+  sessionKey: string
+  persistOptions: PersistQueryClientProviderProps['persistOptions']
+}
+
+/**
+ * Everything the app's single persisted-cache provider needs to belong to one account, derived from
+ * that account and nothing else.
+ *
+ * It is one value rather than three because the three cannot be mixed: a persister for account A
+ * mounted under a tree keyed for account B would write A's diary into B's session. Building them
+ * together also keeps the derivation out of App.tsx, where it would be untestable glue.
+ *
+ * - `sessionKey` is the React key of the whole session tree. The signed-in uid is the identity of
+ *   everything below it, so React recreates the subtree when the account changes rather than only
+ *   when somebody signs out. Signing in as a different user with no signed-out render in between
+ *   (Firebase delivers that as one uid replacing another) would otherwise leave the previous
+ *   account's data in the two places a store or cache reset cannot reach: the meal-plan setup draft
+ *   held in React Context (age, weight, diet, allergies, schedule, budget) and the navigation state,
+ *   whose route params carry that account's plan, meal and recipe ids.
+ * - `persistOptions.persister` reads and writes that account's partition alone, and stores nothing at
+ *   all until an identity exists (queryCachePersisterFor(null)).
+ * - `persistOptions.buster` is the second guard behind the key: a payload restored from another
+ *   account's buster is removed instead of hydrated.
+ * - `persistOptions.dehydrateOptions` applies the whitelist above, so only the queries listed there
+ *   ever reach the device.
+ */
+export const sessionCacheBindingFor = (userId: string | null): SessionCacheBinding => ({
+  sessionKey: userId ?? SIGNED_OUT_SESSION_KEY,
+  persistOptions: {
+    persister: queryCachePersisterFor(userId),
+    buster: userId ?? '',
+    dehydrateOptions: {
+      shouldDehydrateQuery: query => PERSISTED_QUERY_KEYS.includes(String(query.queryKey[0]))
+    }
+  }
+})
 
 /**
  * Opens the partition of the account that has just been published, or closes the one that was open

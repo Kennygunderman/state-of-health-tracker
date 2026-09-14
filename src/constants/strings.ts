@@ -1,5 +1,6 @@
 import {PaceLbPerWeek} from '@data/models/MealPlanPreferences'
 import {WeightUnit} from '@data/models/WeightUnit'
+import {lookupLabel} from '@utility/TextUtility'
 
 export const CAL_LABEL = 'cal'
 
@@ -1741,7 +1742,7 @@ export const CATALOG_PROVENANCE_BADGE_LABELS: Record<string, string> = {
   ai_estimated: 'AI estimate'
 }
 
-export const CATALOG_CATEGORY_LABELS: Record<string, string> = {
+export const CATALOG_CATEGORY_LABELS: Partial<Record<string, string>> = {
   produce_vegetable: 'Vegetable',
   produce_fruit: 'Fruit',
   protein_meat: 'Meat',
@@ -1768,8 +1769,12 @@ export const CATALOG_CATEGORY_LABELS: Record<string, string> = {
 // Distinct from the 'other' category's own label, so an unrecognised code is never shown as a known category.
 export const CATALOG_CATEGORY_FALLBACK_LABEL = 'Food'
 
+// `category` is an open server string, so an own-property read is the only correct one: a bare index answers an
+// inherited name ('constructor', '__proto__') with a function, which is not nullish, so the fallback below would
+// never fire and a non-string would reach React text. The table is declared partial for the same reason — a
+// future bare index is then honestly `string | undefined`.
 export function catalogCategoryLabel(category: string): string {
-  return CATALOG_CATEGORY_LABELS[category] ?? CATALOG_CATEGORY_FALLBACK_LABEL
+  return lookupLabel(CATALOG_CATEGORY_LABELS, category) ?? CATALOG_CATEGORY_FALLBACK_LABEL
 }
 
 export const MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'

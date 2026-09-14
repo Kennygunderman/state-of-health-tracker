@@ -1,9 +1,4 @@
-import {
-  MealPlanPreferences,
-  MealPlanPreferencesSaveResult,
-  SetupStep,
-  SetupStepPayload
-} from '@data/models/MealPlanPreferences'
+import {MealPlanPreferences, MealPlanPreferencesSaveResult, SetupStepRequest} from '@data/models/MealPlanPreferences'
 import {
   NutritionTargetEstimate,
   NutritionTargets,
@@ -118,7 +113,7 @@ const MINTED_KEY = 'minted-key'
 
 interface Behaviour {
   saveTargets?: (payload: SaveNutritionTargetsPayload) => Promise<SaveNutritionTargetsResult>
-  saveSetupStep?: (variables: {step: SetupStep; payload: SetupStepPayload}) => Promise<MealPlanPreferencesSaveResult>
+  saveSetupStep?: (variables: SetupStepRequest) => Promise<MealPlanPreferencesSaveResult>
   refetchedTargets?: NutritionTargets | null
   refetchedPreferences?: MealPlanPreferences | null
 }
@@ -128,7 +123,7 @@ interface Fakes {
   // Every collaborator call in the order it happened, which is what pins the ordering rules.
   calls: string[]
   targetsPayloads: SaveNutritionTargetsPayload[]
-  stepVariables: {step: SetupStep; payload: SetupStepPayload}[]
+  stepVariables: SetupStepRequest[]
   navigations: GeneratingRouteParams[]
   mintedKeys: string[]
 }
@@ -136,7 +131,7 @@ interface Fakes {
 const makeFakes = (behaviour: Behaviour = {}): Fakes => {
   const calls: string[] = []
   const targetsPayloads: SaveNutritionTargetsPayload[] = []
-  const stepVariables: {step: SetupStep; payload: SetupStepPayload}[] = []
+  const stepVariables: SetupStepRequest[] = []
   const navigations: GeneratingRouteParams[] = []
   const mintedKeys: string[] = []
 

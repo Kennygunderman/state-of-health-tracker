@@ -100,8 +100,10 @@ const AddFoodScreen = () => {
     return () => clearTimeout(timeout)
   }, [searchText])
 
-  // The single gate for the catalog section: Remote Config off, or a backend whose meal-planning routes are
-  // gone, and the section is neither rendered nor requested
+  // The single gate for the catalog section, and the whole of it: with Remote Config off, or a backend whose
+  // meal-planning routes are gone (a bare 404 from a resource-less GET), the section is neither rendered nor
+  // requested. A backend that is merely running with MEAL_PLANNING_ENABLED off keeps it — `/catalog/*` is never
+  // gated by that flag, so catalog search still answers even while the Meal Plan tab shows its unavailable card
   const {isCatalogVisible} = useMealPlanEntitlement()
 
   const foodsQuery = useFoodsInfiniteQuery(debouncedQuery)

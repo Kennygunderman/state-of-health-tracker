@@ -47,6 +47,10 @@ export interface CatalogFoodSearchResult {
   pagination: Pagination
 }
 
+// The one list the suggestions endpoint answers (AAP 0.5.2: kind ∈ {'dislike'}). Closed so that the cache key
+// and the request it stands for cannot name different lists.
+export type CatalogSuggestionKind = 'dislike'
+
 export interface CatalogFoodSuggestion {
   id: string
   name: string

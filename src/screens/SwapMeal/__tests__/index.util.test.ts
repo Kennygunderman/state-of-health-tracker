@@ -946,12 +946,14 @@ describe('retiresPendingIntent', () => {
 })
 
 describe('isPlanInactive', () => {
-  it('is false while the plan is active', () => {
-    expect(isPlanInactive('active')).toBe(false)
+  it('is false while the plan still accepts writes', () => {
+    expect(isPlanInactive(true)).toBe(false)
   })
 
-  it('is true once the plan has been superseded', () => {
-    expect(isPlanInactive('superseded')).toBe(true)
+  // The envelope reports `isWritable: false` for both ways a plan stops accepting writes — a regeneration
+  // replaced it, or its week has finished, which storage still records as 'active'.
+  it('is true once the plan has stopped accepting writes', () => {
+    expect(isPlanInactive(false)).toBe(true)
   })
 
   it('is false before the day query has answered', () => {
@@ -979,12 +981,12 @@ describe('isPlanRevisionStale', () => {
     expect(isPlanRevisionStale(0, 0)).toBe(false)
   })
 
-  // The two answer different questions, so neither implies the other: an active plan can have moved on, and a
-  // superseded plan can still carry the revision the screen opened with.
-  it('is independent of whether the plan is still active', () => {
-    expect(isPlanInactive('active')).toBe(false)
+  // The two answer different questions, so neither implies the other: a writable plan can have moved on, and a
+  // plan that no longer accepts writes can still carry the revision the screen opened with.
+  it('is independent of whether the plan still accepts writes', () => {
+    expect(isPlanInactive(true)).toBe(false)
     expect(isPlanRevisionStale(5, 4)).toBe(true)
-    expect(isPlanInactive('superseded')).toBe(true)
+    expect(isPlanInactive(false)).toBe(true)
     expect(isPlanRevisionStale(4, 4)).toBe(false)
   })
 })

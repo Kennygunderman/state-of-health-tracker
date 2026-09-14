@@ -20,9 +20,10 @@ const PLAN_START = '2026-07-05'
 const PLAN_END = '2026-07-11'
 const EN_DASH = '\u2013'
 
-// No case here depends on the runner's zone. The daylight-saving transition dates below are used as ordinary
-// calendar dates: every helper advances whole calendar days and reads local date parts, so the keys hold in UTC
-// exactly as they do in a zone that shifts its clock on them.
+// This suite runs in the runner's own zone, which is UTC on CI, so the transition dates below are ordinary
+// 24-hour calendar days here and these cases document the calendar contract rather than prove it under a clock
+// shift. The daylight-saving and negative-offset regressions live in MealPlanDateUtility.dst.test.ts, which
+// jest.config.js pins to America/New_York; do not mutate the zone in this file to reproduce them.
 describe('parseDayKey', () => {
   it('returns the local calendar day rather than UTC midnight', () => {
     const parsed = parseDayKey('2026-07-05')
@@ -154,8 +155,8 @@ describe('addDaysToDayKey', () => {
     expect(addDaysToDayKey('2026-07-04', 30)).toBe('2026-08-03')
   })
 
-  // A helper that advanced by a fixed twenty-four hours would stop an hour short of midnight on a day the
-  // clock shifts and return the day it started on, so the transition dates get their own arithmetic cases.
+  // The transition dates are covered here as ordinary calendar arithmetic; the case where a fixed twenty-four
+  // hours stops an hour short of midnight needs a zone that shifts its clock and is asserted in the dst suite.
   it('advances onto and off a daylight-saving transition date', () => {
     expect(addDaysToDayKey('2026-10-31', 1)).toBe('2026-11-01')
     expect(addDaysToDayKey('2026-11-01', 1)).toBe('2026-11-02')

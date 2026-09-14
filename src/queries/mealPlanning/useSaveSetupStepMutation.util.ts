@@ -1,14 +1,11 @@
-import type {MealPlanPreferencesSaveResult, SetupStep, SetupStepPayload} from '@data/models/MealPlanPreferences'
+import type {MealPlanPreferencesSaveResult, SetupStepRequest} from '@data/models/MealPlanPreferences'
 import type {QueryClient, UseMutationOptions} from '@tanstack/react-query'
 
 import {mutationKeys, queryKeys} from '../keys'
 
 export function buildSaveSetupStepMutationOptions(
   queryClient: QueryClient
-): Omit<
-  UseMutationOptions<MealPlanPreferencesSaveResult, Error, {step: SetupStep; payload: SetupStepPayload}>,
-  'mutationFn'
-> {
+): Omit<UseMutationOptions<MealPlanPreferencesSaveResult, Error, SetupStepRequest>, 'mutationFn'> {
   return {
     mutationKey: mutationKeys.saveSetupStep,
     onSuccess: () => {

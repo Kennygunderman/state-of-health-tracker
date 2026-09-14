@@ -11,6 +11,7 @@ import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import Screens from '@constants/screens'
 
 import {
+  arePlanActionsOffered,
   flexItemWidth,
   latestLoggedEntry,
   MealPlanBodyInputs,
@@ -513,6 +514,76 @@ describe('resolveSetupResumeTarget', () => {
       route: Screens.MEAL_PLAN_GOAL,
       params: {mode: 'setup'}
     })
+  })
+})
+
+/**
+ * The gate the day's Swap and Log pills are drawn from.
+ *
+ * Two things cannot answer it. `MealPlan.status` cannot: §0.5.1 leaves a finished week stored 'active' so its
+ * rows stay readable, and every write against it is refused `409 plan_not_active {reason: 'ended'}`. Neither
+ * can the plan's dates read against the device's calendar day: endedness is judged in the user's saved IANA
+ * zone, which the AAP keeps as a home zone until their next preferences save, so after travel the two days
+ * disagree and the device's answer offers writes the server refuses. The only input that opens these controls
+ * is the day envelope's own `isWritable` for the selected day.
+ */
+describe('arePlanActionsOffered', () => {
+  const WRITABLE = true
+  const REFUSED = false
+  // What the display-only seeded envelope carries, and what a pending day query has answered so far.
+  const UNKNOWN = null
+
+  it('offers the actions when the day route says the plan accepts writes', () => {
+    const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(makePlan(), null)}))
+
+    expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(true)
+  })
+
+  it('withholds them when the day route refuses writes, though the plan is still stored active', () => {
+    const plan = makePlan()
+    const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(plan, null)}))
+
+    expect(plan.status).toBe('active')
+    expect(arePlanActionsOffered(outcome, REFUSED)).toBe(false)
+  })
+
+  it('withholds them while no verdict has arrived, so the seeded day renders read-only', () => {
+    const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(makePlan(), null)}))
+
+    expect(arePlanActionsOffered(outcome, UNKNOWN)).toBe(false)
+    expect(arePlanActionsOffered(outcome, undefined)).toBe(false)
+  })
+
+  it('never derives a verdict from the plan on screen: a live-looking week alone offers nothing', () => {
+    // The week is current, stored active and inside its own dates — and still nothing is offered, because
+    // only the server may judge that in the user's saved zone.
+    const outcome = resolveMealPlanBody(
+      makeBodyInputs({plans: makePlans(makePlan({status: 'active', endDate: '2099-12-31'}), null)})
+    )
+
+    expect(arePlanActionsOffered(outcome, UNKNOWN)).toBe(false)
+  })
+
+  it('withholds them while the week is a saved copy, even against a writable verdict', () => {
+    const outcome = resolveMealPlanBody(
+      makeBodyInputs({plans: makePlans(makePlan(), null), currentPlanError: networkError})
+    )
+
+    expect(outcome).toEqual({kind: 'plan', plan: expect.anything(), isSavedCopy: true})
+    // The revision of a persisted copy cannot be trusted as expectedPlanRevision, so a stale 409 is traded
+    // for a control that was never offered.
+    expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(false)
+  })
+
+  it('offers nothing for every body that is not a plan', () => {
+    const notPlans = [
+      resolveMealPlanBody(makeBodyInputs({availability: 'disabled'})),
+      resolveMealPlanBody(makeBodyInputs({currentPlanError: stalePlanError})),
+      resolveMealPlanBody(makeBodyInputs({isLoading: true, plans: undefined})),
+      resolveMealPlanBody(makeBodyInputs())
+    ]
+
+    notPlans.forEach(outcome => expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(false))
   })
 })
 
