@@ -6,8 +6,10 @@ import {
   CAL_LABEL,
   CARBS_LABEL,
   FAT_LABEL,
+  MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE,
   MEAL_SLOT_SENTENCE_LABELS,
   PROTEIN_LABEL,
+  stringWithNamedParameters,
   SWAP_PREVIEW_REPLACING_TEMPLATE,
   SWAP_PREVIEW_SUBTITLE_SEPARATOR,
   SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE
@@ -27,6 +29,8 @@ const MINUS_SIGN = '\u2212'
 const TARGET_CALORIES = 2100
 const DAY_KEY = '2025-07-05'
 const DAY_TEXT = 'Sat Jul 5'
+const DAY_WEEKDAY = 'Sat'
+const DAY_DATE = 'Jul 5'
 const KNOWN_SLOT: MealSlot = 'lunch'
 const KNOWN_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
 const UNKNOWN_SLOT = 'brunch'
@@ -418,6 +422,15 @@ describe('formatReplacingContext', () => {
 
         expect(formatReplacingContext(KNOWN_SLOT, key)).toContain(dayOfMonth)
       })
+    })
+
+    it('joins the weekday and the date through the exported template rather than a copy of it', () => {
+      expect(formatReplacingContext(KNOWN_SLOT, DAY_KEY)).toBe(
+        replacingText(
+          MEAL_SLOT_SENTENCE_LABELS[KNOWN_SLOT],
+          stringWithNamedParameters(MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE, {weekday: DAY_WEEKDAY, date: DAY_DATE})
+        )
+      )
     })
   })
 })

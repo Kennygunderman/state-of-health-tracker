@@ -2,10 +2,10 @@ import {Goal, PaceLbPerWeek, WeightUnitPref} from '@data/models/MealPlanPreferen
 import {isSupportedBodyWeightInUnit, poundsToKilograms} from '@utility/UnitConversionUtility'
 
 import {
-  MEAL_PLAN_PACE_DEFICIT_TEMPLATE,
+  MEAL_PLAN_PACE_DEFICIT_SUBCOPY,
   MEAL_PLAN_PACE_RATE_TEMPLATE,
   MEAL_PLAN_PACE_RECOMMENDED_SUFFIX,
-  MEAL_PLAN_PACE_SURPLUS_TEMPLATE
+  MEAL_PLAN_PACE_SURPLUS_SUBCOPY
 } from '@constants/strings'
 
 export type MealPlanGoalErrorCode =
@@ -45,7 +45,7 @@ export interface MealPlanGoalContext {
 }
 
 interface GoalDirection {
-  paceSubcopyTemplate: string
+  paceSubcopy: Readonly<Record<PaceLbPerWeek, string>>
   goalWeightBelowCurrent: boolean
 }
 
@@ -59,21 +59,16 @@ interface GoalWeightResult {
 // over Goal keeps visibility, the pace sub-copy and the goal-side comparison from drifting apart, and makes
 // a fourth goal member a compile error here rather than a silently hidden control.
 const GOAL_DIRECTIONS: Record<Goal, GoalDirection | null> = {
-  lose: {paceSubcopyTemplate: MEAL_PLAN_PACE_DEFICIT_TEMPLATE, goalWeightBelowCurrent: true},
+  lose: {paceSubcopy: MEAL_PLAN_PACE_DEFICIT_SUBCOPY, goalWeightBelowCurrent: true},
   maintain: null,
-  gain: {paceSubcopyTemplate: MEAL_PLAN_PACE_SURPLUS_TEMPLATE, goalWeightBelowCurrent: false}
+  gain: {paceSubcopy: MEAL_PLAN_PACE_SURPLUS_SUBCOPY, goalWeightBelowCurrent: false}
 }
 
 const PACE_VALUES: readonly PaceLbPerWeek[] = [0.5, 1, 1.5]
 
 const RECOMMENDED_PACE: PaceLbPerWeek = 1
 
-// 3,500 kcal per pound of body fat spread over seven days, so a pound a week is a 500 kcal daily
-// adjustment — the figures the sub-copy quotes and the server's own estimate applies.
-const DAILY_KCAL_PER_LB_PER_WEEK = 500
-
 const PACE_PLACEHOLDER = '{pace}'
-const CALORIES_PLACEHOLDER = '{calories}'
 const GOAL_WEIGHT_PATTERN = /^\d+(\.\d*)?$|^\.\d+$/
 const GOAL_WEIGHT_ROUNDING_FACTOR = 10
 
@@ -82,8 +77,12 @@ const goalDirection = (goal: Goal | null): GoalDirection | null => (goal === nul
 const formatPaceLabel = (pace: PaceLbPerWeek): string =>
   MEAL_PLAN_PACE_RATE_TEMPLATE.replace(PACE_PLACEHOLDER, String(pace))
 
-const formatPaceSubcopy = (pace: PaceLbPerWeek, template: string): string => {
-  const sentence = template.replace(CALORIES_PLACEHOLDER, String(pace * DAILY_KCAL_PER_LB_PER_WEEK))
+// The daily calorie figure a pace implies belongs to the server's pace policy, which the estimate endpoint
+// applies; this screen reads the sentence that policy approved rather than recomputing it, so onboarding
+// copy cannot disagree with the targets the same user is shown next. Only the recommended marker is added
+// here, which is presentation rather than policy.
+const formatPaceSubcopy = (pace: PaceLbPerWeek, paceSubcopy: Readonly<Record<PaceLbPerWeek, string>>): string => {
+  const sentence = paceSubcopy[pace]
 
   return pace === RECOMMENDED_PACE ? `${sentence}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}` : sentence
 }
@@ -139,7 +138,7 @@ export const paceOptionsForGoal = (goal: Goal | null): PaceOption[] => {
   return PACE_VALUES.map(value => ({
     value,
     label: formatPaceLabel(value),
-    subcopy: formatPaceSubcopy(value, direction.paceSubcopyTemplate)
+    subcopy: formatPaceSubcopy(value, direction.paceSubcopy)
   }))
 }
 

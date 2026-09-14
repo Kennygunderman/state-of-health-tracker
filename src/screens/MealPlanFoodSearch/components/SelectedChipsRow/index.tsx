@@ -1,7 +1,10 @@
 import React from 'react'
 
-import ChipCloud from '@components/ChipCloud'
+import {ScrollView} from 'react-native'
+
 import SelectableChip from '@components/SelectableChip'
+
+import styles from './index.styled'
 
 interface Props {
   foods: {id: string; name: string}[]
@@ -15,7 +18,15 @@ interface Props {
    and flagged there for designer review. */
 const SelectedChipsRow = ({foods, onRemove}: Props): React.JSX.Element => {
   return (
-    <ChipCloud variant="scroll">
+    // ChipCloud takes no style pass-through (`{children, variant}` only), so this row's scroll geometry lives
+    // in the colocated stylesheet here rather than in it. Its keyboard handling is preserved: 06b keeps the
+    // search field focused with a query typed (`47:463`), so the first tap has to reach the chip.
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      style={styles.row}
+      contentContainerStyle={styles.rowContent}>
       {foods.map(food => (
         <SelectableChip
           key={food.id}
@@ -26,7 +37,7 @@ const SelectedChipsRow = ({foods, onRemove}: Props): React.JSX.Element => {
           onPress={() => onRemove(food.id)}
         />
       ))}
-    </ChipCloud>
+    </ScrollView>
   )
 }
 

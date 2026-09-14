@@ -9,7 +9,7 @@ import {
   plannedPortionFactor,
   scaleIngredientsForDisplay,
   WHOLE_RECIPE_FACTOR
-} from '@utility/RecipeIngredientUtility'
+} from '@utility/ServingsUtility'
 
 import {MetricGridItem} from '@components/MetricGrid4'
 
@@ -25,8 +25,8 @@ export type RecipeDetailErrorBranch = 'not_found' | 'inline'
 
 export type PlannedNutritionSource = {planned: MacroTotals} | {perServing: MacroTotals; portionMultiplier: number}
 
-// Declared by @utility/RecipeIngredientUtility, which owns the scaling and formatting this screen shares with the
-// swap preview, and re-exported so this screen's own surface is unchanged
+// Declared by @utility/ServingsUtility, which owns the scaling and formatting this screen shares with the swap
+// preview, and re-exported so this screen's own surface is unchanged
 export type {DisplayedIngredient}
 
 export interface MetricGridCaptions {
@@ -41,7 +41,7 @@ export interface ActionBarState {
   isEnabled: boolean
 }
 
-// The factor that rounds a nutrition figure without scaling it. Deliberately not the ingredient module's
+// The factor that rounds a nutrition figure without scaling it. Deliberately not ServingsUtility's
 // WHOLE_RECIPE_FACTOR, which is the same number about a different thing: already-planned totals need no
 // portion applied, whereas 'Full recipe' means the recipe's own amounts.
 const UNSCALED_FACTOR = 1
@@ -54,7 +54,7 @@ const isPresent = (segment: string | undefined): segment is string => segment !=
  * before applying the planned multiplier while 'Full recipe' leaves the stored amount alone. A yield that
  * cannot divide (zero, negative or non-finite) falls back to the unscaled amount rather than to Infinity.
  *
- * The portion arithmetic itself is @utility/RecipeIngredientUtility's, because the swap preview scales the same
+ * The portion arithmetic itself is @utility/ServingsUtility's, because the swap preview scales the same
  * whole-recipe amounts by the same two numbers — a second copy here is how the two screens came to disagree.
  * The display MODE stays this screen's: only frame 12 has a 'Full recipe' segment.
  */

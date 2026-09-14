@@ -62,6 +62,13 @@ export default StyleSheet.create({
     textAlign: 'center',
     color: Theme.colors.textSecondary
   },
+  retryAction: {
+    marginTop: Spacing.XX_SMALL,
+    fontSize: FontSize.BODY,
+    fontWeight: FontWeight.SEMIBOLD,
+    textAlign: 'center',
+    color: Theme.colors.accentGreen
+  },
   catalogSkeletonRow: {
     gap: Spacing.XX_SMALL,
     marginHorizontal: Spacing.MEDIUM,
@@ -74,5 +81,9 @@ export default StyleSheet.create({
   catalogSkeletonBar: {
     borderRadius: BorderRadius.CHECKBOX,
     backgroundColor: Theme.colors.inset
+  },
+  catalogSkeletonBarArea: {
+    alignSelf: 'stretch',
+    rowGap: Spacing.XX_SMALL
   }
 })

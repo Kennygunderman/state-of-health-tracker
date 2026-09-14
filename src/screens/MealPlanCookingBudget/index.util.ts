@@ -19,7 +19,7 @@ import {
   MEAL_PLAN_KG_UNIT,
   MEAL_PLAN_LB_UNIT,
   MEAL_PLAN_MEALS_ROW_LABEL,
-  MEAL_PLAN_SCHEDULE_LABELS,
+  MEAL_PLAN_SCHEDULE_SUMMARY_LABELS,
   MEAL_PLAN_SUMMARY_GOAL_WITH_WEIGHT_TEMPLATE,
   stringWithNamedParameters
 } from '@constants/strings'
@@ -46,14 +46,37 @@ export const MIN_WEEKLY_BUDGET_USD: number = 1
 
 export const MAX_WEEKLY_BUDGET_USD: number = 10000
 
-const NON_DIGIT_PATTERN = /[^0-9]/g
-
 const REDUNDANT_LEADING_ZERO_PATTERN = /^0+(?=\d)/
 
 const WHOLE_DOLLARS_PATTERN = /^\d+$/
 
-export const sanitizeBudgetInput = (text: string): string =>
-  text.replace(NON_DIGIT_PATTERN, '').replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
+// '1,250' and '10,000' are group separators inside a whole-dollar amount; '1,25' and '12,3456' are not an
+// amount at all, so the separator is only presentation where the grouping itself is well formed.
+const GROUPED_DOLLARS_PATTERN = /^\d{1,3}(,\d{3})+$/
+
+const CURRENCY_PREFIX_PATTERN = /^\$\s*/
+
+const GROUP_SEPARATOR_PATTERN = /,/g
+
+/**
+ * The amount as the field stores it: whole dollars, no currency sign, no separators.
+ *
+ * Only presentation is removed — the '$' the screen draws, surrounding space and well-formed group
+ * separators. An entry carrying anything else (a decimal point, a sign, prose, a malformed group) is
+ * refused and `previous` is returned unchanged, because deleting those characters would leave a
+ * perfectly valid amount the user never typed: '12.50' would be saved as 1250 and '-120' as 120, and
+ * neither the range check here nor the server's integer 1-10,000 could tell that had happened.
+ * Callers pass the field's current value as `previous` so a refused keystroke or paste keeps it.
+ */
+export const sanitizeBudgetInput = (text: string, previous: string = ''): string => {
+  const entry = text.trim().replace(CURRENCY_PREFIX_PATTERN, '').trim()
+
+  if (entry === '') return ''
+
+  if (!WHOLE_DOLLARS_PATTERN.test(entry) && !GROUPED_DOLLARS_PATTERN.test(entry)) return previous
+
+  return entry.replace(GROUP_SEPARATOR_PATTERN, '').replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
+}
 
 export const parseWeeklyBudget = (amountText: string): number | null => {
   const trimmed = amountText.trim()
@@ -218,8 +241,10 @@ export const buildPlanSummaryRows = (state: PlanSummaryDraft, preferences?: Plan
     rows.push({label: MEAL_PLAN_DIET_ROW_LABEL, value: MEAL_PLAN_DIET_LABELS[diet]})
   }
 
+  // The card reads the schedule as a count per day ('3 per day'), not as the option label it was chosen
+  // with ('3 meals'), so it takes the summary copy rather than the option copy.
   if (mealSchedule !== null) {
-    rows.push({label: MEAL_PLAN_MEALS_ROW_LABEL, value: MEAL_PLAN_SCHEDULE_LABELS[mealSchedule]})
+    rows.push({label: MEAL_PLAN_MEALS_ROW_LABEL, value: MEAL_PLAN_SCHEDULE_SUMMARY_LABELS[mealSchedule]})
   }
 
   return rows

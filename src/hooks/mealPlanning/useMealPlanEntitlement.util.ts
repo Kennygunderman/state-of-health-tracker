@@ -99,11 +99,14 @@ export const resolveMealPlanEntitlement = ({
   return {
     availability: isGatedRouteDisabled || areRoutesMissing ? 'unavailable' : 'enabled',
     isSegmentedControlVisible: true,
-    // The two unavailability signals part company here. `/catalog/*` is never gated by the server's
-    // MEAL_PLANNING_ENABLED flag, so signal (a) — a mounted backend answering a gated route with
-    // `feature_disabled` — still serves catalog search and Add Food keeps its section. Only signal (b), a
-    // rolled-back backend whose `/catalog/*` routes are absent too, removes it while the flag is on.
-    isCatalogVisible: !areRoutesMissing,
+    // Both unavailability signals hide Add Food's Catalog section. AAP 0.2.5 names them — (a) a gated route
+    // answering `503 feature_disabled`, (b) a bare 404 from one of the resource-less GETs — and gives them one
+    // shared effect, which lists "Add Food's Catalog section is hidden for the session" alongside the
+    // segmented control's neutral card. It is true that `/catalog/*` is never gated by the server's
+    // MEAL_PLANNING_ENABLED flag, so under signal (a) catalog search would still answer; the plan nonetheless
+    // hides the section for either signal, and the plan is the frozen contract, so the two signals are treated
+    // alike here rather than parted.
+    isCatalogVisible: !(isGatedRouteDisabled || areRoutesMissing),
     isGatedRequestAllowed: true,
     hasPlan
   }

@@ -13,14 +13,6 @@ const makePortionPayload = (overrides: Record<string, unknown> = {}): Record<str
   ...overrides
 })
 
-const makePortionNutritionPayload = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
-  calories: 136,
-  protein: 26,
-  carbs: 0,
-  fat: 3,
-  ...overrides
-})
-
 const makeFoodPayload = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   id: 'catalog-food-1',
   name: 'Chicken breast, boneless, skinless, raw',
@@ -36,7 +28,6 @@ const makeFoodPayload = (overrides: Record<string, unknown> = {}): Record<string
   fat: 2.6,
   fiber: 0,
   defaultPortion: makePortionPayload(),
-  defaultPortionNutrition: makePortionNutritionPayload(),
   allergenTags: [],
   allergenStatus: 'known',
   foodGroup: 'poultry',
@@ -268,54 +259,49 @@ describe('CatalogFoodResponse', () => {
     })
   })
 
-  // The server's nutrition for one default portion: required, because it is the only per-portion figure the
-  // client can show — the per-basis macros beside it are stated per basisAmount and a per_100ml food cannot be
-  // converted without a density no response carries.
-  describe('defaultPortionNutrition', () => {
-    it('carries every member of the projection through unchanged', () => {
-      const food = expectRight(CatalogFoodResponse.decode(makeFoodPayload()))
+  // The codec once required a defaultPortionNutrition member that frozen AAP 0.5.2 does not define, which made
+  // a conformant response undecodable. These cases pin the field set the contract actually froze.
+  describe('the AAP 0.5.2 field set', () => {
+    const CONTRACT_KEYS = [
+      'allergenStatus',
+      'allergenTags',
+      'basisAmount',
+      'calories',
+      'carbs',
+      'category',
+      'defaultPortion',
+      'fat',
+      'fiber',
+      'foodGroup',
+      'foodState',
+      'id',
+      'identitySource',
+      'name',
+      'nutritionBasis',
+      'nutritionProvenance',
+      'protein'
+    ]
 
-      expect(food.defaultPortionNutrition).toEqual({calories: 136, protein: 26, carbs: 0, fat: 3})
+    it('decodes a payload carrying exactly the members the contract defines', () => {
+      const payload = makeFoodPayload()
+
+      expect(Object.keys(payload).sort()).toEqual(CONTRACT_KEYS)
+      expect(isRight(CatalogFoodResponse.decode(payload))).toBe(true)
     })
 
-    it('keeps a zero macro in the projection as zero', () => {
-      const defaultPortionNutrition = makePortionNutritionPayload({carbs: 0, fat: 0})
-      const food = expectRight(CatalogFoodResponse.decode(makeFoodPayload({defaultPortionNutrition})))
+    it('rejects nothing merely for the absence of a server-computed portion projection', () => {
+      const payload = makeFoodPayload()
 
-      expect(food.defaultPortionNutrition.carbs).toBe(0)
-      expect(food.defaultPortionNutrition.fat).toBe(0)
+      expect(payload).not.toHaveProperty('defaultPortionNutrition')
+      expect(isRight(CatalogFoodResponse.decode(payload))).toBe(true)
     })
 
-    it('rejects a payload that omits defaultPortionNutrition', () => {
-      expect(isLeft(CatalogFoodResponse.decode(omitKey(makeFoodPayload(), 'defaultPortionNutrition')))).toBe(true)
-    })
+    it('decodes a whole search envelope of contract-shaped rows', () => {
+      const items = [makeFoodPayload(), makeFoodPayload({id: 'catalog-food-2', name: 'Brown rice, cooked'})]
+      const decoded = CatalogSearchResponse.decode(makeSearchPayload({items}))
 
-    it('rejects a null defaultPortionNutrition', () => {
-      expect(isLeft(CatalogFoodResponse.decode(makeFoodPayload({defaultPortionNutrition: null})))).toBe(true)
-    })
-
-    it('rejects a projection with no fat member', () => {
-      const defaultPortionNutrition = omitKey(makePortionNutritionPayload(), 'fat')
-
-      expect(isLeft(CatalogFoodResponse.decode(makeFoodPayload({defaultPortionNutrition})))).toBe(true)
-    })
-
-    it('rejects a projected macro supplied as a numeric string', () => {
-      const defaultPortionNutrition = makePortionNutritionPayload({protein: '26'})
-
-      expect(isLeft(CatalogFoodResponse.decode(makeFoodPayload({defaultPortionNutrition})))).toBe(true)
-    })
-
-    it('rejects a null projected macro', () => {
-      const defaultPortionNutrition = makePortionNutritionPayload({calories: null})
-
-      expect(isLeft(CatalogFoodResponse.decode(makeFoodPayload({defaultPortionNutrition})))).toBe(true)
-    })
-
-    it('rejects an envelope whose items array holds a food with no projection', () => {
-      const items = [makeFoodPayload(), omitKey(makeFoodPayload(), 'defaultPortionNutrition')]
-
-      expect(isLeft(CatalogSearchResponse.decode(makeSearchPayload({items})))).toBe(true)
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).items).toHaveLength(2)
     })
   })
 

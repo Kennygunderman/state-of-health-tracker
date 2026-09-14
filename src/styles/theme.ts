@@ -68,9 +68,13 @@ const heroScrim = 'rgba(8,13,10,0.6)'
 // 3. `textMuted` on `tile` — 4.40:1, needing 4.5:1; short by 0.10, the narrowest miss here. Figma 49:39 +
 //    49:41 and the unit toggles 46:315 and 46:344. The unselected segment has no fill of its own, so the
 //    track is the operative backdrop and both labels share one 600/13px style. `textSecondary` gives 6.40:1.
-// 4. `danger` on `dangerTint` — 4.41:1, needing 4.5:1. Figma draws this pair at 37:273 + 37:274. The same
-//    label on `card` measures 5.12:1, so the pill's own tint is what drops it below the threshold;
-//    `textSecondary` on `dangerTint` measures 5.95:1 but gives up the red semantic.
+// 4. `danger` on `dangerTint` — 4.41:1, needing 4.5:1 — in DeltaPill's grocery delta pill, and only there.
+//    Figma draws that pill and this pair at 37:273 + 37:274 (600/13px). The same label on `card` measures
+//    5.12:1, so the pill's own tint is what drops it below the threshold; `textSecondary` on `dangerTint`
+//    measures 5.95:1 but gives up the red semantic that marks an increase. BadgePill's warning tone no
+//    longer shares the pair: it is an inferred state with no Figma counterpart, so nothing drawn governs
+//    its label and it uses `text` on the same `dangerTint` fill at 12.91:1 — the pairing Figma draws for
+//    the error banner's title on that fill (see `@components/BadgePill/index.styled`).
 // 5. `textDisabled` as a hollow outline — 2.23:1 on `card` and 2.49:1 on `page`, needing 3:1. Figma 46:180
 //    and 38:129 (option indicator) and 37:218 (unchecked box) are stroke-only with no fill, so the parent
 //    surface shows through and `card` is the operative backdrop. `textMuted` gives 4.75:1 on `card`.

@@ -30,22 +30,21 @@ import {
   LOG_WEIGHT_TODAY_LABEL,
   MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_NAMES,
+  MEAL_SLOT_LABELS,
   PROTEIN_LABEL,
   stringWithNamedParameters
 } from '@constants/strings'
 
 export const MAX_PLANNED_SERVINGS = 10
 
-const SERVINGS_PRECISION_FACTOR = 100
+const MAX_SERVINGS_DECIMALS = 2
 
 const PLAIN_DECIMAL = /^\d+(\.\d*)?$|^\.\d+$/
 
-const CANONICAL_DIARY_BUCKET_NAMES: Record<MealSlot, string> = {
-  breakfast: 'Breakfast',
-  lunch: 'Lunch',
-  dinner: 'Dinner',
-  snack: 'Snack'
-}
+// The diary bucket a planned log lands in is matched by the very name the app displays for the slot, so the
+// two come from one map. Record<string, string> indexes as string, so the map is read through a widened alias
+// that keeps the absent-entry branch reachable instead of handing `undefined` to the matcher.
+const SLOT_LABELS: Record<string, string | undefined> = MEAL_SLOT_LABELS
 
 export interface FractionChipState {
   fraction: ServingFraction
@@ -80,7 +79,7 @@ export interface PlannedLogInputs {
   planRevision: number
 }
 
-const bucketName = (slot: MealSlot): string => CANONICAL_DIARY_BUCKET_NAMES[slot].toLowerCase()
+const bucketName = (slot: MealSlot): string => (SLOT_LABELS[slot] ?? slot).trim().toLowerCase()
 
 const matchesBucketName = (meal: Meal, name: string): boolean => meal.name.trim().toLowerCase() === name
 
@@ -134,20 +133,25 @@ export function nextPlannedServings(servings: number, direction: 1 | -1): number
   return Math.min(Math.max(stepped, MIN_SERVINGS), MAX_PLANNED_SERVINGS)
 }
 
+// The log endpoint takes servings in [0.25, 10] with at most two decimals (0.5.2), so a third decimal is
+// invalid input rather than input to round: rounding it would log a portion the user never chose ('0.249'
+// as a quarter, '10.004' as ten) and the endpoint would accept that different value without complaint.
 export function parsePlannedServingsInput(text: string): number | null {
   const normalized = text.replace(',', '.').trim()
 
   if (!PLAIN_DECIMAL.test(normalized)) return null
 
+  const separatorIndex = normalized.indexOf('.')
+
+  if (separatorIndex !== -1 && normalized.length - separatorIndex - 1 > MAX_SERVINGS_DECIMALS) return null
+
   const parsed = parseFloat(normalized)
 
   if (!Number.isFinite(parsed)) return null
 
-  const rounded = Math.round(parsed * SERVINGS_PRECISION_FACTOR) / SERVINGS_PRECISION_FACTOR
+  if (parsed < MIN_SERVINGS || parsed > MAX_PLANNED_SERVINGS) return null
 
-  if (rounded < MIN_SERVINGS || rounded > MAX_PLANNED_SERVINGS) return null
-
-  return rounded
+  return parsed
 }
 
 // The servings field has to keep raw keystrokes ('', '0.', '1,') while they are being typed, yet follow the

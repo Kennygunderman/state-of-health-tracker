@@ -19,7 +19,6 @@ const makeFoodResponse = (overrides: Partial<CatalogFoodPayload> = {}): CatalogF
   fat: 2.6,
   fiber: 0,
   defaultPortion: {description: '4 oz', amount: 4, unit: 'oz', gramWeight: 113.4},
-  defaultPortionNutrition: {calories: 136, protein: 26, carbs: 0, fat: 3},
   allergenTags: [],
   allergenStatus: 'known',
   foodGroup: 'poultry',
@@ -44,7 +43,6 @@ describe('convertCatalogFood', () => {
         fat: 2.6,
         fiber: 0,
         defaultPortion: {description: '4 oz', amount: 4, unit: 'oz', gramWeight: 113.4},
-        defaultPortionNutrition: {calories: 136, protein: 26, carbs: 0, fat: 3},
         allergenTags: [],
         allergenStatus: 'known',
         foodGroup: 'poultry'
@@ -259,18 +257,38 @@ describe('convertCatalogFood', () => {
     })
   })
 
-  describe('defaultPortionNutrition', () => {
-    it('carries every member of the portion projection through unchanged', () => {
-      const result = convertCatalogFood(makeFoodResponse())
+  // The converter once mapped a defaultPortionNutrition member that frozen AAP 0.5.2 does not define. A payload
+  // carrying exactly the contract's field set must convert, and the model must carry nothing beyond it.
+  describe('the AAP 0.5.2 field set', () => {
+    const CONTRACT_KEYS = [
+      'allergenStatus',
+      'allergenTags',
+      'basisAmount',
+      'calories',
+      'carbs',
+      'category',
+      'defaultPortion',
+      'fat',
+      'fiber',
+      'foodGroup',
+      'foodState',
+      'id',
+      'identitySource',
+      'name',
+      'nutritionBasis',
+      'nutritionProvenance',
+      'protein'
+    ]
 
-      expect(result.defaultPortionNutrition).toEqual({calories: 136, protein: 26, carbs: 0, fat: 3})
+    it('converts a payload carrying exactly the members the contract defines', () => {
+      const payload = makeFoodResponse()
+
+      expect(Object.keys(payload).sort()).toEqual(CONTRACT_KEYS)
+      expect(Object.keys(convertCatalogFood(payload)).sort()).toEqual(CONTRACT_KEYS)
     })
 
-    it('keeps a zero macro in the projection as zero', () => {
-      const projection = {calories: 0, protein: 0, carbs: 0, fat: 0}
-      const result = convertCatalogFood(makeFoodResponse({defaultPortionNutrition: projection}))
-
-      expect(result.defaultPortionNutrition).toEqual({calories: 0, protein: 0, carbs: 0, fat: 0})
+    it('carries no server-computed portion projection onto the model', () => {
+      expect(convertCatalogFood(makeFoodResponse())).not.toHaveProperty('defaultPortionNutrition')
     })
   })
 

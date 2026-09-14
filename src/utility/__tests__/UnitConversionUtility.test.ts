@@ -6,6 +6,7 @@ import {
   CM_PER_INCH,
   feetInchesToCentimeters,
   formatHeightImperial,
+  formatMeasurementValue,
   heightUnitPrefFor,
   INCHES_PER_FOOT,
   isSupportedBodyWeightInUnit,
@@ -14,6 +15,7 @@ import {
   KG_PER_STONE,
   kilogramsToPounds,
   MAX_BODY_WEIGHT_KG,
+  MEASUREMENT_DISPLAY_DECIMALS,
   MIN_BODY_WEIGHT_KG,
   poundsToKilograms,
   stoneToKilograms,
@@ -31,6 +33,42 @@ describe('conversion constants', () => {
   it('pins the body-weight envelope to the kilogram range the server validates', () => {
     expect(MIN_BODY_WEIGHT_KG).toBe(30)
     expect(MAX_BODY_WEIGHT_KG).toBe(300)
+  })
+
+  it('pins the display resolution every measurement is shown at', () => {
+    expect(MEASUREMENT_DISPLAY_DECIMALS).toBe(1)
+  })
+})
+
+describe('formatMeasurementValue', () => {
+  it('shows a measurement to one decimal', () => {
+    expect(formatMeasurementValue(170.5)).toBe('170.5')
+    expect(formatMeasurementValue(177.75)).toBe('177.8')
+    expect(formatMeasurementValue(82.644529814)).toBe('82.6')
+  })
+
+  it('drops a trailing zero decimal rather than rendering it', () => {
+    expect(formatMeasurementValue(170)).toBe('170')
+    expect(formatMeasurementValue(170.0)).toBe('170')
+    expect(formatMeasurementValue(170.04)).toBe('170')
+  })
+
+  it('keeps the tenth a converted reading came from, instead of rounding it away', () => {
+    expect(formatMeasurementValue(kilogramsToPounds(poundsToKilograms(170.5)))).toBe('170.5')
+    expect(formatMeasurementValue(kilogramsToPounds(poundsToKilograms(170)))).toBe('170')
+    expect(formatMeasurementValue(kilogramsToPounds(poundsToKilograms(182.2)))).toBe('182.2')
+  })
+
+  it('rounds a half up and never leaves a floating-point tail in the text', () => {
+    expect(formatMeasurementValue(170.55)).toBe('170.6')
+    expect(formatMeasurementValue(0.1 + 0.2)).toBe('0.3')
+    expect(formatMeasurementValue(1.005)).toBe('1')
+  })
+
+  it('formats zero and a negative reading without leaking a sign artefact', () => {
+    expect(formatMeasurementValue(0)).toBe('0')
+    expect(formatMeasurementValue(-0.04)).toBe('0')
+    expect(formatMeasurementValue(-170.55)).toBe('-170.5')
   })
 })
 

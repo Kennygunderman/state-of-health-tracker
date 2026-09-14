@@ -1,5 +1,6 @@
 import {AffectedMeal, MealPlanSummary} from '@data/models/MealPlan'
 import {
+  ALLERGEN_NONE,
   DislikedFoodSummary,
   HeightUnitPref,
   MealPlanPreferences,
@@ -11,6 +12,7 @@ import {NutritionTargets} from '@data/models/NutritionTargets'
 import type {RootStackParamList, StepMode, TargetsReturn} from '@navigation/types'
 import {formatPlanDayLabel, formatSlotTime, parseDayKey} from '@utility/MealPlanDateUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
+import {lookupLabel} from '@utility/TextUtility'
 import {centimetersToFeetInches, formatHeightImperial, kilogramsToPounds} from '@utility/UnitConversionUtility'
 import {format} from 'date-fns'
 
@@ -18,10 +20,12 @@ import Screens from '@constants/screens'
 import {
   MEAL_PLAN_ACTIVITY_LEVEL_LABELS,
   MEAL_PLAN_ALLERGEN_LABELS,
+  MEAL_PLAN_ALLERGEN_SENTENCE_LABELS,
   MEAL_PLAN_BUDGET_VALUE_TEMPLATE,
   MEAL_PLAN_CM_UNIT,
   MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE,
   MEAL_PLAN_DIET_LABELS,
+  MEAL_PLAN_DIET_SENTENCE_LABELS,
   MEAL_PLAN_DISLIKED_INGREDIENTS_ROW_LABEL,
   MEAL_PLAN_GOAL_LABELS,
   MEAL_PLAN_KCAL_UNIT,
@@ -125,8 +129,6 @@ const WEIGHT_PRECISION_FACTOR = 10
 
 const SINGLE_ITEM = 1
 
-const ALLERGEN_NONE = 'none'
-
 const withUnit = (value: string, unit: string): string =>
   stringWithNamedParameters(MEAL_PLAN_UNIT_VALUE_TEMPLATE, {value, unit})
 
@@ -148,7 +150,7 @@ const labelFor = (labels: Record<string, string>, code: string | null): string |
     return null
   }
 
-  const label: string | undefined = labels[code]
+  const label: string | undefined = lookupLabel(labels, code)
 
   return label ?? null
 }
@@ -352,11 +354,7 @@ const BANNER_COPY_RECORDS: readonly Record<string, string>[] = [
 ]
 
 const hasBannerCopy = (reason: string): boolean =>
-  BANNER_COPY_RECORDS.every(record => {
-    const copy: string | undefined = record[reason]
-
-    return copy !== undefined
-  })
+  BANNER_COPY_RECORDS.every(record => lookupLabel(record, reason) !== undefined)
 
 // MealPlanTab states the same rule for one card: flags that all carry one code name that code, and a set whose
 // codes differ can only be stated generically. Borrowing a specific reason would tell the user that, for
@@ -372,16 +370,98 @@ const resolveBannerReason = (meals: AffectedMeal[]): string => {
   return hasBannerCopy(firstCode) ? firstCode : PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
 }
 
-const resolveBannerDetail = (meals: AffectedMeal[]): string | null => {
-  const details = meals.flatMap(meal => meal.flags.flatMap(flag => flag.detail)).filter(detail => detail.length > 0)
-  const distinct = Array.from(new Set(details))
+// A detail is a server value, so a lookup keyed by one must never reach the prototype chain: 'constructor' or
+// '__proto__' would otherwise resolve to a function or an object and render as one. Own properties only, and a
+// string only.
+const sentenceLabelFor = (labels: Record<string, string>, code: string): string | null => {
+  if (!Object.prototype.hasOwnProperty.call(labels, code)) {
+    return null
+  }
+
+  const label: unknown = labels[code]
+
+  return typeof label === 'string' && label.length > 0 ? label : null
+}
+
+// All or nothing, here and in the two formatters below: the banner states one reason for every meal it lists,
+// so a detail this release cannot state is not a detail to drop. Dropping it would leave the sentence claiming
+// to name what the meals contain while naming only part of it — a user reading 'contains milk' would swap for
+// milk and meet the detail that was discarded. Null means 'state this generically instead'.
+const mapSentenceLabels = (labels: Record<string, string>, details: string[]): string[] | null => {
+  const labelled = details.map(detail => sentenceLabelFor(labels, detail.trim()))
+
+  return labelled.every((label): label is string => label !== null) ? labelled : null
+}
+
+// A duration is a count, not a label: it is stated through the minutes template rather than looked up, and the
+// greatest of the set is the one stated because the plural body says 'up to'. Every detail has to be a positive
+// whole number of minutes for that 'up to' to be true — one that is not leaves a flagged meal's duration
+// unknown, and the greatest of the rest would understate the set.
+const formatCookingTimeDetails = (details: string[]): string[] | null => {
+  const minutes = details.map(detail => Number(detail.trim()))
+
+  if (!minutes.every(value => Number.isInteger(value) && value > 0)) {
+    return null
+  }
+
+  return [stringWithNamedParameters(MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, {minutes: Math.max(...minutes)})]
+}
+
+// An ingredient name is the one detail that arrives as display text, so it is stated as sent — but a blank one
+// names nothing, and the set it belongs to is then as incomplete as an unrecognised code makes it.
+const formatIngredientNames = (details: string[]): string[] | null => {
+  const names = details.map(detail => detail.trim())
+
+  return names.every(name => name.length > 0) ? names : null
+}
+
+// What the server sends as a flag's detail differs per code: allergen and diet codes, ingredient display names,
+// and a minute count. Only the dislike names are already display text, so every other code is formatted here
+// rather than spliced into prose as the token it arrived as. A code this app has no formatting for states
+// nothing, which is what keeps a newer server's flag from reading as a raw value.
+const formatFlagDetails = (code: string, details: string[]): string[] | null => {
+  switch (code) {
+    case 'allergen':
+      return mapSentenceLabels(MEAL_PLAN_ALLERGEN_SENTENCE_LABELS, details)
+    case 'diet':
+      return mapSentenceLabels(MEAL_PLAN_DIET_SENTENCE_LABELS, details)
+    case 'dislike':
+      return formatIngredientNames(details)
+    case 'cooking_time':
+      return formatCookingTimeDetails(details)
+    default:
+      return null
+  }
+}
+
+// The details of the banner's own reason, formatted for that reason and de-duplicated after formatting, so two
+// meals flagged for the same allergen state it once and the first meal flagged decides the order. A flag that
+// carries no detail at all is the same incompleteness as one whose detail cannot be formatted: the reason the
+// banner would state for every listed meal is not established for that one, so it states the generic copy.
+const resolveBannerDetail = (reason: string, meals: AffectedMeal[]): string | null => {
+  const flags = meals.flatMap(meal => meal.flags.filter(flag => flag.code === reason))
+
+  if (flags.length === 0 || flags.some(flag => flag.detail.length === 0)) {
+    return null
+  }
+
+  const formatted = formatFlagDetails(
+    reason,
+    flags.flatMap(flag => flag.detail)
+  )
+
+  if (formatted === null) {
+    return null
+  }
+
+  const distinct = Array.from(new Set(formatted))
 
   return distinct.length > 0 ? distinct.join(MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR) : null
 }
 
 const flaggedMealDescription = (meal: AffectedMeal): string => {
   const weekday = format(parseDayKey(meal.date), WEEKDAY_FORMAT)
-  const slot: string | undefined = MEAL_SLOT_SENTENCE_LABELS[meal.slot]
+  const slot: string | undefined = lookupLabel(MEAL_SLOT_SENTENCE_LABELS, meal.slot)
 
   return slot === undefined ? weekday : stringWithNamedParameters(PLAN_SETTINGS_FLAGGED_MEAL_TEMPLATE, {weekday, slot})
 }
@@ -401,7 +481,9 @@ const joinFlaggedMeals = (descriptions: string[]): string => {
  * The flagged-meals banner, or null when there is nothing to say. A failed affected-meals query returns null
  * for the same reason an empty one does: the banner is omitted and the settings rows still render — a failure
  * never replaces them with an error or a blank card. A flag set carrying no detail resolves to the generic
- * reason, whose copy makes no claim the details would have had to support.
+ * reason, whose copy makes no claim the details would have had to support, and so does one whose details
+ * cannot be stated: an allergen or diet code this app does not know, an answer that excludes nothing, or a
+ * duration that is not a number.
  */
 export const derivePlanSettingsBanner = (
   meals: AffectedMeal[] | undefined,
@@ -417,8 +499,12 @@ export const derivePlanSettingsBanner = (
     return null
   }
 
-  const detail = resolveBannerDetail(flagged)
-  const reason = detail === null ? PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON : resolveBannerReason(flagged)
+  // The reason comes first and the details are then formatted for it, because what a detail means — and so how
+  // it reads in a sentence — is a property of the flag code that sent it. Pooling the details of several codes
+  // and formatting them as one would state an ingredient as a diet, or a diet as a duration.
+  const candidateReason = resolveBannerReason(flagged)
+  const detail = resolveBannerDetail(candidateReason, flagged)
+  const reason = detail === null ? PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON : candidateReason
   const descriptions = flagged.map(flaggedMealDescription)
   const isSingle = flagged.length === SINGLE_ITEM
 

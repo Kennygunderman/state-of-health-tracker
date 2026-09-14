@@ -1,4 +1,5 @@
 import type {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
+import {ALLERGEN_NONE, MEAL_SLOTS_IN_WIRE_ORDER} from '@data/models/MealPlanPreferences'
 import type {NutritionTargets} from '@data/models/NutritionTargets'
 import type {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import type {MealSlot} from '@data/models/Recipe'
@@ -43,6 +44,7 @@ import {
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
+  MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
   stringWithNamedParameters,
   TerminalOutcomeCopy
@@ -126,11 +128,6 @@ export interface GenerationRequestInputs {
 
 const NO_VALUE = ''
 
-// Must stay identical to the sentinel MealPlanSetupProvider and MealPlanDiet own: 'none' is mutually
-// exclusive with the named allergies, so it is a selection to exclude from the count rather than one of
-// them. It is re-declared rather than imported because a helper may not cross a component folder.
-const ALLERGEN_NONE = 'none'
-
 // The two confirmed answers this screen still has a move for, and the only ones that are not terminal. Stated
 // as the exception rather than terminality being stated as a list, because the list can never be complete:
 // every other confirmed refusal — a validation error, the capability being off, a code a later server release
@@ -175,9 +172,20 @@ const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
 
 const CONSTRAINT_UNITS: readonly LimitingConstraintUnit[] = ['minutes', 'foods', 'percent', 'recipes']
 
-// The closed sets behind the two guards below. A string the server sent is only a SetupStep or a MealSlot
-// once it has been matched against these: the wire types say nothing about what this release understands,
-// and a value that skips the check reaches a map lookup as an arbitrary key.
+// The two analyses whose finding is a meal slot rather than a measurement: coverage is evaluated per slot, so
+// the server sends the slots it found thin or empty alongside the count it found there, and 0.7.3 has the
+// analysis name the slot. '0 recipes' on its own is the one value a constraint row can carry that the user
+// cannot act on — it says a count without saying of what — so these two keep the slot and the count together
+// while every other key carries no slots at all and reads as its measurement.
+const COVERAGE_CONSTRAINT_KEYS: ReadonlySet<LimitingConstraintKey> = new Set<LimitingConstraintKey>([
+  'slot_coverage',
+  'catalog_coverage'
+])
+
+// The closed set behind the setup-step guard below. A string the server sent is only a SetupStep once it has
+// been matched against it: the wire types say nothing about what this release understands, and a value that
+// skips the check reaches a map lookup as an arbitrary key. The slot guard matches against the wire-order table
+// @data/models/MealPlanPreferences owns, which is the same closed set of slots the schedule step writes.
 const SETUP_STEPS: readonly SetupStep[] = [
   'goal',
   'body',
@@ -190,12 +198,12 @@ const SETUP_STEPS: readonly SetupStep[] = [
   'targets_manual'
 ]
 
-const MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
-
-// Record<string, string> indexing types as string, so both maps are read through a widened alias to keep
-// the unknown-key branch reachable: a slot or terminal code from a newer server release must never be
-// rendered raw, and an absent entry must fall through rather than reach a formatter as undefined.
+// Record<string, string> indexing types as string, so all three maps are read through a widened alias to
+// keep the unknown-key branch reachable: a slot, allergen or terminal code from a newer server release must
+// never be rendered raw, and an absent entry must fall through rather than reach a formatter as undefined.
 const SLOT_LABELS: Record<string, string | undefined> = MEAL_SLOT_LABELS
+
+const ALLERGEN_LABELS: Record<string, string | undefined> = MEAL_PLAN_ALLERGEN_LABELS
 
 const TERMINAL_COPY: Record<string, TerminalOutcomeCopy | undefined> = MEAL_PLAN_GENERATION_TERMINAL_COPY
 
@@ -505,12 +513,29 @@ const targetsValue = (targets: NutritionTargets | null): string => {
     : stringWithNamedParameters(MEAL_PLAN_TARGETS_KCAL_TEMPLATE, {calories: formatCalories(calories)})
 }
 
-const allergiesValue = (preferences: MealPlanPreferences): string => {
-  const namedCount = preferences.allergens.filter(allergen => allergen !== ALLERGEN_NONE).length
+// The named allergies this release can actually name, counted once each: the sentinel is an answer rather
+// than an allergy, a code a non-compliant payload repeated is still one allergy, and a code no label exists
+// for is one the row cannot claim the user selected — a count is a promise about what the plan excluded, so
+// it counts only what this release understands. Dropping the sentinel here is also what enforces its
+// exclusivity: a payload carrying 'none' beside named codes reads as those named codes.
+const namedAllergens = (allergens: string[]): string[] =>
+  Array.from(
+    new Set(
+      allergens.filter(allergen => allergen !== ALLERGEN_NONE && ownEntry(ALLERGEN_LABELS, allergen) !== undefined)
+    )
+  )
 
-  return namedCount === 0
-    ? MEAL_PLAN_ALLERGEN_LABELS.none
-    : stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: namedCount})
+const allergiesValue = (preferences: MealPlanPreferences): string => {
+  const named = namedAllergens(preferences.allergens)
+
+  if (named.length > 0) {
+    return stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: named.length})
+  }
+
+  // 'None' is an answer the user gave on 05, so it is printed only when the sentinel is actually there. An
+  // empty list is the unanswered row, and it reads empty for the reason the rows above do: a recap must not
+  // show an answer as given when it was not.
+  return preferences.allergens.includes(ALLERGEN_NONE) ? MEAL_PLAN_ALLERGEN_LABELS.none : NO_VALUE
 }
 
 export const resolveGenerationSummary = (
@@ -559,7 +584,7 @@ const isLimitingConstraintUnit = (value: unknown): value is LimitingConstraintUn
 
 const isSetupStep = (value: unknown): value is SetupStep => SETUP_STEPS.some(step => step === value)
 
-const isMealSlot = (value: unknown): value is MealSlot => MEAL_SLOTS.some(slot => slot === value)
+const isMealSlot = (value: unknown): value is MealSlot => MEAL_SLOTS_IN_WIRE_ORDER.some(slot => slot === value)
 
 const normalizeSlots = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((slot): slot is string => typeof slot === 'string') : []
@@ -614,11 +639,35 @@ const slotsValue = (slots: string[]): string =>
     .filter((label): label is string => typeof label === 'string')
     .join(MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR)
 
+// A measurement is only a measurement once the analysis gave both halves: a unit with no figure, or a figure
+// with no unit, is not a value this module can phrase, and the template would render the brace it could not
+// substitute.
+const measurementValue = (constraint: LimitingConstraint): string =>
+  constraint.unit !== null && constraint.value !== null
+    ? stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES[constraint.unit], {value: constraint.value})
+    : NO_VALUE
+
+// MEAL_PLAN_VALUE_SEPARATOR's own contract: an absent segment drops together with its separator, so one
+// segment renders alone and an empty list renders as nothing rather than as a stray middot.
+const joinValueSegments = (segments: readonly string[]): string =>
+  segments.filter(segment => segment !== NO_VALUE).join(MEAL_PLAN_VALUE_SEPARATOR)
+
 const constraintValue = (constraint: LimitingConstraint, preferences: MealPlanPreferences | null): string => {
-  if (constraint.unit !== null && constraint.value !== null) {
-    return stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES[constraint.unit], {value: constraint.value})
+  const measurement = measurementValue(constraint)
+
+  // A coverage analysis always answers with both parts, so precedence would silently discard one of them. The
+  // slots lead because the affected slot is the finding — the count qualifies it — and because a value the
+  // row has to truncate must lose the qualifier rather than the answer.
+  if (COVERAGE_CONSTRAINT_KEYS.has(constraint.constraintKey)) {
+    return joinValueSegments([slotsValue(constraint.slots), measurement])
   }
 
+  if (measurement !== NO_VALUE) {
+    return measurement
+  }
+
+  // Defensive: no other key is sent with slots today, but one that arrives with them is better read as the
+  // slots it named than as an empty row.
   const slots = slotsValue(constraint.slots)
 
   if (slots !== NO_VALUE) {

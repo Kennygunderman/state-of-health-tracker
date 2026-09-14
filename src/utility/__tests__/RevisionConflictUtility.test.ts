@@ -1,4 +1,10 @@
-import {resolveStaleRevision} from '../RevisionConflictUtility'
+import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
+
+import {
+  buildSaveEstimatedNutritionTargetsPayload,
+  buildSaveManualNutritionTargetsPayload,
+  resolveStaleRevision
+} from '../RevisionConflictUtility'
 
 type MealTime = {slot: string; time: string}
 
@@ -40,6 +46,8 @@ const PREFERENCE_FIELDS = [
 ] as const
 
 const TARGET_FIELDS = ['calories', 'protein', 'carbs', 'fat'] as const
+
+const VALUES = {calories: 1940, protein: 146, carbs: 194, fat: 65}
 
 const freshPreferences = (overrides: Partial<PreferencesShape> = {}): PreferencesShape => ({
   goal: 'lose',
@@ -584,5 +592,68 @@ describe('resolveStaleRevision', () => {
 
       expect(resolveStaleRevision(draft, freshTargets, TARGET_FIELDS)).toEqual({status: 'resolved'})
     })
+  })
+})
+
+describe('NO_TARGETS_REVISION', () => {
+  it('is the revision a user carries before any target save', () => {
+    expect(NO_TARGETS_REVISION).toBe(0)
+  })
+})
+
+describe('buildSaveEstimatedNutritionTargetsPayload', () => {
+  it('omits the revision pin on a first save', () => {
+    const payload = buildSaveEstimatedNutritionTargetsPayload({
+      estimateRevision: 9,
+      targetsRevision: NO_TARGETS_REVISION
+    })
+
+    expect(payload).toEqual({source: 'estimated', estimateRevision: 9})
+    expect('expectedTargetsRevision' in payload).toBe(false)
+    expect(JSON.stringify(payload)).not.toContain('expectedTargetsRevision')
+  })
+
+  it('pins the read revision on every later save', () => {
+    expect(buildSaveEstimatedNutritionTargetsPayload({estimateRevision: 9, targetsRevision: 4})).toEqual({
+      source: 'estimated',
+      estimateRevision: 9,
+      expectedTargetsRevision: 4
+    })
+  })
+
+  it('states no figures of its own, since the server recomputes them', () => {
+    const payload = buildSaveEstimatedNutritionTargetsPayload({estimateRevision: 9, targetsRevision: 4})
+
+    expect(Object.keys(payload)).toEqual(['source', 'estimateRevision', 'expectedTargetsRevision'])
+  })
+})
+
+describe('buildSaveManualNutritionTargetsPayload', () => {
+  it('omits the revision pin on a first save', () => {
+    const payload = buildSaveManualNutritionTargetsPayload({
+      values: VALUES,
+      targetsRevision: NO_TARGETS_REVISION
+    })
+
+    expect(payload).toEqual({source: 'manual', ...VALUES})
+    expect('expectedTargetsRevision' in payload).toBe(false)
+    expect(JSON.stringify(payload)).not.toContain('expectedTargetsRevision')
+  })
+
+  it('pins the read revision on every later save', () => {
+    expect(buildSaveManualNutritionTargetsPayload({values: VALUES, targetsRevision: 7})).toEqual({
+      source: 'manual',
+      ...VALUES,
+      expectedTargetsRevision: 7
+    })
+  })
+
+  it('states the four figures exactly as given, since the server stores them unchanged', () => {
+    const payload = buildSaveManualNutritionTargetsPayload({
+      values: {calories: 1200, protein: 1, carbs: 1, fat: 1},
+      targetsRevision: 7
+    })
+
+    expect(payload).toMatchObject({calories: 1200, protein: 1, carbs: 1, fat: 1})
   })
 })

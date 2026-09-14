@@ -33,6 +33,12 @@ export interface CatalogSourcedFood extends FoodFields {
   source: FoodSourceEnum.CATALOG
   catalogFoodId: string
   nutritionProvenance: SourcedNutritionProvenance
+  // The stored description of the catalog portion the values above were projected onto, carried verbatim so a
+  // log request can name the same portion row the numbers came from. It is never reconstructed from
+  // servingAmount/servingUnit: stored descriptions are rarely '<amount> <unit>' ('RACC', 'lemon', '1 cup,
+  // halves'), and the server rejects a description it does not hold. Optional because a food restored from
+  // persisted navigation state may carry none; absent means the server resolves the default portion itself.
+  catalogServingDescription?: string
 }
 
 // The user's own food: library, label-scanned, branded copy or seed. The two `never` members are load-bearing
@@ -43,6 +49,7 @@ export interface PersonalFood extends FoodFields {
   source: PersonalFoodSource
   catalogFoodId?: never
   nutritionProvenance?: never
+  catalogServingDescription?: never
 }
 
 export type Food = CatalogSourcedFood | PersonalFood
@@ -148,11 +155,20 @@ export function parseRouteFood(value: unknown): Food | null {
       return null
     }
 
+    const servingDescription = candidate.catalogServingDescription
+
+    // Rejected rather than dropped when malformed: a present-but-unusable description is a param this client
+    // did not write, and silently continuing without it would log a portion the screen never showed.
+    if (servingDescription !== undefined && (typeof servingDescription !== 'string' || servingDescription === '')) {
+      return null
+    }
+
     return {
       ...fields,
       source: FoodSourceEnum.CATALOG,
       catalogFoodId: candidate.catalogFoodId,
-      nutritionProvenance: candidate.nutritionProvenance
+      nutritionProvenance: candidate.nutritionProvenance,
+      ...(servingDescription === undefined ? {} : {catalogServingDescription: servingDescription})
     }
   }
 
@@ -160,9 +176,13 @@ export function parseRouteFood(value: unknown): Food | null {
     return null
   }
 
-  // A personal food carrying either catalog member is rejected rather than stripped: the object claims a
+  // A personal food carrying any catalog member is rejected rather than stripped: the object claims a
   // provenance its source cannot support, so what it describes is unknown.
-  if (candidate.catalogFoodId !== undefined || candidate.nutritionProvenance !== undefined) {
+  if (
+    candidate.catalogFoodId !== undefined ||
+    candidate.nutritionProvenance !== undefined ||
+    candidate.catalogServingDescription !== undefined
+  ) {
     return null
   }
 

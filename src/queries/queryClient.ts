@@ -24,6 +24,11 @@ export const queryClient = new QueryClient({
   }
 })
 
+export const asyncStoragePersister = createAsyncStoragePersister({
+  storage: AsyncStorage,
+  key: 'soh-query-cache'
+})
+
 // Everything above is shared by every account that ever signs in on this device; everything below
 // makes sure only one of them can read or write what is on disk. The persisted cache holds diary
 // macros, the profile photo and the whole current meal plan, so a single device-wide blob would let

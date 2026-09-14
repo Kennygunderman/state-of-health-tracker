@@ -1,3 +1,4 @@
+import useAuthStore from '@store/auth/useAuthStore'
 import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
 import {
   fingerprintSnapshot,
@@ -30,6 +31,37 @@ import useMealPlanStore, {
 // and the rehydration cases below queue their own stored payload for the read they drive.
 jest.mock('@store/zustandAsyncStorage', () => ({
   zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
+
+// The sign-out case below drives the real auth store so that reset() is reached the way the app reaches
+// it. Everything else the session boundary touches is stubbed down to a resolved call: this store is the
+// subject, and the cache, the workout file and the other user-scoped stores have their own suites. The
+// meal-plan store itself is deliberately left unmocked — it is what the assertion reads back.
+jest.mock('@queries/queryClient', () => ({
+  queryClient: {clear: jest.fn()},
+  sealQueryCachePartition: jest.fn(),
+  activateQueryCachePartition: jest.fn(),
+  discardPersistedQueryCache: jest.fn(async () => undefined)
+}))
+
+jest.mock('@service/auth/AuthService', () => ({
+  __esModule: true,
+  default: {logOutUser: jest.fn(async () => undefined)}
+}))
+
+jest.mock('@service/workouts/OfflineWorkoutStorageService', () => ({
+  __esModule: true,
+  default: {clear: jest.fn(async () => undefined)}
+}))
+
+jest.mock('@store/dailyWorkoutEntry/useDailyWorkoutEntryStore', () => ({
+  __esModule: true,
+  default: {getState: () => ({reset: jest.fn()})}
+}))
+
+jest.mock('@store/progress/useProgressStore', () => ({
+  __esModule: true,
+  default: {getState: () => ({reset: jest.fn()})}
 }))
 
 const persistedReads = zustandAsyncStorage.getItem as jest.Mock
@@ -684,6 +716,32 @@ describe('reset', () => {
     })
 
     useMealPlanStore.getState().reset()
+
+    const state = useMealPlanStore.getState()
+
+    expect(state.macrosSegment).toBe('diary')
+    expect(state.selectedPlanDate).toBeNull()
+    expect(state.selectedPlanId).toBeNull()
+    expect(state.dismissedSuccessBannerFor).toBeNull()
+    expect(state.postLogResult).toBeNull()
+    expect(state.pendingIntents).toEqual({})
+  })
+
+  // Signing out is the one caller outside this store that has to run reset(), and a plan left behind
+  // would be readable by whoever signs in next — so the case drives the auth store's own logout path
+  // instead of asserting that the two are wired together.
+  it('is run by a sign-out, so neither slice survives into the next account', async () => {
+    useMealPlanStore.setState({
+      macrosSegment: 'mealPlan',
+      selectedPlanDate: '2026-07-05',
+      selectedPlanId: 'plan-1',
+      dismissedSuccessBannerFor: 'entry-1',
+      postLogResult: makePostLogResult(),
+      pendingIntents: {log: makePendingIntent({action: 'log'})}
+    })
+    useAuthStore.setState({userId: 'user-a', userEmail: 'user-a@example.com', isAuthed: true})
+
+    await useAuthStore.getState().logoutUser()
 
     const state = useMealPlanStore.getState()
 

@@ -18,7 +18,7 @@ interface Props {
   // format a figure the user compares across them two ways.
   meta: string
   variant: CurrentMealCardVariant
-  eyebrow?: string
+  eyebrow: string
 }
 
 const CurrentMealCard = ({name, iconKey, meta, variant, eyebrow}: Props): React.JSX.Element => {
@@ -26,7 +26,7 @@ const CurrentMealCard = ({name, iconKey, meta, variant, eyebrow}: Props): React.
 
   return (
     <View style={[styles.card, isStillYours && styles.cardStillYours]}>
-      {!!eyebrow && <SectionOverline text={eyebrow} tone={isStillYours ? 'green' : 'muted'} />}
+      <SectionOverline text={eyebrow} tone={isStillYours ? 'green' : 'muted'} />
 
       <View style={styles.contentRow}>
         <MealIconTile iconKey={iconKey} size="md" />

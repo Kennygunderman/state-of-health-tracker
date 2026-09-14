@@ -1,3 +1,4 @@
+import {MealPlanningFlagInputs, resolveMealPlanningFlagEnabled} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import remoteConfig from '@react-native-firebase/remote-config'
 
 remoteConfig().setDefaults({
@@ -28,6 +29,13 @@ export const isLogWithAiEnabled = () => {
   return remoteConfig().getValue('log_with_ai_enabled').asBoolean()
 }
 
-export const isMealPlanningEnabled = (): boolean => {
-  return remoteConfig().getValue('meal_planning_enabled').asBoolean()
+// The source and fetch status are read alongside the value because asBoolean() alone cannot separate a
+// never-activated packaged default from an activated console value, which is what the fail-closed policy in
+// resolveMealPlanningFlagEnabled turns on. That policy lives in one place only; this reads its inputs.
+const readMealPlanningFlag = (): MealPlanningFlagInputs => {
+  const value = remoteConfig().getValue('meal_planning_enabled')
+
+  return {lastFetchStatus: remoteConfig().lastFetchStatus, valueSource: value.getSource(), value: value.asBoolean()}
 }
+
+export const isMealPlanningEnabled = (): boolean => resolveMealPlanningFlagEnabled(readMealPlanningFlag())

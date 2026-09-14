@@ -1,4 +1,4 @@
-import {CatalogSourcedFood, FoodSourceEnum, formatServingText, PersonalFood} from '@data/models/Food'
+import {CatalogSourcedFood, FoodSourceEnum, formatServingText, isCatalogFood, PersonalFood} from '@data/models/Food'
 import {InputMethodEnum, MealEntry} from '@data/models/MealEntry'
 import {FoodDetailParams} from '@navigation/types'
 
@@ -138,13 +138,35 @@ describe('catalogProvenanceLabel', () => {
 })
 
 describe('buildCatalogLogPayload', () => {
-  it('sends the catalog id, the eaten servings and the search input method', () => {
-    expect(buildCatalogLogPayload(makeCatalogFood(), 2)).toEqual({
+  it('sends the catalog id, the eaten servings, the stored serving description and the search input method', () => {
+    const food = makeCatalogFood({catalogServingDescription: '4 oz'})
+
+    expect(buildCatalogLogPayload(food, 2)).toEqual({
       catalogFoodId: 'catalog-food-1',
       servings: 2,
+      servingText: '4 oz',
       inputMethod: InputMethodEnum.SEARCH
     })
+    expect(Object.keys(buildCatalogLogPayload(food, 2)).sort()).toEqual([
+      'catalogFoodId',
+      'inputMethod',
+      'servingText',
+      'servings'
+    ])
     expect(InputMethodEnum.SEARCH).toBe('search')
+  })
+
+  // The server matches servingText against the food's stored catalog_food_portions.description values
+  // exactly, and most of those descriptions are not '<amount> <unit>' — the release data holds 'RACC',
+  // 'lemon' and '1 cup, halves'. Carrying the stored text verbatim is the only form it accepts.
+  it('carries a stored description verbatim, including one that is not an amount-unit pair', () => {
+    const descriptions = ['RACC', 'lemon', '1 cup, halves', 'Banana']
+
+    const sent = descriptions.map(
+      description => buildCatalogLogPayload(makeCatalogFood({catalogServingDescription: description}), 1).servingText
+    )
+
+    expect(sent).toEqual(descriptions)
   })
 
   it('reads the catalog id from the food, not the row id it happens to share', () => {
@@ -153,23 +175,21 @@ describe('buildCatalogLogPayload', () => {
     expect(buildCatalogLogPayload(food, 1).catalogFoodId).toBe('catalog-food-7')
   })
 
-  it('omits servingText, so the server derives the canonical portion description and the macros it labels', () => {
+  it('omits servingText entirely when the food carries no description, so the server derives the default portion', () => {
     const payload = buildCatalogLogPayload(makeCatalogFood(), 1)
 
     expect('servingText' in payload).toBe(false)
     expect(Object.keys(payload).sort()).toEqual(['catalogFoodId', 'inputMethod', 'servings'])
   })
 
-  // A stored description is rarely '<amount> <unit>': the release data has 'lemon' for 1 each and
-  // '1 cup, halves' for 152 g. Reconstructing the text client-side would be rejected as
-  // invalid_serving, so neither the reconstruction nor a guessed canonical value may be sent.
-  it('sends no portion text even when the stored description and the amount-unit pair disagree', () => {
+  it('builds the portion text from the stored description, never from the amount-unit pair', () => {
     const food = makeCatalogFood({
       name: 'Strawberries, raw',
-      // What the catalog food carries through AddFood's mapper: the portion's amount and unit,
-      // never its description ('½ cup'), which reconstructs as '0.5 cup'.
+      // The portion's amount and unit reconstruct as '0.5 cup', which is not what the catalog stores
+      // for this portion — sending it would be rejected as invalid_serving.
       servingAmount: 0.5,
       servingUnit: 'cup',
+      catalogServingDescription: '1 cup, halves',
       calories: 24,
       protein: 0,
       carbs: 6,
@@ -179,9 +199,8 @@ describe('buildCatalogLogPayload', () => {
     const payload = buildCatalogLogPayload(food, 1)
 
     expect(formatServingText(food)).toBe('0.5 cup')
-    expect(payload).not.toHaveProperty('servingText')
+    expect(payload.servingText).toBe('1 cup, halves')
     expect(Object.values(payload)).not.toContain('0.5 cup')
-    expect(Object.values(payload)).not.toContain('½ cup')
   })
 
   it('carries no library identity the catalog route would reject — no foodId, name or macros', () => {
@@ -195,9 +214,73 @@ describe('buildCatalogLogPayload', () => {
     expect(payload).not.toHaveProperty('fat')
   })
 
-  it('passes fractional servings through unrounded', () => {
+  it('passes fractional servings through unrounded, with or without a stored description', () => {
+    const described = makeCatalogFood({catalogServingDescription: '1 cup, halves'})
+
     expect(buildCatalogLogPayload(makeCatalogFood(), 0.33).servings).toBe(0.33)
     expect(buildCatalogLogPayload(makeCatalogFood(), 2.5).servings).toBe(2.5)
+    expect(buildCatalogLogPayload(described, 0.33).servings).toBe(0.33)
+    expect(buildCatalogLogPayload(described, 2.5).servings).toBe(2.5)
+  })
+})
+
+// The two Food model helpers below are asserted here rather than beside the model: this screen is their only
+// consumer, and index.tsx is a component with no suite of its own.
+const makeManualFood = (overrides: Partial<PersonalFood> = {}): PersonalFood => ({
+  id: 'food-2',
+  name: 'Overnight oats',
+  servingAmount: 1,
+  servingUnit: 'bowl',
+  calories: 320,
+  protein: 12,
+  carbs: 48,
+  fat: 9,
+  brand: null,
+  source: FoodSourceEnum.MANUAL,
+  ...overrides
+})
+
+describe('formatServingText', () => {
+  it('counts servings when the food carries no unit', () => {
+    expect(formatServingText(makeManualFood({servingAmount: 1, servingUnit: null}))).toBe('1 serving')
+    expect(formatServingText(makeManualFood({servingAmount: 2, servingUnit: null}))).toBe('2 servings')
+    expect(formatServingText(makeManualFood({servingAmount: 0.5, servingUnit: null}))).toBe('0.5 servings')
+  })
+
+  it('reads a blank unit as no unit, so a serving never renders with a trailing space', () => {
+    expect(formatServingText(makeManualFood({servingAmount: 1, servingUnit: ''}))).toBe('1 serving')
+  })
+})
+
+describe('isCatalogFood', () => {
+  const nonCatalogSources: PersonalFood['source'][] = [
+    FoodSourceEnum.MANUAL,
+    FoodSourceEnum.LABEL_SCAN,
+    FoodSourceEnum.BRANDED,
+    FoodSourceEnum.SEED
+  ]
+
+  it('narrows a catalog-sourced food', () => {
+    expect(isCatalogFood(makeCatalogFood())).toBe(true)
+  })
+
+  it('refuses every source this app writes itself, so a personal food never logs as catalog-backed', () => {
+    nonCatalogSources.forEach(source => {
+      expect(isCatalogFood(makeManualFood({source}))).toBe(false)
+    })
+  })
+
+  it('checks the whole enum minus catalog, so a new source member cannot silently start narrowing', () => {
+    const declaredNonCatalogSources = Object.values(FoodSourceEnum).filter(source => source !== FoodSourceEnum.CATALOG)
+
+    expect(nonCatalogSources).toEqual(declaredNonCatalogSources)
+  })
+
+  it('refuses a food whose source is absent rather than narrowing an unsourced row', () => {
+    const {source, ...withoutSource} = makeCatalogFood()
+
+    expect(source).toBe(FoodSourceEnum.CATALOG)
+    expect(isCatalogFood(withoutSource as CatalogSourcedFood)).toBe(false)
   })
 })
 
@@ -250,6 +333,16 @@ describe('resolveFoodDetailSource', () => {
 
     expect(source).toEqual({path: 'add', food})
     expect(source?.path === 'add' && source.food.source).toBe(FoodSourceEnum.CATALOG)
+  })
+
+  it('keeps the stored serving description a catalog food carries, so the log body can name that portion', () => {
+    const food = makeCatalogFood({catalogServingDescription: '1 cup, halves'})
+    const source = resolveFoodDetailSource(addParams(food))
+
+    expect(source?.path === 'add' && source.food.catalogServingDescription).toBe('1 cup, halves')
+    expect(
+      source?.path === 'add' && isCatalogFood(source.food) && buildCatalogLogPayload(source.food, 1).servingText
+    ).toBe('1 cup, halves')
   })
 
   it('accepts a personal food', () => {

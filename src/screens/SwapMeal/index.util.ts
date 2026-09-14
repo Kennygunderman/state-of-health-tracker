@@ -1,10 +1,11 @@
 import {MealPlanMeal, MealPlanStatus} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {SwapAlternative} from '@data/models/SwapAlternative'
-import {API_ERROR_CODES, getApiErrorCode, isUnknownOutcome} from '@utility/ApiErrorUtility'
+import {API_ERROR_CODES, getApiErrorCode, isPlanOrCapabilityRefusal, isUnknownOutcome} from '@utility/ApiErrorUtility'
 import {SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
+import {lookupLabel, lookupMember} from '@utility/TextUtility'
 
 import {
   MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE,
@@ -48,13 +49,16 @@ export type SwapRetryTarget = 'day' | 'alternatives'
 
 // What the call site must do to become able to act again. 'refetchPlan' re-reads the authoritative plan (the
 // answer is about the plan the screen is holding); 'reselectAlternative' sends the user back to the list so the
-// next attempt is built from a fresh preview.
-export type SwapTerminalRecovery = 'refetchPlan' | 'reselectAlternative'
+// next attempt is built from a fresh preview; 'exitToPlanTab' leaves this screen for the Macros tab, because the
+// capability itself is off — no next move on a swap screen exists, and the tab's entitlement router turns that
+// same signal into the unavailable card (0.2.5).
+export type SwapTerminalRecovery = 'refetchPlan' | 'reselectAlternative' | 'exitToPlanTab'
 
-// Which request the refusal answered, and the reason the two can never be collapsed: a keyed swap is resolved
-// only by an answer to that key, so only 'swap' may retire the pending intent. 'day' is a read — it can move the
-// display and trigger a refetch, but a plan that moved on says nothing about whether the swap committed.
-export type SwapTerminalSource = 'swap' | 'day'
+// Which request the refusal answered, and the reason the three can never be collapsed: a keyed swap is resolved
+// only by an answer to that key, so only 'swap' may retire the pending intent. 'day' and 'alternatives' are both
+// reads — either can move the display and trigger a refetch, but a plan that moved on, or a list the server
+// refused to assemble, says nothing about whether the swap committed.
+export type SwapTerminalSource = 'swap' | 'day' | 'alternatives'
 
 export interface SwapTerminalOutcome {
   code: string
@@ -115,18 +119,31 @@ const NO_ALTERNATIVES: readonly SwapAlternative[] = Object.freeze([])
 // None of these refusals can be resolved by replaying the same idempotency key (0.7.2): each one means the
 // request the key fingerprints is no longer the request to send, so the caller has to retire the pending intent
 // and fix the input first. Codes about the plan the screen holds are re-read from the server; codes about the
-// chosen alternative send the user back to the list, where the next attempt builds a fresh preview.
+// chosen alternative send the user back to the list, where the next attempt builds a fresh preview; the
+// capability being off leaves the screen entirely, because re-reading a plan behind a route that answers 503 is
+// the one recovery that cannot succeed (0.2.5).
 const TERMINAL_RECOVERIES: Partial<Record<string, SwapTerminalRecovery>> = Object.freeze({
   [API_ERROR_CODES.stalePlan]: 'refetchPlan',
   [API_ERROR_CODES.planNotActive]: 'refetchPlan',
   [API_ERROR_CODES.previewStale]: 'reselectAlternative',
   [API_ERROR_CODES.recipeIneligible]: 'reselectAlternative',
-  [API_ERROR_CODES.idempotencyConflict]: 'reselectAlternative'
+  [API_ERROR_CODES.idempotencyConflict]: 'reselectAlternative',
+  [API_ERROR_CODES.featureDisabled]: 'exitToPlanTab'
 })
+
+// The recovery union as a runtime list: the annotation on TERMINAL_RECOVERIES describes what the table was
+// authored with, never what indexing it by a server-supplied code can return, so membership is re-checked.
+const SWAP_TERMINAL_RECOVERIES: readonly SwapTerminalRecovery[] = Object.freeze([
+  'refetchPlan',
+  'reselectAlternative',
+  'exitToPlanTab'
+])
 
 // A code absent from this map resolves to `toastText: null` deliberately: this release ships no copy specific to
 // it, and a module that owns no copy must not invent user-visible text. The screen then reports the failure with
-// its own generic error toast rather than naming a cause it cannot describe.
+// its own generic error toast rather than naming a cause it cannot describe. `feature_disabled` is absent for a
+// stronger reason — its recovery leaves for the card that states the unavailability, so a toast on the way out
+// would say the same thing twice (the UNAVAILABLE family of `MealPlanGenerating` is silent for the same reason).
 const TERMINAL_TOASTS: Partial<Record<string, string>> = Object.freeze({
   [API_ERROR_CODES.stalePlan]: MEAL_PLAN_STALE_PLAN_TOAST,
   [API_ERROR_CODES.planNotActive]: MEAL_PLAN_STALE_PLAN_TOAST,
@@ -196,6 +213,14 @@ const terminalCode = (error: unknown): string | null => {
   return code === null || code === API_ERROR_CODES.swapFailed ? null : code
 }
 
+// The code of an answer that redirects a READ, or null when the failure is one a retry can still resolve. A read
+// has no idempotency key to retire, so terminality is not the question here: only the two plan-state codes and
+// the capability code carry a next move of their own, and every other failure — including a confirmed validation
+// refusal — is the inline retry. The closed sets stay in the classification authority so this screen, the
+// generating screen and the Macros entitlement cannot drift apart on what those codes are.
+const readRefusalCode = (error: unknown): string | null =>
+  isPlanOrCapabilityRefusal(error) ? getApiErrorCode(error) : null
+
 // The list travels with the terminal state so a refusal never strands the user on a blank screen: after the
 // recovery step they are back on the alternatives they were already reading.
 const terminalView = (
@@ -208,8 +233,8 @@ const terminalView = (
   terminal: {
     code,
     source,
-    toastText: TERMINAL_TOASTS[code] ?? null,
-    recovery: TERMINAL_RECOVERIES[code] ?? 'refetchPlan'
+    toastText: lookupLabel(TERMINAL_TOASTS, code) ?? null,
+    recovery: lookupMember(TERMINAL_RECOVERIES, code, SWAP_TERMINAL_RECOVERIES) ?? 'refetchPlan'
   },
   alternatives: alternatives ?? NO_ALTERNATIVES
 })
@@ -227,14 +252,22 @@ const terminalView = (
  * acting on a plan the server has superseded is unsafe — the same precedence `resolveMealPlanBody` gives a
  * decoded stale-plan answer over a refetch.
  *
+ * An authoritative alternatives answer sits at the same height and for the same two reasons: a plan the server
+ * has contradicted may not be acted on from a list drawn beside it, and a capability the server reports off must
+ * not sit behind a skeleton or behind rows the cache still holds. It is only the recognised plan-state and
+ * capability codes that reach this far (0.2.5) — a network failure, an undecodable body or any other confirmed
+ * code stays below the data check, which is what keeps stale-while-revalidate intact.
+ *
  * Only then is a missing meal classified, and the day query's own state decides which way: in flight is the
  * skeleton, while a failed request and a settled request that did not carry this meal (deleted, or swapped from
  * another device) are both the day retry card. Reading either of those as "loading" is what would skeleton
  * forever. A non-terminal day failure with the meal already decoded never reaches here, so a failed background
  * refetch cannot blank what the user is reading — the rule `resolveGroceryView` follows.
  *
- * Below that, a decoded empty array is the no-alternatives state and a failed request is the retry card: absent
- * data is never read as "nothing matches this slot".
+ * Below that the alternatives are read in the same shape: a decoded empty array is the no-alternatives state and
+ * decoded rows are the list, both outranking a mere background failure, because a request that died after the
+ * response landed may not blank what the user is already reading (0.2.5). The retry card is for having nothing
+ * decoded at all — and absent data is never read as "nothing matches this slot".
  */
 export function resolveSwapView(input: SwapViewInput): SwapView {
   const {currentMeal, alternatives, isAlternativesPending, alternativesError, swapError, isDayPending, dayError} = input
@@ -268,6 +301,12 @@ export function resolveSwapView(input: SwapViewInput): SwapView {
     return terminalView(dayTerminalCode, 'day', alternatives)
   }
 
+  const alternativesRefusalCode = readRefusalCode(alternativesError)
+
+  if (alternativesRefusalCode !== null) {
+    return terminalView(alternativesRefusalCode, 'alternatives', alternatives)
+  }
+
   if (currentMeal === null) {
     if (isDayPending && !hasError(dayError)) {
       return {kind: 'loading', currentMealVariant: 'default'}
@@ -280,19 +319,17 @@ export function resolveSwapView(input: SwapViewInput): SwapView {
     return {kind: 'loading', currentMealVariant: 'default'}
   }
 
+  if (alternatives !== undefined) {
+    return alternatives.length === 0
+      ? {kind: 'empty', currentMealVariant: 'unchanged'}
+      : {kind: 'list', currentMealVariant: 'default', alternatives}
+  }
+
   if (hasError(alternativesError)) {
     return {kind: 'error', currentMealVariant: 'default', banner: alternativesErrorBanner(), retry: 'alternatives'}
   }
 
-  if (alternatives === undefined) {
-    return {kind: 'loading', currentMealVariant: 'default'}
-  }
-
-  if (alternatives.length === 0) {
-    return {kind: 'empty', currentMealVariant: 'unchanged'}
-  }
-
-  return {kind: 'list', currentMealVariant: 'default', alternatives}
+  return {kind: 'loading', currentMealVariant: 'default'}
 }
 
 export function rendersAlternatives(view: SwapView): view is SwapViewWithAlternatives {
@@ -305,11 +342,11 @@ export function rendersAlternatives(view: SwapView): view is SwapViewWithAlterna
  * `idempotency_conflict` once the payload has to change. Everything else keeps it:
  *
  * - a confirmed `swap_failed` and an unknown outcome, because their "Try again" must replay the same key;
- * - a terminal answer from the DAY query, because that is a read. Only an answer to the key itself may resolve
- *   the attempt (0.2.5): the plan having moved on does not reveal whether the swap committed, and a cold-start
- *   replay runs before any `swapError` exists — retiring the key on a day error there would abandon a commit
- *   that may already be durable. Such a view still drives its display recovery and refetch; it just may not
- *   retire the intent.
+ * - a terminal answer from the DAY or ALTERNATIVES query, because both are reads. Only an answer to the key
+ *   itself may resolve the attempt (0.2.5): the plan having moved on — or the alternatives route refusing to
+ *   assemble a list for it — does not reveal whether the swap committed, and a cold-start replay runs before any
+ *   `swapError` exists, so retiring the key on either read's refusal would abandon a commit that may already be
+ *   durable. Such a view still drives its display recovery and refetch; it just may not retire the intent.
  */
 export function retiresPendingIntent(view: SwapView): boolean {
   return view.kind === 'terminal' && view.terminal.source === 'swap'

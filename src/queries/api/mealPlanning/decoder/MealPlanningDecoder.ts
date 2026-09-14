@@ -193,6 +193,13 @@ export const MealPlanResponse = io.type({
   days: io.array(MealPlanDayResponse)
 })
 
+// The GET /meal-planning/plans/current envelope, declared here so the request function and its tests share one
+// definition: both members are always present, and `{current: null, upcoming: null}` is the no-plan answer.
+export const CurrentMealPlanResponse = io.type({
+  current: io.union([MealPlanResponse, io.null]),
+  upcoming: io.union([MealPlanResponse, io.null])
+})
+
 export const RecipeVersionResponse = io.type({
   versionId: io.string,
   recipeId: io.string,

@@ -29,6 +29,26 @@ const UNMAPPED_SLOT = 'brunch' as unknown as AffectedMeal['slot']
 const UNMAPPED_FLAG_CODE = 'nutrition' as unknown as MealPlanFlag['code']
 const UNMAPPED_GOAL = 'shrink' as unknown as MealPlanPreferences['goal']
 
+// An ordinary unknown code and the Object.prototype member names beside it: a settings row has to read the two
+// the same way. The casts model a server that sent a code the narrow union does not contain; allergens need no
+// cast, since the model types them as plain strings.
+const UNKNOWN_ALLERGEN_CODE = 'unobtainium'
+const PROTOTYPE_ALLERGEN_CODES = ['constructor', 'toString', '__proto__', 'valueOf']
+const PROTOTYPE_GOAL = 'toString' as unknown as MealPlanPreferences['goal']
+const PROTOTYPE_DIET = 'constructor' as unknown as MealPlanPreferences['diet']
+const PROTOTYPE_ACTIVITY_LEVEL = 'valueOf' as unknown as MealPlanPreferences['activityLevel']
+const PROTOTYPE_MEAL_SCHEDULE = 'hasOwnProperty' as unknown as MealPlanPreferences['mealSchedule']
+const PROTOTYPE_SLOT = 'valueOf' as unknown as AffectedMeal['slot']
+const PROTOTYPE_FLAG_CODE = 'toString' as unknown as MealPlanFlag['code']
+const INHERITED_MEMBER_TEXT = /function|\[object|native code/i
+
+// The copy a banner degrades to when its details state nothing the user can act on.
+const GENERIC_SINGULAR_TITLE = '1 meal no longer matches your preferences'
+const GENERIC_SINGULAR_BODY = 'Tuesday dinner no longer matches your preferences. It stays flagged until you swap it.'
+
+// Details an unguarded record lookup would resolve to an inherited function or object.
+const PROTOTYPE_DETAIL_KEYS = ['constructor', '__proto__', 'toString']
+
 const makePreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlanPreferences => ({
   setupStatus: 'completed',
   setupStep: 'review',
@@ -442,6 +462,37 @@ describe('buildPlanSettingsRows', () => {
       expect(rows[0].target.params).toEqual(rows[1].target.params)
     })
   })
+
+  describe('a code named after an Object.prototype member', () => {
+    it('treats prototype-named allergen codes exactly like a code it has no label for', () => {
+      const prototypeNamed = rowValue(makePreferences({allergens: PROTOTYPE_ALLERGEN_CODES}), 'dietAndAllergies')
+      const unknown = rowValue(makePreferences({allergens: [UNKNOWN_ALLERGEN_CODE]}), 'dietAndAllergies')
+
+      expect(prototypeNamed).toBe(unknown)
+      expect(prototypeNamed).toBe('Vegetarian')
+      expect(prototypeNamed).not.toMatch(INHERITED_MEMBER_TEXT)
+    })
+
+    it('reads Not set in every row of a profile whose every mapped code is prototype-named', () => {
+      const rows = buildPlanSettingsRows(
+        makeUnansweredPreferences({
+          goal: PROTOTYPE_GOAL,
+          activityLevel: PROTOTYPE_ACTIVITY_LEVEL,
+          diet: PROTOTYPE_DIET,
+          mealSchedule: PROTOTYPE_MEAL_SCHEDULE,
+          allergens: PROTOTYPE_ALLERGEN_CODES
+        }),
+        null
+      )
+
+      expect(rows).toHaveLength(7)
+
+      rows.forEach(row => {
+        expect(row.value).toBe(NOT_SET)
+        expect(row.value).not.toMatch(INHERITED_MEMBER_TEXT)
+      })
+    })
+  })
 })
 
 describe('shouldRecalculateTargets', () => {
@@ -574,15 +625,30 @@ describe('derivePlanSettingsBanner', () => {
       })
     })
 
-    it('states a diet exclusion as the diet copy rather than the allergen copy', () => {
+    // The server sends the allergen code from the user's saved list, so 'tree_nuts' is the payload and
+    // 'tree nuts' is the only form a sentence can carry.
+    it('states an allergen code as the words the sentence needs', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'allergen', detail: ['tree_nuts']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe('1 meal no longer matches your diet')
+      expect(banner?.body).toBe('Tuesday dinner contains tree nuts. It stays flagged until you swap it.')
+      expect(banner?.body).not.toContain('tree_nuts')
+      expect(banner?.body).not.toContain('_')
+    })
+
+    // 'diet' carries the user's own diet code, not an ingredient: the sentence names the diet the meal fails.
+    it('states a diet exclusion as the diet copy rather than as something the meal contains', () => {
       const banner = derivePlanSettingsBanner(
         [
-          makeAffectedMeal({flags: [{code: 'diet', detail: ['milk']}]}),
+          makeAffectedMeal({flags: [{code: 'diet', detail: ['vegetarian']}]}),
           makeAffectedMeal({
             mealId: 'meal-2',
             date: FLAGGED_LUNCH_DATE,
             slot: 'lunch',
-            flags: [{code: 'diet', detail: ['milk']}]
+            flags: [{code: 'diet', detail: ['vegetarian']}]
           })
         ],
         false
@@ -590,33 +656,70 @@ describe('derivePlanSettingsBanner', () => {
 
       expect(banner?.title).toBe('2 meals no longer match your diet')
       expect(banner?.body).toBe(
-        'Tuesday dinner and Thursday lunch contain milk, which your diet excludes. They stay flagged until you swap them.'
+        "Tuesday dinner and Thursday lunch don't fit your vegetarian diet. They stay flagged until you swap them."
       )
+      expect(banner?.body).not.toContain('contains vegetarian')
+      expect(banner?.body).not.toContain('contain vegetarian')
     })
 
+    it('states a single diet-flagged meal in the singular', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'diet', detail: ['pescatarian']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe('1 meal no longer matches your diet')
+      expect(banner?.body).toBe("Tuesday dinner doesn't fit your pescatarian diet. It stays flagged until you swap it.")
+    })
+
+    // 'dislike' is the one detail that arrives as display text: an ingredient name is stated as sent.
     it('states a skipped ingredient as the dislike copy', () => {
       const banner = derivePlanSettingsBanner(
-        [makeAffectedMeal({flags: [{code: 'dislike', detail: ['mushrooms']}]})],
+        [makeAffectedMeal({flags: [{code: 'dislike', detail: ['Mushrooms']}]})],
         false
       )
 
       expect(banner?.title).toBe('1 meal contains an ingredient you skip')
       expect(banner?.body).toBe(
-        'Tuesday dinner contains mushrooms, which you asked us to skip. It stays flagged until you swap it.'
+        'Tuesday dinner contains Mushrooms, which you asked us to skip. It stays flagged until you swap it.'
       )
     })
 
-    it('states a cooking-time overrun as the cooking-time copy without naming the code', () => {
+    // 'cooking_time' carries the recipe's own duration as a bare number, so the sentence states that duration
+    // rather than presenting it as the user's limit.
+    it('states a cooking-time overrun as the meal duration the server sent', () => {
       const banner = derivePlanSettingsBanner(
-        [makeAffectedMeal({flags: [{code: 'cooking_time', detail: ['30 minute']}]})],
+        [makeAffectedMeal({flags: [{code: 'cooking_time', detail: ['45']}]})],
         false
       )
 
       expect(banner?.title).toBe('1 meal takes longer than your cooking time')
       expect(banner?.body).toBe(
-        'Tuesday dinner takes longer than your 30 minute cooking time. It stays flagged until you swap it.'
+        'Tuesday dinner takes 45 minutes, longer than your cooking time. It stays flagged until you swap it.'
       )
       expect(banner?.body).not.toContain('cooking_time')
+      expect(banner?.body).not.toContain('your 45')
+    })
+
+    it('states the longest duration when several meals run over', () => {
+      const banner = derivePlanSettingsBanner(
+        [
+          makeAffectedMeal({flags: [{code: 'cooking_time', detail: ['45']}]}),
+          makeAffectedMeal({
+            mealId: 'meal-2',
+            date: FLAGGED_LUNCH_DATE,
+            slot: 'lunch',
+            flags: [{code: 'cooking_time', detail: ['60']}]
+          })
+        ],
+        false
+      )
+
+      expect(banner?.title).toBe('2 meals take longer than your cooking time')
+      expect(banner?.body).toBe(
+        'Tuesday dinner and Thursday lunch take up to 60 minutes, longer than your cooking time. They stay flagged until you swap them.'
+      )
+      expect(banner?.body).not.toContain('45')
     })
 
     it('never names the flag code in the sentence it renders', () => {
@@ -672,6 +775,185 @@ describe('derivePlanSettingsBanner', () => {
       expect(banner?.body).not.toContain('nutrition')
       expect(banner?.body).not.toContain('sodium')
     })
+
+    it('falls back to the mixed copy for a prototype-named flag code rather than inheriting a member', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: PROTOTYPE_FLAG_CODE, detail: ['sodium']}]})],
+        false
+      )
+
+      expect(typeof banner?.title).toBe('string')
+      expect(typeof banner?.body).toBe('string')
+      expect(banner?.title).toBe('1 meal no longer matches your preferences')
+      expect(banner?.body).toBe(
+        'Tuesday dinner no longer matches your preferences. It stays flagged until you swap it.'
+      )
+      expect(banner?.body).not.toMatch(INHERITED_MEMBER_TEXT)
+    })
+
+    // An allergen a newer server release names, which this app has no wording for: the generic copy claims
+    // nothing about it, where the code itself would have named a machine token in the sentence.
+    it('falls back to the mixed copy for an allergen code it has no wording for', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'allergen', detail: ['mustard']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain('mustard')
+    })
+
+    // 'none' is the no-specific-diet answer, which excludes nothing: there is no true diet sentence to write.
+    it('falls back to the mixed copy for a diet detail that excludes nothing', () => {
+      const banner = derivePlanSettingsBanner([makeAffectedMeal({flags: [{code: 'diet', detail: ['none']}]})], false)
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain("doesn't fit")
+      expect(banner?.body).not.toContain('No specific diet')
+    })
+
+    it('falls back to the mixed copy for a cooking time that is not a number of minutes', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'cooking_time', detail: ['soon']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain('soon')
+      expect(banner?.body).not.toContain('minutes')
+    })
+
+    it.each(PROTOTYPE_DETAIL_KEYS)('never resolves the inherited member %s an allergen detail names', key => {
+      const banner = derivePlanSettingsBanner([makeAffectedMeal({flags: [{code: 'allergen', detail: [key]}]})], false)
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain(key)
+      expect(banner?.body).not.toContain('function')
+      expect(banner?.body).not.toContain('[object Object]')
+    })
+
+    it.each(PROTOTYPE_DETAIL_KEYS)('never resolves the inherited member %s a diet detail names', key => {
+      const banner = derivePlanSettingsBanner([makeAffectedMeal({flags: [{code: 'diet', detail: [key]}]})], false)
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain(key)
+      expect(banner?.body).not.toContain('function')
+      expect(banner?.body).not.toContain('[object Object]')
+    })
+
+    // The banner states one reason for every meal it lists, so a detail it cannot state is not a detail to
+    // drop: naming only the recognised half would have the sentence claim to say what the meals contain while
+    // saying less, and a user who swaps for the named allergen would meet the one that was discarded.
+    it('falls back to the mixed copy when one of two same-reason meals names an allergen it has no wording for', () => {
+      const banner = derivePlanSettingsBanner(
+        [
+          makeAffectedMeal({flags: [{code: 'allergen', detail: ['mustard']}]}),
+          makeAffectedMeal({
+            mealId: 'meal-2',
+            date: FLAGGED_LUNCH_DATE,
+            slot: 'lunch',
+            flags: [{code: 'allergen', detail: ['milk']}]
+          })
+        ],
+        false
+      )
+
+      expect(banner?.title).toBe('2 meals no longer match your preferences')
+      expect(banner?.body).toBe(
+        'Tuesday dinner and Thursday lunch no longer match your preferences. They stay flagged until you swap them.'
+      )
+      expect(banner?.body).not.toContain('milk')
+      expect(banner?.body).not.toContain('mustard')
+    })
+
+    it('falls back to the mixed copy when one flag names a recognised allergen beside an unknown one', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'allergen', detail: ['milk', 'mustard']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain('milk')
+      expect(banner?.body).not.toContain('mustard')
+    })
+
+    it('falls back to the mixed copy when one of two same-reason meals states no detail at all', () => {
+      const banner = derivePlanSettingsBanner(
+        [
+          makeAffectedMeal({flags: [{code: 'allergen', detail: ['milk']}]}),
+          makeAffectedMeal({
+            mealId: 'meal-2',
+            date: FLAGGED_LUNCH_DATE,
+            slot: 'lunch',
+            flags: [{code: 'allergen', detail: []}]
+          })
+        ],
+        false
+      )
+
+      expect(banner?.title).toBe('2 meals no longer match your preferences')
+      expect(banner?.body).not.toContain('milk')
+    })
+
+    // 'up to 45 minutes' would understate a set whose other duration is unknown, so an unreadable one takes
+    // the whole banner to the generic copy rather than the longest of what happened to parse.
+    it('falls back to the mixed copy when a readable duration arrives beside an unreadable one', () => {
+      const banner = derivePlanSettingsBanner(
+        [
+          makeAffectedMeal({flags: [{code: 'cooking_time', detail: ['45']}]}),
+          makeAffectedMeal({
+            mealId: 'meal-2',
+            date: FLAGGED_LUNCH_DATE,
+            slot: 'lunch',
+            flags: [{code: 'cooking_time', detail: ['soon']}]
+          })
+        ],
+        false
+      )
+
+      expect(banner?.title).toBe('2 meals no longer match your preferences')
+      expect(banner?.body).not.toContain('45')
+      expect(banner?.body).not.toContain('minutes')
+      expect(banner?.body).not.toContain('soon')
+    })
+
+    it('falls back to the mixed copy when a named ingredient arrives beside a blank one', () => {
+      const banner = derivePlanSettingsBanner(
+        [makeAffectedMeal({flags: [{code: 'dislike', detail: ['Mushrooms', '   ']}]})],
+        false
+      )
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain('Mushrooms')
+    })
+
+    // Two codes on one meal: neither detail reaches the sentence, because the generic copy that a set of
+    // differing codes earns has no claim for either of them to fill.
+    it('states no detail when one meal carries flags of two codes', () => {
+      const banner = derivePlanSettingsBanner(
+        [
+          makeAffectedMeal({
+            flags: [
+              {code: 'allergen', detail: ['milk']},
+              {code: 'cooking_time', detail: ['45']}
+            ]
+          })
+        ],
+        false
+      )
+
+      expect(banner?.title).toBe(GENERIC_SINGULAR_TITLE)
+      expect(banner?.body).toBe(GENERIC_SINGULAR_BODY)
+      expect(banner?.body).not.toContain('milk')
+      expect(banner?.body).not.toContain('45')
+    })
   })
 
   describe('the details it states', () => {
@@ -720,6 +1002,13 @@ describe('derivePlanSettingsBanner', () => {
 
       expect(banner?.body).toBe('Tuesday contains milk. It stays flagged until you swap it.')
       expect(banner?.body).not.toContain('brunch')
+    })
+
+    it('degrades a prototype-named slot to the weekday alone rather than naming an inherited member', () => {
+      const banner = derivePlanSettingsBanner([makeAffectedMeal({slot: PROTOTYPE_SLOT})], false)
+
+      expect(banner?.body).toBe('Tuesday contains milk. It stays flagged until you swap it.')
+      expect(banner?.body).not.toMatch(INHERITED_MEMBER_TEXT)
     })
   })
 })

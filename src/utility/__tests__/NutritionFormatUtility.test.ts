@@ -1,8 +1,27 @@
-import {formatCalories, formatMacroGrams, formatMacroPair, formatSignedCalories} from '../NutritionFormatUtility'
+import {NutritionTargets} from '@data/models/NutritionTargets'
+
+import {
+  confirmedTargetValues,
+  formatCalories,
+  formatMacroGrams,
+  formatMacroPair,
+  formatSignedCalories,
+  hasAnyTargetValue,
+  isPlannerConfirmedTargets
+} from '../NutritionFormatUtility'
 
 const CAL_SUFFIX = 'cal'
 const MINUS_SIGN = '\u2212'
 const PARITY_VALUES = [0, 1, 999, 1000, 1940, 12345, 1905.5]
+
+const makeTargets = (overrides: Partial<NutritionTargets> = {}): NutritionTargets => ({
+  targets: {calories: 2100, protein: 150, carbs: 220, fat: 70},
+  complete: true,
+  source: 'estimated',
+  stale: false,
+  revision: 3,
+  ...overrides
+})
 
 describe('formatCalories', () => {
   describe('Figma figures', () => {
@@ -256,5 +275,75 @@ describe('drift from the shipped diary calorie formatter', () => {
     expect(formatCalories(1940)).toBe('1,940')
     expect(formatCalories(12345)).toBe('12,345')
     expect(formatCalories(610)).toBe('610')
+  })
+})
+
+describe('isPlannerConfirmedTargets', () => {
+  it('accepts a complete estimated or manual set', () => {
+    expect(isPlannerConfirmedTargets(makeTargets())).toBe(true)
+    expect(isPlannerConfirmedTargets(makeTargets({source: 'manual'}))).toBe(true)
+  })
+
+  it('accepts a stale set, since generation keeps using confirmed values until the user reconfirms', () => {
+    expect(isPlannerConfirmedTargets(makeTargets({stale: true}))).toBe(true)
+  })
+
+  it('refuses a legacy set, an incomplete set and an absent one', () => {
+    expect(isPlannerConfirmedTargets(makeTargets({source: 'legacy'}))).toBe(false)
+    expect(isPlannerConfirmedTargets(makeTargets({complete: false}))).toBe(false)
+    expect(isPlannerConfirmedTargets(null)).toBe(false)
+  })
+
+  it('refuses a source this build cannot read rather than assuming it is acceptable', () => {
+    expect(isPlannerConfirmedTargets(makeTargets({source: null}))).toBe(false)
+  })
+})
+
+describe('hasAnyTargetValue', () => {
+  it('reports the figures the server holds, however few', () => {
+    expect(hasAnyTargetValue(makeTargets())).toBe(true)
+    expect(
+      hasAnyTargetValue(
+        makeTargets({targets: {calories: 1900, protein: null, carbs: null, fat: null}, complete: false})
+      )
+    ).toBe(true)
+    expect(
+      hasAnyTargetValue(makeTargets({targets: {calories: null, protein: 150, carbs: null, fat: null}, complete: false}))
+    ).toBe(true)
+  })
+
+  it('reports none for an absent record and for one whose every column is unset', () => {
+    expect(hasAnyTargetValue(null)).toBe(false)
+    expect(hasAnyTargetValue(makeTargets({targets: null, complete: false, source: null}))).toBe(false)
+    expect(
+      hasAnyTargetValue(
+        makeTargets({targets: {calories: null, protein: null, carbs: null, fat: null}, complete: false, source: null})
+      )
+    ).toBe(false)
+  })
+})
+
+describe('confirmedTargetValues', () => {
+  it('reads the four values of a planner-confirmed set', () => {
+    expect(confirmedTargetValues(makeTargets())).toEqual({calories: 2100, protein: 150, carbs: 220, fat: 70})
+    expect(confirmedTargetValues(makeTargets({stale: true}))).toEqual({
+      calories: 2100,
+      protein: 150,
+      carbs: 220,
+      fat: 70
+    })
+  })
+
+  it('reads nothing from a set the planner refuses, so no editor treats it as already confirmed', () => {
+    expect(confirmedTargetValues(makeTargets({source: 'legacy'}))).toBeNull()
+    expect(confirmedTargetValues(makeTargets({source: null}))).toBeNull()
+    expect(confirmedTargetValues(null)).toBeNull()
+  })
+
+  it('reads nothing when the record claims completeness but a value is missing', () => {
+    expect(
+      confirmedTargetValues(makeTargets({targets: {calories: 2100, protein: 150, carbs: null, fat: 70}}))
+    ).toBeNull()
+    expect(confirmedTargetValues(makeTargets({targets: null}))).toBeNull()
   })
 })

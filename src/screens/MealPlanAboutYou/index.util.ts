@@ -126,6 +126,16 @@ const loggedAtMs = (weighIn: WeighIn): number => {
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
 }
 
+// Two weigh-ins sharing a timestamp are ordinary and the API orders on logged_at alone, so the greatest
+// id decides. Which side wins is arbitrary — a v4 id carries no creation order — but it is the same
+// winner for every arrival order, which is the whole point.
+const isNewerWeighIn = (candidate: WeighIn, incumbent: WeighIn): boolean => {
+  const candidateMs = loggedAtMs(candidate)
+  const incumbentMs = loggedAtMs(incumbent)
+
+  return candidateMs === incumbentMs ? candidate.id > incumbent.id : candidateMs > incumbentMs
+}
+
 const imperialHeightCm = (fields: MealPlanAboutYouFields): number | null => {
   const feet = parseIntegerField(fields.feet)
   const inches = isBlank(fields.inches) ? 0 : parseIntegerField(fields.inches)
@@ -189,7 +199,7 @@ const validateWeight = (weight: string, weightUnit: WeightUnitPref): AboutYouErr
 
 export const selectLatestWeighIn = (weighIns: WeighIn[]): WeighIn | null =>
   weighIns.reduce<WeighIn | null>(
-    (latest, weighIn) => (latest === null || loggedAtMs(weighIn) > loggedAtMs(latest) ? weighIn : latest),
+    (latest, weighIn) => (latest === null || isNewerWeighIn(weighIn, latest) ? weighIn : latest),
     null
   )
 

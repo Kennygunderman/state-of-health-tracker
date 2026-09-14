@@ -3,7 +3,7 @@ import React from 'react'
 import {TouchableOpacity, View} from 'react-native'
 
 import {SwapAlternative} from '@data/models/SwapAlternative'
-import {Opacity, Sizes, Stroke} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
@@ -50,12 +50,12 @@ const AlternativeRow = ({alternative, meta, onPress, isFirst}: Props): React.JSX
       </View>
 
       {/*
-        The 8pt slot is what the row's flex layout advances by, so the text column keeps its reconciled
-        width; the larger icon canvas overflows the slot horizontally exactly as the design's glyph
-        overflows its own, and its drawn ink stays inside the 8pt box.
+        Figma's row chevron (36:70) is a 45°-rotated 8pt frame with 2px inside borders: 7.07x11.31 of ink
+        advancing an 8pt slot it overhangs. The shared 24-unit icon reproduces that ink at a 20pt canvas,
+        where its own 2.4 stroke renders Figma's 2px exactly.
       */}
       <View style={styles.chevronSlot}>
-        <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} strokeWidth={Stroke.BOLD} />
+        <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} />
       </View>
     </TouchableOpacity>
   )

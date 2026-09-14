@@ -41,6 +41,7 @@ import {
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
+  MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
   stringWithNamedParameters
 } from '@constants/strings'
@@ -735,16 +736,51 @@ describe('resolveGenerationSummary', () => {
       expect(summary?.rows[2].value).toBe(MEAL_PLAN_ALLERGEN_LABELS.none)
     })
 
-    it('reads the allergies row as None when nothing at all is selected', () => {
+    // 'None' is an answer the 05 chip cloud records, so an empty list is the row nobody answered yet, not a
+    // user who declared they have no allergies. Showing None for it would recap an answer that was never
+    // given, which is the one thing a saved-answers card must not do.
+    it('leaves the allergies row empty when the question has not been answered at all', () => {
       const summary = resolveGenerationSummary('failed', preferences({allergens: []}), null)
 
-      expect(summary?.rows[2].value).toBe(MEAL_PLAN_ALLERGEN_LABELS.none)
+      expect(summary?.rows[2].value).toBe('')
     })
 
     it('excludes the sentinel from the count of named allergies', () => {
       const summary = resolveGenerationSummary('failed', preferences({allergens: ['none', 'peanuts']}), null)
 
       expect(summary?.rows[2].value).toBe(stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: 1}))
+    })
+
+    it('counts a repeated allergy once, however often the payload names it', () => {
+      const summary = resolveGenerationSummary('failed', preferences({allergens: ['milk', 'milk']}), null)
+
+      expect(summary?.rows[2].value).toBe(stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: 1}))
+    })
+
+    it('leaves the allergies row empty when every code it was sent is one this release cannot name', () => {
+      const summary = resolveGenerationSummary('failed', preferences({allergens: ['mustard']}), null)
+
+      expect(summary?.rows[2].value).toBe('')
+    })
+
+    it('counts only the nameable allergies when an unknown code arrives beside them', () => {
+      const summary = resolveGenerationSummary('failed', preferences({allergens: ['milk', 'mustard']}), null)
+
+      expect(summary?.rows[2].value).toBe(stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: 1}))
+    })
+
+    it('never renders an allergen code, whatever the payload carried', () => {
+      const values = [['milk', 'tree_nuts'], ['mustard'], ['none', 'milk', 'milk'], []].map(
+        allergens => resolveGenerationSummary('failed', preferences({allergens}), null)?.rows[2].value ?? ''
+      )
+
+      expect(values).toEqual([
+        stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: 2}),
+        '',
+        stringWithNamedParameters(MEAL_PLAN_SELECTED_VALUE_TEMPLATE, {count: 1}),
+        ''
+      ])
+      expect(values.some(value => /_|milk|tree_nuts|mustard/.test(value))).toBe(false)
     })
 
     it('never prints a placeholder for an absent answer', () => {
@@ -985,13 +1021,85 @@ describe('buildLimitingConstraintRows', () => {
       expect(row.editLabel).toBe(MEAL_PLAN_EDIT_LINK_TEXT)
     })
 
-    it('prefers the measurement over the slots when the analysis gave both', () => {
+    // The payload the backend actually sends for a slot with no eligible recipes: the count AND the slots it
+    // was counted in. The count alone would read '0 recipes' and drop the slot the analysis is about, which
+    // 0.7.3 requires it to name, so both are asserted — and the slot labels separately, so a regression that
+    // keeps the count and loses the slot fails on its own.
+    it('names the slots of a slot_coverage analysis ahead of the count it found there', () => {
       const [row] = buildLimitingConstraintRows(
-        [constraint({constraintKey: 'slot_coverage', value: 40, unit: 'percent', slots: ['lunch']})],
+        [
+          constraint({
+            constraintKey: 'slot_coverage',
+            value: 0,
+            unit: 'recipes',
+            slots: ['breakfast', 'dinner'],
+            editStep: 'schedule'
+          })
+        ],
         preferences()
       )
 
-      expect(row.value).toBe(stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.percent, {value: 40}))
+      expect(row.value).toBe(
+        [
+          [MEAL_SLOT_LABELS.breakfast, MEAL_SLOT_LABELS.dinner].join(MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR),
+          stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 0})
+        ].join(MEAL_PLAN_VALUE_SEPARATOR)
+      )
+      expect(row.value).toContain(MEAL_SLOT_LABELS.breakfast)
+      expect(row.value).toContain(MEAL_SLOT_LABELS.dinner)
+    })
+
+    it('keeps the slot context of a catalog_coverage analysis beside its thinnest count', () => {
+      const [row] = buildLimitingConstraintRows(
+        [
+          constraint({constraintKey: 'catalog_coverage', value: 2, unit: 'recipes', slots: ['lunch'], editStep: 'diet'})
+        ],
+        preferences()
+      )
+
+      expect(row.value).toBe(
+        [
+          MEAL_SLOT_LABELS.lunch,
+          stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 2})
+        ].join(MEAL_PLAN_VALUE_SEPARATOR)
+      )
+      expect(row.value).toContain(MEAL_SLOT_LABELS.lunch)
+      expect(row.value).toContain(stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 2}))
+    })
+
+    it('reads a coverage analysis as its count alone when no slot it named can be labelled', () => {
+      const [row] = buildLimitingConstraintRows(
+        [
+          constraint({
+            constraintKey: 'slot_coverage',
+            value: 0,
+            unit: 'recipes',
+            slots: ['brunch'],
+            editStep: 'schedule'
+          })
+        ],
+        preferences()
+      )
+
+      expect(row.value).toBe(stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 0}))
+      expect(row.value).not.toContain('brunch')
+      expect(row.value).not.toContain(MEAL_PLAN_VALUE_SEPARATOR)
+    })
+
+    it('leaves no separator behind when the analysis named no slots at all', () => {
+      const rows = buildLimitingConstraintRows(
+        [
+          constraint({constraintKey: 'cooking_time', value: 30, unit: 'minutes', slots: [], editStep: 'cooking'}),
+          constraint({constraintKey: 'slot_coverage', value: 0, unit: 'recipes', slots: [], editStep: 'schedule'})
+        ],
+        preferences()
+      )
+
+      expect(rows.map(row => row.value)).toEqual([
+        stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.minutes, {value: 30}),
+        stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 0})
+      ])
+      expect(rows.every(row => !row.value.includes(MEAL_PLAN_VALUE_SEPARATOR))).toBe(true)
     })
   })
 

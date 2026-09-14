@@ -6,6 +6,8 @@ import {
   classifyOutcome,
   getApiErrorCode,
   isFeatureDisabledError,
+  isPlanOrCapabilityRefusal,
+  isPlanStateError,
   isUnknownOutcome,
   terminalErrorCode
 } from '../ApiErrorUtility'
@@ -313,6 +315,65 @@ describe('isFeatureDisabledError', () => {
     expect(isFeatureDisabledError(new Error('Network Error'))).toBe(false)
     expect(isFeatureDisabledError(null)).toBe(false)
     expect(isFeatureDisabledError(undefined)).toBe(false)
+  })
+})
+
+describe('isPlanStateError', () => {
+  it('recognises both codes that say the plan an attempt named is not the plan the server holds', () => {
+    expect(isPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(true)
+    expect(isPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(true)
+  })
+
+  it('does not treat another refusal as the plan having moved on', () => {
+    expect(isPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.previewStale}}})).toBe(false)
+    expect(isPlanStateError({response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(false)
+  })
+
+  it('does not treat a bodiless failure as the plan having moved on', () => {
+    expect(isPlanStateError({response: {status: 409}})).toBe(false)
+    expect(isPlanStateError(new Error('Network Error'))).toBe(false)
+    expect(isPlanStateError(null)).toBe(false)
+    expect(isPlanStateError(undefined)).toBe(false)
+  })
+})
+
+describe('isPlanOrCapabilityRefusal', () => {
+  it('recognises a confirmed plan-state answer, the one a read may be redirected on', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(true)
+    expect(isPlanOrCapabilityRefusal({response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(
+      true
+    )
+  })
+
+  it('recognises the capability being off, a 5xx code the classification does confirm', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(
+      true
+    )
+  })
+
+  it('does not treat another confirmed refusal as a plan or capability answer', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 409, data: {error: API_ERROR_CODES.previewStale}}})).toBe(
+      false
+    )
+    expect(isPlanOrCapabilityRefusal({response: {status: 400, data: {error: API_ERROR_CODES.invalidRequest}}})).toBe(
+      false
+    )
+  })
+
+  // The distinction the confirmed check exists for: a gateway body that merely echoes the string is an unknown
+  // outcome, so it stays a retry rather than becoming a redirection.
+  it('does not treat a 5xx carrying a plan-state string as a refusal, because that outcome is unknown', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 502, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(false)
+    expect(isPlanOrCapabilityRefusal({response: {status: 500, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(
+      false
+    )
+  })
+
+  it('does not treat a bodiless failure as a refusal', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 503}})).toBe(false)
+    expect(isPlanOrCapabilityRefusal(new Error('Network Error'))).toBe(false)
+    expect(isPlanOrCapabilityRefusal(null)).toBe(false)
+    expect(isPlanOrCapabilityRefusal(undefined)).toBe(false)
   })
 })
 

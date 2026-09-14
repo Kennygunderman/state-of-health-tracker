@@ -8,12 +8,11 @@ import type {
   SaveNutritionTargetsPayload
 } from '@data/models/NutritionTargets'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
+import {confirmedTargetValues, hasAnyTargetValue} from '@utility/NutritionFormatUtility'
 import {
   buildSaveEstimatedNutritionTargetsPayload,
-  buildSaveManualNutritionTargetsPayload,
-  confirmedTargetValues,
-  hasAnyTargetValue
-} from '@utility/NutritionTargetsUtility'
+  buildSaveManualNutritionTargetsPayload
+} from '@utility/RevisionConflictUtility'
 
 import {MEAL_PLAN_TARGET_WARNING_LABELS} from '@constants/strings'
 
@@ -101,6 +100,14 @@ const WARNING_SENTENCE_SEPARATOR = ' '
 
 const WHOLE_NUMBER_PATTERN = /^\d+$/
 
+// '1,940' and '10,000' are group separators inside a whole number; '1,94' and '19,4000' are not a number at
+// all, so the separator is only presentation where the grouping itself is well formed.
+const GROUPED_WHOLE_NUMBER_PATTERN = /^\d{1,3}(,\d{3})+$/
+
+const GROUP_SEPARATOR_PATTERN = /,/g
+
+const REDUNDANT_LEADING_ZERO_PATTERN = /^0+(?=\d)/
+
 const parseTargetValue = (text: string): number | null => {
   const trimmed = text.trim()
 
@@ -113,7 +120,26 @@ const parseTargetValue = (text: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export const sanitizeIntegerInput = (text: string): string => text.replace(/[^0-9]/g, '')
+/**
+ * The target as the field stores it: a bare whole number, no separators.
+ *
+ * Only presentation is removed — surrounding space, well-formed group separators and a redundant leading
+ * zero, so NutritionFormatUtility is the one place a stored value is re-grouped for display. An entry carrying
+ * anything else (a decimal point, a sign, prose, a malformed group) is refused and `previous` is returned
+ * unchanged, because deleting those characters would leave a perfectly valid target the user never typed:
+ * '19.40' would be saved as 1940 and '-500' as 500, and neither `validateEditTargets` here nor the server's
+ * integer bounds could tell that had happened. Callers pass the field's current value as `previous` so a
+ * refused keystroke or paste keeps it.
+ */
+export const sanitizeIntegerInput = (text: string, previous: string = ''): string => {
+  const entry = text.trim()
+
+  if (entry === '') return ''
+
+  if (!WHOLE_NUMBER_PATTERN.test(entry) && !GROUPED_WHOLE_NUMBER_PATTERN.test(entry)) return previous
+
+  return entry.replace(GROUP_SEPARATOR_PATTERN, '').replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
+}
 
 const validateTargetField = (value: string, bounds: TargetFieldBounds): TargetFieldErrorCode | null => {
   if (value.trim() === '') {

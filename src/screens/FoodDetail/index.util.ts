@@ -130,20 +130,19 @@ export const resolveFoodDetailSource = (params: FoodDetailParams): FoodDetailSou
   return food ? {path: 'add', food} : null
 }
 
-// Request body for logging a published catalog food by id. servingText is
-// deliberately omitted: the portion the server picks drives the stored label AND
-// the stored per-serving macros together, so it accepts a servingText only when
-// it equals one of that food's stored portion descriptions and otherwise derives
-// the canonical one from the default portion. A client cannot honour that — the
-// catalog food carries the portion's amount and unit but not its description, so
-// a reconstructed '<amount> <unit>' ('1 each', '152 g') matches a real
-// description ('lemon', '1 cup, halves') only by coincidence and is rejected as
-// invalid_serving. Omitting the member is what makes the label and the numbers
-// come from the same portion row.
+// Request body for logging a published catalog food by id. servingText is the stored
+// catalog_food_portions.description of the portion these numbers were projected onto, carried verbatim from
+// the catalog response on food.catalogServingDescription — never rebuilt from servingAmount/servingUnit: the
+// server accepts a servingText only when it equals one of that food's stored descriptions, and most stored
+// descriptions are not '<amount> <unit>' ('RACC', 'lemon', '1 cup, halves'), so a reconstruction matches by
+// coincidence at best and is rejected as invalid_serving. When the food carries no description the member is
+// omitted entirely rather than sent as undefined, which is what makes the server derive the default portion —
+// either way the stored label and the stored per-serving macros come from the same portion row.
 // Takes the food rather than its id so the id can only have come from a food the type already proves is
 // catalog-sourced — an arbitrary string, including a library food's own id, cannot be logged down this route.
 export const buildCatalogLogPayload = (food: CatalogSourcedFood, servings: number): LogCatalogMealEntryPayload => ({
   catalogFoodId: food.catalogFoodId,
   servings,
+  ...(food.catalogServingDescription === undefined ? {} : {servingText: food.catalogServingDescription}),
   inputMethod: InputMethodEnum.SEARCH
 })

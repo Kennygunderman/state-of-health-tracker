@@ -1,3 +1,10 @@
+import type {
+  ManualNutritionTargetValues,
+  SaveEstimatedNutritionTargetsPayload,
+  SaveManualNutritionTargetsPayload
+} from '@data/models/NutritionTargets'
+import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
+
 export type RevisionResolution = {status: 'resolved'} | {status: 'conflict'; conflictingFields: string[]}
 
 const readField = (source: object, field: string): unknown => (source as Record<string, unknown>)[field]
@@ -106,3 +113,49 @@ export const resolveStaleRevision = <T extends object>(
 
   return {status: 'resolved'}
 }
+
+export interface SaveEstimatedNutritionTargetsInputs {
+  // The revision of the preferences the displayed estimate was computed from.
+  estimateRevision: number
+  // The targets revision as the saving screen last read it.
+  targetsRevision: number
+}
+
+export interface SaveManualNutritionTargetsInputs {
+  values: ManualNutritionTargetValues
+  targetsRevision: number
+}
+
+// The pin as a spreadable fragment: absent at NO_TARGETS_REVISION, present as the read revision above it. It is
+// omitted rather than sent as 0 because the two are different statements to the server — omitting it says "there
+// is no prior revision to replace", which is accepted only while no target has been confirmed — and only the
+// omission survives a parser that rejects a pin no stored record can match.
+const targetsRevisionPin = (targetsRevision: number): {expectedTargetsRevision?: number} =>
+  targetsRevision === NO_TARGETS_REVISION ? {} : {expectedTargetsRevision: targetsRevision}
+
+/**
+ * The body that confirms the calculated estimate. It carries no figures: the server recomputes them from the
+ * stored preferences that `estimateRevision` pins, which is what stops a client declaring its own numbers
+ * estimated — and what makes this body truthful only when the estimate is the set the user was shown.
+ */
+export const buildSaveEstimatedNutritionTargetsPayload = ({
+  estimateRevision,
+  targetsRevision
+}: SaveEstimatedNutritionTargetsInputs): SaveEstimatedNutritionTargetsPayload => ({
+  source: 'estimated',
+  estimateRevision,
+  ...targetsRevisionPin(targetsRevision)
+})
+
+/**
+ * The body that states four figures of the user's own. They are stored exactly as given and never rebalanced
+ * against the calorie figure, so this is the only truthful body for any set the server did not calculate.
+ */
+export const buildSaveManualNutritionTargetsPayload = ({
+  values,
+  targetsRevision
+}: SaveManualNutritionTargetsInputs): SaveManualNutritionTargetsPayload => ({
+  source: 'manual',
+  ...values,
+  ...targetsRevisionPin(targetsRevision)
+})

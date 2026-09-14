@@ -1,8 +1,13 @@
 import React from 'react'
 
+import {View} from 'react-native'
+
+import {useSafeAreaInsets} from 'react-native-safe-area-context'
+
 import PrimaryButton from '@components/PrimaryButton'
 import SecondaryButton from '@components/SecondaryButton'
-import SetupFooter from '@components/SetupFooter'
+
+import styles, {actionBarPadding} from './index.styled'
 
 interface Props {
   onLogMeal: () => void
@@ -10,16 +15,25 @@ interface Props {
   logLabel: string
   swapLabel: string
   isEnabled: boolean
+  bottomInset?: number
 }
 
-const ActionBar = ({onLogMeal, onSwap, logLabel, swapLabel, isEnabled}: Props): React.JSX.Element => {
+const ActionBar = ({onLogMeal, onSwap, logLabel, swapLabel, isEnabled, bottomInset}: Props): React.JSX.Element => {
+  // The host screen may measure the inset itself; without it the bar reads the live one.
+  const insets = useSafeAreaInsets()
+
   return (
-    <SetupFooter
-      hairline
-      variant="split"
-      primaryAction={<PrimaryButton label={logLabel} onPress={onLogMeal} disabled={!isEnabled} />}
-      secondaryAction={<SecondaryButton variant="dark" label={swapLabel} onPress={onSwap} disabled={!isEnabled} />}
-    />
+    <View style={[styles.bar, actionBarPadding(bottomInset ?? insets.bottom)]}>
+      <View style={styles.splitRow}>
+        <View style={styles.primarySlot}>
+          <PrimaryButton label={logLabel} onPress={onLogMeal} disabled={!isEnabled} />
+        </View>
+
+        <View style={styles.secondarySlot}>
+          <SecondaryButton variant="dark" label={swapLabel} onPress={onSwap} disabled={!isEnabled} />
+        </View>
+      </View>
+    </View>
   )
 }
 

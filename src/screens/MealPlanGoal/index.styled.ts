@@ -49,9 +49,10 @@ export default StyleSheet.create({
     alignSelf: 'stretch',
     paddingTop: Spacing.X_SMALL
   },
+  // 46:208 declares its own 8px top inset, so PaceCards owns the label -> first-card rung; this wrapper
+  // carries only the section rung (46:205's padding) and must not duplicate the gap.
   paceSection: {
     alignSelf: 'stretch',
-    paddingTop: Spacing.GUTTER,
-    rowGap: Spacing.X_SMALL
+    paddingTop: Spacing.GUTTER
   }
 })

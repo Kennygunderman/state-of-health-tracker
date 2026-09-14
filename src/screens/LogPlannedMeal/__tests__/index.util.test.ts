@@ -1,5 +1,6 @@
 import {createEmptyMacroTotals} from '@data/models/Macros'
 import {Meal} from '@data/models/Meal'
+import {MealSlot} from '@data/models/Recipe'
 import {MIN_SERVINGS, PerServingMacros} from '@utility/ServingsUtility'
 
 import {
@@ -9,6 +10,7 @@ import {
   LOG_WEIGHT_TODAY_LABEL,
   MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_NAMES,
+  MEAL_SLOT_LABELS,
   PROTEIN_LABEL,
   stringWithNamedParameters
 } from '@constants/strings'
@@ -43,9 +45,15 @@ const makePlannedPortion = (overrides: Partial<PerServingMacros> = {}): PerServi
   ...overrides
 })
 
+const CANONICAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
+
+// Every canonical bucket name comes from the strings authority the screen matches against, so a rename there
+// fails this suite instead of silently leaving the picker unable to find the bucket it preselects.
+const slotLabel = (slot: MealSlot): string => MEAL_SLOT_LABELS[slot]
+
 const makeDiaryMeal = (overrides: Partial<Meal> = {}): Meal => ({
   id: 'meal-lunch',
-  name: 'Lunch',
+  name: slotLabel('lunch'),
   sortOrder: 2,
   entries: [],
   totals: createEmptyMacroTotals(),
@@ -53,10 +61,10 @@ const makeDiaryMeal = (overrides: Partial<Meal> = {}): Meal => ({
 })
 
 const makeDiaryDayMeals = (): Meal[] => [
-  makeDiaryMeal({id: 'meal-dinner', name: 'Dinner', sortOrder: 3}),
-  makeDiaryMeal({id: 'meal-breakfast', name: 'Breakfast', sortOrder: 1}),
-  makeDiaryMeal({id: 'meal-snack', name: 'Snack', sortOrder: 4}),
-  makeDiaryMeal({id: 'meal-lunch', name: 'Lunch', sortOrder: 2})
+  makeDiaryMeal({id: 'meal-dinner', name: slotLabel('dinner'), sortOrder: 3}),
+  makeDiaryMeal({id: 'meal-breakfast', name: slotLabel('breakfast'), sortOrder: 1}),
+  makeDiaryMeal({id: 'meal-snack', name: slotLabel('snack'), sortOrder: 4}),
+  makeDiaryMeal({id: 'meal-lunch', name: slotLabel('lunch'), sortOrder: 2})
 ]
 
 const makeRenamedDiaryMeals = (): Meal[] => [
@@ -65,9 +73,9 @@ const makeRenamedDiaryMeals = (): Meal[] => [
 ]
 
 const makePartlyRenamedDiaryMeals = (): Meal[] => [
-  makeDiaryMeal({id: 'meal-dinner', name: 'Dinner', sortOrder: 3}),
+  makeDiaryMeal({id: 'meal-dinner', name: slotLabel('dinner'), sortOrder: 3}),
   makeDiaryMeal({id: 'meal-brunch', name: 'Brunch', sortOrder: 1}),
-  makeDiaryMeal({id: 'meal-lunch', name: 'Lunch', sortOrder: 2})
+  makeDiaryMeal({id: 'meal-lunch', name: slotLabel('lunch'), sortOrder: 2})
 ]
 
 const fractionAccessibilityLabel = (glyph: string): string =>
@@ -213,20 +221,42 @@ describe('parsePlannedServingsInput', () => {
     expect(parsePlannedServingsInput('11')).toBeNull()
   })
 
-  it('rounds to two decimals before checking the range', () => {
-    expect(parsePlannedServingsInput('1.333')).toBe(1.33)
-    expect(parsePlannedServingsInput('1.336')).toBe(1.34)
-    expect(parsePlannedServingsInput('0.249')).toBe(MIN_SERVINGS)
-    expect(parsePlannedServingsInput('10.004')).toBe(MAX_PLANNED_SERVINGS)
+  it('rejects more than two decimals rather than rounding into a portion that was never typed', () => {
+    expect(parsePlannedServingsInput('1.333')).toBeNull()
+    expect(parsePlannedServingsInput('1.336')).toBeNull()
+    expect(parsePlannedServingsInput('0.249')).toBeNull()
+    expect(parsePlannedServingsInput('10.004')).toBeNull()
+    expect(parsePlannedServingsInput('1.000')).toBeNull()
+  })
+
+  it('returns a two-decimal serving exactly as typed', () => {
+    expect(parsePlannedServingsInput('1.25')).toBe(1.25)
+    expect(parsePlannedServingsInput('1.5')).toBe(1.5)
+    expect(parsePlannedServingsInput('1.50')).toBe(1.5)
+    expect(parsePlannedServingsInput('0.25')).toBe(0.25)
+    expect(parsePlannedServingsInput('10')).toBe(10)
   })
 
   it('only ever returns servings the log endpoint accepts', () => {
     const inputs = ['1.25', '1', '.5', '1,5', '0.25', '10', '1.333', '0.249', '10.004', '', 'abc', '0', '11', '10.5']
-    const accepted = inputs.map(parsePlannedServingsInput).filter((value): value is number => value !== null)
+    const decimalDigits = (input: string): number => {
+      const normalized = input.replace(',', '.')
+      const separatorIndex = normalized.indexOf('.')
 
-    expect(accepted).toHaveLength(9)
-    expect(accepted.every(value => Math.round(value * 100) / 100 === value)).toBe(true)
-    expect(accepted.every(value => value >= MIN_SERVINGS && value <= MAX_PLANNED_SERVINGS)).toBe(true)
+      return separatorIndex === -1 ? 0 : normalized.length - separatorIndex - 1
+    }
+    const accepted = inputs.filter(input => parsePlannedServingsInput(input) !== null)
+
+    expect(accepted).toEqual(['1.25', '1', '.5', '1,5', '0.25', '10'])
+    expect(accepted).toHaveLength(6)
+    expect(accepted.every(input => decimalDigits(input) <= 2)).toBe(true)
+    expect(
+      accepted.every(input => {
+        const value = parsePlannedServingsInput(input)
+
+        return value !== null && value >= MIN_SERVINGS && value <= MAX_PLANNED_SERVINGS
+      })
+    ).toBe(true)
   })
 })
 
@@ -249,6 +279,12 @@ describe('nextServingsDraft', () => {
     expect(nextServingsDraft('', 1)).toEqual({text: '', baseValue: 1})
     expect(nextServingsDraft('0.', 1)).toEqual({text: '0.', baseValue: 1})
     expect(nextServingsDraft('11', 1)).toEqual({text: '11', baseValue: 1})
+  })
+
+  it('leaves the servings alone for a third decimal, keeping the keystroke on screen', () => {
+    expect(nextServingsDraft('1.333', 1)).toEqual({text: '1.333', baseValue: 1})
+    expect(nextServingsDraft('0.249', 0.5)).toEqual({text: '0.249', baseValue: 0.5})
+    expect(nextServingsDraft('10.004', 2)).toEqual({text: '10.004', baseValue: 2})
   })
 })
 
@@ -349,15 +385,29 @@ describe('resolveDiaryBucket', () => {
 
     it('carries the bucket label and sort order, and is not a fallback', () => {
       expect(resolveDiaryBucket(makeDiaryDayMeals(), 'dinner')).toEqual({
-        option: {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3},
+        option: {mealId: 'meal-dinner', label: slotLabel('dinner'), sortOrder: 3},
         isFallback: false
+      })
+    })
+
+    it('matches a bucket named exactly as the strings authority names the slot', () => {
+      CANONICAL_SLOTS.forEach(slot => {
+        const meals = [
+          makeDiaryMeal({id: 'meal-renamed', name: 'Late Supper', sortOrder: 1}),
+          makeDiaryMeal({id: `meal-${slot}`, name: slotLabel(slot), sortOrder: 2})
+        ]
+
+        expect(resolveDiaryBucket(meals, slot)).toEqual({
+          option: {mealId: `meal-${slot}`, label: slotLabel(slot), sortOrder: 2},
+          isFallback: false
+        })
       })
     })
 
     it('matches the bucket name case-insensitively and ignores surrounding space', () => {
       const meals = [
-        makeDiaryMeal({id: 'meal-breakfast', name: 'BREAKFAST', sortOrder: 1}),
-        makeDiaryMeal({id: 'meal-lunch', name: '  lunch  ', sortOrder: 2})
+        makeDiaryMeal({id: 'meal-breakfast', name: slotLabel('breakfast').toUpperCase(), sortOrder: 1}),
+        makeDiaryMeal({id: 'meal-lunch', name: `  ${slotLabel('lunch').toLowerCase()}  `, sortOrder: 2})
       ]
 
       expect(resolveDiaryBucket(meals, 'breakfast').option?.mealId).toBe('meal-breakfast')
@@ -395,18 +445,18 @@ describe('resolveDiaryBucket', () => {
 describe('buildDiaryBucketOptions', () => {
   it('offers one option per planned slot, ordered by sort order', () => {
     expect(buildDiaryBucketOptions(makeDiaryDayMeals(), ['breakfast', 'lunch', 'dinner'])).toEqual([
-      {mealId: 'meal-breakfast', label: 'Breakfast', sortOrder: 1},
-      {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
-      {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3}
+      {mealId: 'meal-breakfast', label: slotLabel('breakfast'), sortOrder: 1},
+      {mealId: 'meal-lunch', label: slotLabel('lunch'), sortOrder: 2},
+      {mealId: 'meal-dinner', label: slotLabel('dinner'), sortOrder: 3}
     ])
   })
 
   it('adds the snack bucket when the plan includes a snack', () => {
     expect(buildDiaryBucketOptions(makeDiaryDayMeals(), ['breakfast', 'lunch', 'dinner', 'snack'])).toEqual([
-      {mealId: 'meal-breakfast', label: 'Breakfast', sortOrder: 1},
-      {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
-      {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3},
-      {mealId: 'meal-snack', label: 'Snack', sortOrder: 4}
+      {mealId: 'meal-breakfast', label: slotLabel('breakfast'), sortOrder: 1},
+      {mealId: 'meal-lunch', label: slotLabel('lunch'), sortOrder: 2},
+      {mealId: 'meal-dinner', label: slotLabel('dinner'), sortOrder: 3},
+      {mealId: 'meal-snack', label: slotLabel('snack'), sortOrder: 4}
     ])
   })
 
@@ -434,8 +484,8 @@ describe('buildDiaryBucketOptions', () => {
     it('still offers every canonical match, ordered by sort order', () => {
       expect(buildDiaryBucketOptions(makePartlyRenamedDiaryMeals(), planSlots)).toEqual([
         {mealId: 'meal-brunch', label: 'Brunch', sortOrder: 1},
-        {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
-        {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3}
+        {mealId: 'meal-lunch', label: slotLabel('lunch'), sortOrder: 2},
+        {mealId: 'meal-dinner', label: slotLabel('dinner'), sortOrder: 3}
       ])
     })
 
@@ -450,15 +500,15 @@ describe('buildDiaryBucketOptions', () => {
 
     it('leaves out a renamed bucket the resolver can never select', () => {
       const meals = [
-        makeDiaryMeal({id: 'meal-lunch', name: 'Lunch', sortOrder: 2}),
-        makeDiaryMeal({id: 'meal-dinner', name: 'Dinner', sortOrder: 3}),
+        makeDiaryMeal({id: 'meal-lunch', name: slotLabel('lunch'), sortOrder: 2}),
+        makeDiaryMeal({id: 'meal-dinner', name: slotLabel('dinner'), sortOrder: 3}),
         makeDiaryMeal({id: 'meal-supper', name: 'Late Supper', sortOrder: 4})
       ]
 
       expect(resolveDiaryBucket(meals, 'breakfast').option?.mealId).toBe('meal-lunch')
       expect(buildDiaryBucketOptions(meals, planSlots)).toEqual([
-        {mealId: 'meal-lunch', label: 'Lunch', sortOrder: 2},
-        {mealId: 'meal-dinner', label: 'Dinner', sortOrder: 3}
+        {mealId: 'meal-lunch', label: slotLabel('lunch'), sortOrder: 2},
+        {mealId: 'meal-dinner', label: slotLabel('dinner'), sortOrder: 3}
       ])
     })
 

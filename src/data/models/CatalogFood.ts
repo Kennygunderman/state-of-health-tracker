@@ -19,17 +19,6 @@ export interface CatalogFoodPortion {
   gramWeight: number
 }
 
-// The server's nutrition for ONE defaultPortion, already rounded to integers because it is what the diary stores
-// per serving if this food is logged at that portion. The per-basis macros below cannot be converted client-side —
-// a per_100ml food needs a density no response carries — so these are the only per-portion figures to display.
-// Fiber is absent because the diary stores none, so no stored value could match a fiber projection.
-export interface CatalogPortionNutrition {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-}
-
 export interface CatalogFood {
   id: string
   name: string
@@ -39,6 +28,8 @@ export interface CatalogFood {
   nutritionProvenance: SourcedNutritionProvenance
   nutritionBasis: CatalogNutritionBasis
   basisAmount: number
+  // Stated per basisAmount of nutritionBasis, never per defaultPortion — the server states them on the mass
+  // basis so a client can reach the portion with gramWeight / basisAmount (AddFood's index.util.ts does).
   calories: number
   protein: number
   carbs: number
@@ -46,7 +37,6 @@ export interface CatalogFood {
   // null means unknown, never 0 — a 0 would under-report the food's fiber.
   fiber: number | null
   defaultPortion: CatalogFoodPortion
-  defaultPortionNutrition: CatalogPortionNutrition
   allergenTags: string[]
   allergenStatus: CatalogAllergenStatus
   foodGroup: string

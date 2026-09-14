@@ -5,10 +5,10 @@ import {TouchableOpacity, View} from 'react-native'
 import BadgePill from '@components/BadgePill'
 import Text from '@components/Text'
 
-import {CAL_LABEL} from '@constants/strings'
+import {ADD_FOOD_ROW_ACCESSIBILITY_HINT, CAL_LABEL} from '@constants/strings'
 
 import styles from './index.styled'
-import {FoodListRowBadge, resolveBadgeVariant} from './index.util'
+import {FoodListRowBadge, foodListRowAccessibilityLabel, resolveBadgeVariant} from './index.util'
 
 interface Props {
   name: string
@@ -24,9 +24,16 @@ interface Props {
 
 const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props): React.JSX.Element => {
   const badgeVariant = resolveBadgeVariant(badge)
+  const accessibilityLabel = foodListRowAccessibilityLabel({name, detail, subtitle, calories, badge})
 
   return (
-    <TouchableOpacity style={styles.card} activeOpacity={0.7} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={ADD_FOOD_ROW_ACCESSIBILITY_HINT}
+      onPress={onPress}>
       <View style={styles.textColumn}>
         <View style={styles.nameRow}>
           <Text numberOfLines={1} style={styles.nameLine}>

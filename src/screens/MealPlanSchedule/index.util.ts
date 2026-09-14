@@ -1,4 +1,4 @@
-import {MealSchedule, MealTimeEntry} from '@data/models/MealPlanPreferences'
+import {MEAL_SLOTS_BY_SCHEDULE, MealSchedule, MealTimeEntry} from '@data/models/MealPlanPreferences'
 import {MealSlot, RecipeIconKey} from '@data/models/Recipe'
 import {Sizes, Stroke} from '@styles/sizes'
 import {formatSlotTime} from '@utility/MealPlanDateUtility'
@@ -24,13 +24,6 @@ const UNSET_TIME_VALUE = ''
 
 const PICKER_OPTION_COUNT = (HOURS_PER_DAY * MINUTES_PER_HOUR) / PICKER_MINUTE_STEP
 
-// Wire order, which the server validates: breakfast, lunch, dinner, then the snack when the schedule
-// has one. The arrays are frozen because they are handed straight to callers.
-const SCHEDULE_SLOTS: Record<MealSchedule, readonly MealSlot[]> = {
-  three: Object.freeze(['breakfast', 'lunch', 'dinner'] as const),
-  three_plus_snack: Object.freeze(['breakfast', 'lunch', 'dinner', 'snack'] as const)
-}
-
 const NO_SLOTS: readonly MealSlot[] = Object.freeze([] as const)
 
 const SLOT_ICON_KEYS: Record<MealSlot, RecipeIconKey> = {
@@ -49,8 +42,11 @@ const timeValueFromMinutes = (minutesFromMidnight: number): string => {
   return `${padTimePart(hours)}:${padTimePart(minutes)}`
 }
 
+// The slots of a schedule in wire order — breakfast, lunch, dinner, then the snack when the schedule has one —
+// read from the table @data/models/MealPlanPreferences owns, so the payload this screen builds and the draft the
+// setup provider holds can never disagree about which slots a schedule plans.
 export const mealSlotsForSchedule = (schedule: MealSchedule | null): readonly MealSlot[] =>
-  schedule ? SCHEDULE_SLOTS[schedule] : NO_SLOTS
+  schedule ? MEAL_SLOTS_BY_SCHEDULE[schedule] : NO_SLOTS
 
 export const mealSlotIconKey = (slot: MealSlot): RecipeIconKey => SLOT_ICON_KEYS[slot]
 

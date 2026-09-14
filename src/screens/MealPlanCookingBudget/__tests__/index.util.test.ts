@@ -12,6 +12,7 @@ import {
   MEAL_PLAN_LB_UNIT,
   MEAL_PLAN_MEALS_ROW_LABEL,
   MEAL_PLAN_SCHEDULE_LABELS,
+  MEAL_PLAN_SCHEDULE_SUMMARY_LABELS,
   MEAL_PLAN_SUMMARY_GOAL_WITH_WEIGHT_TEMPLATE,
   stringWithNamedParameters
 } from '@constants/strings'
@@ -112,42 +113,79 @@ describe('the weekly budget bounds', () => {
 
 describe('sanitizeBudgetInput', () => {
   it('keeps a plain whole-dollar amount as typed', () => {
-    expect(sanitizeBudgetInput('120')).toBe('120')
+    expect(sanitizeBudgetInput('120', '12')).toBe('120')
   })
 
-  it('drops the currency sign, separators and spaces the field never stores', () => {
-    expect(sanitizeBudgetInput('$1,250 ')).toBe('1250')
-  })
-
-  it('drops letters and symbols from a pasted value', () => {
-    expect(sanitizeBudgetInput('about 90 dollars')).toBe('90')
-  })
-
-  it('drops a leading minus rather than keeping a signed amount', () => {
-    expect(sanitizeBudgetInput('-120')).toBe('120')
-  })
-
-  // Whole dollars only: a cent typed here would be rejected by the server, so the decimal point
-  // never survives the field rather than failing later.
-  it('removes a decimal point instead of keeping a fractional amount', () => {
-    expect(sanitizeBudgetInput('12.50')).toBe('1250')
+  // Whole dollars only, and the '$' is drawn by the screen: the sign, surrounding space and a
+  // well-formed group separator are presentation, so they are the only characters removed.
+  it('drops the currency sign, the group separators and the spaces the field never stores', () => {
+    expect(sanitizeBudgetInput('$1,250 ', '120')).toBe('1250')
+    expect(sanitizeBudgetInput('$ 90', '120')).toBe('90')
+    expect(sanitizeBudgetInput('10,000', '120')).toBe('10000')
+    expect(sanitizeBudgetInput('1,250,000', '120')).toBe('1250000')
   })
 
   it('drops a redundant leading zero', () => {
-    expect(sanitizeBudgetInput('007')).toBe('7')
+    expect(sanitizeBudgetInput('007', '0')).toBe('7')
   })
 
   it('keeps a lone zero, which the user is still typing', () => {
-    expect(sanitizeBudgetInput('0')).toBe('0')
+    expect(sanitizeBudgetInput('0', '')).toBe('0')
   })
 
-  it('leaves an empty field empty rather than inventing a zero', () => {
-    expect(sanitizeBudgetInput('')).toBe('')
-    expect(sanitizeBudgetInput('$')).toBe('')
+  it('empties the field for an empty entry rather than inventing a zero', () => {
+    expect(sanitizeBudgetInput('', '120')).toBe('')
+    expect(sanitizeBudgetInput('$', '120')).toBe('')
+    expect(sanitizeBudgetInput('   ', '120')).toBe('')
+  })
+
+  // The reason this function is syntax-aware: deleting the semantic characters would store '12.50'
+  // as 1250 and '-120' as 120 — a different amount the user never typed, which every later check
+  // accepts as valid. A refused entry leaves the field holding exactly what it held.
+  it('refuses a fractional amount instead of concatenating its digits', () => {
+    expect(sanitizeBudgetInput('12.50', '120')).toBe('120')
+    expect(sanitizeBudgetInput('12.', '120')).toBe('120')
+    expect(sanitizeBudgetInput('.5', '120')).toBe('120')
+  })
+
+  it('refuses a signed amount instead of dropping the sign', () => {
+    expect(sanitizeBudgetInput('-120', '90')).toBe('90')
+    expect(sanitizeBudgetInput('+120', '90')).toBe('90')
+  })
+
+  it('refuses mixed prose instead of harvesting the digits out of it', () => {
+    expect(sanitizeBudgetInput('about 90 dollars', '120')).toBe('120')
+    expect(sanitizeBudgetInput('1e3', '120')).toBe('120')
+    expect(sanitizeBudgetInput('12 34', '120')).toBe('120')
+    expect(sanitizeBudgetInput('$$1', '120')).toBe('120')
+  })
+
+  it('refuses a malformed group instead of reading it as a larger amount', () => {
+    expect(sanitizeBudgetInput('1,25', '120')).toBe('120')
+    expect(sanitizeBudgetInput('12,3456', '120')).toBe('120')
+    expect(sanitizeBudgetInput(',250', '120')).toBe('120')
+  })
+
+  // Nothing the range check rejects may reach it in a rewritten, acceptable form.
+  it('refuses every entry parseWeeklyBudget rejects for its syntax', () => {
+    const refused = ['12.50', '-120', '+120', 'one hundred', '1e3', 'NaN', '1,25']
+
+    refused.forEach(text => {
+      expect(sanitizeBudgetInput(text, '120')).toBe('120')
+      expect(parseWeeklyBudget(text)).toBeNull()
+    })
+  })
+
+  it('treats an omitted previous value as an empty field, so a refusal still stores no amount', () => {
+    expect(sanitizeBudgetInput('12.50')).toBe('')
+    expect(sanitizeBudgetInput('120')).toBe('120')
   })
 
   it('is idempotent, so re-sanitising its own output changes nothing', () => {
-    expect(sanitizeBudgetInput(sanitizeBudgetInput('$0,012.34'))).toBe(sanitizeBudgetInput('$0,012.34'))
+    const once = sanitizeBudgetInput('$1,250', '120')
+
+    expect(once).toBe('1250')
+    expect(sanitizeBudgetInput(once, once)).toBe(once)
   })
 })
 
@@ -334,7 +372,7 @@ describe('buildPlanSummaryRows', () => {
       expect(valuesOf(rows)).toEqual([
         goalWithWeight('lose', '170', MEAL_PLAN_LB_UNIT),
         MEAL_PLAN_DIET_LABELS.none,
-        MEAL_PLAN_SCHEDULE_LABELS.three
+        MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three
       ])
     })
 
@@ -346,10 +384,22 @@ describe('buildPlanSummaryRows', () => {
       expect(rows.every(row => row.onPress === undefined && row.action === undefined)).toBe(true)
     })
 
-    it('renders the snack schedule as its own answer', () => {
+    // Frame 08's card reads 'Meals / 3 per day'; '3 meals' is the frame 07 option card's wording and
+    // the Plan-settings row's, so the summary must not borrow it.
+    it('states the schedule as the count per day frame 08 draws, not as the option label', () => {
+      const rows = buildPlanSummaryRows(makeDraft(ANSWERED_DRAFT, true))
+
+      expect(rows[2]).toEqual({label: MEAL_PLAN_MEALS_ROW_LABEL, value: '3 per day'})
+      expect(MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three).toBe('3 per day')
+      expect(rows[2].value).not.toBe(MEAL_PLAN_SCHEDULE_LABELS.three)
+    })
+
+    it('renders the snack schedule as its own answer, in the same per-day reading', () => {
       const rows = buildPlanSummaryRows(makeDraft({...ANSWERED_DRAFT, mealSchedule: 'three_plus_snack'}, true))
 
-      expect(valuesOf(rows)).toContain(MEAL_PLAN_SCHEDULE_LABELS.three_plus_snack)
+      expect(valuesOf(rows)).toContain(MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack)
+      expect(MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack).toBe('3 per day + 1 snack')
+      expect(valuesOf(rows)).not.toContain(MEAL_PLAN_SCHEDULE_LABELS.three_plus_snack)
     })
 
     it('omits a row the user has not answered instead of inventing a value', () => {
@@ -424,7 +474,7 @@ describe('buildPlanSummaryRows', () => {
       expect(valuesOf(rows)).toEqual([
         goalWithWeight('gain', '90', MEAL_PLAN_KG_UNIT),
         MEAL_PLAN_DIET_LABELS.vegetarian,
-        MEAL_PLAN_SCHEDULE_LABELS.three_plus_snack
+        MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack
       ])
     })
 
@@ -460,7 +510,7 @@ describe('buildPlanSummaryRows', () => {
       expect(valuesOf(rows)).toEqual([
         goalLabel('lose'),
         MEAL_PLAN_DIET_LABELS.vegetarian,
-        MEAL_PLAN_SCHEDULE_LABELS.three_plus_snack
+        MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack
       ])
     })
 
@@ -485,7 +535,7 @@ describe('buildPlanSummaryRows', () => {
       expect(valuesOf(rows)).toEqual([
         goalWithWeight('gain', '90', MEAL_PLAN_KG_UNIT),
         MEAL_PLAN_DIET_LABELS.vegetarian,
-        MEAL_PLAN_SCHEDULE_LABELS.three_plus_snack
+        MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack
       ])
     })
 

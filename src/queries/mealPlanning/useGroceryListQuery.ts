@@ -1,9 +1,10 @@
+import {GroceryList} from '@data/models/GroceryList'
 import {fetchGroceryList} from '@queries/api/mealPlanning/fetchGroceryList'
-import {useQuery} from '@tanstack/react-query'
+import {DefaultError, useQuery, UseQueryResult} from '@tanstack/react-query'
 
 import {queryKeys} from '../keys'
 
-export const useGroceryListQuery = (planId: string | null) => {
+export const useGroceryListQuery = (planId: string | null): UseQueryResult<GroceryList, DefaultError> => {
   // A null planId is the no-plan state: enabled is false, so this '' key types the factory call but never fetches
   const key = planId ?? ''
 

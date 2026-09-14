@@ -83,6 +83,33 @@ export function isFeatureDisabledError(error: unknown): boolean {
   return getApiErrorCode(error) === API_ERROR_CODES.featureDisabled
 }
 
+// The two codes that say the plan an attempt named is not the plan the server holds. Declared beside the rest
+// of the classification for the same reason `isFeatureDisabledError` is: the swap screen, the generating screen
+// and the Macros entitlement all read this exact pair, and three hand-rolled comparisons would be free to drift
+// the moment the wire contract gains a third plan-state code.
+const PLAN_STATE_CODES: ReadonlySet<string> = new Set<string>([
+  API_ERROR_CODES.stalePlan,
+  API_ERROR_CODES.planNotActive
+])
+
+export function isPlanStateError(error: unknown): boolean {
+  const code = getApiErrorCode(error)
+
+  return code !== null && PLAN_STATE_CODES.has(code)
+}
+
+// The answer a READ may be redirected on: the server has either contradicted the plan the screen is holding or
+// reported the capability off, and both have an authoritative next move (0.2.5) — the stale-plan toast with a
+// plan refetch, or the unavailable card the entitlement router draws from this very signal.
+//
+// Confirmed-ness is load-bearing and deliberately not dropped. A 5xx that merely carried the string 'stale_plan'
+// is an *unknown* outcome under the classification above, and an outcome nothing described is a retry rather
+// than a redirection: sending the user somewhere else on a gateway body that happens to echo a code would
+// abandon a screen that a second attempt would have loaded.
+export function isPlanOrCapabilityRefusal(error: unknown): boolean {
+  return classifyOutcome(error) === 'confirmed' && (isPlanStateError(error) || isFeatureDisabledError(error))
+}
+
 // The code of a confirmed refusal that a same-key retry can never resolve, or null when there is nothing to
 // retire. Retryability is stated positively — `retryableCodes` is the caller's closed set of confirmed codes
 // whose own state still offers a same-key retry or an in-place edit — so a code this release has never heard

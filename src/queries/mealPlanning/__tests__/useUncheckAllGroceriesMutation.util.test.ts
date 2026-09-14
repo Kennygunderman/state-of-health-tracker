@@ -1,0 +1,485 @@
+import {GroceryItem, GroceryList, UncheckAllGroceriesResult} from '@data/models/GroceryList'
+import {mutationKeys, queryKeys} from '@queries/keys'
+import {QueryClient} from '@tanstack/react-query'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+
+import {
+  buildUncheckAllGroceriesMutationOptions,
+  UncheckAllGroceriesContext
+} from '../useUncheckAllGroceriesMutation.util'
+
+const PLAN_ID = 'plan-1'
+const OTHER_PLAN_ID = 'plan-2'
+const SPINACH_ID = 'item-spinach'
+const CHICKEN_ID = 'item-chicken'
+
+type UncheckAllOptions = ReturnType<typeof buildUncheckAllGroceriesMutationOptions>
+
+const makeItem = (overrides: Partial<GroceryItem> = {}): GroceryItem => ({
+  id: SPINACH_ID,
+  catalogFoodId: 'food-spinach',
+  foodState: 'raw',
+  name: 'Spinach',
+  quantityGrams: 420,
+  displayText: '7 cups',
+  isChecked: false,
+  flag: null,
+  ...overrides
+})
+
+const makeGroceryList = (): GroceryList => ({
+  planId: PLAN_ID,
+  planRevision: 3,
+  startDate: '2026-07-05',
+  endDate: '2026-07-11',
+  totalCount: 5,
+  checkedCount: 2,
+  banner: {code: 'amount_increased', itemNames: ['Chicken breast']},
+  sections: [
+    {
+      category: 'produce',
+      items: [
+        makeItem(),
+        makeItem({id: 'item-avocado', catalogFoodId: 'food-avocado', name: 'Avocado', displayText: '3'})
+      ]
+    },
+    {
+      category: 'protein',
+      items: [makeItem({id: 'item-salmon', catalogFoodId: 'food-salmon', name: 'Salmon fillet', displayText: '1.2 lb'})]
+    }
+  ],
+  checkedItems: [
+    makeItem({
+      id: CHICKEN_ID,
+      catalogFoodId: 'food-chicken',
+      name: 'Chicken breast',
+      displayText: '3.1 lb',
+      isChecked: true,
+      flag: {
+        previousDisplayText: '2.5 lb',
+        newDisplayText: '3.1 lb',
+        deltaDisplayText: '+0.6 lb',
+        flaggedAt: '2026-07-06T10:00:00.000Z'
+      }
+    }),
+    makeItem({
+      id: 'item-rice',
+      catalogFoodId: 'food-rice',
+      name: 'Brown rice',
+      displayText: '3 cups dry',
+      isChecked: true
+    })
+  ]
+})
+
+// A plan whose rows are all unchecked and whose flags were already cleared: the write must be a no-op on it.
+const makeUncheckedGroceryList = (): GroceryList => ({
+  ...makeGroceryList(),
+  checkedCount: 0,
+  banner: null,
+  checkedItems: []
+})
+
+const makeEmptyGroceryList = (): GroceryList => ({
+  ...makeGroceryList(),
+  totalCount: 0,
+  checkedCount: 0,
+  banner: null,
+  sections: [],
+  checkedItems: []
+})
+
+const makeUncheckAllResult = (): UncheckAllGroceriesResult => ({checkedCount: 0})
+
+const planNotActiveError = {response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}} as unknown as Error
+
+const stalePlanError = {response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}} as unknown as Error
+
+const numericCodeError = {response: {status: 409, data: {error: 409}}} as unknown as Error
+
+const networkError = new Error('Network request failed')
+
+// The option type declares every callback optional plus trailing parameters these invocations do not need, so
+// each handler is narrowed to the shape the factory actually installs; the assertions prove it ran.
+const invokeOnMutate = (options: UncheckAllOptions): Promise<UncheckAllGroceriesContext> => {
+  const onMutate = options.onMutate as () => Promise<UncheckAllGroceriesContext>
+
+  return onMutate()
+}
+
+const invokeOnError = (
+  options: UncheckAllOptions,
+  error: Error,
+  context: UncheckAllGroceriesContext | undefined
+): void => {
+  const onError = options.onError as (
+    handledError: Error,
+    variables: void,
+    handledContext: UncheckAllGroceriesContext | undefined
+  ) => void
+
+  onError(error, undefined, context)
+}
+
+const invokeOnSettled = (
+  options: UncheckAllOptions,
+  data: UncheckAllGroceriesResult | undefined,
+  error: Error | null
+): void => {
+  const onSettled = options.onSettled as (
+    handledData: UncheckAllGroceriesResult | undefined,
+    handledError: Error | null,
+    variables: void,
+    handledContext: UncheckAllGroceriesContext | undefined
+  ) => void
+
+  onSettled(data, error, undefined, {previousList: makeGroceryList()})
+}
+
+const readGroceryList = (client: QueryClient, planId: string): GroceryList | undefined =>
+  client.getQueryData<GroceryList>(queryKeys.groceryList(planId))
+
+const everyRow = (list: GroceryList): GroceryItem[] => [
+  ...list.sections.flatMap(section => section.items),
+  ...list.checkedItems
+]
+
+const rowIds = (list: GroceryList): string[] => {
+  const ids = everyRow(list).map(item => item.id)
+
+  return ids.sort()
+}
+
+let queryClient: QueryClient
+
+beforeEach(() => {
+  // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
+  // otherwise hold the Node event loop open long after the assertions are done.
+  queryClient = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
+})
+
+afterEach(() => {
+  jest.restoreAllMocks()
+})
+
+describe('buildUncheckAllGroceriesMutationOptions', () => {
+  describe('the returned options', () => {
+    it('carries the centralized uncheck-all-groceries mutation key', () => {
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      expect(options.mutationKey).toBe(mutationKeys.uncheckAllGroceries)
+    })
+
+    it('installs the optimistic lifecycle handlers and leaves the mutation function to the hook', () => {
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      expect(typeof options.onMutate).toBe('function')
+      expect(typeof options.onError).toBe('function')
+      expect(typeof options.onSettled).toBe('function')
+      expect(Object.keys(options).sort()).toEqual(['mutationKey', 'onError', 'onMutate', 'onSettled'])
+    })
+
+    it('declares no retry policy — a grocery write carries no idempotency key and last write wins', () => {
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      expect(options.retry).toBeUndefined()
+      expect(options.retryDelay).toBeUndefined()
+    })
+  })
+
+  describe('build-time purity', () => {
+    it('touches no cache while the options are built', () => {
+      const cancelSpy = jest.spyOn(queryClient, 'cancelQueries')
+      const writeSpy = jest.spyOn(queryClient, 'setQueryData')
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+
+      buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      expect(cancelSpy).not.toHaveBeenCalled()
+      expect(writeSpy).not.toHaveBeenCalled()
+      expect(invalidateSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('onMutate', () => {
+    it('cancels the in-flight grocery read before it snapshots and writes', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const cancelSpy = jest.spyOn(queryClient, 'cancelQueries')
+      const readSpy = jest.spyOn(queryClient, 'getQueryData')
+      const writeSpy = jest.spyOn(queryClient, 'setQueryData')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      expect(cancelSpy).toHaveBeenCalledWith({queryKey: queryKeys.groceryList(PLAN_ID)})
+      expect(cancelSpy.mock.invocationCallOrder[0]).toBeLessThan(readSpy.mock.invocationCallOrder[0])
+      expect(readSpy.mock.invocationCallOrder[0]).toBeLessThan(writeSpy.mock.invocationCallOrder[0])
+    })
+
+    it('unchecks every remaining row and clears every flag', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(everyRow(written).every(item => !item.isChecked)).toBe(true)
+      expect(everyRow(written).every(item => item.flag === null)).toBe(true)
+    })
+
+    it('zeroes the checked count while the checked card keeps its rows', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(written.checkedCount).toBe(0)
+      expect(written.checkedItems.map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice'])
+      expect(written.checkedItems.every(item => !item.isChecked)).toBe(true)
+    })
+
+    it('keeps every row the list holds, so nothing leaves the shopper list before the refetch lands', async () => {
+      const seeded = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(rowIds(written)).toEqual(rowIds(seeded))
+      expect(everyRow(written)).toHaveLength(written.totalCount)
+    })
+
+    it('leaves the unchecked sections and their row order alone', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein'])
+      expect(written.sections[0].items.map(item => item.id)).toEqual([SPINACH_ID, 'item-avocado'])
+      expect(written.sections[1].items.map(item => item.id)).toEqual(['item-salmon'])
+    })
+
+    it('leaves the banner, totals, revision and dates alone', async () => {
+      const seeded = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(written.banner).toEqual(seeded.banner)
+      expect(written.totalCount).toBe(5)
+      expect(written.planRevision).toBe(3)
+      expect(written.startDate).toBe('2026-07-05')
+      expect(written.endDate).toBe('2026-07-11')
+      expect(written.planId).toBe(PLAN_ID)
+    })
+
+    it('mutates nothing in the cached list and writes a new object instead', async () => {
+      const seeded = makeGroceryList()
+      const seededClone = JSON.parse(JSON.stringify(seeded)) as GroceryList
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(seeded).toEqual(seededClone)
+      expect(written).not.toBe(seeded)
+      expect(written.checkedItems).not.toBe(seeded.checkedItems)
+    })
+
+    it('returns the untouched previous list as rollback context', async () => {
+      const seeded = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+      const context = await invokeOnMutate(options)
+
+      expect(context.previousList).toBe(seeded)
+      expect(context.previousList?.checkedCount).toBe(2)
+      expect(context.previousList?.checkedItems).toHaveLength(2)
+    })
+
+    it('leaves a list that has nothing checked unchanged', async () => {
+      const seeded = makeUncheckedGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      expect(readGroceryList(queryClient, PLAN_ID)).toEqual(seeded)
+    })
+
+    it('handles a list with no sections and no checked rows', async () => {
+      const seeded = makeEmptyGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+
+      expect(written.sections).toEqual([])
+      expect(written.checkedItems).toEqual([])
+      expect(written.checkedCount).toBe(0)
+      expect(written.totalCount).toBe(0)
+    })
+
+    it('writes nothing and reports an empty snapshot when the grocery list is not cached', async () => {
+      const writeSpy = jest.spyOn(queryClient, 'setQueryData')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+      const context = await invokeOnMutate(options)
+
+      expect(context.previousList).toBeUndefined()
+      expect(writeSpy).not.toHaveBeenCalled()
+      expect(readGroceryList(queryClient, PLAN_ID)).toBeUndefined()
+      expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))).toBeUndefined()
+    })
+
+    it('writes only the grocery list of its own plan', async () => {
+      const otherPlanList = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+      queryClient.setQueryData(queryKeys.groceryList(OTHER_PLAN_ID), otherPlanList)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      await invokeOnMutate(options)
+
+      expect(readGroceryList(queryClient, OTHER_PLAN_ID)).toBe(otherPlanList)
+    })
+  })
+
+  describe('onError', () => {
+    it('restores the snapshot it was handed', async () => {
+      const seeded = makeGroceryList()
+
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+      const context = await invokeOnMutate(options)
+
+      expect(readGroceryList(queryClient, PLAN_ID)?.checkedCount).toBe(0)
+
+      invokeOnError(options, networkError, context)
+
+      // Deep equality rather than identity: TanStack applies structural sharing to every cache write.
+      expect(readGroceryList(queryClient, PLAN_ID)).toEqual(seeded)
+      expect(readGroceryList(queryClient, PLAN_ID)?.checkedCount).toBe(2)
+      expect(readGroceryList(queryClient, PLAN_ID)?.checkedItems[0].flag).not.toBeNull()
+    })
+
+    it('invalidates the current plan on 409 plan_not_active', () => {
+      queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnError(options, planNotActiveError, {previousList: makeGroceryList()})
+
+      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.mealPlanCurrent])
+      expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(true)
+    })
+
+    it('leaves the current plan alone for another machine code, a plain error and a non-string code', () => {
+      queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnError(options, stalePlanError, {previousList: makeGroceryList()})
+      invokeOnError(options, networkError, {previousList: makeGroceryList()})
+      invokeOnError(options, numericCodeError, {previousList: makeGroceryList()})
+
+      expect(invalidateSpy).not.toHaveBeenCalled()
+      expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(false)
+    })
+
+    it('rolls nothing back when no snapshot was captured', () => {
+      const writeSpy = jest.spyOn(queryClient, 'setQueryData')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnError(options, networkError, undefined)
+      invokeOnError(options, networkError, {previousList: undefined})
+
+      expect(writeSpy).not.toHaveBeenCalled()
+      expect(readGroceryList(queryClient, PLAN_ID)).toBeUndefined()
+    })
+
+    it('still recovers the plan state when a 409 arrives without a snapshot', () => {
+      queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnError(options, planNotActiveError, undefined)
+
+      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.mealPlanCurrent])
+    })
+  })
+
+  describe('onSettled', () => {
+    it('refetches the grocery list once after a successful write', () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnSettled(options, makeUncheckAllResult(), null)
+
+      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.groceryList(PLAN_ID)])
+      expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))?.isInvalidated).toBe(true)
+    })
+
+    it('refetches the grocery list once after a failed write', () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnSettled(options, undefined, planNotActiveError)
+
+      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.groceryList(PLAN_ID)])
+      expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))?.isInvalidated).toBe(true)
+    })
+
+    it('leaves another plan grocery list and the current plan valid', () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+      queryClient.setQueryData(queryKeys.groceryList(OTHER_PLAN_ID), makeGroceryList())
+      queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
+
+      const options = buildUncheckAllGroceriesMutationOptions(queryClient, PLAN_ID)
+
+      invokeOnSettled(options, makeUncheckAllResult(), null)
+
+      expect(queryClient.getQueryState(queryKeys.groceryList(OTHER_PLAN_ID))?.isInvalidated).toBe(false)
+      expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(false)
+    })
+  })
+})

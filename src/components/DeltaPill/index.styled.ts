@@ -30,8 +30,9 @@ export default StyleSheet.create({
      same label on the bare `card` surface measures 5.12:1, so the pill's own tint is what drops it below
      the threshold. Figma specifies the pair and outranks that default, so it is matched rather than
      lightened; `textSecondary` on `dangerTint` measures 5.95:1 but gives up the red semantic that marks an
-     increase. BadgePill's warning tone carries this same pair, so a change belongs to both at once — see
-     the accessible-colour register in `@styles/theme`. */
+     increase. The pair is kept here because Figma draws it; BadgePill's warning tone, an inferred state
+     Figma does not draw, diverged from it for contrast and now uses `text` on `dangerTint` — see the
+     accessible-colour register in `@styles/theme`. */
   labelDanger: {
     color: Theme.colors.danger
   }

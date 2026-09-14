@@ -28,17 +28,16 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textSecondary
   },
-  /* BLITZY [A11Y]: the warning tone carries `danger` on the `dangerTint` fill above at 4.41:1, below the
-     4.5:1 AA default. Unlike the rest of this register the pair is not drawn for a badge in Figma — the
-     file contains no warning-tone pill and draws BadgePill only in its neutral form (`49:551`). The tone
-     exists to carry the estimate labels the AAP requires in search and detail, and takes its colours from
-     the one red-on-red pill the design does draw, the grocery delta pill `37:273` + `37:274`, because an
-     inferred state must use only the drawn design language. It is upheld so the two pills stay one
-     language: giving this label a different red, or the compliant `textSecondary` (5.95:1 on `dangerTint`),
-     would leave two pills sharing a tint with different text colours — the isolated per-component change
-     this review asked to avoid. Being inferred rather than specified, this is the easier of the two to move
-     if a designer prefers. See the accessible-colour register in `@styles/theme`. */
+  /* The neutral tone above is the only BadgePill Figma draws (`49:551`): `tile` fill, `textSecondary`
+     label, 6.40:1. The warning tone carries the catalog provenance estimates and is an inferred state with
+     no Figma counterpart at all, so no drawn value governs its label and the WCAG 2.1 AA default does — at
+     13px/600 the label is not large text, so it needs 4.5:1. `danger` on the `dangerTint` fill above
+     reaches only 4.41:1, so the label is `text` instead, at 12.91:1. That is the pairing Figma already
+     draws on this fill for the error banner's title, so the tone still uses only the drawn design
+     language. `danger` on `dangerTint` remains correct where Figma does draw it — DeltaPill's grocery
+     delta pill `37:273` + `37:274` — and is kept there; see the accessible-colour register in
+     `@styles/theme`. `__tests__/index.styled.test.ts` pins both tones above 4.5:1. */
   labelWarning: {
-    color: Theme.colors.danger
+    color: Theme.colors.text
   }
 })

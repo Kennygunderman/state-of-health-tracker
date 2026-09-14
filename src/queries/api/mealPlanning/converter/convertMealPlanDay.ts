@@ -31,7 +31,11 @@ export function convertMealPlanMeal(data: io.TypeOf<typeof MealPlanMealResponse>
     },
     // Passed through unrounded: the swap commit echoes it back and the server re-derives it (409 preview_stale).
     portionMultiplier: data.portionMultiplier,
+    // Rendered verbatim: it is already in the recipe's own serving unit ('1 bowl', '1¼ plates'), composed
+    // server-side from the multiplier and the recipe's serving description.
     portionText: data.portionText,
+    // Passed through as sent: the server display-rounds every planned figure at the wire boundary, so these
+    // are already the integers the card shows. Rounding here would be a second rounding site.
     planned: data.planned,
     // An unrecognised code is dropped, not remapped: substituting one would assert an advisory the server never sent.
     flags: data.flags
@@ -58,6 +62,7 @@ export function convertMealPlanDay(data: io.TypeOf<typeof MealPlanDayResponse>):
     id: data.id,
     date: data.date,
     dayIndex: data.dayIndex,
+    // Already display-rounded by the server, like each meal's `planned`.
     plannedTotals: data.plannedTotals,
     isLastDay: data.isLastDay,
     meals: data.meals.map(convertMealPlanMeal)

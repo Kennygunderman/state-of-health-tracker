@@ -1,5 +1,8 @@
 import {
+  ALLERGEN_NONE,
   BudgetPreference,
+  MEAL_SLOTS_BY_SCHEDULE,
+  MEAL_SLOTS_IN_WIRE_ORDER,
   MealPlanPreferences,
   MealPlanPreferencesUpdate,
   MealSchedule,
@@ -62,7 +65,9 @@ export type MealPlanSetupLifecycleEvent =
   | 'flow_exited'
   | 'step_saved'
 
-export const ALLERGEN_NONE = 'none'
+// Declared by @data/models/MealPlanPreferences, which owns the preference vocabulary the wizard and the
+// screens reading it back must agree on, and re-exported so this module's own surface is unchanged.
+export {ALLERGEN_NONE}
 
 // Wire values, not display strings: a meal time is stored as 24-hour HH:mm and the screens
 // render '08:00' as '8:00 AM'. Every table below is frozen because it is module-global reducer
@@ -90,13 +95,6 @@ export const SETUP_STEPS_MANUAL: readonly MealPlanSetupStep[] = Object.freeze(
   SETUP_STEPS_ESTIMATED.filter(step => step !== 'activity')
 )
 
-const SCHEDULE_SLOTS: Readonly<Record<MealSchedule, readonly MealSlot[]>> = Object.freeze({
-  three: Object.freeze(['breakfast', 'lunch', 'dinner'] as const),
-  three_plus_snack: Object.freeze(['breakfast', 'lunch', 'dinner', 'snack'] as const)
-})
-
-const WIRE_SLOT_ORDER: readonly MealSlot[] = Object.freeze(['breakfast', 'lunch', 'dinner', 'snack'] as const)
-
 // This release accepts exactly one currency (AAP 0.5.2) and the '$' sign is part of the copy the
 // budget field renders, so the draft stamps it on every amount instead of carrying a currency
 // through from anywhere else — a draft holding another currency would build a payload the server
@@ -119,7 +117,9 @@ const copyMealTimes = (mealTimes: MealTimeEntry[]): MealTimeEntry[] =>
   mealTimes.map(entry => ({slot: entry.slot, time: entry.time}))
 
 const sortByWireOrder = (mealTimes: MealTimeEntry[]): MealTimeEntry[] =>
-  [...mealTimes].sort((left, right) => WIRE_SLOT_ORDER.indexOf(left.slot) - WIRE_SLOT_ORDER.indexOf(right.slot))
+  [...mealTimes].sort(
+    (left, right) => MEAL_SLOTS_IN_WIRE_ORDER.indexOf(left.slot) - MEAL_SLOTS_IN_WIRE_ORDER.indexOf(right.slot)
+  )
 
 const toBudgetPreference = (amount: number): BudgetPreference => ({amount, currency: BUDGET_CURRENCY})
 
@@ -274,7 +274,7 @@ export const setDislikedFoodIds = (state: MealPlanSetupDraftState, foodIds: stri
   setStepFields(state, 'dislikes', {dislikedFoodIds: dedupe(foodIds)})
 
 export const applyMealSchedule = (state: MealPlanSetupDraftState, schedule: MealSchedule): MealPlanSetupDraftState => {
-  const mealTimes = SCHEDULE_SLOTS[schedule].map(slot => ({
+  const mealTimes = MEAL_SLOTS_BY_SCHEDULE[schedule].map(slot => ({
     slot,
     time: state.draft.mealTimes.find(entry => entry.slot === slot)?.time ?? DEFAULT_MEAL_TIMES[slot]
   }))
@@ -311,7 +311,7 @@ const hasCompleteSchedule = (draft: MealPlanSetupDraft): boolean => {
     return false
   }
 
-  return SCHEDULE_SLOTS[draft.mealSchedule].every(slot =>
+  return MEAL_SLOTS_BY_SCHEDULE[draft.mealSchedule].every(slot =>
     draft.mealTimes.some(entry => entry.slot === slot && entry.time.trim().length > 0)
   )
 }

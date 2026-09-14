@@ -2,6 +2,7 @@ import {GroceryBanner, GroceryCategory, GroceryItem, GroceryList, GrocerySection
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {formatPlanRange} from '@utility/MealPlanDateUtility'
+import {lookupLabel} from '@utility/TextUtility'
 
 import {
   GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE,
@@ -124,7 +125,7 @@ export function groceryBanner(banner: GroceryBanner | null, flagCount: number): 
 
   if (banner.code === 'updated_after_swap') {
     const slot: string | undefined =
-      banner.mealSlot === undefined ? undefined : MEAL_SLOT_SENTENCE_LABELS[banner.mealSlot]
+      banner.mealSlot === undefined ? undefined : lookupLabel(MEAL_SLOT_SENTENCE_LABELS, banner.mealSlot)
 
     return {
       tone: 'success',
@@ -177,7 +178,7 @@ export function orderGrocerySections(sections: GrocerySection[]): GrocerySection
 }
 
 export function groceryCategoryLabel(category: string): string {
-  return GROCERY_CATEGORY_LABELS[category] ?? GROCERY_CATEGORY_LABELS[CLOSING_AISLE]
+  return lookupLabel(GROCERY_CATEGORY_LABELS, category) ?? GROCERY_CATEGORY_LABELS[CLOSING_AISLE]
 }
 
 // Mirrors ContentColumn's own geometry so a Skeleton placeholder measures the same as the card it stands in for.

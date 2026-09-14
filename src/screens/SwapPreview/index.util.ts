@@ -2,7 +2,7 @@ import {RecipeIngredient} from '@data/models/Recipe'
 import {SwapPreview, SwapPreviewAlternative} from '@data/models/SwapAlternative'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams, formatMacroPair, formatSignedCalories} from '@utility/NutritionFormatUtility'
-import {DisplayedIngredient, plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/RecipeIngredientUtility'
+import {DisplayedIngredient, plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/ServingsUtility'
 
 import type {MetricGridItem} from '@components/MetricGrid4'
 
@@ -10,6 +10,7 @@ import {
   CAL_LABEL,
   CARBS_LABEL,
   FAT_LABEL,
+  MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE,
   MEAL_SLOT_SENTENCE_LABELS,
   PROTEIN_LABEL,
   stringWithNamedParameters,
@@ -28,8 +29,8 @@ export interface SwapMacroLegendItem {
   valueText: string
 }
 
-// Declared by @utility/RecipeIngredientUtility, which owns the scaling and formatting this screen shares with
-// recipe detail, and re-exported so the screen takes its row shape from its own util
+// Declared by @utility/ServingsUtility, which owns the scaling and formatting this screen shares with recipe
+// detail, and re-exported so the screen takes its row shape from its own util
 export type {DisplayedIngredient}
 
 type PreviewNutrition = SwapPreviewAlternative['nutrition']
@@ -107,7 +108,10 @@ export function buildThisMealMetrics(
 /** Natural case ('Replacing lunch · Sat Jul 5'); RecipeHero's context pill applies the uppercase itself. */
 export function formatReplacingContext(slot: string, dateKey: string): string {
   const {weekday} = dayStripLabel(dateKey)
-  const date = `${weekday} ${formatPlanDayLabel(dateKey)}`
+  const date = stringWithNamedParameters(MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE, {
+    weekday,
+    date: formatPlanDayLabel(dateKey)
+  })
   const label = SLOT_SENTENCE_LABELS.get(slot)
 
   if (!isPresent(label)) {

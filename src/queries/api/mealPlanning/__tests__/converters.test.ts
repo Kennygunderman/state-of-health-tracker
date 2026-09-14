@@ -1,7 +1,10 @@
+import {BudgetPreference, MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {httpGet} from '@service/http/httpUtil'
 import CrashUtility from '@utility/CrashUtility'
 import {AxiosError, AxiosResponse} from 'axios'
 import * as io from 'io-ts'
+
+import Endpoints from '@constants/endpoints'
 
 import {convertAffectedMeals} from '../converter/convertAffectedMeals'
 import {convertGroceryItem, convertGroceryList} from '../converter/convertGroceryList'
@@ -14,6 +17,7 @@ import {convertSwapAlternatives, convertSwapPreview} from '../converter/convertS
 import {
   AffectedMealResponse,
   AffectedMealsResponse,
+  CurrentMealPlanResponse,
   GroceryItemResponse,
   GroceryListResponse,
   MealPlanDayResponse,
@@ -28,6 +32,7 @@ import {
   TargetsResponse,
   TargetsSaveResponse
 } from '../decoder/MealPlanningDecoder'
+import {fetchCurrentMealPlan} from '../fetchCurrentMealPlan'
 import {fetchNutritionTargets} from '../fetchNutritionTargets'
 
 jest.mock('@service/http/httpUtil', () => ({
@@ -566,10 +571,153 @@ describe('convertPreferences', () => {
 })
 
 describe('convertPreferencesSaveResult', () => {
-  it('composes the preferences converter for the saved row', () => {
-    const response = makePreferencesSave({preferences: makeFirstEntryPreferences()})
+  // A wire payload of its own, distinct from the convertPreferences fixture, so the expected result below can be
+  // written out independently instead of being computed by the converter whose work it is meant to prove.
+  const makeSavedRow = (): WirePreferencesSave =>
+    makePreferencesSave({
+      preferences: makePreferences({
+        setupStatus: 'in_progress',
+        setupStep: 'cooking',
+        reviewStartDate: null,
+        timeZone: 'Europe/Lisbon',
+        targetRoute: 'manual',
+        revision: 7,
+        goal: 'gain',
+        goalWeightKg: 88.5,
+        paceLbPerWeek: 0.5,
+        age: 41,
+        heightCm: 183,
+        weightKg: 79.4,
+        sexForEstimate: 'male',
+        heightUnitPref: 'cm',
+        weightUnitPref: 'kg',
+        activityLevel: 'active',
+        diet: 'pescatarian',
+        allergens: ['milk', 'sesame'],
+        dislikedFoods: [
+          {id: 'catalog-food-4', name: 'Blue cheese', foodGroup: 'cheese'},
+          {id: 'catalog-food-5', name: 'Cilantro', foodGroup: 'herb'}
+        ],
+        dislikedFoodGroups: ['cheese', 'herb'],
+        mealSchedule: 'three',
+        mealTimes: [
+          {slot: 'breakfast', time: '07:15'},
+          {slot: 'lunch', time: '13:00'},
+          {slot: 'dinner', time: '19:45'}
+        ],
+        cookingTimeLimitMin: 45,
+        budget: {amount: 140, currency: 'USD'},
+        noBudgetPreference: false,
+        budgetTier: 3,
+        hasActivePlan: true
+      }),
+      affectedMealCount: 3
+    })
 
-    expect(convertPreferencesSaveResult(response).preferences).toEqual(convertPreferences(response.preferences))
+  // A first-entry row legitimately carries no budget, so the mutation case narrows it here and fails loudly
+  // rather than asserting against undefined.
+  const requireBudget = (preferences: MealPlanPreferences): BudgetPreference => {
+    if (preferences.budget === null) {
+      throw new Error('expected the converted preferences to carry a budget')
+    }
+
+    return preferences.budget
+  }
+
+  it('returns the saved row and its affected-meal count as the screens read them', () => {
+    expect(convertPreferencesSaveResult(makeSavedRow())).toEqual({
+      preferences: {
+        setupStatus: 'in_progress',
+        setupStep: 'cooking',
+        reviewStartDate: null,
+        timeZone: 'Europe/Lisbon',
+        targetRoute: 'manual',
+        revision: 7,
+        goal: 'gain',
+        goalWeightKg: 88.5,
+        paceLbPerWeek: 0.5,
+        age: 41,
+        heightCm: 183,
+        weightKg: 79.4,
+        sexForEstimate: 'male',
+        heightUnitPref: 'cm',
+        weightUnitPref: 'kg',
+        activityLevel: 'active',
+        diet: 'pescatarian',
+        allergens: ['milk', 'sesame'],
+        dislikedFoods: [
+          {id: 'catalog-food-4', name: 'Blue cheese', foodGroup: 'cheese'},
+          {id: 'catalog-food-5', name: 'Cilantro', foodGroup: 'herb'}
+        ],
+        dislikedFoodGroups: ['cheese', 'herb'],
+        mealSchedule: 'three',
+        mealTimes: [
+          {slot: 'breakfast', time: '07:15'},
+          {slot: 'lunch', time: '13:00'},
+          {slot: 'dinner', time: '19:45'}
+        ],
+        cookingTimeLimitMin: 45,
+        budget: {amount: 140, currency: 'USD'},
+        noBudgetPreference: false,
+        budgetTier: 3,
+        hasActivePlan: true
+      },
+      affectedMealCount: 3
+    })
+  })
+
+  // The wire shape and the view model are member-for-member identical, so structural equality alone cannot tell
+  // a conversion from `preferences: data.preferences`. These cases can: the members convertPreferences rebuilds
+  // — the row itself, the disliked foods, the meal times and the budget — come back as new objects.
+  it('rebuilds the saved row instead of handing back the decoded response', () => {
+    const response = makeSavedRow()
+    const result = convertPreferencesSaveResult(response)
+
+    expect(result.preferences).not.toBe(response.preferences)
+    expect(result.preferences.dislikedFoods).not.toBe(response.preferences.dislikedFoods)
+    expect(result.preferences.dislikedFoods[0]).not.toBe(response.preferences.dislikedFoods[0])
+    expect(result.preferences.mealTimes).not.toBe(response.preferences.mealTimes)
+    expect(result.preferences.mealTimes[0]).not.toBe(response.preferences.mealTimes[0])
+    expect(result.preferences.budget).not.toBe(response.preferences.budget)
+  })
+
+  it('leaves the decoded response untouched when those rebuilt members are edited', () => {
+    const response = makeSavedRow()
+    const result = convertPreferencesSaveResult(response)
+
+    result.preferences.dislikedFoods[0].name = 'Edited food'
+    result.preferences.dislikedFoods.push({id: 'catalog-food-6', name: 'Olives', foodGroup: 'olive'})
+    result.preferences.mealTimes[0].time = '05:00'
+    result.preferences.mealTimes.pop()
+    requireBudget(result.preferences).amount = 1
+
+    expect(response.preferences.dislikedFoods).toEqual([
+      {id: 'catalog-food-4', name: 'Blue cheese', foodGroup: 'cheese'},
+      {id: 'catalog-food-5', name: 'Cilantro', foodGroup: 'herb'}
+    ])
+    expect(response.preferences.mealTimes).toEqual([
+      {slot: 'breakfast', time: '07:15'},
+      {slot: 'lunch', time: '13:00'},
+      {slot: 'dinner', time: '19:45'}
+    ])
+    expect(response.preferences.budget).toEqual({amount: 140, currency: 'USD'})
+  })
+
+  it('carries a first-entry row through with nothing invented for its unanswered members', () => {
+    const result = convertPreferencesSaveResult(
+      makePreferencesSave({preferences: makeFirstEntryPreferences(), affectedMealCount: 0})
+    )
+
+    expect(result.preferences.setupStatus).toBe('not_started')
+    expect(result.preferences.setupStep).toBeNull()
+    expect(result.preferences.revision).toBe(0)
+    expect(result.preferences.goal).toBeNull()
+    expect(result.preferences.weightUnitPref).toBeNull()
+    expect(result.preferences.budget).toBeNull()
+    expect(result.preferences.allergens).toEqual([])
+    expect(result.preferences.dislikedFoods).toEqual([])
+    expect(result.preferences.mealTimes).toEqual([])
+    expect(result.preferences.hasActivePlan).toBe(false)
   })
 
   it('preserves a zero affected-meal count', () => {
@@ -668,10 +816,36 @@ describe('convertNutritionTargets', () => {
 })
 
 describe('convertNutritionTargetsSaveResult', () => {
-  it('composes the targets converter for the saved targets', () => {
-    const response = makeTargetsSave({targets: makeTargets({source: 'not_a_source'})})
+  // Stated independently rather than computed with the nested converter: the unrecognised source has to come back
+  // resolved to null, which is what separates a saved block that went through convertNutritionTargets from one
+  // handed back off the wire.
+  it('returns the saved targets with an unrecognised source resolved to null', () => {
+    const response = makeTargetsSave({
+      targets: makeTargets({
+        targets: makeMacroTargets({calories: 2100, protein: 158, carbs: 210, fat: 70}),
+        complete: true,
+        source: 'not_a_source',
+        stale: true,
+        revision: 9
+      })
+    })
 
-    expect(convertNutritionTargetsSaveResult(response).targets).toEqual(convertNutritionTargets(response.targets))
+    expect(convertNutritionTargetsSaveResult(response).targets).toEqual({
+      targets: {calories: 2100, protein: 158, carbs: 210, fat: 70},
+      complete: true,
+      source: null,
+      stale: true,
+      revision: 9
+    })
+  })
+
+  it('rebuilds the targets and feasibility blocks instead of handing back the decoded response', () => {
+    const response = makeTargetsSave()
+    const result = convertNutritionTargetsSaveResult(response)
+
+    expect(result.targets).not.toBe(response.targets)
+    expect(result.feasibility).not.toBe(response.feasibility)
+    expect(result.feasibility.warnings).not.toBe(response.feasibility.warnings)
   })
 
   it('preserves a feasible verdict', () => {
@@ -1600,6 +1774,173 @@ const mockRecordError = jest.mocked(CrashUtility.recordError)
 
 const makeAxiosError = (status: number, data: unknown): AxiosError =>
   new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {status, data} as AxiosResponse)
+
+const resolveGetWith = (status: number, data: unknown): void => {
+  mockHttpGet.mockResolvedValue({status, data})
+}
+
+describe('fetchCurrentMealPlan', () => {
+  const NO_PLANS = {current: null, upcoming: null}
+
+  const makeUpcomingPlan = (): WirePlan =>
+    makePlan({
+      id: 'plan-2',
+      startDate: '2026-07-12',
+      endDate: '2026-07-18',
+      days: [makeDay({id: 'day-8', date: '2026-07-12'})]
+    })
+
+  const getCall = (): [string, unknown] => {
+    const call = mockHttpGet.mock.calls[0]
+
+    return [call[0], call[1]]
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('the request it issues', () => {
+    it('reads the current-plan endpoint', async () => {
+      resolveGetWith(200, NO_PLANS)
+
+      await fetchCurrentMealPlan()
+
+      const [url] = getCall()
+
+      expect(url).toBe(Endpoints.CurrentMealPlan)
+      expect(url.endsWith('/meal-planning/plans/current')).toBe(true)
+    })
+
+    // The codec is asserted by identity, not by shape: a look-alike envelope declared elsewhere would satisfy a
+    // structural comparison while validating something other than the contract this domain publishes.
+    it('validates the answer with the shared current-and-upcoming envelope codec', async () => {
+      resolveGetWith(200, NO_PLANS)
+
+      await fetchCurrentMealPlan()
+
+      const [, decoder] = getCall()
+
+      expect(decoder).toBe(CurrentMealPlanResponse)
+    })
+  })
+
+  describe('a user with no plan', () => {
+    it('resolves both members to null, which is the answer rather than a failure', async () => {
+      resolveGetWith(200, NO_PLANS)
+
+      await expect(fetchCurrentMealPlan()).resolves.toEqual({current: null, upcoming: null})
+    })
+
+    it('records nothing, because an empty week is not an error', async () => {
+      resolveGetWith(200, NO_PLANS)
+
+      await fetchCurrentMealPlan()
+
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the plans it converts', () => {
+    it('converts the current plan and leaves upcoming null', async () => {
+      resolveGetWith(200, {current: makePlan(), upcoming: null})
+
+      const plans = await fetchCurrentMealPlan()
+
+      expect(plans.upcoming).toBeNull()
+      expect(plans.current?.id).toBe('plan-1')
+      expect(plans.current?.startDate).toBe('2026-07-05')
+      expect(plans.current?.endDate).toBe('2026-07-11')
+      expect(plans.current?.status).toBe('active')
+      expect(plans.current?.summary).toEqual({plannedMeals: 21, groceryItemCount: 14, loggedEntryCount: 0})
+      expect(plans.current?.days).toHaveLength(1)
+      expect(plans.current?.days[0].meals[0].recipe.name).toBe('Chicken burrito bowl')
+    })
+
+    it('converts the upcoming plan when no current week exists', async () => {
+      resolveGetWith(200, {current: null, upcoming: makeUpcomingPlan()})
+
+      const plans = await fetchCurrentMealPlan()
+
+      expect(plans.current).toBeNull()
+      expect(plans.upcoming?.id).toBe('plan-2')
+      expect(plans.upcoming?.startDate).toBe('2026-07-12')
+      expect(plans.upcoming?.days[0].date).toBe('2026-07-12')
+    })
+
+    it('keeps each plan on the member the server sent it on', async () => {
+      resolveGetWith(200, {current: makePlan(), upcoming: makeUpcomingPlan()})
+
+      const plans = await fetchCurrentMealPlan()
+
+      expect(plans.current?.id).toBe('plan-1')
+      expect(plans.current?.startDate).toBe('2026-07-05')
+      expect(plans.upcoming?.id).toBe('plan-2')
+      expect(plans.upcoming?.startDate).toBe('2026-07-12')
+    })
+
+    it('hands back converted plans rather than the decoded wire objects', async () => {
+      const wire = {current: makePlan(), upcoming: makeUpcomingPlan()}
+
+      resolveGetWith(200, wire)
+
+      const plans = await fetchCurrentMealPlan()
+
+      expect(plans.current).not.toBe(wire.current)
+      expect(plans.current?.days).not.toBe(wire.current.days)
+      expect(plans.upcoming).not.toBe(wire.upcoming)
+      expect(plans.upcoming?.days[0].meals).not.toBe(wire.upcoming.days[0].meals)
+    })
+  })
+
+  describe('a 2xx answer the contract does not allow', () => {
+    it('throws rather than reporting a plan state it cannot read', async () => {
+      resolveGetWith(204, NO_PLANS)
+
+      await expect(fetchCurrentMealPlan()).rejects.toThrow('Unexpected response fetching current meal plan: status=204')
+    })
+
+    it('throws when a 200 carries no body, and records it', async () => {
+      resolveGetWith(200, null)
+
+      await expect(fetchCurrentMealPlan()).rejects.toThrow('Unexpected response fetching current meal plan: status=200')
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('a rejection from the transport', () => {
+    // A bare 404 here means a backend without the route, which the Meal Plan tab renders as "unavailable". Mapping
+    // it to an empty result would instead offer "Create my plan" against a backend that cannot generate one.
+    it('does not read a bare 404 as a user with no plan', async () => {
+      const error = makeAxiosError(404, {})
+
+      mockHttpGet.mockRejectedValue(error)
+
+      await expect(fetchCurrentMealPlan()).rejects.toBe(error)
+      expect(mockRecordError).toHaveBeenCalledWith(error)
+    })
+
+    it('rethrows and records a disabled-feature answer', async () => {
+      const error = makeAxiosError(503, {error: 'feature_disabled'})
+
+      mockHttpGet.mockRejectedValue(error)
+
+      await expect(fetchCurrentMealPlan()).rejects.toBe(error)
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+      expect(mockRecordError).toHaveBeenCalledWith(error)
+    })
+
+    it('rethrows and records a network error that carries no response', async () => {
+      const error = new Error('network down')
+
+      mockHttpGet.mockRejectedValue(error)
+
+      await expect(fetchCurrentMealPlan()).rejects.toBe(error)
+      expect(mockRecordError).toHaveBeenCalledTimes(1)
+      expect(mockRecordError).toHaveBeenCalledWith(error)
+    })
+  })
+})
 
 describe('fetchNutritionTargets', () => {
   beforeEach(() => {

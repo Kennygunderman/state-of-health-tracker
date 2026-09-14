@@ -36,6 +36,12 @@ const FIGMA_BAR_WIDTHS = [193.68, 129.12, 156.02, 107.59, 177.54, 139.88]
 
 const MEAL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
+// A confirmed 4xx code is whatever the server put in the body, so a code equal to the name of a member every
+// object inherits is a reachable input rather than a hypothetical one: indexing the toast and recovery tables
+// with one of these used to resolve that inherited member — a function, or Object.prototype itself — and the
+// `?? null` / `?? 'refetchPlan'` fallbacks never fired because an inherited member is not nullish.
+const INHERITED_MEMBER_CODES = ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']
+
 const proportionsInRowOrder = () => SKELETON_ALTERNATIVE_ROWS.flatMap(row => [row.primary, row.secondary])
 
 const alternative = (overrides: Partial<SwapAlternative> = {}): SwapAlternative => ({
@@ -297,11 +303,11 @@ describe('resolveSwapView', () => {
       expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
     })
 
-    it('keeps a failed request distinct from a decoded empty list', () => {
-      const failedRequest = resolveSwapView(swapInput({alternativesError: transportError(), alternatives: []}))
+    it('keeps a request that decoded nothing distinct from a decoded empty list', () => {
+      const nothingDecoded = resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined}))
       const emptyResponse = resolveSwapView(swapInput({alternatives: []}))
 
-      expect(failedRequest.kind).toBe('error')
+      expect(nothingDecoded.kind).toBe('error')
       expect(emptyResponse.kind).toBe('empty')
     })
 
@@ -312,6 +318,174 @@ describe('resolveSwapView', () => {
       expect(failedRequest.currentMealVariant).toBe('default')
       expect(emptyResponse.currentMealVariant).toBe('unchanged')
       expect(failedRequest.currentMealVariant).not.toBe(emptyResponse.currentMealVariant)
+    })
+  })
+
+  describe('with an alternatives request that failed behind decoded alternatives', () => {
+    it('keeps the list on screen when a background refetch merely failed', () => {
+      const view = resolveSwapView(swapInput({alternativesError: transportError()}))
+
+      expect(view).toEqual({kind: 'list', currentMealVariant: 'default', alternatives: [alternative()]})
+    })
+
+    it('keeps the decoded empty state when a background refetch merely failed', () => {
+      const view = resolveSwapView(swapInput({alternatives: [], alternativesError: transportError()}))
+
+      expect(view.kind).toBe('empty')
+      expect(view.currentMealVariant).toBe('unchanged')
+    })
+
+    it('draws the retry card only once nothing has been decoded', () => {
+      expect(resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined})).kind).toBe(
+        'error'
+      )
+    })
+
+    it('keeps both decoded states through an undecodable body, not only through a lost connection', () => {
+      const listView = resolveSwapView(swapInput({alternativesError: undecodableError()}))
+      const emptyView = resolveSwapView(swapInput({alternatives: [], alternativesError: undecodableError()}))
+      const nothingDecoded = resolveSwapView(
+        swapInput({alternativesError: undecodableError(), alternatives: undefined})
+      )
+
+      expect(rendersAlternatives(listView) ? listView.alternatives : null).toEqual([alternative()])
+      expect(emptyView.kind).toBe('empty')
+      expect(nothingDecoded.kind).toBe('error')
+    })
+  })
+
+  describe('with an authoritative alternatives refusal', () => {
+    it('is terminal once the alternatives answer says the plan moved on, and names the read that answered', () => {
+      const view = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.stalePlan)}))
+
+      expect(view.kind).toBe('terminal')
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code: 'stale_plan',
+        source: 'alternatives',
+        toastText: 'Your plan changed. Try that again.',
+        recovery: 'refetchPlan'
+      })
+    })
+
+    it('re-reads the plan when the alternatives answer says it is no longer active', () => {
+      const view = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.planNotActive)}))
+
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code: 'plan_not_active',
+        source: 'alternatives',
+        toastText: 'Your plan changed. Try that again.',
+        recovery: 'refetchPlan'
+      })
+    })
+
+    it('leaves for the plan tab without a toast when the capability itself is off', () => {
+      const view = resolveSwapView(swapInput({alternativesError: apiError(503, API_ERROR_CODES.featureDisabled)}))
+
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code: 'feature_disabled',
+        source: 'alternatives',
+        toastText: null,
+        recovery: 'exitToPlanTab'
+      })
+    })
+
+    // The refusal is about the plan these rows belong to, so reading them is the unsafe act: it outranks the
+    // cache the way a terminal day answer already does, and it may not wait behind a refetch either.
+    it('outranks a decoded list, a decoded empty array and a request still in flight', () => {
+      const refusals = [
+        apiError(409, API_ERROR_CODES.stalePlan),
+        apiError(409, API_ERROR_CODES.planNotActive),
+        apiError(503, API_ERROR_CODES.featureDisabled)
+      ]
+
+      refusals.forEach(alternativesError => {
+        expect(resolveSwapView(swapInput({alternativesError})).kind).toBe('terminal')
+        expect(resolveSwapView(swapInput({alternativesError, alternatives: []})).kind).toBe('terminal')
+        expect(
+          resolveSwapView(swapInput({alternativesError, isAlternativesPending: true, alternatives: undefined})).kind
+        ).toBe('terminal')
+      })
+    })
+
+    it('never retires the pending key, because the alternatives query is a read', () => {
+      const refusals = [
+        apiError(409, API_ERROR_CODES.stalePlan),
+        apiError(409, API_ERROR_CODES.planNotActive),
+        apiError(503, API_ERROR_CODES.featureDisabled)
+      ]
+
+      refusals.forEach(alternativesError =>
+        expect(retiresPendingIntent(resolveSwapView(swapInput({alternativesError})))).toBe(false)
+      )
+    })
+
+    it('leaves a confirmed refusal with no authoritative next move as the retry card', () => {
+      const view = resolveSwapView(
+        swapInput({alternativesError: apiError(400, API_ERROR_CODES.invalidRequest), alternatives: undefined})
+      )
+
+      expect(view.kind).toBe('error')
+      expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
+    })
+
+    it('leaves a 5xx that merely echoed a plan-state code as the retry card, an outcome nothing described', () => {
+      const staleEcho = resolveSwapView(
+        swapInput({alternativesError: apiError(502, API_ERROR_CODES.stalePlan), alternatives: undefined})
+      )
+      const inactiveEcho = resolveSwapView(
+        swapInput({alternativesError: apiError(500, API_ERROR_CODES.planNotActive), alternatives: undefined})
+      )
+
+      expect(staleEcho.kind).toBe('error')
+      expect(inactiveEcho.kind).toBe('error')
+    })
+
+    it('keeps the list on screen so the recovery step never lands on a blank screen', () => {
+      const view = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.stalePlan)}))
+
+      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
+    })
+  })
+
+  // The capability answer has one recovery whichever request carried it: the tab's entitlement router draws the
+  // unavailable card from this very signal, and no next move on a swap screen survives the feature being off.
+  describe('with the capability reported off', () => {
+    it('leaves for the plan tab on the commit, and that answer does retire the key', () => {
+      const view = resolveSwapView(swapInput({swapError: apiError(503, API_ERROR_CODES.featureDisabled)}))
+
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code: 'feature_disabled',
+        source: 'swap',
+        toastText: null,
+        recovery: 'exitToPlanTab'
+      })
+      expect(retiresPendingIntent(view)).toBe(true)
+    })
+
+    it('leaves for the plan tab on the day read, without retiring the key', () => {
+      const view = resolveSwapView(swapInput({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}))
+
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code: 'feature_disabled',
+        source: 'day',
+        toastText: null,
+        recovery: 'exitToPlanTab'
+      })
+      expect(retiresPendingIntent(view)).toBe(false)
+    })
+
+    it('never asks for a plan refetch behind a route that answers 503', () => {
+      const sources = [
+        swapInput({swapError: apiError(503, API_ERROR_CODES.featureDisabled)}),
+        swapInput({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}),
+        swapInput({alternativesError: apiError(503, API_ERROR_CODES.featureDisabled)})
+      ]
+
+      sources.forEach(input => {
+        const view = resolveSwapView(input)
+
+        expect(view.kind === 'terminal' ? view.terminal.recovery : null).toBe('exitToPlanTab')
+      })
     })
   })
 
@@ -544,6 +718,52 @@ describe('resolveSwapView', () => {
     })
   })
 
+  describe('with a refusal code that names a member every object inherits', () => {
+    it.each(INHERITED_MEMBER_CODES)('carries %s as a code with no copy and the plan refetch', code => {
+      const view = resolveSwapView(swapInput({swapError: apiError(409, code)}))
+
+      expect(view.kind).toBe('terminal')
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code,
+        source: 'swap',
+        toastText: null,
+        recovery: 'refetchPlan'
+      })
+    })
+
+    it.each(INHERITED_MEMBER_CODES)('answers %s from the day query the same way', code => {
+      const view = resolveSwapView(swapInput({dayError: apiError(409, code)}))
+
+      expect(view.kind).toBe('terminal')
+      expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
+        code,
+        source: 'day',
+        toastText: null,
+        recovery: 'refetchPlan'
+      })
+    })
+
+    it('hands the toast no inherited function and the recovery switch no inherited value', () => {
+      const inheritedFunctionCode = 'constructor'
+      const swapTerminal = resolveSwapView(swapInput({swapError: apiError(409, inheritedFunctionCode)}))
+      const dayTerminal = resolveSwapView(swapInput({dayError: apiError(409, inheritedFunctionCode)}))
+      const terminals = [swapTerminal, dayTerminal].map(view => (view.kind === 'terminal' ? view.terminal : null))
+
+      terminals.forEach(terminal => {
+        expect(terminal?.toastText).toBeNull()
+        expect(typeof terminal?.recovery).toBe('string')
+        expect(terminal?.recovery).toBe('refetchPlan')
+      })
+    })
+
+    it('still keeps the alternatives on screen, as every other terminal refusal does', () => {
+      const view = resolveSwapView(swapInput({swapError: apiError(409, 'toString')}))
+
+      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
+      expect(retiresPendingIntent(view)).toBe(true)
+    })
+  })
+
   // The commit is the action the user just asked for, so whatever the alternatives request is doing, its outcome
   // is the one the screen has to answer for.
   describe('with a commit outcome beside an unsettled alternatives request', () => {
@@ -612,8 +832,14 @@ describe('resolveSwapView', () => {
         swapInput({alternatives: []}),
         swapInput({isAlternativesPending: true, alternatives: undefined}),
         swapInput({alternativesError: transportError(), alternatives: undefined}),
+        swapInput({alternativesError: transportError()}),
+        swapInput({alternativesError: undecodableError(), alternatives: []}),
+        swapInput({alternativesError: apiError(409, API_ERROR_CODES.stalePlan)}),
+        swapInput({alternativesError: apiError(503, API_ERROR_CODES.featureDisabled)}),
         swapInput({currentMeal: null, dayError: transportError()}),
+        swapInput({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}),
         swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}),
+        swapInput({swapError: apiError(503, API_ERROR_CODES.featureDisabled)}),
         swapInput({swapError: transportError()})
       ]
 
@@ -640,6 +866,17 @@ describe('rendersAlternatives', () => {
 
     expect(rendersAlternatives(view)).toBe(true)
     expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
+  })
+
+  it('renders the list for a refusal the alternatives query itself answered', () => {
+    const decoded = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.planNotActive)}))
+    const neverDecoded = resolveSwapView(
+      swapInput({alternativesError: apiError(503, API_ERROR_CODES.featureDisabled), alternatives: undefined})
+    )
+
+    expect(rendersAlternatives(decoded) ? decoded.alternatives : null).toEqual([alternative()])
+    expect(rendersAlternatives(neverDecoded)).toBe(true)
+    expect(rendersAlternatives(neverDecoded) ? neverDecoded.alternatives : null).toEqual([])
   })
 
   it('renders no list while loading, when empty, on a failed request or on an unconfirmed outcome', () => {

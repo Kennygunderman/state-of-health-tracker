@@ -25,12 +25,6 @@ export const CatalogFoodResponse = io.type({
     unit: io.string,
     gramWeight: io.number
   }),
-  defaultPortionNutrition: io.type({
-    calories: io.number,
-    protein: io.number,
-    carbs: io.number,
-    fat: io.number
-  }),
   allergenTags: io.array(io.string),
   allergenStatus: io.string,
   foodGroup: io.string

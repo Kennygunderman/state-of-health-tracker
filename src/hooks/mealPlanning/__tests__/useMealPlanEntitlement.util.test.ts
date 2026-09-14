@@ -207,22 +207,25 @@ describe('resolveMealPlanEntitlement', () => {
     })
   })
 
-  describe("Add Food's ungated catalog section", () => {
+  describe("Add Food's catalog section", () => {
     it('stays visible while the feature is enabled', () => {
       expect(resolveMealPlanEntitlement(baseInputs).isCatalogVisible).toBe(true)
     })
 
-    it('stays visible when a gated route reports feature_disabled, since /catalog/* is never gated', () => {
+    // AAP 0.2.5 gives both unavailability signals one shared effect, and that effect lists "Add Food's Catalog
+    // section is hidden for the session". So the section goes even under signal (a), where `/catalog/*` itself
+    // would still answer: the plan is the contract, not the reachability of the route.
+    it('is hidden when a gated route reports feature_disabled, even though /catalog/* is never gated', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: featureDisabledError})
 
       expect(entitlement.availability).toBe('unavailable')
-      expect(entitlement.isCatalogVisible).toBe(true)
+      expect(entitlement.isCatalogVisible).toBe(false)
     })
 
-    it('stays visible when the current-plan query reports feature_disabled', () => {
+    it('is hidden when the current-plan query reports feature_disabled', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, currentPlanError: featureDisabledError})
 
-      expect(entitlement.isCatalogVisible).toBe(true)
+      expect(entitlement.isCatalogVisible).toBe(false)
     })
 
     it('is hidden after a rollback, whose backend has no /catalog/* routes either', () => {
@@ -280,12 +283,15 @@ describe('resolveMealPlanEntitlement', () => {
       expect(resolveMealPlanEntitlement({...baseInputs, isFlagEnabled: false})).toEqual(expected)
     })
 
-    it('keeps the catalog when only server-side planning is disabled', () => {
+    // Server-side planning being off keeps the segmented control (so the Meal Plan segment can render its
+    // neutral card) but takes the catalog with it, because AAP 0.2.5 gives both unavailability signals the one
+    // effect and that effect hides Add Food's Catalog section for the session.
+    it('keeps the segmented control but hides the catalog when only server-side planning is disabled', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: featureDisabledError})
       const expected: MealPlanEntitlement = {
         availability: 'unavailable',
         isSegmentedControlVisible: true,
-        isCatalogVisible: true,
+        isCatalogVisible: false,
         isGatedRequestAllowed: true,
         hasPlan: false
       }

@@ -35,8 +35,9 @@ export type NutritionTargetsEditIntent = 'confirm_estimate' | 'edit_saved' | 'ma
 // The targets revision a user carries before any target save. The server reports 0 both for a user with no
 // preferences row and for a row that has never confirmed a target, and its save parser reads an omitted
 // `expectedTargetsRevision` as exactly that expectation — so this is the one revision a save omits the pin for.
-// The rule that applies it, and the predicates over the shapes below, live in @utility/NutritionTargetsUtility,
-// because two screens share them.
+// `targetsRevisionPin` in `@utility/RevisionConflictUtility` is the only place that rule is applied; the
+// read-side predicates over the shapes below live in `@utility/NutritionFormatUtility`. Both cross the screen
+// trees that save and review targets, so neither is runtime logic this module carries.
 export const NO_TARGETS_REVISION: number = 0
 
 export interface NutritionTargetEstimateInputs {
@@ -71,8 +72,8 @@ export interface NutritionTargetEstimate {
 // expectedTargetsRevision is optional because the server's parser distinguishes an omitted pin from any value:
 // omitting it states "there is no prior revision to replace" and is accepted only while the stored revision is
 // still NO_TARGETS_REVISION, so a first save omits it and every later save carries it. Build both payloads with
-// the factories in @utility/NutritionTargetsUtility rather than assembling the member by hand, so that one rule
-// decides when it is sent.
+// the factories in `@utility/RevisionConflictUtility` rather than assembling the member by hand, so that one
+// rule decides when it is sent.
 export interface SaveEstimatedNutritionTargetsPayload {
   source: 'estimated'
   estimateRevision: number

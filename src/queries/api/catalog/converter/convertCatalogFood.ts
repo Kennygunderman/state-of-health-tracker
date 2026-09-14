@@ -17,8 +17,10 @@ const KNOWN_ALLERGEN_STATUSES: CatalogAllergenStatus[] = ['known', 'unknown']
 
 // An unrecognised code degrades to the least-verified member of its union instead of throwing: one odd row must
 // not fail a whole page of results, and nothing unverified may be shown as verified — so 'usda', 'source_backed'
-// and 'known' are never a fallback. 'per_100g' is the basis every publishable food carries, so a 100g reference
-// can never be restated as one serving, and 'as_purchased' claims no preparation the server did not report.
+// and 'known' are never a fallback. 'per_100g' is the mass basis the server states every food on — basisAmount
+// is then the mass in grams the figures describe — so a mass reference can never be read as a count of servings
+// (which would scale by basisAmount x gramWeight), and 'as_purchased' claims no preparation the server did not
+// report.
 export function convertCatalogFood(data: io.TypeOf<typeof CatalogFoodResponse>): CatalogFood {
   return {
     id: data.id,
@@ -47,12 +49,6 @@ export function convertCatalogFood(data: io.TypeOf<typeof CatalogFoodResponse>):
       amount: data.defaultPortion.amount,
       unit: data.defaultPortion.unit,
       gramWeight: data.defaultPortion.gramWeight
-    },
-    defaultPortionNutrition: {
-      calories: data.defaultPortionNutrition.calories,
-      protein: data.defaultPortionNutrition.protein,
-      carbs: data.defaultPortionNutrition.carbs,
-      fat: data.defaultPortionNutrition.fat
     },
     allergenTags: data.allergenTags,
     allergenStatus: (KNOWN_ALLERGEN_STATUSES as string[]).includes(data.allergenStatus)

@@ -4,7 +4,16 @@ import {FoodSourceEnum, formatServingText} from '@data/models/Food'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
-import {catalogProvenanceBadge, formatMacroSummary, mapBrandedFoodToFood, mapCatalogFoodToFood} from '../index.util'
+import {
+  CATALOG_SKELETON_ROWS,
+  catalogProvenanceBadge,
+  catalogServingPresentation,
+  catalogSkeletonBarWidth,
+  formatMacroSummary,
+  isCatalogSearchResult,
+  mapBrandedFoodToFood,
+  mapCatalogFoodToFood
+} from '../index.util'
 
 const makeBrandedFood = (overrides: Partial<BrandedFood> = {}): BrandedFood => ({
   id: 'branded-1',
@@ -33,9 +42,6 @@ const makeCatalogFood = (overrides: Partial<CatalogFood> = {}): CatalogFood => (
   fat: 1,
   fiber: 1.6,
   defaultPortion: {description: '1 cup', amount: 1, unit: 'cup', gramWeight: 195},
-  // The server's projection of the per-100 g macros onto the 195 g cup, rounded once: 123 x 1.95 = 239.85,
-  // 2.7 x 1.95 = 5.265, 26 x 1.95 = 50.7, 1 x 1.95 = 1.95.
-  defaultPortionNutrition: {calories: 240, protein: 5, carbs: 51, fat: 2},
   allergenTags: [],
   allergenStatus: 'known',
   foodGroup: 'rice',
@@ -76,6 +82,162 @@ describe('mapBrandedFoodToFood', () => {
   })
 })
 
+// The response states its macros per basisAmount of nutritionBasis (AAP 0.5.2 defines no per-portion figure),
+// so the serving shown and the macros shown are derived together, by the arithmetic the server applies to the
+// snapshot it stores for the same portion.
+describe('catalogServingPresentation', () => {
+  const perServingBar = (overrides: Partial<CatalogFood> = {}): CatalogFood =>
+    makeCatalogFood({
+      id: 'catalog-bar',
+      name: 'Protein bar',
+      nutritionBasis: 'per_serving',
+      basisAmount: 1,
+      calories: 210,
+      protein: 20,
+      carbs: 21,
+      fat: 7,
+      fiber: 3,
+      defaultPortion: {description: '1 bar', amount: 1, unit: 'bar', gramWeight: 30},
+      ...overrides
+    })
+
+  it('projects a per_100g row at basis 100 onto its default portion', () => {
+    // basisGrams = 100; scale = 195 / 100. 123 x 1.95 = 239.85, 2.7 x 1.95 = 5.265, 26 x 1.95 = 50.7,
+    // 1 x 1.95 = 1.95.
+    expect(catalogServingPresentation(makeCatalogFood())).toEqual({
+      servingAmount: 1,
+      servingUnit: 'cup',
+      calories: 240,
+      protein: 5,
+      carbs: 51,
+      fat: 2
+    })
+  })
+
+  it('reads a basis amount other than 100 rather than assuming it', () => {
+    // The same food stated per 50 g: every value is half, and the 195 g cup comes out the same.
+    const perFiftyGrams = makeCatalogFood({basisAmount: 50, calories: 61.5, protein: 1.35, carbs: 13, fat: 0.5})
+
+    expect(catalogServingPresentation(perFiftyGrams)).toEqual(catalogServingPresentation(makeCatalogFood()))
+  })
+
+  it('rounds once, so the card equals what the server stores for this portion', () => {
+    const food = makeCatalogFood()
+    const scale = food.defaultPortion.gramWeight / food.basisAmount
+    const serverSnapshot = {
+      calories: Math.round(food.calories * scale),
+      protein: Math.round(food.protein * scale),
+      carbs: Math.round(food.carbs * scale),
+      fat: Math.round(food.fat * scale)
+    }
+    const {calories, protein, carbs, fat} = catalogServingPresentation(food)
+
+    expect({calories, protein, carbs, fat}).toEqual(serverSnapshot)
+    // Rounding the nutrient first would give round(3 x 1.95) = 6 g of protein.
+    expect(protein).toBe(5)
+  })
+
+  it('reads a per_serving basis against the default portion gram weight', () => {
+    // basisGrams = 1 serving x 30 g = 30 g; scale = 30 / 30 = 1.
+    expect(catalogServingPresentation(perServingBar())).toEqual({
+      servingAmount: 1,
+      servingUnit: 'bar',
+      calories: 210,
+      protein: 20,
+      carbs: 21,
+      fat: 7
+    })
+  })
+
+  it('halves a two-serving label, because basis_amount counts servings', () => {
+    // basisGrams = 2 x 30 g = 60 g; scale = 0.5. 21 x 0.5 = 10.5 rounds away from zero.
+    expect(catalogServingPresentation(perServingBar({basisAmount: 2}))).toEqual({
+      servingAmount: 1,
+      servingUnit: 'bar',
+      calories: 105,
+      protein: 10,
+      carbs: 11,
+      fat: 4
+    })
+  })
+
+  it('presents a per_100ml row on its stated basis, because no response carries a density', () => {
+    const oliveOil = makeCatalogFood({
+      nutritionBasis: 'per_100ml',
+      calories: 884,
+      protein: 0,
+      carbs: 0,
+      fat: 100,
+      defaultPortion: {description: '1 tbsp', amount: 1, unit: 'tbsp', gramWeight: 13.5}
+    })
+
+    expect(catalogServingPresentation(oliveOil)).toEqual({
+      servingAmount: 100,
+      servingUnit: 'ml',
+      calories: 884,
+      protein: 0,
+      carbs: 0,
+      fat: 100
+    })
+  })
+
+  it('never projects a volume basis through an assumed 1 g/ml, which would fabricate nutrition', () => {
+    const oliveOil = makeCatalogFood({
+      nutritionBasis: 'per_100ml',
+      calories: 884,
+      fat: 100,
+      defaultPortion: {description: '1 tbsp', amount: 1, unit: 'tbsp', gramWeight: 13.5}
+    })
+
+    // 884 x 0.135 = 119 kcal is what treating millilitres as grams would show for the tablespoon.
+    expect(catalogServingPresentation(oliveOil).calories).not.toBe(119)
+  })
+
+  it('falls back to the stated basis when the basis amount is unusable', () => {
+    expect(catalogServingPresentation(makeCatalogFood({basisAmount: 0}))).toEqual({
+      servingAmount: 0,
+      servingUnit: 'g',
+      calories: 123,
+      protein: 3,
+      carbs: 26,
+      fat: 1
+    })
+  })
+
+  it('falls back to the stated basis when the portion has no usable gram weight', () => {
+    const noWeight = makeCatalogFood({defaultPortion: {description: '1 cup', amount: 1, unit: 'cup', gramWeight: 0}})
+
+    expect(catalogServingPresentation(noWeight)).toEqual({
+      servingAmount: 100,
+      servingUnit: 'g',
+      calories: 123,
+      protein: 3,
+      carbs: 26,
+      fat: 1
+    })
+  })
+
+  it('emits finite macros even when the scale overflows', () => {
+    // A denormal basis mass under a real portion weight divides to Infinity.
+    const denormalBasis = makeCatalogFood({basisAmount: Number.MIN_VALUE})
+    const {calories, protein, carbs, fat} = catalogServingPresentation(denormalBasis)
+
+    expect([calories, protein, carbs, fat].every(Number.isFinite)).toBe(true)
+    expect(calories).toBe(123)
+  })
+
+  it('names servings rather than grams when a per_serving row cannot be projected', () => {
+    const noWeight = perServingBar({
+      defaultPortion: {description: '1 bar', amount: 1, unit: 'bar', gramWeight: Number.NaN}
+    })
+    const presentation = catalogServingPresentation(noWeight)
+
+    expect(presentation.servingAmount).toBe(1)
+    expect(presentation.servingUnit).toBeNull()
+    expect(presentation.calories).toBe(210)
+  })
+})
+
 describe('mapCatalogFoodToFood', () => {
   it('maps a catalog food onto its default portion', () => {
     expect(mapCatalogFoodToFood(makeCatalogFood())).toEqual({
@@ -90,14 +252,14 @@ describe('mapCatalogFoodToFood', () => {
       brand: null,
       source: FoodSourceEnum.CATALOG,
       catalogFoodId: 'catalog-1',
-      nutritionProvenance: 'source_backed'
+      nutritionProvenance: 'source_backed',
+      catalogServingDescription: '1 cup'
     })
   })
 
-  // The serving pair is one cup (195 g) while the per-basis macros are per 100 g, so reading them here would
-  // show 123 cal against a 195 g serving — and for a per_100ml food no client-side correction exists, because
-  // density is on no response. Only the server's projection describes the portion the row displays.
-  it('takes the macros from the default-portion projection, never from the per-basis figures', () => {
+  // The serving pair is one cup (195 g) while the stated macros are per 100 g, so showing them as stated would
+  // put 123 cal against a 195 g serving.
+  it('shows the macros of the serving, never the per-basis figures as they are stated', () => {
     const food = mapCatalogFoodToFood(makeCatalogFood())
 
     expect(food.calories).not.toBe(123)
@@ -106,7 +268,9 @@ describe('mapCatalogFoodToFood', () => {
     expect(food.fat).not.toBe(1)
   })
 
-  it('shows a per_100ml food at its projected portion, which no client-side conversion could produce', () => {
+  // A conformant server never sends a volume basis — it restates every food on the mass basis — and converting
+  // one here would need a density no response carries, so the food is shown on the basis it stated.
+  it('shows a per_100ml food on its stated basis rather than assuming a density', () => {
     const oliveOil = makeCatalogFood({
       id: 'catalog-2',
       name: 'Olive oil',
@@ -116,14 +280,13 @@ describe('mapCatalogFoodToFood', () => {
       carbs: 0,
       fat: 100,
       fiber: 0,
-      defaultPortion: {description: '1 tbsp', amount: 1, unit: 'tbsp', gramWeight: 13.5},
-      defaultPortionNutrition: {calories: 130, protein: 0, carbs: 0, fat: 15}
+      defaultPortion: {description: '1 tbsp', amount: 1, unit: 'tbsp', gramWeight: 13.5}
     })
     const food = mapCatalogFoodToFood(oliveOil)
 
-    expect(food.calories).toBe(130)
-    expect(food.fat).toBe(15)
-    expect(formatServingText(food)).toBe('1 tbsp')
+    expect(food.calories).toBe(884)
+    expect(food.fat).toBe(100)
+    expect(formatServingText(food)).toBe('100 ml')
   })
 
   it('leaves fiber off the food when it is unknown', () => {
@@ -139,7 +302,8 @@ describe('mapCatalogFoodToFood', () => {
       brand: null,
       source: FoodSourceEnum.CATALOG,
       catalogFoodId: 'catalog-1',
-      nutritionProvenance: 'source_backed'
+      nutritionProvenance: 'source_backed',
+      catalogServingDescription: '1 cup'
     })
   })
 
@@ -153,6 +317,66 @@ describe('mapCatalogFoodToFood', () => {
 
   it('renders the default portion as the serving text shown on the row', () => {
     expect(formatServingText(mapCatalogFoodToFood(makeCatalogFood()))).toBe('1 cup')
+  })
+
+  // The stored description, not the serving pair: 'RACC' and '1 cup, halves' are descriptions the pair cannot
+  // reproduce, and the log request has to name the row the server holds.
+  it('carries the stored portion description verbatim', () => {
+    const racc = makeCatalogFood({
+      defaultPortion: {description: '1 cup, halves', amount: 1, unit: 'cup', gramWeight: 152}
+    })
+
+    expect(mapCatalogFoodToFood(racc).catalogServingDescription).toBe('1 cup, halves')
+  })
+
+  it('carries a fractional portion description without reformatting it', () => {
+    const halfCup = makeCatalogFood({
+      defaultPortion: {description: '½ cup', amount: 0.5, unit: 'cup', gramWeight: 98}
+    })
+
+    expect(mapCatalogFoodToFood(halfCup).catalogServingDescription).toBe('½ cup')
+  })
+})
+
+describe('isCatalogSearchResult', () => {
+  it('identifies a catalog result by its portion', () => {
+    expect(isCatalogSearchResult(makeCatalogFood())).toBe(true)
+  })
+
+  it('rejects a branded result', () => {
+    expect(isCatalogSearchResult(makeBrandedFood())).toBe(false)
+  })
+
+  it('rejects a branded result whose optional fields are null', () => {
+    expect(isCatalogSearchResult(makeBrandedFood({brand: null, servingText: null}))).toBe(false)
+  })
+})
+
+describe('catalogSkeletonBarWidth', () => {
+  it('takes the proportion of a measured bar area', () => {
+    expect(catalogSkeletonBarWidth(300, 0.68)).toBe(204)
+  })
+
+  it('rounds to whole pixels', () => {
+    expect(catalogSkeletonBarWidth(301, 0.62)).toBe(187)
+  })
+
+  it('returns no width before the bar area has been measured', () => {
+    expect(catalogSkeletonBarWidth(0, 0.68)).toBe(0)
+  })
+
+  it('returns no width for a negative measurement', () => {
+    expect(catalogSkeletonBarWidth(-10, 0.68)).toBe(0)
+  })
+
+  it('shapes three rows with uneven name and category widths', () => {
+    expect(CATALOG_SKELETON_ROWS).toHaveLength(3)
+
+    CATALOG_SKELETON_ROWS.forEach(row => {
+      expect(row.primary).toBeGreaterThan(row.secondary)
+      expect(row.primary).toBeLessThanOrEqual(1)
+      expect(row.secondary).toBeGreaterThan(0)
+    })
   })
 })
 

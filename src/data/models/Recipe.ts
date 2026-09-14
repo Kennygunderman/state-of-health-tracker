@@ -38,11 +38,11 @@ export const RECIPE_BADGES: RecipeBadge[] = ['high_protein', 'gluten_free', 'dai
 //     portion amount = quantity × portionMultiplier / yieldServings
 //
 // where the multiplier comes from whatever carries the recipe — MealPlanMeal.portionMultiplier on
-// a plan card, SwapPreviewAlternative.portionMultiplier on the preview. Recipe detail's 'Your
-// portion' column and the swap preview's ingredient rows both apply it through
-// @utility/RecipeIngredientUtility rather than each keeping a copy of the arithmetic; reading
-// displayText as if it were already the portion's amount is how the preview came to print
-// whole-recipe ingredients beside portion-scaled nutrition.
+// a plan card, SwapPreviewAlternative.portionMultiplier on the preview. @utility/ServingsUtility
+// owns that arithmetic — `plannedPortionFactor` and `scaleIngredientsForDisplay` — and recipe
+// detail's 'Your portion' column and the swap preview's ingredient rows both apply it from there
+// rather than each keeping a copy; reading displayText as if it were already the portion's amount
+// is how the preview came to print whole-recipe ingredients beside portion-scaled nutrition.
 export interface RecipeIngredient {
   catalogFoodId: string
   // name and nutritionProvenance come from the frozen recipe_ingredients snapshot,

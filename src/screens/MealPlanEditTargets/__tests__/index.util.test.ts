@@ -82,17 +82,74 @@ describe('target bounds', () => {
 })
 
 describe('sanitizeIntegerInput', () => {
-  it('keeps digits only', () => {
-    expect(sanitizeIntegerInput('1940')).toBe('1940')
-    expect(sanitizeIntegerInput('19a40')).toBe('1940')
-    expect(sanitizeIntegerInput('abc')).toBe('')
-    expect(sanitizeIntegerInput('')).toBe('')
+  it('keeps a plain whole number as typed', () => {
+    expect(sanitizeIntegerInput('1940', '194')).toBe('1940')
   })
 
-  it('strips a typed thousands separator, decimal point and minus sign', () => {
-    expect(sanitizeIntegerInput('1,940')).toBe('1940')
-    expect(sanitizeIntegerInput('19.40')).toBe('1940')
-    expect(sanitizeIntegerInput('-500')).toBe('500')
+  // Targets are whole numbers: surrounding space and a well-formed group separator are presentation, so
+  // they are the only characters removed.
+  it('drops the group separators and the spaces the field never stores', () => {
+    expect(sanitizeIntegerInput('1,940 ', '194')).toBe('1940')
+    expect(sanitizeIntegerInput('10,000', '194')).toBe('10000')
+    expect(sanitizeIntegerInput(' 65 ', '146')).toBe('65')
+  })
+
+  it('drops a redundant leading zero', () => {
+    expect(sanitizeIntegerInput('0500', '0')).toBe('500')
+  })
+
+  it('keeps a lone zero, which the user is still typing', () => {
+    expect(sanitizeIntegerInput('0', '')).toBe('0')
+  })
+
+  it('empties the field for an empty entry rather than inventing a zero', () => {
+    expect(sanitizeIntegerInput('', '1940')).toBe('')
+    expect(sanitizeIntegerInput('   ', '1940')).toBe('')
+  })
+
+  // The reason this function is syntax-aware: deleting the semantic characters would store '19.40' as 1940
+  // and '-500' as 500 — a different target the user never typed, which every later check accepts as valid.
+  // A refused entry leaves the field holding exactly what it held.
+  it('refuses a decimal instead of concatenating its digits', () => {
+    expect(sanitizeIntegerInput('19.40', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('19.', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('.5', '1940')).toBe('1940')
+  })
+
+  it('refuses a signed target instead of dropping the sign', () => {
+    expect(sanitizeIntegerInput('-500', '146')).toBe('146')
+    expect(sanitizeIntegerInput('+500', '146')).toBe('146')
+  })
+
+  it('refuses mixed prose instead of harvesting the digits out of it', () => {
+    expect(sanitizeIntegerInput('19a40', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('abc', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('19 40', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('1e3', '1940')).toBe('1940')
+  })
+
+  it('refuses a malformed group instead of reading it as a larger number', () => {
+    expect(sanitizeIntegerInput('1,94', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput('19,4000', '1940')).toBe('1940')
+    expect(sanitizeIntegerInput(',940', '1940')).toBe('1940')
+  })
+
+  // A caller with nothing to preserve — the manual route opens every field blank — still never receives a
+  // rewritten value.
+  it('empties the field when a refused entry has no previous value to keep', () => {
+    expect(sanitizeIntegerInput('19.40')).toBe('')
+    expect(sanitizeIntegerInput('-500')).toBe('')
+    expect(sanitizeIntegerInput('abc')).toBe('')
+  })
+
+  // Nothing the bounds check rejects for its syntax may reach it in a rewritten, acceptable form.
+  it('refuses every entry validateEditTargets rejects as not a number', () => {
+    const refused = ['19.40', '1940.5', '-500', '+500', 'one thousand', '1e3', 'NaN', '1,94']
+
+    refused.forEach(text => {
+      expect(sanitizeIntegerInput(text, '1940')).toBe('1940')
+      expect(validateEditTargets(makeFields({calories: text})).errors).toEqual({calories: 'not_a_number'})
+    })
   })
 
   it('never re-formats, so a partially typed value can still be extended', () => {

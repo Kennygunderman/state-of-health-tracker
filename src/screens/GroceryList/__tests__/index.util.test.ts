@@ -32,6 +32,11 @@ const CHECKED_PROGRESS_TEXT = '6 of 14 checked'
 const FLAGGED_ITEM_NAME = 'Chicken breast'
 const UNKNOWN_CATEGORY = 'frozen'
 const UNKNOWN_MEAL_SLOT = 'brunch'
+const INHERITED_KEY = 'toString'
+
+// Names every copy table inherits from Object.prototype: a raw index returns a function (or, for __proto__, an
+// object), which is not nullish and so would slip past the unknown-code fallback into rendered copy.
+const PROTOTYPE_KEYS = ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']
 
 const INCREASE_FLAG: GroceryItemFlag = {
   previousDisplayText: '2.5 lb',
@@ -304,6 +309,22 @@ describe('groceryBanner', () => {
       expect(content?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEXT)
       expect(content?.body).not.toContain('undefined')
     })
+
+    it.each(PROTOTYPE_KEYS)('states the swap without a slot for the inherited slot name %s', key => {
+      const content = groceryBanner({code: 'updated_after_swap', mealSlot: key}, 0)
+
+      expect(content?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEXT)
+      expect(typeof content?.body).toBe('string')
+      expect(content?.body).not.toContain('function')
+      expect(content?.body).not.toContain('[object')
+    })
+
+    it('gives an inherited slot name the same banner as a slot code it does not know', () => {
+      const inherited = groceryBanner({code: 'updated_after_swap', mealSlot: INHERITED_KEY}, 0)
+      const unknown = groceryBanner({code: 'updated_after_swap', mealSlot: UNKNOWN_MEAL_SLOT}, 0)
+
+      expect(inherited).toEqual(unknown)
+    })
   })
 
   describe('amount increased', () => {
@@ -466,6 +487,17 @@ describe('groceryCategoryLabel', () => {
 
   it('gives an unknown category the same label as the closing aisle', () => {
     expect(groceryCategoryLabel(UNKNOWN_CATEGORY)).toBe(groceryCategoryLabel('pantry_other'))
+  })
+
+  it.each(PROTOTYPE_KEYS)('falls back to the closing aisle label for the inherited category name %s', key => {
+    expect(groceryCategoryLabel(key)).toBe(GROCERY_CATEGORY_LABELS.pantry_other)
+  })
+
+  it('labels an inherited category name with copy rather than the member it inherits', () => {
+    const label = groceryCategoryLabel(INHERITED_KEY)
+
+    expect(typeof label).toBe('string')
+    expect(label).toBe(groceryCategoryLabel(UNKNOWN_CATEGORY))
   })
 })
 

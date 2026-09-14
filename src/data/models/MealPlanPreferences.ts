@@ -36,6 +36,31 @@ export type HeightUnitPref = 'ft_in' | 'cm'
 // 'st' everywhere else in the app.
 export type WeightUnitPref = 'lb' | 'kg'
 
+// The answer that states no allergies, and the one value that is mutually exclusive with every named allergen:
+// a saved diet step carries either exactly ['none'] or named codes, never both. It lives here with the rest of
+// the preference vocabulary because the setup draft, the allergy chips, the review row, the generating summary
+// and plan settings must all test for the same string — each holding its own copy is how they came to diverge.
+export const ALLERGEN_NONE = 'none'
+
+// The slots in the order the server validates a mealTimes payload in: breakfast, lunch, dinner, then the snack.
+// A day view orders meals by the clock instead, so this is the wire's order and never a display order. Frozen
+// because it is module-global input handed straight to callers, and rewriting it in place would change both the
+// payload the schedule step builds and the answers every later step derives.
+export const MEAL_SLOTS_IN_WIRE_ORDER: readonly MealSlot[] = Object.freeze([
+  'breakfast',
+  'lunch',
+  'dinner',
+  'snack'
+] as const)
+
+// Which slots each schedule plans. Both entries are sliced out of the wire order rather than restated as their
+// own lists, so the two facts cannot drift apart: a three-meal day is that order without the snack, and the
+// snack schedule is that order entire.
+export const MEAL_SLOTS_BY_SCHEDULE: Readonly<Record<MealSchedule, readonly MealSlot[]>> = Object.freeze({
+  three: Object.freeze(MEAL_SLOTS_IN_WIRE_ORDER.filter(slot => slot !== 'snack')),
+  three_plus_snack: MEAL_SLOTS_IN_WIRE_ORDER
+})
+
 export interface MealTimeEntry {
   slot: MealSlot
   // A zero-padded 24-hour 'HH:mm' wall-clock time. The decoder validates it on the way in and the schedule

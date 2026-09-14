@@ -101,7 +101,7 @@ const CatalogSearchField = (props: Props): React.JSX.Element => {
             {hasValue ? value : placeholder}
           </Text>
 
-          <ChevronRightIcon color={Theme.colors.textFaint} variant="row" />
+          <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} />
         </TouchableOpacity>
       )}
 

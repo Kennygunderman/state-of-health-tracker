@@ -1,8 +1,8 @@
 import {
-  MEAL_PLAN_PACE_DEFICIT_TEMPLATE,
+  MEAL_PLAN_PACE_DEFICIT_SUBCOPY,
   MEAL_PLAN_PACE_RATE_TEMPLATE,
   MEAL_PLAN_PACE_RECOMMENDED_SUFFIX,
-  MEAL_PLAN_PACE_SURPLUS_TEMPLATE
+  MEAL_PLAN_PACE_SURPLUS_SUBCOPY
 } from '@constants/strings'
 
 import {
@@ -118,42 +118,42 @@ describe('isGoalWeightOnGoalSide', () => {
 })
 
 describe('paceOptionsForGoal', () => {
-  it('offers the three loss paces with their daily deficit', () => {
+  it('offers the three loss paces with the deficit sentence the copy module owns', () => {
     expect(paceOptionsForGoal('lose')).toEqual([
       {
         value: 0.5,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '0.5'),
-        subcopy: MEAL_PLAN_PACE_DEFICIT_TEMPLATE.replace('{calories}', '250')
+        subcopy: MEAL_PLAN_PACE_DEFICIT_SUBCOPY[0.5]
       },
       {
         value: 1,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '1'),
-        subcopy: `${MEAL_PLAN_PACE_DEFICIT_TEMPLATE.replace('{calories}', '500')}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`
+        subcopy: `${MEAL_PLAN_PACE_DEFICIT_SUBCOPY[1]}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`
       },
       {
         value: 1.5,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '1.5'),
-        subcopy: MEAL_PLAN_PACE_DEFICIT_TEMPLATE.replace('{calories}', '750')
+        subcopy: MEAL_PLAN_PACE_DEFICIT_SUBCOPY[1.5]
       }
     ])
   })
 
-  it('offers the three gain paces with their daily surplus', () => {
+  it('offers the three gain paces with the surplus sentence the copy module owns', () => {
     expect(paceOptionsForGoal('gain')).toEqual([
       {
         value: 0.5,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '0.5'),
-        subcopy: MEAL_PLAN_PACE_SURPLUS_TEMPLATE.replace('{calories}', '250')
+        subcopy: MEAL_PLAN_PACE_SURPLUS_SUBCOPY[0.5]
       },
       {
         value: 1,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '1'),
-        subcopy: `${MEAL_PLAN_PACE_SURPLUS_TEMPLATE.replace('{calories}', '500')}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`
+        subcopy: `${MEAL_PLAN_PACE_SURPLUS_SUBCOPY[1]}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`
       },
       {
         value: 1.5,
         label: MEAL_PLAN_PACE_RATE_TEMPLATE.replace('{pace}', '1.5'),
-        subcopy: MEAL_PLAN_PACE_SURPLUS_TEMPLATE.replace('{calories}', '750')
+        subcopy: MEAL_PLAN_PACE_SURPLUS_SUBCOPY[1.5]
       }
     ])
   })
@@ -166,24 +166,83 @@ describe('paceOptionsForGoal', () => {
     expect(recommended.map(option => option.value)).toEqual([1])
   })
 
-  it('substitutes each pace and its daily calorie figure, so no two options read alike', () => {
+  // Frame 02 (`46:170`) draws these three sentences, and the figures in them are the server's pace policy:
+  // 250, 500 and 750 cal a day for half a pound, a pound and a pound and a half a week.
+  it('reads the daily calorie figures frame 02 draws, at every pace', () => {
+    expect(paceOptionsForGoal('lose').map(option => option.subcopy)).toEqual([
+      'About 250 cal under maintenance',
+      `About 500 cal under maintenance${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`,
+      'About 750 cal under maintenance'
+    ])
+    expect(paceOptionsForGoal('gain').map(option => option.subcopy)).toEqual([
+      'About 250 cal over maintenance',
+      `About 500 cal over maintenance${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`,
+      'About 750 cal over maintenance'
+    ])
+  })
+
+  // The screen must not hold its own copy of the pace policy: if it multiplied the pace out again, the
+  // cards would keep quoting the old arithmetic after the approved copy moved, which is the disagreement
+  // this design exists to prevent. Substituting the copy module therefore has to change what the cards
+  // read — something only a screen that reads it can do, and an implementation deriving the figures from
+  // the pace would pass every output assertion above while failing this one.
+  it('reads its calorie figures from the copy module rather than deriving them from the pace', () => {
+    const substituted = {
+      0.5: 'About 210 cal under maintenance',
+      1: 'About 480 cal under maintenance',
+      1.5: 'About 690 cal under maintenance'
+    }
+
+    jest.resetModules()
+    jest.doMock('@constants/strings', () => ({
+      ...jest.requireActual('@constants/strings'),
+      MEAL_PLAN_PACE_DEFICIT_SUBCOPY: substituted
+    }))
+
+    try {
+      const withSubstitutedCopy = jest.requireActual<typeof import('../index.util')>('../index.util')
+
+      expect(withSubstitutedCopy.paceOptionsForGoal('lose').map(option => option.subcopy)).toEqual([
+        substituted[0.5],
+        `${substituted[1]}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`,
+        substituted[1.5]
+      ])
+    } finally {
+      jest.dontMock('@constants/strings')
+      jest.resetModules()
+    }
+  })
+
+  // Module-global copy the cards read on every render: a consumer rewriting a sentence in place would
+  // change what every screen shows from then on, and would make this derivation depend on when it ran.
+  it('cannot have its approved sentences rewritten in place', () => {
+    const approvedDeficit = MEAL_PLAN_PACE_DEFICIT_SUBCOPY[1]
+    const approvedSurplus = MEAL_PLAN_PACE_SURPLUS_SUBCOPY[0.5]
+    const rewritten = MEAL_PLAN_PACE_DEFICIT_SUBCOPY as Record<number, string>
+
+    rewritten[1] = 'About 480 cal under maintenance'
+
+    expect(Object.isFrozen(MEAL_PLAN_PACE_DEFICIT_SUBCOPY)).toBe(true)
+    expect(Object.isFrozen(MEAL_PLAN_PACE_SURPLUS_SUBCOPY)).toBe(true)
+    expect(MEAL_PLAN_PACE_DEFICIT_SUBCOPY[1]).toBe(approvedDeficit)
+    expect(MEAL_PLAN_PACE_SURPLUS_SUBCOPY[0.5]).toBe(approvedSurplus)
+    expect(paceOptionsForGoal('lose')[1].subcopy).toBe(`${approvedDeficit}${MEAL_PLAN_PACE_RECOMMENDED_SUFFIX}`)
+  })
+
+  it('distinguishes the three paces in both label and sub-copy', () => {
     const labels = paceOptionsForGoal('lose').map(option => option.label)
     const subcopy = paceOptionsForGoal('lose').map(option => option.subcopy)
 
-    expect(labels[0]).not.toBe(labels[1])
-    expect(labels[1]).not.toBe(labels[2])
+    expect(new Set(labels).size).toBe(3)
+    expect(new Set(subcopy).size).toBe(3)
     expect(labels[0]).toContain('0.5')
     expect(labels[2]).toContain('1.5')
-    expect(subcopy[0]).toContain('250')
-    expect(subcopy[1]).toContain('500')
-    expect(subcopy[2]).toContain('750')
   })
 
   it('keeps a gain surplus from reading like a loss deficit at every pace', () => {
     const losing = paceOptionsForGoal('lose')
     const gaining = paceOptionsForGoal('gain')
 
-    expect(MEAL_PLAN_PACE_DEFICIT_TEMPLATE).not.toBe(MEAL_PLAN_PACE_SURPLUS_TEMPLATE)
     gaining.forEach((option, index) => expect(option.subcopy).not.toBe(losing[index].subcopy))
   })
 

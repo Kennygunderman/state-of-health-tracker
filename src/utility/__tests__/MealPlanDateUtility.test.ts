@@ -20,7 +20,9 @@ const PLAN_START = '2026-07-05'
 const PLAN_END = '2026-07-11'
 const EN_DASH = '\u2013'
 
-// No case here depends on the runner's zone; the negative-offset and DST cases live in MealPlanDateUtility.dst.test.ts
+// No case here depends on the runner's zone. The daylight-saving transition dates below are used as ordinary
+// calendar dates: every helper advances whole calendar days and reads local date parts, so the keys hold in UTC
+// exactly as they do in a zone that shifts its clock on them.
 describe('parseDayKey', () => {
   it('returns the local calendar day rather than UTC midnight', () => {
     const parsed = parseDayKey('2026-07-05')
@@ -53,6 +55,11 @@ describe('parseDayKey', () => {
 
   it('ignores a late time component', () => {
     expect(formatDayKey(parseDayKey('2026-07-05T23:59:59.000Z'))).toBe('2026-07-05')
+  })
+
+  it('keeps the calendar day of an api timestamp that lands on a daylight-saving transition date', () => {
+    expect(formatDayKey(parseDayKey('2026-11-01T02:00:00.000Z'))).toBe('2026-11-01')
+    expect(formatDayKey(parseDayKey('2026-03-08T02:30:00.000Z'))).toBe('2026-03-08')
   })
 
   it('uses a zero-based month index for January', () => {
@@ -145,6 +152,29 @@ describe('addDaysToDayKey', () => {
 
   it('adds the thirty-day planning horizon across a month boundary', () => {
     expect(addDaysToDayKey('2026-07-04', 30)).toBe('2026-08-03')
+  })
+
+  // A helper that advanced by a fixed twenty-four hours would stop an hour short of midnight on a day the
+  // clock shifts and return the day it started on, so the transition dates get their own arithmetic cases.
+  it('advances onto and off a daylight-saving transition date', () => {
+    expect(addDaysToDayKey('2026-10-31', 1)).toBe('2026-11-01')
+    expect(addDaysToDayKey('2026-11-01', 1)).toBe('2026-11-02')
+    expect(addDaysToDayKey('2026-03-07', 1)).toBe('2026-03-08')
+    expect(addDaysToDayKey('2026-03-08', 1)).toBe('2026-03-09')
+  })
+
+  it('steps back across a daylight-saving transition date', () => {
+    expect(addDaysToDayKey('2026-11-02', -1)).toBe('2026-11-01')
+    expect(addDaysToDayKey('2026-03-09', -1)).toBe('2026-03-08')
+  })
+
+  it('spans a plan week whose fourth day is a transition date', () => {
+    expect(addDaysToDayKey('2026-10-29', 6)).toBe('2026-11-04')
+    expect(addDaysToDayKey('2026-10-29', 7)).toBe('2026-11-05')
+  })
+
+  it('adds the thirty-day planning horizon from a transition date', () => {
+    expect(addDaysToDayKey('2026-11-01', 30)).toBe('2026-12-01')
   })
 
   it('normalizes a timestamp input before adding', () => {
@@ -248,6 +278,37 @@ describe('planDates', () => {
 
     expect(dates).toContain('2024-02-29')
     expect(dates[6]).toBe('2024-03-03')
+  })
+
+  it('returns seven contiguous distinct days across a daylight-saving transition date', () => {
+    const dates = planDates('2026-10-29')
+
+    expect(dates).toEqual([
+      '2026-10-29',
+      '2026-10-30',
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+      '2026-11-03',
+      '2026-11-04'
+    ])
+    expect(new Set(dates).size).toBe(7)
+  })
+
+  it('returns seven contiguous distinct days across the spring transition date', () => {
+    const dates = planDates('2026-03-08')
+
+    expect(dates).toEqual([
+      '2026-03-08',
+      '2026-03-09',
+      '2026-03-10',
+      '2026-03-11',
+      '2026-03-12',
+      '2026-03-13',
+      '2026-03-14'
+    ])
+    expect(dates[6]).toBe('2026-03-14')
+    expect(new Set(dates).size).toBe(7)
   })
 
   it('normalizes a timestamp start date', () => {
@@ -409,6 +470,19 @@ describe('defaultSelectedPlanDate', () => {
   it('selects the start date the day before the week begins', () => {
     expect(defaultSelectedPlanDate(PLAN_START, PLAN_END, new Date(2026, 6, 4, 23, 59))).toBe(PLAN_START)
   })
+
+  it('keeps both ends of a daylight-saving transition date on that date', () => {
+    expect(defaultSelectedPlanDate('2026-10-29', '2026-11-04', new Date(2026, 10, 1, 1, 30))).toBe('2026-11-01')
+    expect(defaultSelectedPlanDate('2026-10-29', '2026-11-04', new Date(2026, 10, 1, 23, 30))).toBe('2026-11-01')
+  })
+
+  it('moves on to the following day once a transition date has ended', () => {
+    expect(defaultSelectedPlanDate('2026-10-29', '2026-11-04', new Date(2026, 10, 2, 0, 30))).toBe('2026-11-02')
+  })
+
+  it('selects the spring transition date for an early-morning now on it', () => {
+    expect(defaultSelectedPlanDate('2026-03-08', '2026-03-14', new Date(2026, 2, 8, 3, 30))).toBe('2026-03-08')
+  })
 })
 
 describe('clampDayKeyToPlan', () => {
@@ -526,6 +600,24 @@ describe('planStartDateBounds', () => {
     const bounds = planStartDateBounds({now: new Date(2026, 6, 4), activePlanEndDate: '2026-08-20'})
 
     expect(isDayKeyWithin(bounds.default, bounds.min, bounds.max)).toBe(true)
+  })
+
+  it('offers tomorrow and the thirty-day horizon from a late-evening now on a transition date', () => {
+    const bounds = planStartDateBounds({now: new Date(2026, 10, 1, 23, 30), activePlanEndDate: null})
+
+    expect(bounds).toEqual({min: '2026-11-01', default: '2026-11-02', max: '2026-12-01'})
+  })
+
+  it('keeps the successor week reachable from a transition date when the active plan ends past the horizon', () => {
+    const bounds = planStartDateBounds({now: new Date(2026, 10, 1, 23, 30), activePlanEndDate: '2026-12-05'})
+
+    expect(bounds.max).toBe('2026-12-06')
+  })
+
+  it('offers tomorrow and the thirty-day horizon from an early-morning now on the spring transition date', () => {
+    const bounds = planStartDateBounds({now: new Date(2026, 2, 8, 0, 30), activePlanEndDate: null})
+
+    expect(bounds).toEqual({min: '2026-03-08', default: '2026-03-09', max: '2026-04-07'})
   })
 
   it('leaves the minimum and the default unaffected by the active plan', () => {

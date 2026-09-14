@@ -5,6 +5,7 @@ import * as io from 'io-ts'
 import {
   AffectedMealResponse,
   AffectedMealsResponse,
+  CurrentMealPlanResponse,
   GroceryItemResponse,
   GroceryListResponse,
   GroceryToggleResponse,
@@ -824,15 +825,20 @@ describe('MealPlanResponse', () => {
   })
 })
 
-describe('the current-and-upcoming plan envelope', () => {
-  const PlanEnvelope = io.type({
-    current: io.union([MealPlanResponse, io.null]),
-    upcoming: io.union([MealPlanResponse, io.null])
-  })
+// The codec under test here is the one `fetchCurrentMealPlan` passes to httpGet, imported rather than
+// re-declared: a second definition would keep this suite green while production validated something else.
+describe('CurrentMealPlanResponse', () => {
+  const makeUpcomingPlan = (): io.TypeOf<typeof MealPlanResponse> =>
+    makePlan({
+      id: 'plan-2',
+      startDate: '2026-07-12',
+      endDate: '2026-07-18',
+      days: [makeDay({id: 'day-8', date: '2026-07-12'})]
+    })
 
   it('decodes the answer a user with no plan receives', () => {
-    const decoded = PlanEnvelope.decode({current: null, upcoming: null})
-    const envelope = decodeRight(PlanEnvelope, {current: null, upcoming: null})
+    const decoded = CurrentMealPlanResponse.decode({current: null, upcoming: null})
+    const envelope = decodeRight(CurrentMealPlanResponse, {current: null, upcoming: null})
 
     expect(isRight(decoded)).toBe(true)
     expect(envelope.current).toBeNull()
@@ -840,12 +846,52 @@ describe('the current-and-upcoming plan envelope', () => {
   })
 
   it('decodes a current plan alongside no upcoming plan', () => {
-    const envelope = decodeRight(PlanEnvelope, {current: makePlan(), upcoming: null})
+    const envelope = decodeRight(CurrentMealPlanResponse, {current: makePlan(), upcoming: null})
 
     expect(envelope.upcoming).toBeNull()
     expect(envelope.current?.id).toBe('plan-1')
     expect(envelope.current?.days[0].meals).toHaveLength(2)
     expect(envelope.current?.days[0].meals[0].recipe.iconKey).toBe('crosshair')
+  })
+
+  it('decodes an upcoming plan alongside no current plan, which is the week after this one ends', () => {
+    const envelope = decodeRight(CurrentMealPlanResponse, {current: null, upcoming: makeUpcomingPlan()})
+
+    expect(envelope.current).toBeNull()
+    expect(envelope.upcoming?.id).toBe('plan-2')
+    expect(envelope.upcoming?.startDate).toBe('2026-07-12')
+  })
+
+  it('decodes both plans and keeps each on its own member', () => {
+    const envelope = decodeRight(CurrentMealPlanResponse, {current: makePlan(), upcoming: makeUpcomingPlan()})
+
+    expect(envelope.current?.id).toBe('plan-1')
+    expect(envelope.current?.startDate).toBe('2026-07-05')
+    expect(envelope.upcoming?.id).toBe('plan-2')
+    expect(envelope.upcoming?.startDate).toBe('2026-07-12')
+  })
+
+  // Both members are always sent, so an absent one is a contract break rather than "no plan": admitting it
+  // would let a response that carries only `current` read as a user with no upcoming week.
+  it('refuses an envelope missing either member', () => {
+    expectRefused(CurrentMealPlanResponse, withoutMember({current: null, upcoming: null}, 'current'))
+    expectRefused(CurrentMealPlanResponse, withoutMember({current: makePlan(), upcoming: null}, 'upcoming'))
+  })
+
+  it('refuses an undefined member, which is not the explicit null the contract sends', () => {
+    expectRefused(CurrentMealPlanResponse, {current: undefined, upcoming: null})
+    expectRefused(CurrentMealPlanResponse, {current: null, upcoming: undefined})
+  })
+
+  it('refuses an envelope whose plan is malformed rather than admitting a partial plan', () => {
+    expectRefused(CurrentMealPlanResponse, {current: withoutMember(makePlan(), 'days'), upcoming: null})
+    expectRefused(CurrentMealPlanResponse, {current: null, upcoming: withMembers(makePlan(), {status: 'draft'})})
+  })
+
+  it('refuses a body that is not the envelope at all', () => {
+    expectRefused(CurrentMealPlanResponse, makePlan())
+    expectRefused(CurrentMealPlanResponse, null)
+    expectRefused(CurrentMealPlanResponse, [])
   })
 })
 

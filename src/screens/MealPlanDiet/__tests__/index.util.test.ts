@@ -108,8 +108,40 @@ describe('buildAllergenChips', () => {
       expect(namedChips.every(chip => !chip.selected && !chip.removable)).toBe(true)
     })
 
-    it('reflects None alongside named allergens without resolving the exclusivity itself', () => {
-      expect(selectedCodesOf([ALLERGEN_NONE_CODE, 'soy'])).toEqual(['none', 'soy'])
+    it('keeps None selected when it is the only recognised answer, however often it is repeated', () => {
+      expect(selectedCodesOf([ALLERGEN_NONE_CODE, ALLERGEN_NONE_CODE])).toEqual(['none'])
+      expect(selectedCodesOf(['gluten', ALLERGEN_NONE_CODE])).toEqual(['none'])
+    })
+  })
+
+  // None is exclusive both ways, so the cloud must never show it chosen beside a named allergy. The stored
+  // answer resolves towards the allergies: they are what the user asked to exclude, and an allergy is never
+  // dropped automatically. validateDietStep (below) refuses the same answer, so it is corrected, not saved.
+  describe('a stored answer holding None and a named allergen', () => {
+    it('shows the named allergens as chosen and leaves None unselected', () => {
+      const chips = buildAllergenChips([ALLERGEN_NONE_CODE, 'soy'])
+
+      expect(chips.filter(chip => chip.selected).map(chip => chip.code)).toEqual(['soy'])
+      expect(chips[0]).toEqual({
+        code: ALLERGEN_NONE_CODE,
+        label: MEAL_PLAN_ALLERGEN_LABELS.none,
+        selected: false,
+        removable: false
+      })
+    })
+
+    it('resolves the same way whichever order the two arrive in', () => {
+      expect(selectedCodesOf([ALLERGEN_NONE_CODE, 'soy'])).toEqual(['soy'])
+      expect(selectedCodesOf(['soy', ALLERGEN_NONE_CODE])).toEqual(['soy'])
+    })
+
+    it('keeps every named allergen rather than only the first, in the order the cloud draws them', () => {
+      expect(selectedCodesOf(['milk', ALLERGEN_NONE_CODE, 'sesame', 'eggs'])).toEqual(['milk', 'eggs', 'sesame'])
+      expect(selectedCodesOf([ALLERGEN_NONE_CODE, ...NAMED_ALLERGENS])).toEqual(NAMED_ALLERGENS)
+    })
+
+    it('resolves it the same way when duplicates or an unrecognised code are mixed in', () => {
+      expect(selectedCodesOf([ALLERGEN_NONE_CODE, 'fish', ALLERGEN_NONE_CODE, 'fish', 'gluten'])).toEqual(['fish'])
     })
   })
 
@@ -217,6 +249,29 @@ describe('validateDietStep', () => {
 
   it('reports an allergen answer the cloud cannot show as selected', () => {
     expect(validateDietStep('vegetarian', ['gluten'])).toEqual(['allergens_required'])
+  })
+
+  // The exclusivity the saved step depends on: exactly ['none'] or named allergens, never a mix.
+  it('refuses None beside a named allergen instead of accepting the contradiction', () => {
+    expect(validateDietStep('none', [ALLERGEN_NONE_CODE, 'soy'])).toEqual(['allergens_exclusive'])
+    expect(validateDietStep('none', ['soy', ALLERGEN_NONE_CODE])).toEqual(['allergens_exclusive'])
+    expect(validateDietStep('vegan', ['milk', ALLERGEN_NONE_CODE, 'sesame'])).toEqual(['allergens_exclusive'])
+  })
+
+  it('refuses the contradiction even when an unrecognised code sits beside it', () => {
+    expect(validateDietStep('none', ['gluten', ALLERGEN_NONE_CODE, 'fish'])).toEqual(['allergens_exclusive'])
+  })
+
+  it('reports the contradiction alongside a missing diet, one error per control', () => {
+    expect(validateDietStep(null, [ALLERGEN_NONE_CODE, 'soy'])).toEqual(['diet_required', 'allergens_exclusive'])
+  })
+
+  it('does not confuse a repeated None with a contradiction', () => {
+    expect(validateDietStep('none', [ALLERGEN_NONE_CODE, ALLERGEN_NONE_CODE])).toEqual([])
+  })
+
+  it('accepts every named allergen at once', () => {
+    expect(validateDietStep('none', NAMED_ALLERGENS)).toEqual([])
   })
 })
 

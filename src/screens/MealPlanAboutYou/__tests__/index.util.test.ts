@@ -81,12 +81,22 @@ describe('selectLatestWeighIn', () => {
     expect(selectLatestWeighIn([middle, newest, oldest])).toBe(newest)
   })
 
-  it('keeps the earlier array element when two entries share a timestamp, so the prefill is deterministic', () => {
-    const first = makeWeighIn({id: 'first', weight: 182.2})
-    const second = makeWeighIn({id: 'second', weight: 170})
+  it('breaks a shared timestamp on the greatest id, so either arrival order prefills the same weight', () => {
+    const lowerId = makeWeighIn({id: 'weigh-in-a', weight: 182.2})
+    const greaterId = makeWeighIn({id: 'weigh-in-b', weight: 170})
 
-    expect(selectLatestWeighIn([first, second])).toBe(first)
-    expect(selectLatestWeighIn([second, first])).toBe(second)
+    expect(selectLatestWeighIn([lowerId, greaterId])).toBe(greaterId)
+    expect(selectLatestWeighIn([greaterId, lowerId])).toBe(greaterId)
+  })
+
+  it('breaks the tie between the two newest entries without ever letting an older entry win on its id', () => {
+    const older = makeWeighIn({id: 'weigh-in-c', loggedAt: '2026-06-01T08:00:00.000Z', weight: 170})
+    const newestLowerId = makeWeighIn({id: 'weigh-in-a', loggedAt: '2026-07-03T08:00:00.000Z', weight: 182.2})
+    const newestGreaterId = makeWeighIn({id: 'weigh-in-b', loggedAt: '2026-07-03T08:00:00.000Z', weight: 179})
+
+    expect(selectLatestWeighIn([older, newestLowerId, newestGreaterId])).toBe(newestGreaterId)
+    expect(selectLatestWeighIn([newestGreaterId, newestLowerId, older])).toBe(newestGreaterId)
+    expect(selectLatestWeighIn([newestLowerId, older, newestGreaterId])).toBe(newestGreaterId)
   })
 
   it('never lets an unparsable timestamp beat a real one, whichever order they arrive in', () => {
@@ -97,11 +107,12 @@ describe('selectLatestWeighIn', () => {
     expect(selectLatestWeighIn([valid, malformed])).toBe(valid)
   })
 
-  it('returns an entry even when every timestamp is unparsable', () => {
-    const first = makeWeighIn({id: 'first', loggedAt: ''})
-    const second = makeWeighIn({id: 'second', loggedAt: 'yesterday'})
+  it('returns the greatest id when every timestamp is unparsable, whichever order they arrive in', () => {
+    const lowerId = makeWeighIn({id: 'weigh-in-a', loggedAt: ''})
+    const greaterId = makeWeighIn({id: 'weigh-in-b', loggedAt: 'yesterday'})
 
-    expect(selectLatestWeighIn([first, second])).toBe(first)
+    expect(selectLatestWeighIn([lowerId, greaterId])).toBe(greaterId)
+    expect(selectLatestWeighIn([greaterId, lowerId])).toBe(greaterId)
   })
 
   it('leaves the query result in its original order instead of sorting it in place', () => {

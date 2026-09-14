@@ -16,7 +16,7 @@ interface Props {
   onSelect: (pace: PaceLbPerWeek) => void
 }
 
-const PaceCards = ({options, selected, onSelect}: Props) => {
+const PaceCards = ({options, selected, onSelect}: Props): React.JSX.Element => {
   return (
     <View style={styles.list} accessibilityRole="radiogroup">
       {options.map(option => (
