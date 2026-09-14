@@ -222,6 +222,10 @@ describe('buildPlanSettingsRows', () => {
       expect(rowValue(preferences, 'goalAndBody')).toBe('Lose weight')
     })
 
+    it('states the body figures alone when the goal is unanswered', () => {
+      expect(rowValue(makePreferences({goal: null}), 'goalAndBody')).toBe('182.2 lb · 5\'10"')
+    })
+
     it('leaves out a goal code it has no label for rather than rendering it raw', () => {
       const value = rowValue(makePreferences({goal: UNMAPPED_GOAL}), 'goalAndBody')
 
@@ -245,6 +249,10 @@ describe('buildPlanSettingsRows', () => {
 
     it('states the activity level alone when no pace is set', () => {
       expect(rowValue(makePreferences({paceLbPerWeek: null}), 'activityAndPace')).toBe('Lightly active')
+    })
+
+    it('states the pace alone when the activity level is unanswered', () => {
+      expect(rowValue(makePreferences({activityLevel: null}), 'activityAndPace')).toBe('Gradual')
     })
   })
 
@@ -361,6 +369,10 @@ describe('buildPlanSettingsRows', () => {
       expect(rowValue(makePreferences({budget: null, noBudgetPreference: false}), 'cookingAndBudget')).toBe(
         '30 minutes'
       )
+    })
+
+    it('states the budget answer alone when the cooking time is unanswered', () => {
+      expect(rowValue(makePreferences({cookingTimeLimitMin: null}), 'cookingAndBudget')).toBe('No budget preference')
     })
   })
 
@@ -502,7 +514,7 @@ describe('nextPlanAcknowledgementTarget', () => {
 
 describe('derivePlanSettingsBanner', () => {
   describe('nothing to say', () => {
-    it('omits the banner when the affected-meals query failed, flagged meals or not', () => {
+    it('omits the banner on a failed affected-meals query, flagged meals or not, leaving the rows to render', () => {
       expect(derivePlanSettingsBanner([makeAffectedMeal()], true)).toBeNull()
     })
 

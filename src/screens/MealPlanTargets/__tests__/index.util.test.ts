@@ -306,9 +306,7 @@ describe('buildTargetConfirmationPayload', () => {
     expect(JSON.stringify(payload)).not.toContain('expectedTargetsRevision')
   })
 
-  it('pins the revision the screen read once the server reports one', () => {
-    // Confirmation only happens when no target figure is saved; a preferences row may still report a revision,
-    // and the pin follows the revision rather than the figures.
+  it('pins the revision a preferences row reports even when it holds no target figures', () => {
     const payload = buildTargetConfirmationPayload(planFor(makeTargets({targets: null, complete: false, revision: 5})))
 
     expect(payload).toEqual({source: 'estimated', estimateRevision: 12, expectedTargetsRevision: 5})

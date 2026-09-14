@@ -194,200 +194,214 @@ describe('paceOptionsForGoal', () => {
 })
 
 describe('validateMealPlanGoal', () => {
-  it('asks only for the goal on first entry', () => {
-    const validation = validateMealPlanGoal(makeFields(), makeContext())
+  describe('the goal and pace selections', () => {
+    it('asks only for the goal on first entry', () => {
+      const validation = validateMealPlanGoal(makeFields(), makeContext())
 
-    expect(validation).toEqual({
-      errors: {goal: 'goal_required', goalWeight: null, pace: null},
-      isValid: false,
-      goalWeightKg: null
+      expect(validation).toEqual({
+        errors: {goal: 'goal_required', goalWeight: null, pace: null},
+        isValid: false,
+        goalWeightKg: null
+      })
+    })
+
+    it('requires a pace once a loss goal is chosen', () => {
+      const validation = validateMealPlanGoal(makeFields({goal: 'lose'}), makeContext())
+
+      expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: 'pace_required'})
+      expect(validation.isValid).toBe(false)
+    })
+
+    it('accepts maintain with no pace and no goal weight', () => {
+      const validation = validateMealPlanGoal(makeFields({goal: 'maintain'}), makeContext())
+
+      expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: null})
+      expect(validation.isValid).toBe(true)
+      expect(validation.goalWeightKg).toBeNull()
     })
   })
 
-  it('leaves the hidden goal-weight control silent while no goal is chosen', () => {
-    const validation = validateMealPlanGoal(makeFields({goalWeightText: 'abc'}), makeContext())
+  describe('a goal weight on a hidden control', () => {
+    it('leaves the hidden goal-weight control silent while no goal is chosen', () => {
+      const validation = validateMealPlanGoal(makeFields({goalWeightText: 'abc'}), makeContext())
 
-    expect(validation).toEqual({
-      errors: {goal: 'goal_required', goalWeight: null, pace: null},
-      isValid: false,
-      goalWeightKg: null
+      expect(validation).toEqual({
+        errors: {goal: 'goal_required', goalWeight: null, pace: null},
+        isValid: false,
+        goalWeightKg: null
+      })
+    })
+
+    it('discards a goal weight typed before switching to maintain', () => {
+      const fields = makeFields({goal: 'maintain', goalWeightText: 'abc'})
+      const validation = validateMealPlanGoal(fields, makeContext())
+
+      expect(validation.errors.goalWeight).toBeNull()
+      expect(validation.isValid).toBe(true)
+      expect(validation.goalWeightKg).toBeNull()
     })
   })
 
-  it('requires a pace once a loss goal is chosen', () => {
-    const validation = validateMealPlanGoal(makeFields({goal: 'lose'}), makeContext())
+  describe('an optional goal weight', () => {
+    it('treats an empty goal weight as the optional answer it is', () => {
+      const validation = validateMealPlanGoal(makeFields({goal: 'lose', paceLbPerWeek: 1}), makeContext())
 
-    expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: 'pace_required'})
-    expect(validation.isValid).toBe(false)
-  })
+      expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: null})
+      expect(validation.isValid).toBe(true)
+      expect(validation.goalWeightKg).toBeNull()
+    })
 
-  it('accepts maintain with no pace and no goal weight', () => {
-    const validation = validateMealPlanGoal(makeFields({goal: 'maintain'}), makeContext())
+    it('treats a whitespace-only goal weight as empty', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '   ', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext())
 
-    expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: null})
-    expect(validation.isValid).toBe(true)
-    expect(validation.goalWeightKg).toBeNull()
-  })
+      expect(validation.errors.goalWeight).toBeNull()
+      expect(validation.isValid).toBe(true)
+      expect(validation.goalWeightKg).toBeNull()
+    })
 
-  it('discards a goal weight typed before switching to maintain', () => {
-    const fields = makeFields({goal: 'maintain', goalWeightText: 'abc'})
-    const validation = validateMealPlanGoal(fields, makeContext())
+    it('rejects a goal weight that cannot be parsed', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '17o', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext())
 
-    expect(validation.errors.goalWeight).toBeNull()
-    expect(validation.isValid).toBe(true)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('treats an empty goal weight as the optional answer it is', () => {
-    const validation = validateMealPlanGoal(makeFields({goal: 'lose', paceLbPerWeek: 1}), makeContext())
-
-    expect(validation.errors).toEqual({goal: null, goalWeight: null, pace: null})
-    expect(validation.isValid).toBe(true)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('treats a whitespace-only goal weight as empty', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '   ', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext())
-
-    expect(validation.errors.goalWeight).toBeNull()
-    expect(validation.isValid).toBe(true)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('rejects a goal weight that cannot be parsed', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '17o', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext())
-
-    expect(validation.errors.goalWeight).toBe('goal_weight_invalid')
-    expect(validation.isValid).toBe(false)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  // The supported window is kilogram-canonical (30-300 kg), so in pounds it opens at 66.14 lb: a 66 lb
-  // entry reads as 29.94 kg and has to fail here rather than at the API that enforces the same bound.
-  it('rejects a pound goal weight a fraction below the kilogram floor', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '66', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext())
-
-    expect(validation.errors.goalWeight).toBe('goal_weight_out_of_range')
-    expect(validation.isValid).toBe(false)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('accepts the first pound reading inside the kilogram floor', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '66.2', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext())
-
-    expect(validation.errors.goalWeight).toBeNull()
-    expect(validation.isValid).toBe(true)
-    expect(validation.goalWeightKg).toBeCloseTo(30.0278149, 7)
-  })
-
-  it('closes the pound window at the kilogram ceiling', () => {
-    const atCeiling = makeFields({goal: 'gain', goalWeightText: '661.3', paceLbPerWeek: 1})
-    const pastCeiling = makeFields({goal: 'gain', goalWeightText: '661.4', paceLbPerWeek: 1})
-    const wellPastCeiling = makeFields({goal: 'gain', goalWeightText: '661.5', paceLbPerWeek: 1})
-
-    expect(validateMealPlanGoal(atCeiling, makeContext()).errors.goalWeight).toBeNull()
-    expect(validateMealPlanGoal(pastCeiling, makeContext()).errors.goalWeight).toBe('goal_weight_out_of_range')
-    expect(validateMealPlanGoal(wellPastCeiling, makeContext()).errors.goalWeight).toBe('goal_weight_out_of_range')
-  })
-
-  it('applies the kilogram window inclusively when the unit is kilograms', () => {
-    const context = makeContext({unit: 'kg'})
-    const belowFloor = makeFields({goal: 'lose', goalWeightText: '29.9', paceLbPerWeek: 1})
-    const atFloor = makeFields({goal: 'lose', goalWeightText: '30', paceLbPerWeek: 1})
-    const atCeiling = makeFields({goal: 'lose', goalWeightText: '300', paceLbPerWeek: 1})
-    const aboveCeiling = makeFields({goal: 'lose', goalWeightText: '300.1', paceLbPerWeek: 1})
-
-    expect(validateMealPlanGoal(belowFloor, context).errors.goalWeight).toBe('goal_weight_out_of_range')
-    expect(validateMealPlanGoal(atFloor, context).errors.goalWeight).toBeNull()
-    expect(validateMealPlanGoal(atCeiling, context).errors.goalWeight).toBeNull()
-    expect(validateMealPlanGoal(aboveCeiling, context).errors.goalWeight).toBe('goal_weight_out_of_range')
-  })
-
-  it('rejects a loss goal weight above the current weight', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '90', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
-
-    expect(validation.errors.goalWeight).toBe('goal_weight_wrong_side')
-    expect(validation.isValid).toBe(false)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('rejects a gain goal weight below the current weight', () => {
-    const fields = makeFields({goal: 'gain', goalWeightText: '75', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
-
-    expect(validation.errors.goalWeight).toBe('goal_weight_wrong_side')
-    expect(validation.isValid).toBe(false)
-    expect(validation.goalWeightKg).toBeNull()
-  })
-
-  it('rejects a goal weight identical to the current weight for either direction', () => {
-    const context = makeContext({currentWeightKg: 82.5, unit: 'kg'})
-    const losing = makeFields({goal: 'lose', goalWeightText: '82.5', paceLbPerWeek: 1})
-    const gaining = makeFields({goal: 'gain', goalWeightText: '82.5', paceLbPerWeek: 1})
-
-    expect(validateMealPlanGoal(losing, context).errors.goalWeight).toBe('goal_weight_wrong_side')
-    expect(validateMealPlanGoal(gaining, context).errors.goalWeight).toBe('goal_weight_wrong_side')
-  })
-
-  it('accepts a goal weight on either side while the current weight is unknown', () => {
-    const context = makeContext({unit: 'kg'})
-    const losing = validateMealPlanGoal(makeFields({goal: 'lose', goalWeightText: '95'}), context)
-    const gaining = validateMealPlanGoal(makeFields({goal: 'gain', goalWeightText: '60'}), context)
-
-    expect(losing.errors.goalWeight).toBeNull()
-    expect(losing.goalWeightKg).toBe(95)
-    expect(gaining.errors.goalWeight).toBeNull()
-    expect(gaining.goalWeightKg).toBe(60)
-  })
-
-  it('reports a missing pace and an unparseable goal weight in the same result', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: 'abc'})
-    const validation = validateMealPlanGoal(fields, makeContext())
-
-    expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_invalid', pace: 'pace_required'})
-    expect(validation.isValid).toBe(false)
-  })
-
-  it('reports a missing pace and an out-of-range goal weight in the same result', () => {
-    const fields = makeFields({goal: 'gain', goalWeightText: '20'})
-    const validation = validateMealPlanGoal(fields, makeContext({unit: 'kg'}))
-
-    expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_out_of_range', pace: 'pace_required'})
-    expect(validation.isValid).toBe(false)
-  })
-
-  it('reports a missing pace and a wrong-side goal weight in the same result', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '90'})
-    const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
-
-    expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_wrong_side', pace: 'pace_required'})
-    expect(validation.isValid).toBe(false)
-  })
-
-  it('passes a complete loss goal and converts the pound goal weight', () => {
-    const fields = makeFields({goal: 'lose', goalWeightText: '170', paceLbPerWeek: 1})
-    const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5}))
-
-    expect(validation).toEqual({
-      errors: {goal: null, goalWeight: null, pace: null},
-      isValid: true,
-      goalWeightKg: 77.1107029
+      expect(validation.errors.goalWeight).toBe('goal_weight_invalid')
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeNull()
     })
   })
 
-  it('passes a complete gain goal entered in kilograms with a comma separator', () => {
-    const fields = makeFields({goal: 'gain', goalWeightText: '85,5', paceLbPerWeek: 0.5})
-    const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 80, unit: 'kg'}))
+  describe('the supported weight window', () => {
+    // The supported window is kilogram-canonical (30-300 kg), so in pounds it opens at 66.14 lb: a 66 lb
+    // entry reads as 29.94 kg and has to fail here rather than at the API that enforces the same bound.
+    it('rejects a pound goal weight a fraction below the kilogram floor', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '66', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext())
 
-    expect(validation).toEqual({
-      errors: {goal: null, goalWeight: null, pace: null},
-      isValid: true,
-      goalWeightKg: 85.5
+      expect(validation.errors.goalWeight).toBe('goal_weight_out_of_range')
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeNull()
+    })
+
+    it('accepts the first pound reading inside the kilogram floor', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '66.2', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext())
+
+      expect(validation.errors.goalWeight).toBeNull()
+      expect(validation.isValid).toBe(true)
+      expect(validation.goalWeightKg).toBeCloseTo(30.0278149, 7)
+    })
+
+    it('closes the pound window at the kilogram ceiling', () => {
+      const atCeiling = makeFields({goal: 'gain', goalWeightText: '661.3', paceLbPerWeek: 1})
+      const pastCeiling = makeFields({goal: 'gain', goalWeightText: '661.4', paceLbPerWeek: 1})
+      const wellPastCeiling = makeFields({goal: 'gain', goalWeightText: '661.5', paceLbPerWeek: 1})
+
+      expect(validateMealPlanGoal(atCeiling, makeContext()).errors.goalWeight).toBeNull()
+      expect(validateMealPlanGoal(pastCeiling, makeContext()).errors.goalWeight).toBe('goal_weight_out_of_range')
+      expect(validateMealPlanGoal(wellPastCeiling, makeContext()).errors.goalWeight).toBe('goal_weight_out_of_range')
+    })
+
+    it('applies the kilogram window inclusively when the unit is kilograms', () => {
+      const context = makeContext({unit: 'kg'})
+      const belowFloor = makeFields({goal: 'lose', goalWeightText: '29.9', paceLbPerWeek: 1})
+      const atFloor = makeFields({goal: 'lose', goalWeightText: '30', paceLbPerWeek: 1})
+      const atCeiling = makeFields({goal: 'lose', goalWeightText: '300', paceLbPerWeek: 1})
+      const aboveCeiling = makeFields({goal: 'lose', goalWeightText: '300.1', paceLbPerWeek: 1})
+
+      expect(validateMealPlanGoal(belowFloor, context).errors.goalWeight).toBe('goal_weight_out_of_range')
+      expect(validateMealPlanGoal(atFloor, context).errors.goalWeight).toBeNull()
+      expect(validateMealPlanGoal(atCeiling, context).errors.goalWeight).toBeNull()
+      expect(validateMealPlanGoal(aboveCeiling, context).errors.goalWeight).toBe('goal_weight_out_of_range')
+    })
+  })
+
+  describe('the goal side', () => {
+    it('rejects a loss goal weight above the current weight', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '90', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
+
+      expect(validation.errors.goalWeight).toBe('goal_weight_wrong_side')
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeNull()
+    })
+
+    it('rejects a gain goal weight below the current weight', () => {
+      const fields = makeFields({goal: 'gain', goalWeightText: '75', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
+
+      expect(validation.errors.goalWeight).toBe('goal_weight_wrong_side')
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeNull()
+    })
+
+    it('rejects a goal weight identical to the current weight for either direction', () => {
+      const context = makeContext({currentWeightKg: 82.5, unit: 'kg'})
+      const losing = makeFields({goal: 'lose', goalWeightText: '82.5', paceLbPerWeek: 1})
+      const gaining = makeFields({goal: 'gain', goalWeightText: '82.5', paceLbPerWeek: 1})
+
+      expect(validateMealPlanGoal(losing, context).errors.goalWeight).toBe('goal_weight_wrong_side')
+      expect(validateMealPlanGoal(gaining, context).errors.goalWeight).toBe('goal_weight_wrong_side')
+    })
+
+    it('accepts a goal weight on either side while the current weight is unknown', () => {
+      const context = makeContext({unit: 'kg'})
+      const losing = validateMealPlanGoal(makeFields({goal: 'lose', goalWeightText: '95'}), context)
+      const gaining = validateMealPlanGoal(makeFields({goal: 'gain', goalWeightText: '60'}), context)
+
+      expect(losing.errors.goalWeight).toBeNull()
+      expect(losing.goalWeightKg).toBe(95)
+      expect(gaining.errors.goalWeight).toBeNull()
+      expect(gaining.goalWeightKg).toBe(60)
+    })
+  })
+
+  describe('several controls failing at once', () => {
+    it('reports a missing pace and an unparseable goal weight in the same result', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: 'abc'})
+      const validation = validateMealPlanGoal(fields, makeContext())
+
+      expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_invalid', pace: 'pace_required'})
+      expect(validation.isValid).toBe(false)
+    })
+
+    it('reports a missing pace and an out-of-range goal weight in the same result', () => {
+      const fields = makeFields({goal: 'gain', goalWeightText: '20'})
+      const validation = validateMealPlanGoal(fields, makeContext({unit: 'kg'}))
+
+      expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_out_of_range', pace: 'pace_required'})
+      expect(validation.isValid).toBe(false)
+    })
+
+    it('reports a missing pace and a wrong-side goal weight in the same result', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '90'})
+      const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5, unit: 'kg'}))
+
+      expect(validation.errors).toEqual({goal: null, goalWeight: 'goal_weight_wrong_side', pace: 'pace_required'})
+      expect(validation.isValid).toBe(false)
+    })
+  })
+
+  describe('a complete answer', () => {
+    it('passes a complete loss goal and converts the pound goal weight', () => {
+      const fields = makeFields({goal: 'lose', goalWeightText: '170', paceLbPerWeek: 1})
+      const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 82.5}))
+
+      expect(validation).toEqual({
+        errors: {goal: null, goalWeight: null, pace: null},
+        isValid: true,
+        goalWeightKg: 77.1107029
+      })
+    })
+
+    it('passes a complete gain goal entered in kilograms with a comma separator', () => {
+      const fields = makeFields({goal: 'gain', goalWeightText: '85,5', paceLbPerWeek: 0.5})
+      const validation = validateMealPlanGoal(fields, makeContext({currentWeightKg: 80, unit: 'kg'}))
+
+      expect(validation).toEqual({
+        errors: {goal: null, goalWeight: null, pace: null},
+        isValid: true,
+        goalWeightKg: 85.5
+      })
     })
   })
 })

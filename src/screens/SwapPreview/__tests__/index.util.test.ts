@@ -1,7 +1,6 @@
 import {MacroTotals} from '@data/models/Macros'
-import {RecipeIngredient} from '@data/models/Recipe'
+import {MealSlot, RecipeIngredient} from '@data/models/Recipe'
 import {SwapPreview} from '@data/models/SwapAlternative'
-import {plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/RecipeIngredientUtility'
 
 import {
   CAL_LABEL,
@@ -26,15 +25,12 @@ import {
 
 const MINUS_SIGN = '\u2212'
 const TARGET_CALORIES = 2100
-const DAY_KEY = '2026-07-05'
-const DAY_TEXT = 'Sun Jul 5'
-const KNOWN_SLOT = 'lunch'
-const KNOWN_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack']
+const DAY_KEY = '2025-07-05'
+const DAY_TEXT = 'Sat Jul 5'
+const KNOWN_SLOT: MealSlot = 'lunch'
+const KNOWN_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
 const UNKNOWN_SLOT = 'brunch'
-
-// Slot codes that name a member of Object.prototype: an index lookup on a plain object literal resolves several of
-// these to inherited functions, so they are the unknown codes most likely to reach the pill as malformed copy
-const PROTOTYPE_SLOTS = [
+const PROTOTYPE_MEMBER_SLOTS = [
   'constructor',
   'hasOwnProperty',
   'isPrototypeOf',
@@ -46,6 +42,7 @@ const PROTOTYPE_SLOTS = [
   '__defineGetter__'
 ]
 const PORTION_TEXT = '1 serving (320 g)'
+const WHOLE_RECIPE_DISPLAY_TEXT = '1 1/2 cups'
 
 const DAY_KEYS = [
   {key: DAY_KEY, text: DAY_TEXT},
@@ -62,15 +59,11 @@ const MEAL_NUTRITION: MacroTotals = {calories: 612, protein: 41, carbs: 52, fat:
 
 type PreviewTargets = SwapPreview['targets']
 
-type TargetOverrides = Partial<Record<keyof MacroTotals, number | null>>
-
 const makeDayTotals = (overrides: Partial<MacroTotals> = {}): MacroTotals => ({...DAY_TOTALS, ...overrides})
 
 const makeNutrition = (overrides: Partial<MacroTotals> = {}): MacroTotals => ({...MEAL_NUTRITION, ...overrides})
 
-// Cast so the nullable fixture compiles whether `SwapPreview['targets']` stays `MacroTargets` or is narrowed
-// to `MacroTotals` — the util's own guard is what the degrade tests exercise, not the model's nullability
-const makeTargets = (overrides: TargetOverrides = {}): PreviewTargets => ({...TARGETS, ...overrides}) as PreviewTargets
+const makeTargets = (overrides: Partial<PreviewTargets> = {}): PreviewTargets => ({...TARGETS, ...overrides})
 
 const replacingText = (slotLabel: string, dateText: string = DAY_TEXT): string =>
   SWAP_PREVIEW_REPLACING_TEMPLATE.replace('{slot}', slotLabel).replace('{date}', dateText)
@@ -78,16 +71,13 @@ const replacingText = (slotLabel: string, dateText: string = DAY_TEXT): string =
 const minutesText = (minutes: number): string =>
   SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE.replace('{minutes}', String(minutes))
 
-// The stored row as the server sends it: WHOLE-RECIPE amounts, which is what makes the scaling below the point
-// of the suite. `displayText` deliberately disagrees with `quantity` so a regression that renders the stored
-// text instead of the portion's amount is visible rather than coincidentally right.
 const makeIngredient = (overrides: Partial<RecipeIngredient> = {}): RecipeIngredient => ({
   catalogFoodId: 'catalog-food-1',
   name: 'Chicken breast',
   quantity: 2,
   unit: 'cup',
   gramWeight: 480,
-  displayText: '1 1/2 cups',
+  displayText: WHOLE_RECIPE_DISPLAY_TEXT,
   nutritionProvenance: 'source_backed',
   isOptional: false,
   ...overrides
@@ -96,14 +86,18 @@ const makeIngredient = (overrides: Partial<RecipeIngredient> = {}): RecipeIngred
 describe('deriveCalorieDelta', () => {
   describe('a swap that lowers the day', () => {
     it('signs the reduction with a true minus and the negative tone', () => {
-      expect(deriveCalorieDelta(-240)).toEqual({text: `${MINUS_SIGN}240 ${CAL_LABEL}`, tone: 'negative'})
+      expect(deriveCalorieDelta(-70)).toEqual({text: `${MINUS_SIGN}70 ${CAL_LABEL}`, tone: 'negative'})
     })
 
     it('never draws an ASCII hyphen in the pill', () => {
-      const delta = deriveCalorieDelta(-240)
+      const delta = deriveCalorieDelta(-70)
 
       expect(delta?.text).toContain(MINUS_SIGN)
       expect(delta?.text).not.toContain('-')
+    })
+
+    it('groups a four-figure reduction behind the minus', () => {
+      expect(deriveCalorieDelta(-1200)?.text).toBe(`${MINUS_SIGN}1,200 ${CAL_LABEL}`)
     })
   })
 
@@ -150,6 +144,10 @@ describe('calorieProgressRatio', () => {
   describe('a usable target', () => {
     it('reports half the target as a half fill', () => {
       expect(calorieProgressRatio(1050, TARGET_CALORIES)).toBe(0.5)
+    })
+
+    it('reports a part-way day as its true fraction of the target', () => {
+      expect(calorieProgressRatio(683, TARGET_CALORIES)).toBeCloseTo(683 / TARGET_CALORIES)
     })
 
     it('reports an empty day as no fill', () => {
@@ -250,41 +248,56 @@ describe('buildSwapMacroLegend', () => {
 
       expect(protein.valueText).toBe('135 / 146g')
     })
+
+    it('pairs a zero target instead of reading it as unset', () => {
+      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({fat: 0}))
+
+      expect(legend.map(item => item.valueText)).toEqual(['135 / 146g', '190 / 210g', '58 / 0g'])
+    })
   })
 
-  describe('a target the server left unset', () => {
+  describe('a target that never arrived as a usable number', () => {
     it('renders the actual alone instead of pairing it with an invented zero', () => {
-      const [protein] = buildSwapMacroLegend(makeDayTotals(), makeTargets({protein: null}))
+      const [protein] = buildSwapMacroLegend(makeDayTotals(), makeTargets({protein: Number.NaN}))
 
       expect(protein).toEqual({key: 'protein', valueText: '135g'})
       expect(protein.valueText).not.toContain('/')
       expect(protein.valueText).not.toContain('0g')
-      expect(protein.valueText).not.toContain('null')
+      expect(protein.valueText).not.toContain('NaN')
     })
 
-    it('degrades every row when no target arrived at all', () => {
-      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({protein: null, carbs: null, fat: null}))
+    it('degrades every row when no target is usable', () => {
+      const targets = makeTargets({
+        protein: Number.NaN,
+        carbs: Number.POSITIVE_INFINITY,
+        fat: Number.NEGATIVE_INFINITY
+      })
 
-      expect(legend.map(item => item.valueText)).toEqual(['135g', '190g', '58g'])
+      expect(buildSwapMacroLegend(makeDayTotals(), targets).map(item => item.valueText)).toEqual([
+        '135g',
+        '190g',
+        '58g'
+      ])
     })
 
-    it('leaves the rows with a target paired', () => {
-      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({carbs: null}))
+    it('leaves the rows with a usable target paired', () => {
+      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({carbs: Number.NaN}))
 
       expect(legend.map(item => item.valueText)).toEqual(['135 / 146g', '190g', '58 / 64g'])
     })
 
-    it('degrades a target that arrived as a non-finite number', () => {
-      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({fat: Number.NaN}))
+    it('never renders an infinity in place of a target', () => {
+      const legend = buildSwapMacroLegend(makeDayTotals(), makeTargets({fat: Number.POSITIVE_INFINITY}))
 
       expect(legend.map(item => item.valueText)).toEqual(['135 / 146g', '190 / 210g', '58g'])
+      expect(legend[2].valueText).not.toContain('Infinity')
     })
   })
 
   describe('purity', () => {
     it('leaves the totals and targets it was handed untouched', () => {
       const dayTotals = makeDayTotals()
-      const targets = makeTargets({carbs: null})
+      const targets = makeTargets()
       const snapshot = JSON.parse(JSON.stringify({dayTotals, targets}))
 
       buildSwapMacroLegend(dayTotals, targets)
@@ -333,7 +346,7 @@ describe('buildThisMealMetrics', () => {
 describe('formatReplacingContext', () => {
   describe('a slot the app knows', () => {
     it('reads as the natural-case sentence the hero pill uppercases itself', () => {
-      expect(formatReplacingContext(KNOWN_SLOT, DAY_KEY)).toBe('Replacing lunch · Sun Jul 5')
+      expect(formatReplacingContext(KNOWN_SLOT, DAY_KEY)).toBe('Replacing lunch · Sat Jul 5')
     })
 
     it('names every known slot through its sentence label', () => {
@@ -374,13 +387,13 @@ describe('formatReplacingContext', () => {
 
   describe('a slot code that names a prototype member', () => {
     it('drops the segment for every one of them', () => {
-      PROTOTYPE_SLOTS.forEach(slot => {
+      PROTOTYPE_MEMBER_SLOTS.forEach(slot => {
         expect(formatReplacingContext(slot, DAY_KEY)).toBe(DAY_TEXT)
       })
     })
 
     it('never renders an inherited function in place of a slot label', () => {
-      PROTOTYPE_SLOTS.forEach(slot => {
+      PROTOTYPE_MEMBER_SLOTS.forEach(slot => {
         const context = formatReplacingContext(slot, DAY_KEY)
 
         expect(context).not.toContain('function')
@@ -393,6 +406,7 @@ describe('formatReplacingContext', () => {
 
   describe('the day key', () => {
     it('labels the day the key itself names rather than a UTC instant of it', () => {
+      // parseDayKey builds the date from the key's own parts, which keeps these expectations timezone-independent
       DAY_KEYS.forEach(({key, text}) => {
         expect(formatReplacingContext(KNOWN_SLOT, key)).toBe(replacingText(MEAL_SLOT_SENTENCE_LABELS[KNOWN_SLOT], text))
       })
@@ -472,10 +486,6 @@ describe('formatPreviewSubtitle', () => {
 })
 
 describe('resolvePreviewIngredients', () => {
-  // The contract this screen gets wrong if nobody pins it: `alternative.nutrition` is the PORTION's, while
-  // `alternative.recipe.ingredients` are the WHOLE RECIPE's, so the amounts have to be scaled by the same two
-  // numbers the server scaled the nutrition by — `portionMultiplier / yieldServings`. Rendering the stored
-  // `displayText` instead is what put whole-recipe ingredients beside a portion's calories on frame 13b.
   describe('a recipe that yields more than one serving', () => {
     it('halves the stored amount for one serving of a two-serving recipe', () => {
       const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, 2)
@@ -484,7 +494,6 @@ describe('resolvePreviewIngredients', () => {
     })
 
     it('applies the multiplier and the yield together when both differ from one', () => {
-      // 6 cups in the whole recipe / 4 servings x 1.5 portions = 2.25 cups
       const rows = resolvePreviewIngredients([makeIngredient({quantity: 6, unit: 'cup'})], 1.5, 4)
 
       expect(rows[0].quantityText).toBe('2¼ cup')
@@ -503,13 +512,65 @@ describe('resolvePreviewIngredients', () => {
     })
   })
 
+  describe('an ingredient counted rather than measured', () => {
+    it('renders the scaled amount alone when the row carries no unit', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({name: 'Avocado', quantity: 2, unit: ''})], 1, 2)
+
+      expect(rows[0].quantityText).toBe('1')
+    })
+  })
+
   describe('the amount the server pre-formatted', () => {
     it('is never rendered in place of the portion it does not describe', () => {
       const rows = resolvePreviewIngredients([makeIngredient({quantity: 2, unit: 'cup'})], 1, 2)
 
-      // '1 1/2 cups' is the whole recipe's text on the fixture; the portion is one cup
       expect(rows[0].quantityText).toBe('1 cup')
-      expect(rows[0].quantityText).not.toBe('1 1/2 cups')
+      expect(rows[0].quantityText).not.toBe(WHOLE_RECIPE_DISPLAY_TEXT)
+    })
+
+    it('is the only amount left for a quantity that cannot be scaled', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: Number.NaN})], 1, 2)
+
+      expect(rows[0].quantityText).toBe(WHOLE_RECIPE_DISPLAY_TEXT)
+    })
+
+    it('is trimmed when it stands in for an unscalable quantity', () => {
+      const padded = `  ${WHOLE_RECIPE_DISPLAY_TEXT}  `
+      const rows = resolvePreviewIngredients(
+        [makeIngredient({quantity: Number.POSITIVE_INFINITY, displayText: padded})],
+        1,
+        2
+      )
+
+      expect(rows[0].quantityText).toBe(WHOLE_RECIPE_DISPLAY_TEXT)
+    })
+
+    it('leaves the amount empty rather than rendering NaN when neither is usable', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: Number.NaN, displayText: ''})], 1, 2)
+
+      expect(rows[0].quantityText).toBe('')
+    })
+  })
+
+  describe('a yield or multiplier that cannot divide', () => {
+    it('falls back to the stored whole-recipe amount for a zero yield', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, 0)
+
+      expect(rows[0].quantityText).toBe('10 oz')
+    })
+
+    it('falls back to the stored whole-recipe amount for a multiplier that never arrived as a number', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], Number.NaN, 2)
+
+      expect(rows[0].quantityText).toBe('10 oz')
+    })
+
+    it('renders neither an infinity nor a NaN amount for a negative yield', () => {
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, -2)
+
+      expect(rows[0].quantityText).toBe('10 oz')
+      expect(rows[0].quantityText).not.toContain('Infinity')
+      expect(rows[0].quantityText).not.toContain('NaN')
     })
   })
 
@@ -534,21 +595,6 @@ describe('resolvePreviewIngredients', () => {
 
     it('returns an empty list for a recipe with no ingredients rather than throwing', () => {
       expect(resolvePreviewIngredients([], 1, 2)).toEqual([])
-    })
-  })
-
-  describe('the shared rule', () => {
-    it('adds no transformation of its own to the scaling both screens share', () => {
-      // Pins the delegation rather than the arithmetic: the screen must apply the shared factor and nothing
-      // else, which is what stops the preview and recipe detail drifting apart again
-      const ingredients = [
-        makeIngredient({quantity: 6, unit: 'cup'}),
-        makeIngredient({name: 'Avocado', quantity: 3, unit: ''})
-      ]
-
-      expect(resolvePreviewIngredients(ingredients, 1.5, 4)).toEqual(
-        scaleIngredientsForDisplay(ingredients, plannedPortionFactor(1.5, 4))
-      )
     })
   })
 

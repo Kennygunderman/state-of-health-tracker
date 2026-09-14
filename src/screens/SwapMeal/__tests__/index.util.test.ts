@@ -1,6 +1,10 @@
 import {MealPlanMeal} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {SwapAlternative} from '@data/models/SwapAlternative'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {AxiosError, AxiosResponse} from 'axios'
+
+import {stringWithNamedParameters, SWAP_TITLE_TEMPLATE} from '@constants/strings'
 
 import {
   buildMealMetaText,
@@ -30,6 +34,8 @@ const NARROW_TEXT_COLUMN = 251
 
 const FIGMA_BAR_WIDTHS = [193.68, 129.12, 156.02, 107.59, 177.54, 139.88]
 
+const MEAL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
+
 const proportionsInRowOrder = () => SKELETON_ALTERNATIVE_ROWS.flatMap(row => [row.primary, row.secondary])
 
 const alternative = (overrides: Partial<SwapAlternative> = {}): SwapAlternative => ({
@@ -42,6 +48,9 @@ const alternative = (overrides: Partial<SwapAlternative> = {}): SwapAlternative 
   portionMultiplier: 1,
   ...overrides
 })
+
+const alternatives = (count: number): SwapAlternative[] =>
+  Array.from({length: count}, (_, index) => alternative({recipeVersionId: `rv-${index}`}))
 
 const plannedMeal = (slot: MealSlot = 'lunch'): MealPlanMeal => ({
   id: 'meal-1',
@@ -77,11 +86,18 @@ const swapInput = (overrides: Partial<SwapViewInput> = {}): SwapViewInput => ({
   ...overrides
 })
 
-const apiError = (status: number, code: string): unknown => ({response: {status, data: {error: code}}})
+const axiosError = (status?: number, body?: unknown): AxiosError => {
+  const response = status === undefined ? undefined : ({status, data: body} as AxiosResponse)
 
-const transportError = (): unknown => new Error('Network Error')
+  return new AxiosError('Request failed', 'ERR_BAD_RESPONSE', undefined, undefined, response)
+}
 
-const undecodableError = (): unknown => ({response: {status: 502, data: '<html>gateway</html>'}})
+const apiError = (status?: number, code?: string): AxiosError =>
+  axiosError(status, code === undefined ? {} : {error: code})
+
+const transportError = (): AxiosError => axiosError()
+
+const undecodableError = (): AxiosError => axiosError(502, '<html>gateway</html>')
 
 const bannerOf = (view: SwapView): SwapBannerContent | null => ('banner' in view ? view.banner : null)
 
@@ -176,7 +192,7 @@ describe('resolveSwapView', () => {
     })
 
     it('is terminal once the day answer says the plan moved on, and says the answer came from the day', () => {
-      const view = resolveSwapView(swapInput({dayError: apiError(409, 'stale_plan')}))
+      const view = resolveSwapView(swapInput({dayError: apiError(409, API_ERROR_CODES.stalePlan)}))
 
       expect(view.kind).toBe('terminal')
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
@@ -189,7 +205,7 @@ describe('resolveSwapView', () => {
 
     it('is terminal on a superseded plan even while the day request is in flight', () => {
       const view = resolveSwapView(
-        swapInput({currentMeal: null, isDayPending: true, dayError: apiError(409, 'plan_not_active')})
+        swapInput({currentMeal: null, isDayPending: true, dayError: apiError(409, API_ERROR_CODES.planNotActive)})
       )
 
       expect(view.kind).toBe('terminal')
@@ -213,6 +229,27 @@ describe('resolveSwapView', () => {
       const view = resolveSwapView(swapInput({alternatives: [first, second]}))
 
       expect(rendersAlternatives(view) ? view.alternatives : []).toEqual([first, second])
+    })
+
+    it('lists one, four, and the eight the server answers with, each at its own length', () => {
+      const counts = [1, 4, 8]
+
+      counts.forEach(count => {
+        const view = resolveSwapView(swapInput({alternatives: alternatives(count)}))
+
+        expect(view.kind).toBe('list')
+        expect(rendersAlternatives(view) ? view.alternatives : []).toHaveLength(count)
+      })
+    })
+
+    it("applies no cap of its own, because the eight-row cap is the server's", () => {
+      const rows = alternatives(9)
+      const view = resolveSwapView(swapInput({alternatives: rows}))
+
+      expect(rendersAlternatives(view) ? view.alternatives : []).toHaveLength(9)
+      expect(rendersAlternatives(view) ? view.alternatives.map(row => row.recipeVersionId) : []).toEqual(
+        rows.map(row => row.recipeVersionId)
+      )
     })
   })
 
@@ -251,6 +288,15 @@ describe('resolveSwapView', () => {
       })
     })
 
+    it('is the retry state even when the failure carried a decodable code', () => {
+      const view = resolveSwapView(
+        swapInput({alternativesError: apiError(500, 'something_unrecognised'), alternatives: undefined})
+      )
+
+      expect(view.kind).toBe('error')
+      expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
+    })
+
     it('keeps a failed request distinct from a decoded empty list', () => {
       const failedRequest = resolveSwapView(swapInput({alternativesError: transportError(), alternatives: []}))
       const emptyResponse = resolveSwapView(swapInput({alternatives: []}))
@@ -258,11 +304,20 @@ describe('resolveSwapView', () => {
       expect(failedRequest.kind).toBe('error')
       expect(emptyResponse.kind).toBe('empty')
     })
+
+    it('never carries the drawn empty state variant, and the empty state never carries this one', () => {
+      const failedRequest = resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined}))
+      const emptyResponse = resolveSwapView(swapInput({alternatives: []}))
+
+      expect(failedRequest.currentMealVariant).toBe('default')
+      expect(emptyResponse.currentMealVariant).toBe('unchanged')
+      expect(failedRequest.currentMealVariant).not.toBe(emptyResponse.currentMealVariant)
+    })
   })
 
   describe('with a confirmed swap failure (13e)', () => {
     it('names the meal it left alone and outlines the current-meal card', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
 
       expect(view.kind).toBe('failed')
       expect(view.currentMealVariant).toBe('stillYours')
@@ -278,27 +333,29 @@ describe('resolveSwapView', () => {
 
     it('names the slot of the meal that failed', () => {
       const view = resolveSwapView(
-        swapInput({currentMeal: plannedMeal('dinner'), swapError: apiError(502, 'swap_failed')})
+        swapInput({currentMeal: plannedMeal('dinner'), swapError: apiError(502, API_ERROR_CODES.swapFailed)})
       )
 
       expect(bannerOf(view)?.body).toBe('Your dinner is unchanged and your grocery list was not updated.')
     })
 
     it('keeps the alternatives list on screen', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
 
       expect(rendersAlternatives(view)).toBe(true)
       expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
     })
 
     it('renders an empty list when the alternatives were never decoded', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed'), alternatives: undefined}))
+      const view = resolveSwapView(
+        swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed), alternatives: undefined})
+      )
 
       expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
     })
 
     it('promises nothing about the plan when the meal is not known', () => {
-      const view = resolveSwapView(swapInput({currentMeal: null, swapError: apiError(502, 'swap_failed')}))
+      const view = resolveSwapView(swapInput({currentMeal: null, swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
       const banner = bannerOf(view)
 
       expect(view.kind).toBe('failed')
@@ -324,6 +381,21 @@ describe('resolveSwapView', () => {
       expect(resolveSwapView(swapInput({swapError: apiError(504, 'Bad gateway')})).kind).toBe('unconfirmed')
     })
 
+    it('treats a 5xx that carried no code at all as unconfirmed', () => {
+      expect(resolveSwapView(swapInput({swapError: apiError(502)})).kind).toBe('unconfirmed')
+    })
+
+    it('never reuses the confirmed failure banner, the one copy allowed to promise nothing changed', () => {
+      const unconfirmed = bannerOf(resolveSwapView(swapInput({swapError: transportError()})))
+      const confirmed = bannerOf(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
+
+      expect(unconfirmed).not.toEqual(confirmed)
+      expect(unconfirmed?.title).not.toBe(confirmed?.title)
+      expect(unconfirmed?.body).not.toBe(confirmed?.body)
+      expect(confirmed?.body).toContain('unchanged')
+      expect(unconfirmed?.body).not.toContain('unchanged')
+    })
+
     it('asks the user to retry without claiming the meal is unchanged', () => {
       const view = resolveSwapView(swapInput({swapError: transportError()}))
 
@@ -346,7 +418,9 @@ describe('resolveSwapView', () => {
     // to the same key may resolve the attempt, so a stale-plan answer from the day query must not retire the
     // intent or replace the copy that promises nothing about what changed.
     it('outranks a terminal day answer, so no plan refetch resolves the pending key', () => {
-      const view = resolveSwapView(swapInput({swapError: transportError(), dayError: apiError(409, 'stale_plan')}))
+      const view = resolveSwapView(
+        swapInput({swapError: transportError(), dayError: apiError(409, API_ERROR_CODES.stalePlan)})
+      )
 
       expect(view.kind).toBe('unconfirmed')
       expect(retiresPendingIntent(view)).toBe(false)
@@ -356,7 +430,7 @@ describe('resolveSwapView', () => {
 
   describe('with a terminal swap refusal', () => {
     it('names a stale plan as terminal and keeps the alternatives on screen', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}))
 
       expect(view.kind).toBe('terminal')
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
@@ -369,7 +443,7 @@ describe('resolveSwapView', () => {
     })
 
     it('sends the user back to refetch the plan when it is no longer active', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'plan_not_active')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.planNotActive)}))
 
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
         code: 'plan_not_active',
@@ -380,7 +454,7 @@ describe('resolveSwapView', () => {
     })
 
     it('sends the user back to the list when the preview it was built from went stale', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'preview_stale')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.previewStale)}))
 
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
         code: 'preview_stale',
@@ -391,7 +465,7 @@ describe('resolveSwapView', () => {
     })
 
     it('names an ineligible recipe as terminal and asks for another alternative', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(422, 'recipe_ineligible')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(422, API_ERROR_CODES.recipeIneligible)}))
 
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
         code: 'recipe_ineligible',
@@ -402,7 +476,7 @@ describe('resolveSwapView', () => {
     })
 
     it('asks for another alternative when the key was reused with a changed request', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'idempotency_conflict')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.idempotencyConflict)}))
 
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
         code: 'idempotency_conflict',
@@ -413,7 +487,7 @@ describe('resolveSwapView', () => {
     })
 
     it('carries a confirmed code this release has no copy for without inventing any', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(400, 'invalid_request')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(400, API_ERROR_CODES.invalidRequest)}))
 
       expect(view.kind === 'terminal' ? view.terminal : null).toEqual({
         code: 'invalid_request',
@@ -424,14 +498,16 @@ describe('resolveSwapView', () => {
     })
 
     it('renders an empty list when the alternatives were never decoded', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan'), alternatives: undefined}))
+      const view = resolveSwapView(
+        swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan), alternatives: undefined})
+      )
 
       expect(rendersAlternatives(view)).toBe(true)
       expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
     })
 
     it('takes the default current-meal card, never the drawn 13e assurance', () => {
-      const view = resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan')}))
+      const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}))
 
       expect(view.currentMealVariant).toBe('default')
       expect(bannerOf(view)).toBeNull()
@@ -439,10 +515,27 @@ describe('resolveSwapView', () => {
 
     it('outranks an alternatives request that is still in flight', () => {
       const view = resolveSwapView(
-        swapInput({swapError: apiError(409, 'stale_plan'), isAlternativesPending: true, alternatives: undefined})
+        swapInput({
+          swapError: apiError(409, API_ERROR_CODES.stalePlan),
+          isAlternativesPending: true,
+          alternatives: undefined
+        })
       )
 
       expect(view.kind).toBe('terminal')
+    })
+
+    it('never reads a confirmed 4xx as an unconfirmed outcome', () => {
+      const confirmed = [
+        apiError(409, API_ERROR_CODES.stalePlan),
+        apiError(409, API_ERROR_CODES.planNotActive),
+        apiError(409, API_ERROR_CODES.previewStale),
+        apiError(422, API_ERROR_CODES.recipeIneligible),
+        apiError(409, API_ERROR_CODES.idempotencyConflict)
+      ]
+
+      confirmed.forEach(swapError => expect(resolveSwapView(swapInput({swapError})).kind).toBe('terminal'))
+      confirmed.forEach(swapError => expect(resolveSwapView(swapInput({swapError})).kind).not.toBe('unconfirmed'))
     })
 
     it('never reads an absent error as a refusal', () => {
@@ -451,24 +544,99 @@ describe('resolveSwapView', () => {
     })
   })
 
-  it('classifies the commit before the alternatives request that is still in flight', () => {
-    const view = resolveSwapView(
-      swapInput({swapError: apiError(502, 'swap_failed'), isAlternativesPending: true, alternatives: undefined})
-    )
+  // The commit is the action the user just asked for, so whatever the alternatives request is doing, its outcome
+  // is the one the screen has to answer for.
+  describe('with a commit outcome beside an unsettled alternatives request', () => {
+    it('classifies the commit before the alternatives request that is still in flight', () => {
+      const view = resolveSwapView(
+        swapInput({
+          swapError: apiError(502, API_ERROR_CODES.swapFailed),
+          isAlternativesPending: true,
+          alternatives: undefined
+        })
+      )
 
-    expect(view.kind).toBe('failed')
+      expect(view.kind).toBe('failed')
+    })
+
+    it('classifies a confirmed failure before an alternatives request that failed', () => {
+      const view = resolveSwapView(
+        swapInput({
+          swapError: apiError(502, API_ERROR_CODES.swapFailed),
+          alternativesError: transportError(),
+          alternatives: undefined
+        })
+      )
+
+      expect(view.kind).toBe('failed')
+    })
+
+    it('classifies an unconfirmed outcome before an alternatives request that is still in flight', () => {
+      const view = resolveSwapView(
+        swapInput({swapError: transportError(), isAlternativesPending: true, alternatives: undefined})
+      )
+
+      expect(view.kind).toBe('unconfirmed')
+    })
+
+    it('classifies an unconfirmed outcome before an alternatives request that failed', () => {
+      const view = resolveSwapView(
+        swapInput({swapError: transportError(), alternativesError: transportError(), alternatives: undefined})
+      )
+
+      expect(view.kind).toBe('unconfirmed')
+    })
+  })
+
+  describe('as a pure derivation', () => {
+    it('leaves the alternatives it was given in the order it was given them', () => {
+      const rows = [alternative({recipeVersionId: 'rv-a'}), alternative({recipeVersionId: 'rv-b'})]
+      const before = [...rows]
+
+      resolveSwapView(swapInput({alternatives: rows}))
+
+      expect(rows).toEqual(before)
+      expect(rows).toHaveLength(2)
+      expect(rows.map(row => row.recipeVersionId)).toEqual(['rv-a', 'rv-b'])
+    })
+
+    it('returns the same view for the same input', () => {
+      const input = swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})
+
+      expect(resolveSwapView(input)).toEqual(resolveSwapView(input))
+    })
+
+    it('returns the same view for the same input in every state it can reach', () => {
+      const inputs = [
+        swapInput(),
+        swapInput({alternatives: []}),
+        swapInput({isAlternativesPending: true, alternatives: undefined}),
+        swapInput({alternativesError: transportError(), alternatives: undefined}),
+        swapInput({currentMeal: null, dayError: transportError()}),
+        swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}),
+        swapInput({swapError: transportError()})
+      ]
+
+      inputs.forEach(input => expect(resolveSwapView(input)).toEqual(resolveSwapView(input)))
+    })
   })
 })
 
 describe('rendersAlternatives', () => {
   it('renders the list for the alternatives state, for a confirmed failure and for a terminal refusal', () => {
     expect(rendersAlternatives(resolveSwapView(swapInput()))).toBe(true)
-    expect(rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed')})))).toBe(true)
-    expect(rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan')})))).toBe(true)
+    expect(
+      rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
+    ).toBe(true)
+    expect(rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})))).toBe(
+      true
+    )
   })
 
   it('renders an empty terminal list rather than nothing when the alternatives were never decoded', () => {
-    const view = resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan'), alternatives: undefined}))
+    const view = resolveSwapView(
+      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan), alternatives: undefined})
+    )
 
     expect(rendersAlternatives(view)).toBe(true)
     expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
@@ -488,22 +656,32 @@ describe('rendersAlternatives', () => {
 
 describe('retiresPendingIntent', () => {
   it('retires the intent for a terminal refusal of the swap itself, so the next attempt mints a new key', () => {
-    expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(409, 'stale_plan')})))).toBe(true)
-    expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(422, 'recipe_ineligible')})))).toBe(true)
-    expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(409, 'preview_stale')})))).toBe(true)
+    expect(
+      retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})))
+    ).toBe(true)
+    expect(
+      retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(422, API_ERROR_CODES.recipeIneligible)})))
+    ).toBe(true)
+    expect(
+      retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.previewStale)})))
+    ).toBe(true)
   })
 
   // A read may not resolve a keyed write: the plan having moved on says nothing about whether the swap committed.
   it('keeps the intent when only the day query refused, however terminal that answer is', () => {
-    expect(retiresPendingIntent(resolveSwapView(swapInput({dayError: apiError(409, 'plan_not_active')})))).toBe(false)
-    expect(retiresPendingIntent(resolveSwapView(swapInput({dayError: apiError(409, 'stale_plan')})))).toBe(false)
+    expect(
+      retiresPendingIntent(resolveSwapView(swapInput({dayError: apiError(409, API_ERROR_CODES.planNotActive)})))
+    ).toBe(false)
+    expect(retiresPendingIntent(resolveSwapView(swapInput({dayError: apiError(409, API_ERROR_CODES.stalePlan)})))).toBe(
+      false
+    )
   })
 
   // The cold-start replay window: the key is on disk and its request is in flight, so no `swapError` exists yet.
   // Retiring the key on the day's answer here would abandon a swap that may already be durable.
   it('keeps the intent during a silent replay, before any swap answer exists', () => {
     const view = resolveSwapView(
-      swapInput({swapError: null, dayError: apiError(409, 'plan_not_active'), isDayPending: false})
+      swapInput({swapError: null, dayError: apiError(409, API_ERROR_CODES.planNotActive), isDayPending: false})
     )
 
     expect(view.kind).toBe('terminal')
@@ -511,7 +689,9 @@ describe('retiresPendingIntent', () => {
   })
 
   it('keeps the intent for a confirmed failure and an unconfirmed outcome, so Try again replays the same key', () => {
-    expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed')})))).toBe(false)
+    expect(
+      retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
+    ).toBe(false)
     expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: transportError()})))).toBe(false)
   })
 
@@ -561,6 +741,15 @@ describe('isPlanRevisionStale', () => {
   it('is false for a first revision that matches', () => {
     expect(isPlanRevisionStale(0, 0)).toBe(false)
   })
+
+  // The two answer different questions, so neither implies the other: an active plan can have moved on, and a
+  // superseded plan can still carry the revision the screen opened with.
+  it('is independent of whether the plan is still active', () => {
+    expect(isPlanInactive('active')).toBe(false)
+    expect(isPlanRevisionStale(5, 4)).toBe(true)
+    expect(isPlanInactive('superseded')).toBe(true)
+    expect(isPlanRevisionStale(4, 4)).toBe(false)
+  })
 })
 
 describe('buildSwapTitle', () => {
@@ -572,6 +761,14 @@ describe('buildSwapTitle', () => {
     expect(buildSwapTitle('breakfast')).toBe('Swap your breakfast')
     expect(buildSwapTitle('dinner')).toBe('Swap your dinner')
     expect(buildSwapTitle('snack')).toBe('Swap your snack')
+  })
+
+  it('renders the exported template rather than a copy of the sentence', () => {
+    expect(buildSwapTitle('lunch')).toBe(stringWithNamedParameters(SWAP_TITLE_TEMPLATE, {slot: 'lunch'}))
+  })
+
+  it('leaves no placeholder unreplaced for any slot', () => {
+    MEAL_SLOTS.forEach(slot => expect(buildSwapTitle(slot)).not.toContain('{'))
   })
 })
 
@@ -664,6 +861,13 @@ describe('buildMealMetaText', () => {
   it('keeps a zero figure rather than dropping it', () => {
     expect(buildMealMetaText({calories: 0, protein: 0, totalMinutes: 0})).toBe('0 cal · 0g protein · 0 min')
   })
+
+  it('reads a zero figure as a real value, never as a missing one', () => {
+    expect(buildMealMetaText({calories: 540, protein: 0, totalMinutes: 15})).not.toBe(
+      buildMealMetaText({calories: 540, protein: null, totalMinutes: 15})
+    )
+    expect(buildMealMetaText({calories: 540, protein: 0, totalMinutes: 15})).toBe('540 cal · 0g protein · 15 min')
+  })
 })
 
 describe('SKELETON_ALTERNATIVE_ROWS', () => {
@@ -686,6 +890,13 @@ describe('SKELETON_ALTERNATIVE_ROWS', () => {
 
   it('keeps the primary bar wider than the secondary bar in every row', () => {
     SKELETON_ALTERNATIVE_ROWS.forEach(row => expect(row.primary).toBeGreaterThan(row.secondary))
+  })
+
+  it('gives every row exactly the two bars the frame draws', () => {
+    SKELETON_ALTERNATIVE_ROWS.forEach(row => {
+      expect(Object.keys(row)).toHaveLength(2)
+      expect(Object.keys(row).sort()).toEqual(['primary', 'secondary'])
+    })
   })
 
   it('freezes the row list and every row in it, so no render can resize the skeleton', () => {
@@ -722,6 +933,20 @@ describe('skeletonBarWidth', () => {
   it('returns no width before the column has been measured', () => {
     expect(skeletonBarWidth(0, SKELETON_ALTERNATIVE_ROWS[0].primary)).toBe(0)
     expect(skeletonBarWidth(-1, SKELETON_ALTERNATIVE_ROWS[0].primary)).toBe(0)
+  })
+
+  it('returns whole pixels', () => {
+    proportionsInRowOrder().forEach(proportion =>
+      expect(Number.isInteger(skeletonBarWidth(REFERENCE_TEXT_COLUMN, proportion))).toBe(true)
+    )
+  })
+
+  it('leaves the proportion table untouched', () => {
+    const before = proportionsInRowOrder()
+
+    proportionsInRowOrder().forEach(proportion => skeletonBarWidth(REFERENCE_TEXT_COLUMN, proportion))
+
+    expect(proportionsInRowOrder()).toEqual(before)
   })
 })
 

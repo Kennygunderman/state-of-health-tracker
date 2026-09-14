@@ -7,7 +7,7 @@ import {buildTabReturnActions, TabReturnAction} from '../useHomeTabsNavigation.u
 const REVIEW_RETURN: TargetsReturn = {kind: 'stack', route: 'review'}
 const SETTINGS_RETURN: TargetsReturn = {kind: 'stack', route: 'settings'}
 const DIET_RETURN: TargetsReturn = {kind: 'stack', route: 'diet'}
-const ACCOUNT_RETURN: TargetsReturn = {kind: 'tab', tab: 'Account'}
+const ACCOUNT_RETURN: TargetsReturn = {kind: 'tab', tab: Screens.ACCOUNT}
 const PROGRESS_RETURN: TargetsReturn = {kind: 'tab', tab: 'ProgressStack'}
 const MACROS_RETURN: TargetsReturn = {kind: 'tab', tab: 'MacrosStack'}
 
@@ -75,10 +75,13 @@ describe('buildTabReturnActions', () => {
       expect(action).not.toHaveProperty('params')
     })
 
+    // Deliberately one action, not a forgotten branch: this return is used by the Diary entry point, which
+    // already sits on the Macros tab, so a parent navigate would re-select the tab the user is looking at.
     it('needs only the popToTop for the MacrosStack entry point', () => {
       const expected: TabReturnAction[] = [POP_TO_TOP]
 
       expect(buildTabReturnActions(MACROS_RETURN)).toStrictEqual(expected)
+      expect(buildTabReturnActions(MACROS_RETURN)).toHaveLength(1)
     })
   })
 

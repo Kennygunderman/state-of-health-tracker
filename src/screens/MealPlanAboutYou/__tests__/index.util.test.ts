@@ -1,6 +1,7 @@
 import {HeightUnitPref, SexForEstimate, WeightUnitPref} from '@data/models/MealPlanPreferences'
 import {WeighIn} from '@data/models/WeighIn'
 import {WeightUnit} from '@data/models/WeightUnit'
+import {KG_PER_LB, MAX_BODY_WEIGHT_KG, MIN_BODY_WEIGHT_KG} from '@utility/UnitConversionUtility'
 
 import {
   AboutYouErrors,
@@ -15,6 +16,16 @@ import {
   WIZARD_TOTAL_STEPS_MANUAL,
   wizardTotalSteps
 } from '../index.util'
+
+// Derived rather than written as the 66-661 lb the copy quotes: 30 kg is 66.13867865546327 lb, so a
+// rounded 66 would suggest 29.94 kg and the server would then refuse the weight. The probes straddle the
+// derived edges by an offset because the edges themselves land on float error (30 / KG_PER_LB * KG_PER_LB
+// reads as 29.999999999999996).
+const MIN_SUPPORTED_POUNDS: number = MIN_BODY_WEIGHT_KG / KG_PER_LB
+
+const MAX_SUPPORTED_POUNDS: number = MAX_BODY_WEIGHT_KG / KG_PER_LB
+
+const POUND_PROBE_OFFSET: number = 0.01
 
 const makeWeighIn = (overrides: Partial<WeighIn> = {}): WeighIn => ({
   id: 'weigh-in-1',
@@ -142,6 +153,46 @@ describe('resolveWeighInPrefill', () => {
     expect(resolveWeighInPrefill(weighIn, 'kg')).toEqual({value: '60', showCaption: true})
   })
 
+  describe('at the edges of the supported range', () => {
+    it('suggests the exact kilogram bounds, so the window is inclusive at both ends', () => {
+      expect(resolveWeighInPrefill(makeWeighIn({weight: MIN_BODY_WEIGHT_KG}), 'kg')).toEqual({
+        value: '30',
+        showCaption: true
+      })
+      expect(resolveWeighInPrefill(makeWeighIn({weight: MAX_BODY_WEIGHT_KG}), 'kg')).toEqual({
+        value: '300',
+        showCaption: true
+      })
+    })
+
+    it('withholds a suggestion at 66 lb, which reads as 29.94 kg and falls under the kilogram floor', () => {
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66}), 'lbs')).toEqual({value: '', showCaption: false})
+    })
+
+    it('suggests the first pound reading that clears the derived floor', () => {
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.1}), 'lbs')).toEqual({value: '', showCaption: false})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.14}), 'lbs')).toEqual({value: '66.14', showCaption: true})
+    })
+
+    it('suggests the last pound reading that stays under the derived ceiling', () => {
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 661}), 'lbs')).toEqual({value: '661', showCaption: true})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 661.4}), 'lbs')).toEqual({value: '', showCaption: false})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 662}), 'lbs')).toEqual({value: '', showCaption: false})
+    })
+
+    it('turns on either side of the derived pound bounds rather than the rounded ones', () => {
+      const belowFloor = makeWeighIn({weight: MIN_SUPPORTED_POUNDS - POUND_PROBE_OFFSET})
+      const aboveFloor = makeWeighIn({weight: MIN_SUPPORTED_POUNDS + POUND_PROBE_OFFSET})
+      const belowCeiling = makeWeighIn({weight: MAX_SUPPORTED_POUNDS - POUND_PROBE_OFFSET})
+      const aboveCeiling = makeWeighIn({weight: MAX_SUPPORTED_POUNDS + POUND_PROBE_OFFSET})
+
+      expect(resolveWeighInPrefill(belowFloor, 'lbs').showCaption).toBe(false)
+      expect(resolveWeighInPrefill(aboveFloor, 'lbs').showCaption).toBe(true)
+      expect(resolveWeighInPrefill(belowCeiling, 'lbs').showCaption).toBe(true)
+      expect(resolveWeighInPrefill(aboveCeiling, 'lbs').showCaption).toBe(false)
+    })
+  })
+
   it('offers the raw stored number, neither rounded nor converted', () => {
     expect(resolveWeighInPrefill(makeWeighIn({weight: 82.55}), 'kg').value).toBe('82.55')
     expect(resolveWeighInPrefill(makeWeighIn({weight: 180}), 'lbs').value).toBe('180')
@@ -245,6 +296,13 @@ describe('validateAboutYou', () => {
       expect(errorsFor({feet: '5.5'}, 'ft_in', 'lb').feet).toBe('feet_range')
     })
 
+    it('accepts eleven inches, the last reading that is not a whole extra foot', () => {
+      const errors = errorsFor({feet: '5', inches: '11'}, 'ft_in', 'lb')
+
+      expect(errors.inches).toBeNull()
+      expect(errors.feet).toBeNull()
+    })
+
     it('rejects an inches entry of twelve or more without also faulting the feet', () => {
       const errors = errorsFor({feet: '5', inches: '12'}, 'ft_in', 'lb')
 
@@ -319,8 +377,6 @@ describe('validateAboutYou', () => {
       expect(errorsFor({weight: '66'}, 'ft_in', 'lb').weight).toBe('weight_range')
     })
 
-    // 30 kg is 66.13867865546327 lb and 300 kg is 661.3867865546327 lb, so the pound probes straddle those
-    // derived bounds rather than the rounded 66-661 lb the copy quotes
     it('gates a pound weight on the converted kilogram bounds', () => {
       expect(errorsFor({weight: '66.1'}, 'ft_in', 'lb').weight).toBe('weight_range')
       expect(errorsFor({weight: '66.14'}, 'ft_in', 'lb').weight).toBeNull()
@@ -329,6 +385,23 @@ describe('validateAboutYou', () => {
       expect(errorsFor({weight: '661.3'}, 'ft_in', 'lb').weight).toBeNull()
       expect(errorsFor({weight: '661.4'}, 'ft_in', 'lb').weight).toBe('weight_range')
       expect(errorsFor({weight: '662'}, 'ft_in', 'lb').weight).toBe('weight_range')
+    })
+
+    it('faults a pound weight on either side of the derived bounds rather than the rounded ones', () => {
+      const belowFloor = String(MIN_SUPPORTED_POUNDS - POUND_PROBE_OFFSET)
+      const aboveFloor = String(MIN_SUPPORTED_POUNDS + POUND_PROBE_OFFSET)
+      const belowCeiling = String(MAX_SUPPORTED_POUNDS - POUND_PROBE_OFFSET)
+      const aboveCeiling = String(MAX_SUPPORTED_POUNDS + POUND_PROBE_OFFSET)
+
+      expect(errorsFor({weight: belowFloor}, 'ft_in', 'lb').weight).toBe('weight_range')
+      expect(errorsFor({weight: aboveFloor}, 'ft_in', 'lb').weight).toBeNull()
+      expect(errorsFor({weight: belowCeiling}, 'ft_in', 'lb').weight).toBeNull()
+      expect(errorsFor({weight: aboveCeiling}, 'ft_in', 'lb').weight).toBe('weight_range')
+    })
+
+    it('accepts the exact kilogram bounds it is handed as numbers', () => {
+      expect(errorsFor({weight: String(MIN_BODY_WEIGHT_KG)}, 'cm', 'kg').weight).toBeNull()
+      expect(errorsFor({weight: String(MAX_BODY_WEIGHT_KG)}, 'cm', 'kg').weight).toBeNull()
     })
 
     it('reads the same typed number against the selected unit', () => {
@@ -467,6 +540,14 @@ describe('buildBodyStepValues', () => {
   it('returns null when the weight cannot be read', () => {
     expect(buildBodyStepValues(makeFields({weight: ''}), 'cm', 'kg')).toBeNull()
     expect(buildBodyStepValues(makeFields({weight: 'heavy'}), 'cm', 'kg')).toBeNull()
+  })
+
+  it('reads the entered fields without writing anything back to them', () => {
+    const fields = makeFields()
+
+    buildBodyStepValues(fields, 'ft_in', 'lb')
+
+    expect(fields).toEqual(makeFields())
   })
 
   it('parses what the fields hold and leaves the range decision to validateAboutYou', () => {

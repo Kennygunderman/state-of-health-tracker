@@ -1,10 +1,11 @@
 import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
-import {LimitingConstraint} from '@data/models/PlanGenerationResult'
+import {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import {GenerationContext} from '@navigation/types'
-import {buildPendingIntent, resolveKeyedRequest} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
+
+import {StatusBadgeVariant} from '@components/StatusBadgeCircle'
 
 import Screens from '@constants/screens'
 import {
@@ -43,13 +44,6 @@ import {
   MEAL_SLOT_LABELS,
   stringWithNamedParameters
 } from '@constants/strings'
-
-// The lifecycle cases below reach the meal-plan store for its pure intent helpers, and importing it pulls in
-// the persistence adapter's native module. Mocking the adapter — exactly as the store's own suite does — keeps
-// this suite free of native modules; nothing here reads or writes storage.
-jest.mock('@store/zustandAsyncStorage', () => ({
-  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
-}))
 
 import {
   buildGenerationRequest,
@@ -424,13 +418,29 @@ describe('resolveGenerationView', () => {
       ])
     })
 
-    it('keeps the confirmed-failure badge distinct from the unconfirmed one', () => {
+    it('keeps the confirmed-failure badge distinct from the unconfirmed one, which cannot claim a write landed', () => {
       const failed = resolveGenerationView('error', apiError(502, API_ERROR_CODES.planGenerationFailed), SETUP)
       const unconfirmed = resolveGenerationView('error', apiError(502), SETUP)
 
       expect(failed.badgeVariant).toBe('failure')
       expect(unconfirmed.badgeVariant).toBe('noMatch')
       expect(failed.badgeVariant).not.toBe(unconfirmed.badgeVariant)
+    })
+
+    it('gives every state the badge its own variant names, and only the drawn failure the failure disc', () => {
+      const expected: Record<GenerationViewKind, StatusBadgeVariant | null> = {
+        pending: null,
+        failed: 'failure',
+        noMatch: 'noMatch',
+        unconfirmed: 'noMatch',
+        terminal: null
+      }
+      const resolved = VIEW_KINDS.map(
+        kind => resolveGenerationView(kind === 'pending' ? 'pending' : 'error', errorForKind(kind), SETUP).badgeVariant
+      )
+
+      expect(resolved).toEqual(VIEW_KINDS.map(kind => expected[kind]))
+      expect(resolved.filter(variant => variant === 'failure')).toHaveLength(1)
     })
 
     it('gives the alternate headline size and the allergies banner to the no-match state alone', () => {
@@ -507,6 +517,20 @@ describe('resolveGenerationView', () => {
         primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
         secondary: {kind: 'backToPlan', label: MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT}
       })
+    })
+
+    it('offers the two drawn failures opposite orders, never the same one', () => {
+      const failed = resolveGenerationView('error', apiError(502, API_ERROR_CODES.planGenerationFailed), SETUP)
+      const noMatch = resolveGenerationView('error', apiError(422, API_ERROR_CODES.noMatchingMeals), SETUP)
+      const order = (view: ReturnType<typeof resolveGenerationView>): string[] => [
+        view.actions?.primary.kind ?? '',
+        view.actions?.secondary?.kind ?? ''
+      ]
+
+      expect(order(failed)).toEqual(['retry', 'editPreferences'])
+      expect(order(noMatch)).toEqual(['editPreferences', 'retry'])
+      expect(order(noMatch)).toEqual([...order(failed)].reverse())
+      expect(noMatch.actions).not.toEqual(failed.actions)
     })
 
     it('offers nothing while the request is running or after a terminal refusal', () => {
@@ -885,6 +909,20 @@ describe('extractLimitingConstraints', () => {
 
       expect(constraints.map(entry => entry.constraintKey)).toEqual(['cooking_time', 'dislikes', 'diet'])
     })
+
+    it('leaves the payload it read untouched', () => {
+      const entries: unknown[] = [
+        {constraintKey: 'cooking_time', value: 30, unit: 'minutes', slots: ['lunch'], editStep: 'cooking'},
+        {constraintKey: 'moon_phase', editStep: 'diet'}
+      ]
+      const snapshot = JSON.stringify(entries)
+      const constraints = extractLimitingConstraints(constraintPayload(entries))
+
+      constraints[0].slots.push('dinner')
+
+      expect(entries).toHaveLength(2)
+      expect(JSON.stringify(entries)).toBe(snapshot)
+    })
   })
 })
 
@@ -990,6 +1028,93 @@ describe('buildLimitingConstraintRows', () => {
 
     it('builds nothing from an empty analysis', () => {
       expect(buildLimitingConstraintRows([], preferences())).toEqual([])
+    })
+
+    it('resolves each row Edit pill to the screen that owns the step it names', () => {
+      const rows = buildLimitingConstraintRows(
+        [
+          constraint({constraintKey: 'cooking_time', editStep: 'cooking'}),
+          constraint({constraintKey: 'dislikes', editStep: 'dislikes'}),
+          constraint({constraintKey: 'diet', editStep: 'diet'}),
+          constraint({constraintKey: 'nutrition_tolerance', editStep: 'review'}),
+          constraint({constraintKey: 'slot_coverage', editStep: 'schedule'}),
+          constraint({constraintKey: 'portion_limits', editStep: 'goal'})
+        ],
+        preferences()
+      )
+
+      expect(rows.map(row => resolveConstraintEditRoute(row.editStep))).toEqual([
+        Screens.MEAL_PLAN_COOKING_BUDGET,
+        Screens.MEAL_PLAN_FOOD_PREFERENCES,
+        Screens.MEAL_PLAN_DIET,
+        Screens.MEAL_PLAN_TARGETS,
+        Screens.MEAL_PLAN_SCHEDULE,
+        Screens.MEAL_PLAN_GOAL
+      ])
+    })
+  })
+
+  describe('every constraint key the analysis can name', () => {
+    const CONSTRAINT_UNITS_BY_KEY: ReadonlyArray<[LimitingConstraintKey, LimitingConstraintUnit, number]> = [
+      ['cooking_time', 'minutes', 30],
+      ['dislikes', 'foods', 9],
+      ['diet', 'foods', 2],
+      ['nutrition_tolerance', 'percent', 12],
+      ['portion_limits', 'recipes', 3],
+      ['slot_coverage', 'recipes', 4],
+      ['catalog_coverage', 'recipes', 2]
+    ]
+
+    CONSTRAINT_UNITS_BY_KEY.forEach(([constraintKey, unit, value]) => {
+      it(`labels the ${constraintKey} row and formats its measurement from the copy constants`, () => {
+        const [row] = buildLimitingConstraintRows([constraint({constraintKey, unit, value})], preferences())
+
+        expect(row.label).toBe(MEAL_PLAN_LIMITING_CONSTRAINT_LABELS[constraintKey])
+        expect(row.value).toBe(stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES[unit], {value}))
+        expect(row.constraintKey).toBe(constraintKey)
+      })
+    })
+
+    it('gives all seven keys a label of their own', () => {
+      const rows = buildLimitingConstraintRows(
+        CONSTRAINT_UNITS_BY_KEY.map(([constraintKey]) => constraint({constraintKey})),
+        preferences()
+      )
+      const labels = rows.map(row => row.label)
+
+      expect(labels).toEqual(CONSTRAINT_UNITS_BY_KEY.map(([key]) => MEAL_PLAN_LIMITING_CONSTRAINT_LABELS[key]))
+      expect(new Set(labels).size).toBe(CONSTRAINT_UNITS_BY_KEY.length)
+    })
+
+    // A renamed template parameter leaves its brace behind, which would reach the card as literal text.
+    it('substitutes every template parameter it renders, whatever the analysis withheld', () => {
+      const rows = buildLimitingConstraintRows(
+        CONSTRAINT_UNITS_BY_KEY.flatMap(([constraintKey, unit, value]) => [
+          constraint({constraintKey, unit, value}),
+          constraint({constraintKey, unit: null, value: null, slots: ['lunch']}),
+          constraint({constraintKey, unit: null, value: null, slots: []})
+        ]),
+        preferences()
+      )
+
+      rows.forEach(row => {
+        expect(row.value).not.toMatch(/[{}]/)
+        expect(row.label).not.toMatch(/[{}]/)
+        expect(row.editAccessibilityLabel).not.toMatch(/[{}]/)
+      })
+    })
+
+    it('keeps the label and the Edit pill of a row whose measurement, unit and slots are all absent', () => {
+      const rows = buildLimitingConstraintRows(
+        CONSTRAINT_UNITS_BY_KEY.map(([constraintKey]) =>
+          constraint({constraintKey, value: null, unit: null, slots: [], editStep: 'review'})
+        ),
+        preferences({diet: null})
+      )
+
+      expect(rows.map(row => row.value)).toEqual(CONSTRAINT_UNITS_BY_KEY.map(() => ''))
+      expect(rows.every(row => row.editLabel === MEAL_PLAN_EDIT_LINK_TEXT)).toBe(true)
+      expect(rows.every(row => row.label.length > 0)).toBe(true)
     })
   })
 
@@ -1185,22 +1310,15 @@ describe('buildGenerationRequest', () => {
 describe('the keyed intent lifecycle', () => {
   const REVISIONS = {expectedPreferencesRevision: 4, expectedTargetsRevision: 2}
   const INPUTS = {context: SETUP, startDate: '2026-07-05', ...REVISIONS}
-  const NOW = 1_760_000_000_000
 
-  const pendingFor = (): {pendingIntents: {generate: ReturnType<typeof buildPendingIntent>}} => ({
-    pendingIntents: {generate: buildPendingIntent(buildGenerationRequest(INPUTS), 'key-sent', 'user-a', NOW)}
-  })
-
-  it('replays the same key while the outcome is one the screen may retry', () => {
+  it('keeps the key alive while the outcome is one the screen may retry', () => {
     const view = resolveGenerationView('error', apiError(502, API_ERROR_CODES.planGenerationFailed), SETUP)
 
+    expect(view.terminalCode).toBeNull()
     expect(resolveTerminalRecovery(view.terminalCode, SETUP)).toBeNull()
-    expect(resolveKeyedRequest(pendingFor(), buildGenerationRequest(INPUTS), 'user-a', NOW, 'key-fresh')).toMatchObject(
-      {idempotencyKey: 'key-sent', isReplay: true}
-    )
   })
 
-  it('replays the same key for an outcome the server never confirmed, which may have committed', () => {
+  it('keeps the key alive for an outcome the server never confirmed, which may have committed', () => {
     const view = resolveGenerationView('error', new Error('Network Error'), SETUP)
 
     expect(view.kind).toBe('unconfirmed')
@@ -1213,23 +1331,18 @@ describe('the keyed intent lifecycle', () => {
     ['a refusal from a later server release', 409, 'some_future_refusal']
   ])('retires the key after %s, so the next launch mints a new one', (_case, status, code) => {
     const view = resolveGenerationView('error', apiError(status, code), SETUP)
-    const recovery = resolveTerminalRecovery(view.terminalCode, SETUP)
 
     expect(view.kind).toBe('terminal')
-    expect(recovery?.clearsPendingIntent).toBe(true)
-
-    // What the screen does with that instruction: the slot is cleared, so the rebuilt request mints afresh.
-    expect(
-      resolveKeyedRequest({pendingIntents: {}}, buildGenerationRequest(INPUTS), 'user-a', NOW, 'key-fresh')
-    ).toMatchObject({idempotencyKey: 'key-fresh', isReplay: false})
+    expect(resolveTerminalRecovery(view.terminalCode, SETUP)?.clearsPendingIntent).toBe(true)
   })
 
-  it('mints a new key once an edit has changed the request the old key fingerprinted', () => {
+  it('rebuilds the byte-identical request a surviving key may be replayed against', () => {
+    expect(buildGenerationRequest(INPUTS)).toEqual(buildGenerationRequest({...INPUTS, context: {kind: 'setup'}}))
+  })
+
+  it('fingerprints a different request once an edit has changed what the attempt asks for', () => {
     const edited = buildGenerationRequest({...INPUTS, expectedPreferencesRevision: 5})
 
-    expect(resolveKeyedRequest(pendingFor(), edited, 'user-a', NOW, 'key-fresh')).toMatchObject({
-      idempotencyKey: 'key-fresh',
-      isReplay: false
-    })
+    expect(edited).not.toEqual(buildGenerationRequest(INPUTS))
   })
 })
