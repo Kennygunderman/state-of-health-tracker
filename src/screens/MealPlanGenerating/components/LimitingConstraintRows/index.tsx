@@ -27,8 +27,6 @@ interface Props {
 // the authority. Composing SummaryRows again would need an additive emphasis variant on that shared
 // component, which several other screens consume.
 const LimitingConstraintRows = ({rows, onEditConstraint}: Props): React.JSX.Element | null => {
-  // The 422 analysis names between one and seven constraints, so an empty list draws no card at all rather
-  // than an empty surface.
   if (rows.length === 0) {
     return null
   }
@@ -37,7 +35,8 @@ const LimitingConstraintRows = ({rows, onEditConstraint}: Props): React.JSX.Elem
     <View style={styles.card}>
       {rows.map((row, index) => (
         <View key={row.constraintKey} style={[styles.row, index > 0 && styles.rowDivided]}>
-          <View style={styles.textColumn}>
+          {/* Grouped so the two lines announce as one label instead of two disconnected fragments. */}
+          <View style={styles.textColumn} accessible>
             <Text style={styles.name}>{row.label}</Text>
 
             {!!row.value && <Text style={styles.value}>{row.value}</Text>}

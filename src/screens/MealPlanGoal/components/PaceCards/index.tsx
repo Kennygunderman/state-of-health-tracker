@@ -7,17 +7,16 @@ import {PaceLbPerWeek} from '@data/models/MealPlanPreferences'
 import OptionCard from '@components/OptionCard'
 
 import styles from './index.styled'
+// The screen's util is the sanctioned home for a helper shared with its components/ children, and has no alias.
 import {PaceOption} from '../../index.util'
 
 interface Props {
-  options: readonly PaceOption[]
-  // Null is a real answer state, not a missing prop: the mock's highlighted "1 lb a week" card is not a
-  // chosen answer, so the pace section opens with nothing selected until the user picks a rate.
+  options: PaceOption[]
   selected: PaceLbPerWeek | null
   onSelect: (pace: PaceLbPerWeek) => void
 }
 
-const PaceCards = ({options, selected, onSelect}: Props): React.JSX.Element => {
+const PaceCards = ({options, selected, onSelect}: Props) => {
   return (
     <View style={styles.list} accessibilityRole="radiogroup">
       {options.map(option => (

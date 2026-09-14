@@ -20,7 +20,7 @@ const SkeletonAlternatives = (): React.JSX.Element => {
   return (
     <View style={styles.card} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {SKELETON_ALTERNATIVE_ROWS.map((row, index) => (
-        <View key={index} style={styles.row}>
+        <View key={index} style={[styles.row, index > 0 && styles.rowDivider]}>
           <Skeleton
             height={Sizes.TILE_SM}
             width={Sizes.TILE_SM}
