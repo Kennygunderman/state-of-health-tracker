@@ -1124,6 +1124,10 @@ export const MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT = 'Adding here only affects recip
 
 export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query}'"
 
+// Announced on the results list region so a screen reader hears the count change as the query is typed;
+// the Results overline itself carries no count (47:376), so the two strings are deliberately separate.
+export const MEAL_PLAN_FOOD_SEARCH_RESULTS_ACCESSIBILITY_TEMPLATE = 'Results, {count} found'
+
 export const MEAL_PLAN_SEARCH_CLEAR_GLYPH = '✕'
 
 // The add affordance on an unadded search result (47:399); the added state draws a tick instead.

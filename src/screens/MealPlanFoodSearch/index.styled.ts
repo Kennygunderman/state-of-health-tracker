@@ -25,6 +25,13 @@ export default StyleSheet.create({
   listContent: {
     paddingBottom: Spacing.LARGE
   },
+  skeletonList: {
+    rowGap: Spacing.SMALL
+  },
+  skeletonBar: {
+    borderRadius: BorderRadius.CHECKBOX,
+    backgroundColor: Theme.colors.inset
+  },
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
