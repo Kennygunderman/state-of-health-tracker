@@ -1,7 +1,7 @@
 import {MealPlan} from '@data/models/MealPlan'
 import {GeneratePlanPayload} from '@data/models/PlanGenerationResult'
 import {mutationKeys, queryKeys} from '@queries/keys'
-import {QueryClient, QueryKey} from '@tanstack/react-query'
+import {MutationFunctionContext, QueryClient, QueryKey} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import {buildGeneratePlanMutationOptions} from '../useGeneratePlanMutation.util'
@@ -23,6 +23,15 @@ const GENERATE_VARIABLES: GeneratePlanPayload = {
   idempotencyKey: 'b0a1c2d3-e4f5-4a6b-8c9d-0e1f2a3b4c5d',
   expectedPreferencesRevision: 4,
   expectedTargetsRevision: 2
+}
+
+// A different week, a different minted key and different expected revisions: nothing the factory does may be
+// derived from them, so a second payload has to produce the same cache work.
+const SECOND_GENERATE_VARIABLES: GeneratePlanPayload = {
+  startDate: '2026-08-03',
+  idempotencyKey: 'a9b8c7d6-e5f4-4a3b-8c2d-1e0f9a8b7c6d',
+  expectedPreferencesRevision: 11,
+  expectedTargetsRevision: 5
 }
 
 const makeMealPlan = (): MealPlan => ({
@@ -51,26 +60,53 @@ const INVALIDATED_KEYS: QueryKey[] = [
   queryKeys.mealPlanPreferences
 ]
 
+// Details of two different plans, because a generation publishes a plan id nothing in the cache is keyed to:
+// only a family root can reach both what the previous plan left behind and what the new one will write.
+const DETAIL_KEYS: QueryKey[] = [
+  queryKeys.mealPlanDay(PLAN_A, DATE),
+  queryKeys.mealPlanDay(PLAN_B, OTHER_DATE),
+  queryKeys.groceryList(PLAN_A),
+  queryKeys.groceryList(PLAN_B),
+  queryKeys.affectedMeals(PLAN_A),
+  queryKeys.swapAlternatives(PLAN_A, MEAL_ID, PLAN_REVISION)
+]
+
+const UNRELATED_KEYS: QueryKey[] = [queryKeys.exercises, queryKeys.foods]
+
 const PREVIEW_KEY = queryKeys.swapPreview(PLAN_A, MEAL_ID, RECIPE_VERSION_ID, PLAN_REVISION)
 
+const SEEDED_KEYS: QueryKey[] = [...INVALIDATED_KEYS, ...DETAIL_KEYS, ...UNRELATED_KEYS, PREVIEW_KEY]
+
 const seedCache = (client: QueryClient): void => {
-  INVALIDATED_KEYS.forEach(queryKey => client.setQueryData(queryKey, {seeded: true}))
-  client.setQueryData(queryKeys.mealPlanDay(PLAN_A, DATE), {seeded: true})
-  client.setQueryData(queryKeys.mealPlanDay(PLAN_B, OTHER_DATE), {seeded: true})
-  client.setQueryData(queryKeys.groceryList(PLAN_A), {seeded: true})
-  client.setQueryData(queryKeys.groceryList(PLAN_B), {seeded: true})
-  client.setQueryData(queryKeys.affectedMeals(PLAN_A), {seeded: true})
-  client.setQueryData(PREVIEW_KEY, {seeded: true})
-  client.setQueryData(queryKeys.exercises, {seeded: true})
-  client.setQueryData(queryKeys.foods, {seeded: true})
+  SEEDED_KEYS.forEach(queryKey => client.setQueryData(queryKey, {seeded: true}))
 }
 
-const invokeOnSuccess = (options: GenerateOptions): void => {
+const createQueryClient = (): QueryClient =>
+  // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
+  // otherwise hold the Node event loop open long after the assertions are done.
+  new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
+
+const invokeOnSuccess = (options: GenerateOptions, variables: GeneratePlanPayload = GENERATE_VARIABLES): void => {
   // Narrowed because this version of UseMutationOptions declares onSuccess optional plus the two trailing
   // parameters (onMutateResult, context) the parameterless factory handler ignores.
   const onSuccess = options.onSuccess as (data: MealPlan, variables: GeneratePlanPayload) => void
 
-  onSuccess(makeMealPlan(), GENERATE_VARIABLES)
+  onSuccess(makeMealPlan(), variables)
+}
+
+const invokeOnSuccessWithTrailingArguments = (options: GenerateOptions, client: QueryClient): void => {
+  const onSuccess = options.onSuccess as (
+    data: MealPlan,
+    variables: GeneratePlanPayload,
+    onMutateResult: unknown,
+    context: MutationFunctionContext
+  ) => void
+
+  onSuccess(makeMealPlan(), GENERATE_VARIABLES, undefined, {
+    client,
+    meta: undefined,
+    mutationKey: mutationKeys.generatePlan
+  })
 }
 
 // Narrowed because retry is declared as RetryValue<Error> (boolean | number | predicate) and the fixtures
@@ -82,16 +118,19 @@ const isQueryInvalidated = (client: QueryClient, queryKey: QueryKey): boolean | 
 
 const invalidatedKeysFrom = (spy: jest.SpyInstance): unknown[] => spy.mock.calls.map(([filters]) => filters?.queryKey)
 
+// Serialised and sorted, because the contract is a set: a missing or an extra key has to fail, while the order
+// the factory happens to call them in carries no meaning and must not.
+const sortedSerialized = (keys: unknown[]): string[] => keys.map(queryKey => JSON.stringify(queryKey)).sort()
+
 let queryClient: QueryClient
 
 beforeEach(() => {
-  // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
-  // otherwise hold the Node event loop open long after the assertions are done.
-  queryClient = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
+  queryClient = createQueryClient()
 })
 
 afterEach(() => {
   jest.restoreAllMocks()
+  queryClient.clear()
 })
 
 describe('buildGeneratePlanMutationOptions', () => {
@@ -138,8 +177,33 @@ describe('buildGeneratePlanMutationOptions', () => {
 
       invokeOnSuccess(options)
 
-      expect(invalidatedKeysFrom(spy)).toEqual(INVALIDATED_KEYS)
+      expect(sortedSerialized(invalidatedKeysFrom(spy))).toEqual(sortedSerialized(INVALIDATED_KEYS))
       expect(spy).toHaveBeenCalledTimes(INVALIDATED_KEYS.length)
+    })
+
+    it('invalidates the saved preferences, which a published plan completes the setup status of', () => {
+      seedCache(queryClient)
+
+      const spy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildGeneratePlanMutationOptions(queryClient)
+
+      invokeOnSuccess(options)
+
+      expect(sortedSerialized(invalidatedKeysFrom(spy))).toContain(JSON.stringify(queryKeys.mealPlanPreferences))
+      expect(isQueryInvalidated(queryClient, queryKeys.mealPlanPreferences)).toBe(true)
+    })
+
+    it('names family roots only, never a per-plan detail key the new plan id would not match', () => {
+      seedCache(queryClient)
+
+      const spy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildGeneratePlanMutationOptions(queryClient)
+
+      invokeOnSuccess(options)
+
+      const invalidated = sortedSerialized(invalidatedKeysFrom(spy))
+
+      sortedSerialized(DETAIL_KEYS).forEach(queryKey => expect(invalidated).not.toContain(queryKey))
     })
 
     it('reaches the detail entries of both plans through the family roots', () => {
@@ -149,25 +213,23 @@ describe('buildGeneratePlanMutationOptions', () => {
 
       invokeOnSuccess(options)
 
-      expect(isQueryInvalidated(queryClient, queryKeys.mealPlanDay(PLAN_A, DATE))).toBe(true)
-      expect(isQueryInvalidated(queryClient, queryKeys.mealPlanDay(PLAN_B, OTHER_DATE))).toBe(true)
-      expect(isQueryInvalidated(queryClient, queryKeys.groceryList(PLAN_A))).toBe(true)
-      expect(isQueryInvalidated(queryClient, queryKeys.groceryList(PLAN_B))).toBe(true)
-      expect(isQueryInvalidated(queryClient, queryKeys.affectedMeals(PLAN_A))).toBe(true)
+      DETAIL_KEYS.forEach(queryKey => expect(isQueryInvalidated(queryClient, queryKey)).toBe(true))
       expect(isQueryInvalidated(queryClient, queryKeys.mealPlanCurrent)).toBe(true)
       expect(isQueryInvalidated(queryClient, queryKeys.mealPlanPreferences)).toBe(true)
       expect(isQueryInvalidated(queryClient, queryKeys.swapAlternativesAll)).toBe(true)
     })
 
-    it('leaves unrelated domains valid', () => {
+    it('leaves unrelated domains valid and readable', () => {
       seedCache(queryClient)
 
       const options = buildGeneratePlanMutationOptions(queryClient)
 
       invokeOnSuccess(options)
 
-      expect(isQueryInvalidated(queryClient, queryKeys.exercises)).toBe(false)
-      expect(isQueryInvalidated(queryClient, queryKeys.foods)).toBe(false)
+      UNRELATED_KEYS.forEach(queryKey => {
+        expect(isQueryInvalidated(queryClient, queryKey)).toBe(false)
+        expect(queryClient.getQueryData(queryKey)).toEqual({seeded: true})
+      })
     })
 
     it('removes the preview family instead of invalidating it', () => {
@@ -196,20 +258,53 @@ describe('buildGeneratePlanMutationOptions', () => {
       expect(writeSpy).not.toHaveBeenCalled()
     })
 
+    it('performs the same cache work for a second start date and idempotency key', () => {
+      const otherClient = createQueryClient()
+
+      seedCache(queryClient)
+      seedCache(otherClient)
+
+      const firstInvalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const firstRemoveSpy = jest.spyOn(queryClient, 'removeQueries')
+      const secondInvalidateSpy = jest.spyOn(otherClient, 'invalidateQueries')
+      const secondRemoveSpy = jest.spyOn(otherClient, 'removeQueries')
+
+      invokeOnSuccess(buildGeneratePlanMutationOptions(queryClient), GENERATE_VARIABLES)
+      invokeOnSuccess(buildGeneratePlanMutationOptions(otherClient), SECOND_GENERATE_VARIABLES)
+
+      expect(invalidatedKeysFrom(secondInvalidateSpy)).toEqual(invalidatedKeysFrom(firstInvalidateSpy))
+      expect(sortedSerialized(invalidatedKeysFrom(secondInvalidateSpy))).toEqual(sortedSerialized(INVALIDATED_KEYS))
+      expect(secondRemoveSpy.mock.calls).toEqual(firstRemoveSpy.mock.calls)
+      expect(otherClient.getQueryData(PREVIEW_KEY)).toBeUndefined()
+    })
+
+    it('ignores the onMutateResult and mutation context TanStack passes after the variables', () => {
+      seedCache(queryClient)
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildGeneratePlanMutationOptions(queryClient)
+
+      expect(() => invokeOnSuccessWithTrailingArguments(options, queryClient)).not.toThrow()
+      expect(sortedSerialized(invalidatedKeysFrom(invalidateSpy))).toEqual(sortedSerialized(INVALIDATED_KEYS))
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+      expect(removeSpy).toHaveBeenCalledWith({queryKey: queryKeys.swapPreviewAll})
+    })
+
     it('runs every operation against an empty cache without throwing', () => {
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const removeSpy = jest.spyOn(queryClient, 'removeQueries')
       const options = buildGeneratePlanMutationOptions(queryClient)
 
       expect(() => invokeOnSuccess(options)).not.toThrow()
-      expect(invalidatedKeysFrom(invalidateSpy)).toEqual(INVALIDATED_KEYS)
+      expect(sortedSerialized(invalidatedKeysFrom(invalidateSpy))).toEqual(sortedSerialized(INVALIDATED_KEYS))
       expect(removeSpy).toHaveBeenCalledTimes(1)
       expect(removeSpy).toHaveBeenCalledWith({queryKey: queryKeys.swapPreviewAll})
     })
   })
 
   describe('retry policy', () => {
-    it('retries an unknown outcome exactly once', () => {
+    it('retries an unknown outcome once, since the same key replays a generation that committed', () => {
       const retry = retryPredicateOf(buildGeneratePlanMutationOptions(queryClient))
       const networkError = new Error('Network Error')
 
@@ -218,7 +313,7 @@ describe('buildGeneratePlanMutationOptions', () => {
       expect(retry(2, networkError)).toBe(false)
     })
 
-    it('does not retry a confirmed 4xx refusal', () => {
+    it('does not retry a confirmed 4xx refusal, which the drawn failure screen reports as final', () => {
       const retry = retryPredicateOf(buildGeneratePlanMutationOptions(queryClient))
 
       expect(retry(0, {response: {status: 422, data: {error: API_ERROR_CODES.noMatchingMeals}}})).toBe(false)
@@ -229,6 +324,16 @@ describe('buildGeneratePlanMutationOptions', () => {
       const retry = retryPredicateOf(buildGeneratePlanMutationOptions(queryClient))
 
       expect(retry(0, {response: {status: 502, data: {error: API_ERROR_CODES.planGenerationFailed}}})).toBe(false)
+      expect(retry(0, {response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(false)
+    })
+
+    it('reads a class instance and a plain object of the same shape as the same outcome', () => {
+      const retry = retryPredicateOf(buildGeneratePlanMutationOptions(queryClient))
+      const refusal = {response: {status: 409, data: {error: API_ERROR_CODES.staleRevision}}}
+      const thrownRefusal = Object.assign(new Error('Request failed'), refusal)
+
+      expect(retry(0, thrownRefusal)).toBe(false)
+      expect(retry(0, refusal)).toBe(false)
     })
 
     it('retries a 5xx whose body carries no recognised machine code', () => {
@@ -236,7 +341,15 @@ describe('buildGeneratePlanMutationOptions', () => {
 
       expect(retry(0, {response: {status: 504, data: {error: 'Failed to generate plan'}}})).toBe(true)
       expect(retry(0, {response: {status: 502}})).toBe(true)
+    })
+
+    it('retries a response whose body does not decode to a machine-readable error', () => {
+      const retry = retryPredicateOf(buildGeneratePlanMutationOptions(queryClient))
+
       expect(retry(0, {response: {status: 502, data: '<html>Bad Gateway</html>'}})).toBe(true)
+      expect(retry(0, {response: {status: 500, data: {error: 42}}})).toBe(true)
+      expect(retry(0, {response: {status: 500, data: null}})).toBe(true)
+      expect(retry(0, {response: {status: 409, data: {}}})).toBe(true)
     })
 
     it('retries an error shape it cannot classify at all', () => {

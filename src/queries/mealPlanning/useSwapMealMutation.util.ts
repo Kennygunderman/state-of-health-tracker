@@ -10,8 +10,7 @@ export function buildSwapMealMutationOptions(
 ): Omit<UseMutationOptions<SwapMealResult, Error, SwapMealPayload>, 'mutationFn'> {
   return {
     mutationKey: mutationKeys.swapMeal,
-    // Unknown outcomes only: the replay carries the same variables, so the same idempotencyKey and
-    // portionMultiplier go out byte-identically, while a confirmed `502 swap_failed` owns the unchanged-meal state.
+    // Unknown outcomes only: the replay reuses the same idempotencyKey; a confirmed swap_failed only repeats.
     retry: (failureCount, error) => failureCount < 1 && isUnknownOutcome(error),
     retryDelay: 1500,
     onSuccess: () => {

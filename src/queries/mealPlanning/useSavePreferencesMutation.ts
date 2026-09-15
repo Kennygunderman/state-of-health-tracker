@@ -4,9 +4,6 @@ import {useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-qu
 
 import {buildSavePreferencesMutationOptions} from './useSavePreferencesMutation.util'
 
-// The variables are the REQUEST type, not the payload: the full save's envelope requires `timeZone`
-// (the server resolves the user's "today" from the zone the request carried), so a caller cannot build a
-// body the server will refuse.
 export const useSavePreferencesMutation = (): UseMutationResult<
   MealPlanPreferencesSaveResult,
   Error,

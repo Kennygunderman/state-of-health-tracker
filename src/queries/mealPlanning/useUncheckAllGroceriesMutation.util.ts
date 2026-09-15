@@ -12,9 +12,8 @@ export interface UncheckAllGroceriesContext {
 const uncheckRow = (item: GroceryItem): GroceryItem =>
   item.isChecked || item.flag !== null ? {...item, isChecked: false, flag: null} : item
 
-// Every tick and every flag clears at once, and each cleared row goes back on the list among the aisles:
-// leaving it in the emptied checked card would file it under "Checked · 0" and, with no aisle row left behind
-// it, make a list that still holds groceries read as empty. repartitionGroceryList owns that placement.
+// sections hold the unchecked rows and checkedItems the checked ones, so clearing every tick re-files each
+// cleared row into an aisle; repartitionGroceryList owns that. The banner stays the server's call (0.7.3).
 const applyUncheckAll = (list: GroceryList): GroceryList => repartitionGroceryList(list, uncheckRow)
 
 export function buildUncheckAllGroceriesMutationOptions(

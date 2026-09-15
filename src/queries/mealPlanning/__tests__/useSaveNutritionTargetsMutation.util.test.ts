@@ -1,4 +1,5 @@
 import {
+  NutritionTargets,
   SaveEstimatedNutritionTargetsPayload,
   SaveManualNutritionTargetsPayload,
   SaveNutritionTargetsPayload,
@@ -34,26 +35,19 @@ const MANUAL_PAYLOAD: SaveManualNutritionTargetsPayload = {
   expectedTargetsRevision: 2
 }
 
-const makeSaveResult = (): SaveNutritionTargetsResult => ({
-  targets: {
-    targets: {calories: 1940, protein: 146, carbs: 194, fat: 65},
-    complete: true,
-    source: 'estimated',
-    stale: false,
-    revision: 3
-  },
-  feasibility: {ok: true, warnings: []}
+const makeTargets = (overrides: Partial<NutritionTargets> = {}): NutritionTargets => ({
+  targets: {calories: 1940, protein: 146, carbs: 194, fat: 65},
+  complete: true,
+  source: 'estimated',
+  stale: false,
+  revision: 3,
+  ...overrides
 })
 
-const makeWarningSaveResult = (): SaveNutritionTargetsResult => ({
-  targets: {
-    targets: {calories: 1940, protein: null, carbs: null, fat: 65},
-    complete: false,
-    source: 'manual',
-    stale: false,
-    revision: 3
-  },
-  feasibility: {ok: false, warnings: ['macro_energy_mismatch']}
+const makeSaveResult = (overrides: Partial<SaveNutritionTargetsResult> = {}): SaveNutritionTargetsResult => ({
+  targets: makeTargets(),
+  feasibility: {ok: true, warnings: []},
+  ...overrides
 })
 
 const EXPECTED_INVALIDATED_KEYS: QueryKey[] = [
@@ -186,7 +180,30 @@ describe('buildSaveNutritionTargetsMutationOptions', () => {
       expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(EXPECTED_INVALIDATED_KEYS)
     })
 
-    it('invalidates every cached diary day, so the Diary cannot keep rendering the pre-save targets', async () => {
+    it('invalidates the daily macros, which is where the Diary reads the targets this save just confirmed', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSaveNutritionTargetsMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.dailyMacrosAll})
+    })
+
+    it('invalidates the macros history, so past days re-resolve against the new targets', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSaveNutritionTargetsMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.macrosHistory})
+      expect(isQueryInvalidated(queryKeys.macrosHistory)).toBe(true)
+    })
+
+    it('reaches every cached diary day through the dailyMacros root, which one date key could not do', async () => {
       seedCache()
 
       const options = buildSaveNutritionTargetsMutationOptions(queryClient)
@@ -195,7 +212,17 @@ describe('buildSaveNutritionTargetsMutationOptions', () => {
 
       expect(isQueryInvalidated(queryKeys.dailyMacros(DATE))).toBe(true)
       expect(isQueryInvalidated(queryKeys.dailyMacros(OTHER_DATE))).toBe(true)
-      expect(isQueryInvalidated(queryKeys.macrosHistory)).toBe(true)
+    })
+
+    it('invalidates the swap alternatives, because a target change reorders the candidate ranking', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSaveNutritionTargetsMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.swapAlternativesAll})
     })
 
     it('reaches every cached plan day and alternatives set through their family roots', async () => {
@@ -241,6 +268,15 @@ describe('buildSaveNutritionTargetsMutationOptions', () => {
       expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).not.toContain(
         JSON.stringify(queryKeys.swapPreviewAll)
       )
+    })
+
+    it('leaves an already-cached preview gone from the cache rather than refetched into view', async () => {
+      seedCache()
+
+      const options = buildSaveNutritionTargetsMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
       expect(
         queryClient.getQueryData(queryKeys.swapPreview(PLAN_ID, MEAL_ID, RECIPE_VERSION_ID, PLAN_REVISION))
       ).toBeUndefined()
@@ -300,6 +336,26 @@ describe('buildSaveNutritionTargetsMutationOptions', () => {
       expect(isQueryInvalidated(queryKeys.dailyMacros(OTHER_DATE))).toBe(true)
     })
 
+    it('invalidates the same keys when only some of the confirmed target values came back set', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const partialTargets = makeTargets({
+        targets: {calories: 1940, protein: null, carbs: null, fat: null},
+        complete: false,
+        source: 'legacy'
+      })
+      const options = buildSaveNutritionTargetsMutationOptions(queryClient)
+
+      await invokeOnSuccess(options, makeSaveResult({targets: partialTargets}), MANUAL_PAYLOAD)
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
+        serialize(EXPECTED_INVALIDATED_KEYS)
+      )
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+    })
+
     it('invalidates the same keys for a save the server accepted with feasibility warnings', async () => {
       seedCache()
 
@@ -307,7 +363,11 @@ describe('buildSaveNutritionTargetsMutationOptions', () => {
       const removeSpy = jest.spyOn(queryClient, 'removeQueries')
       const options = buildSaveNutritionTargetsMutationOptions(queryClient)
 
-      await invokeOnSuccess(options, makeWarningSaveResult(), MANUAL_PAYLOAD)
+      await invokeOnSuccess(
+        options,
+        makeSaveResult({feasibility: {ok: false, warnings: ['macro_energy_mismatch']}}),
+        MANUAL_PAYLOAD
+      )
 
       expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
         serialize(EXPECTED_INVALIDATED_KEYS)

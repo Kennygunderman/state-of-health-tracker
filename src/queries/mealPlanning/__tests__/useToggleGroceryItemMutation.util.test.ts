@@ -1,12 +1,7 @@
-import {GroceryItem, GroceryList, ToggleGroceryItemResult} from '@data/models/GroceryList'
-import {convertGroceryList} from '@queries/api/mealPlanning/converter/convertGroceryList'
-import {GroceryItemResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
+import {GroceryItem, GroceryItemFlag, GroceryList, ToggleGroceryItemResult} from '@data/models/GroceryList'
 import {mutationKeys, queryKeys} from '@queries/keys'
-import {QueryClient} from '@tanstack/react-query'
+import {MutationFunctionContext, QueryClient} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
-import * as io from 'io-ts'
-
-import {orderGrocerySections, resolveGroceryView, shouldShowUncheckAll} from '@screens/GroceryList/index.util'
 
 import {
   buildToggleGroceryItemMutationOptions,
@@ -17,9 +12,19 @@ import {
 const PLAN_ID = 'plan-1'
 const OTHER_PLAN_ID = 'plan-2'
 const SPINACH_ID = 'item-spinach'
+const AVOCADO_ID = 'item-avocado'
+const SALMON_ID = 'item-salmon'
 const CHICKEN_ID = 'item-chicken'
+const RICE_ID = 'item-rice'
 
 type ToggleOptions = ReturnType<typeof buildToggleGroceryItemMutationOptions>
+
+const makeFlag = (): GroceryItemFlag => ({
+  previousDisplayText: '2.5 lb',
+  newDisplayText: '3.1 lb',
+  deltaDisplayText: '+0.6 lb',
+  flaggedAt: '2026-07-06T10:00:00.000Z'
+})
 
 const makeItem = (overrides: Partial<GroceryItem> = {}): GroceryItem => ({
   id: SPINACH_ID,
@@ -33,6 +38,8 @@ const makeItem = (overrides: Partial<GroceryItem> = {}): GroceryItem => ({
   ...overrides
 })
 
+// The aisle sections carry the unchecked rows and the checked card the checked ones, so a row belongs to
+// exactly one of them: a fixture listing a checked row in both would be counted twice.
 const makeGroceryList = (): GroceryList => ({
   planId: PLAN_ID,
   planRevision: 3,
@@ -44,14 +51,11 @@ const makeGroceryList = (): GroceryList => ({
   sections: [
     {
       category: 'produce',
-      items: [
-        makeItem(),
-        makeItem({id: 'item-avocado', catalogFoodId: 'food-avocado', name: 'Avocado', displayText: '3'})
-      ]
+      items: [makeItem(), makeItem({id: AVOCADO_ID, catalogFoodId: 'food-avocado', name: 'Avocado', displayText: '3'})]
     },
     {
       category: 'protein',
-      items: [makeItem({id: 'item-salmon', catalogFoodId: 'food-salmon', name: 'Salmon fillet', displayText: '1.2 lb'})]
+      items: [makeItem({id: SALMON_ID, catalogFoodId: 'food-salmon', name: 'Salmon fillet', displayText: '1.2 lb'})]
     }
   ],
   checkedItems: [
@@ -61,85 +65,73 @@ const makeGroceryList = (): GroceryList => ({
       name: 'Chicken breast',
       displayText: '3.1 lb',
       isChecked: true,
-      flag: {
-        previousDisplayText: '2.5 lb',
-        newDisplayText: '3.1 lb',
-        deltaDisplayText: '+0.6 lb',
-        flaggedAt: '2026-07-06T10:00:00.000Z'
-      }
+      flag: makeFlag()
     }),
-    makeItem({
-      id: 'item-rice',
-      catalogFoodId: 'food-rice',
-      name: 'Brown rice',
-      displayText: '3 cups dry',
-      isChecked: true
-    })
+    makeItem({id: RICE_ID, catalogFoodId: 'food-rice', name: 'Brown rice', displayText: '3 cups dry', isChecked: true})
   ]
+})
+
+const makeRowlessGroceryList = (): GroceryList => ({
+  ...makeGroceryList(),
+  totalCount: 0,
+  checkedCount: 0,
+  banner: null,
+  sections: [],
+  checkedItems: []
 })
 
 const makeToggleResult = (): ToggleGroceryItemResult => ({item: makeItem({isChecked: true}), checkedCount: 3})
 
-// A row as the endpoint sends it: the wire shape carries no aisle of its own, only the section around it.
-const makeWireItem = (id: string, name: string): io.TypeOf<typeof GroceryItemResponse> => ({
-  id,
-  catalogFoodId: `food-${id}`,
-  foodState: 'raw',
-  name,
-  quantityGrams: 420,
-  displayText: '7 cups',
-  isChecked: false,
-  flag: null
+const makeApiError = (data: unknown): Error =>
+  Object.assign(new Error('Request failed'), {response: {status: 409, data}})
+
+const makeNetworkError = (): Error => new Error('Network request failed')
+
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+
+const callbackContext = (client: QueryClient): MutationFunctionContext => ({
+  client,
+  meta: undefined,
+  mutationKey: mutationKeys.toggleGroceryItem
 })
 
-const planNotActiveError = {response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}} as unknown as Error
-
-const stalePlanError = {response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}} as unknown as Error
-
-const numericCodeError = {response: {status: 409, data: {error: 409}}} as unknown as Error
-
-const networkError = new Error('Network request failed')
-
-// The option type declares every callback optional plus trailing parameters these invocations do not need, so
-// each handler is narrowed to the shape the factory actually installs; the assertions prove it ran.
-const invokeOnMutate = (
+const runOnMutate = async (
   options: ToggleOptions,
+  client: QueryClient,
   variables: ToggleGroceryItemVariables
-): Promise<ToggleGroceryItemContext> => {
-  const onMutate = options.onMutate as (
-    mutateVariables: ToggleGroceryItemVariables
-  ) => Promise<ToggleGroceryItemContext>
+): Promise<ToggleGroceryItemContext | undefined> => options.onMutate?.(variables, callbackContext(client))
 
-  return onMutate(variables)
-}
-
-const invokeOnError = (options: ToggleOptions, error: Error, context: ToggleGroceryItemContext | undefined): void => {
-  const onError = options.onError as (
-    handledError: Error,
-    variables: ToggleGroceryItemVariables,
-    handledContext: ToggleGroceryItemContext | undefined
-  ) => void
-
-  onError(error, {itemId: SPINACH_ID, isChecked: true}, context)
-}
-
-const invokeOnSettled = (
+const runOnError = (
   options: ToggleOptions,
-  data: ToggleGroceryItemResult | undefined,
-  error: Error | null
+  client: QueryClient,
+  error: Error,
+  context: ToggleGroceryItemContext | undefined
 ): void => {
-  const onSettled = options.onSettled as (
-    handledData: ToggleGroceryItemResult | undefined,
-    handledError: Error | null,
-    variables: ToggleGroceryItemVariables,
-    handledContext: ToggleGroceryItemContext | undefined
-  ) => void
+  options.onError?.(error, {itemId: SPINACH_ID, isChecked: true}, context, callbackContext(client))
+}
 
-  onSettled(data, error, {itemId: SPINACH_ID, isChecked: true}, {previousList: makeGroceryList()})
+const runOnSettled = (
+  options: ToggleOptions,
+  client: QueryClient,
+  data: ToggleGroceryItemResult | undefined,
+  error: Error | null,
+  context: ToggleGroceryItemContext | undefined
+): void => {
+  options.onSettled?.(data, error, {itemId: SPINACH_ID, isChecked: true}, context, callbackContext(client))
 }
 
 const readGroceryList = (client: QueryClient, planId: string): GroceryList | undefined =>
   client.getQueryData<GroceryList>(queryKeys.groceryList(planId))
+
+const requireGroceryList = (client: QueryClient, planId: string): GroceryList => {
+  const list = readGroceryList(client, planId)
+
+  if (list === undefined) {
+    throw new Error(`Expected a cached grocery list for ${planId}`)
+  }
+
+  return list
+}
 
 const everyRow = (list: GroceryList): GroceryItem[] => [
   ...list.sections.flatMap(section => section.items),
@@ -155,19 +147,30 @@ const rowIds = (list: GroceryList): string[] => {
   return ids.sort()
 }
 
-let queryClient: QueryClient
+const aisleIds = (list: GroceryList, category: string): string[] => {
+  const section = list.sections.find(candidate => candidate.category === category)
 
-beforeEach(() => {
-  // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
-  // otherwise hold the Node event loop open long after the assertions are done.
-  queryClient = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
-})
+  return (section?.items ?? []).map(item => item.id)
+}
 
-afterEach(() => {
-  jest.restoreAllMocks()
-})
+const checkedIds = (list: GroceryList): string[] => list.checkedItems.map(item => item.id)
+
+const invalidatedKeys = (spy: jest.SpyInstance): unknown[] => spy.mock.calls.map(([filters]) => filters?.queryKey)
 
 describe('buildToggleGroceryItemMutationOptions', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
+    // otherwise hold the Node event loop open after the assertions are done.
+    queryClient = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    queryClient.clear()
+  })
+
   describe('the returned options', () => {
     it('carries the centralized toggle-grocery-item mutation key', () => {
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
@@ -184,15 +187,19 @@ describe('buildToggleGroceryItemMutationOptions', () => {
       expect(Object.keys(options).sort()).toEqual(['mutationKey', 'onError', 'onMutate', 'onSettled'])
     })
 
-    it('declares no retry policy — a grocery write carries no idempotency key and last write wins', () => {
+    it('declares no onSuccess, because onSettled already reconciles both outcomes', () => {
+      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
+
+      expect(options.onSuccess).toBeUndefined()
+    })
+
+    it('declares no retry policy, because a grocery write carries no idempotency key and last write wins', () => {
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
       expect(options.retry).toBeUndefined()
       expect(options.retryDelay).toBeUndefined()
     })
-  })
 
-  describe('build-time purity', () => {
     it('touches no cache while the options are built', () => {
       const cancelSpy = jest.spyOn(queryClient, 'cancelQueries')
       const writeSpy = jest.spyOn(queryClient, 'setQueryData')
@@ -215,7 +222,7 @@ describe('buildToggleGroceryItemMutationOptions', () => {
       const writeSpy = jest.spyOn(queryClient, 'setQueryData')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
       expect(cancelSpy).toHaveBeenCalledWith({queryKey: queryKeys.groceryList(PLAN_ID)})
       expect(cancelSpy.mock.invocationCallOrder[0]).toBeLessThan(readSpy.mock.invocationCallOrder[0])
@@ -227,41 +234,24 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
-      // The aisle sections carry the unchecked rows and the checked card the checked ones, so a row left in
-      // its aisle would be dropped by GroceryList's section ordering and vanish under the shopper's finger.
-      expect(written.sections[0].items.map(item => item.id)).toEqual(['item-avocado'])
-      expect(written.checkedItems.map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice', SPINACH_ID])
+      expect(aisleIds(written, 'produce')).toEqual([AVOCADO_ID])
+      expect(checkedIds(written)).toEqual([CHICKEN_ID, RICE_ID, SPINACH_ID])
       expect(findRow(written, SPINACH_ID)?.isChecked).toBe(true)
       expect(written.checkedCount).toBe(3)
     })
 
-    it('keeps every row the list holds when a row changes collection', async () => {
-      const seeded = makeGroceryList()
-
-      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
-
-      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
-
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
-
-      expect(rowIds(written)).toEqual(rowIds(seeded))
-      expect(everyRow(written)).toHaveLength(written.totalCount)
-    })
-
-    it('clears the toggled row flag', async () => {
+    it('clears the increase flag on the row it toggles', async () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: CHICKEN_ID, isChecked: false})
+      await runOnMutate(options, queryClient, {itemId: CHICKEN_ID, isChecked: false})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
       expect(findRow(written, CHICKEN_ID)?.flag).toBeNull()
       expect(findRow(written, CHICKEN_ID)?.isChecked).toBe(false)
@@ -274,17 +264,14 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: CHICKEN_ID, isChecked: false})
+      await runOnMutate(options, queryClient, {itemId: CHICKEN_ID, isChecked: false})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
-      // The checked card is drawn from checkedItems under a "Checked · n" heading, so the row has to leave it
-      // the moment it is unticked; the response named no aisle for it, so it lands in the closing catch-all
-      // and the settle refetch re-files it. It is never dropped from the list.
-      expect(written.checkedItems.map(item => item.id)).toEqual(['item-rice'])
-      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein', 'pantry_other'])
-      expect(written.sections[2].items.map(item => item.id)).toEqual([CHICKEN_ID])
-      expect(findRow(written, CHICKEN_ID)?.isChecked).toBe(false)
+      // The response named no aisle for a row that arrived checked, so it lands in the closing catch-all and
+      // the settle refetch re-files it. It is never dropped from the list.
+      expect(checkedIds(written)).toEqual([RICE_ID])
+      expect(aisleIds(written, 'pantry_other')).toEqual([CHICKEN_ID])
       expect(written.checkedCount).toBe(1)
       expect(written.checkedItems).toHaveLength(written.checkedCount)
       expect(rowIds(written)).toEqual(rowIds(seeded))
@@ -295,92 +282,30 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: false})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: false})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
-      // The aisle is stamped on the row on its way into the checked card, so unticking it does not need the
-      // response to name one again.
-      expect(written.sections[0].category).toBe('produce')
-      expect(written.sections[0].items.map(item => item.id)).toEqual(['item-avocado', SPINACH_ID])
+      expect(aisleIds(written, 'produce')).toEqual([AVOCADO_ID, SPINACH_ID])
       expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein'])
-      expect(written.checkedItems.map(item => item.id)).toEqual([CHICKEN_ID, 'item-rice'])
+      expect(checkedIds(written)).toEqual([CHICKEN_ID, RICE_ID])
       expect(written.checkedCount).toBe(2)
     })
 
-    it('returns a ticked-then-unticked row to its aisle on a list decoded from a real response', async () => {
-      // The aisle the row goes back to comes from the response itself, so this runs the converter rather than
-      // a hand-built cache entry: the wire shape states the aisle per section, and nothing else does.
-      const decoded = convertGroceryList({
-        planId: PLAN_ID,
-        planRevision: 3,
-        startDate: '2026-07-05',
-        endDate: '2026-07-11',
-        totalCount: 2,
-        checkedCount: 0,
-        banner: null,
-        sections: [
-          {category: 'produce', items: [makeWireItem(SPINACH_ID, 'Spinach')]},
-          {category: 'protein', items: [makeWireItem('item-salmon', 'Salmon fillet')]}
-        ],
-        checkedItems: []
-      })
+    it('keeps every row the list holds when a row changes collection', async () => {
+      const seeded = makeGroceryList()
 
-      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), decoded)
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: false})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
-      expect(written.sections.map(section => section.category)).toEqual(['produce', 'protein'])
-      expect(written.sections[0].items.map(item => item.id)).toEqual([SPINACH_ID])
-      expect(written.checkedItems).toEqual([])
-      expect(written.checkedCount).toBe(0)
-    })
-
-    it('leaves an active list readable when the last checked row is unticked', async () => {
-      // The case the false empty state came from: one row, checked, so the response carries no aisles at all.
-      const lastChecked: GroceryList = {
-        ...makeGroceryList(),
-        totalCount: 1,
-        checkedCount: 1,
-        banner: null,
-        sections: [],
-        checkedItems: [makeItem({id: CHICKEN_ID, name: 'Chicken breast', isChecked: true})]
-      }
-
-      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), lastChecked)
-
-      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-
-      await invokeOnMutate(options, {itemId: CHICKEN_ID, isChecked: false})
-
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
-      const view = resolveGroceryView({isLoading: false, isError: false, data: written}, PLAN_ID)
-
-      expect(view.kind).toBe('list')
-      expect(written.checkedItems).toEqual([])
-      expect(written.sections.flatMap(section => section.items).map(item => item.id)).toEqual([CHICKEN_ID])
-      expect(orderGrocerySections(written.sections)).toHaveLength(1)
-      expect(shouldShowUncheckAll(written.checkedCount)).toBe(false)
-    })
-
-    it('keeps the checked card and its heading in agreement when a row is ticked', async () => {
-      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
-
-      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
-
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
-      const view = resolveGroceryView({isLoading: false, isError: false, data: written}, PLAN_ID)
-
-      expect(view.kind).toBe('list')
-      expect(written.checkedItems).toHaveLength(written.checkedCount)
+      expect(rowIds(written)).toEqual(rowIds(seeded))
+      expect(everyRow(written)).toHaveLength(written.totalCount)
       expect(written.checkedItems.every(item => item.isChecked)).toBe(true)
       expect(written.sections.flatMap(section => section.items).every(item => !item.isChecked)).toBe(true)
     })
@@ -390,25 +315,25 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: CHICKEN_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: CHICKEN_ID, isChecked: true})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
       // The count is recounted from the rows rather than nudged by a delta, so a repeated tap cannot inflate it.
       expect(written.checkedCount).toBe(2)
       expect(findRow(written, CHICKEN_ID)?.isChecked).toBe(true)
     })
 
-    it('leaves the banner, totals, revision and dates alone', async () => {
+    it('leaves the banner, totals, revision, dates and plan id alone', async () => {
       const seeded = makeGroceryList()
 
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
       expect(written.banner).toEqual(seeded.banner)
       expect(written.totalCount).toBe(5)
@@ -420,24 +345,24 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
     it('mutates nothing in the cached list and writes a new object instead', async () => {
       const seeded = makeGroceryList()
-      const seededClone = JSON.parse(JSON.stringify(seeded)) as GroceryList
+      const before = clone(seeded)
 
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      const written = readGroceryList(queryClient, PLAN_ID) as GroceryList
+      const written = requireGroceryList(queryClient, PLAN_ID)
 
-      expect(seeded).toEqual(seededClone)
+      expect(seeded).toEqual(before)
+      expect(seeded.sections[0].items[0]).toEqual(before.sections[0].items[0])
+      expect(seeded.sections[0].items[0].isChecked).toBe(false)
       expect(written).not.toBe(seeded)
       expect(written.sections).not.toBe(seeded.sections)
       expect(written.sections[0]).not.toBe(seeded.sections[0])
       expect(written.checkedItems).not.toBe(seeded.checkedItems)
-      // The toggled row is a restated copy; the seeded object it came from still reads as it did.
       expect(findRow(written, SPINACH_ID)).not.toBe(seeded.sections[0].items[0])
-      expect(seeded.sections[0].items[0].isChecked).toBe(false)
     })
 
     it('returns the untouched previous list as rollback context', async () => {
@@ -446,10 +371,11 @@ describe('buildToggleGroceryItemMutationOptions', () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-      const context = await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      const context = await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      expect(context.previousList).toBe(seeded)
-      expect(context.previousList?.checkedCount).toBe(2)
+      expect(context).toBeDefined()
+      expect(context?.previousList).toBe(seeded)
+      expect(context?.previousList?.checkedCount).toBe(2)
     })
 
     it('leaves the list and the checked count unchanged for an item id it does not hold', async () => {
@@ -459,21 +385,39 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: 'item-not-on-this-list', isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: 'item-not-on-this-list', isChecked: true})
 
-      expect(readGroceryList(queryClient, PLAN_ID)).toEqual(seeded)
-      expect(readGroceryList(queryClient, PLAN_ID)?.checkedCount).toBe(2)
+      const written = requireGroceryList(queryClient, PLAN_ID)
+
+      expect(written).toEqual(seeded)
+      expect(rowIds(written)).toEqual(rowIds(seeded))
+      expect(written.checkedCount).toBe(2)
     })
 
     it('writes nothing and reports an empty snapshot when the grocery list is not cached', async () => {
       const writeSpy = jest.spyOn(queryClient, 'setQueryData')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-      const context = await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      const context = await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      expect(context.previousList).toBeUndefined()
+      expect(context?.previousList).toBeUndefined()
       expect(writeSpy).not.toHaveBeenCalled()
       expect(readGroceryList(queryClient, PLAN_ID)).toBeUndefined()
       expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))).toBeUndefined()
+    })
+
+    it('completes without throwing for a plan whose list holds no rows at all', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeRowlessGroceryList())
+
+      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
+
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
+
+      const written = requireGroceryList(queryClient, PLAN_ID)
+
+      expect(everyRow(written)).toEqual([])
+      expect(written.sections).toEqual([])
+      expect(written.checkedItems).toEqual([])
+      expect(written.checkedCount).toBe(0)
     })
 
     it('writes only the grocery list of its own plan', async () => {
@@ -484,63 +428,86 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
       expect(readGroceryList(queryClient, OTHER_PLAN_ID)).toBe(otherPlanList)
+    })
+
+    it('does not invalidate the current plan, because ticking a row is not a plan change', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+      queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
+
+      await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
+
+      expect(invalidateSpy).not.toHaveBeenCalled()
+      expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(false)
     })
   })
 
   describe('onError', () => {
-    it('restores the snapshot it was handed', async () => {
+    it('restores the snapshot the optimistic write replaced', async () => {
       const seeded = makeGroceryList()
+      const before = clone(seeded)
 
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), seeded)
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
-      const context = await invokeOnMutate(options, {itemId: SPINACH_ID, isChecked: true})
+      const context = await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
 
-      expect(readGroceryList(queryClient, PLAN_ID)?.checkedCount).toBe(3)
+      expect(requireGroceryList(queryClient, PLAN_ID).checkedCount).toBe(3)
 
-      invokeOnError(options, networkError, context)
+      runOnError(options, queryClient, makeNetworkError(), context)
+
+      const restored = requireGroceryList(queryClient, PLAN_ID)
 
       // Deep equality rather than identity: TanStack applies structural sharing to every cache write.
-      expect(readGroceryList(queryClient, PLAN_ID)).toEqual(seeded)
-      expect(readGroceryList(queryClient, PLAN_ID)?.sections[0].items[0].isChecked).toBe(false)
-      expect(readGroceryList(queryClient, PLAN_ID)?.checkedCount).toBe(2)
+      expect(restored).toEqual(before)
+      expect(aisleIds(restored, 'produce')).toEqual([SPINACH_ID, AVOCADO_ID])
+      expect(findRow(restored, SPINACH_ID)?.isChecked).toBe(false)
+      expect(restored.checkedCount).toBe(2)
     })
 
-    it('invalidates the current plan on 409 plan_not_active', () => {
+    it('invalidates the current plan when the server answers 409 plan_not_active', () => {
       queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
 
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnError(options, planNotActiveError, {previousList: makeGroceryList()})
+      runOnError(options, queryClient, makeApiError({error: API_ERROR_CODES.planNotActive}), {
+        previousList: makeGroceryList()
+      })
 
-      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.mealPlanCurrent])
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.mealPlanCurrent])
       expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(true)
     })
 
-    it('leaves the current plan alone for another machine code, a plain error and a non-string code', () => {
+    it.each([
+      ['another machine-readable plan code', makeApiError({error: API_ERROR_CODES.stalePlan})],
+      ['a response body carrying no code', makeApiError({})],
+      ['a response body that is null', makeApiError(null)],
+      ['a non-string code', makeApiError({error: 409})],
+      ['a plain error with no response at all', makeNetworkError()]
+    ])('leaves the current plan alone for %s', (_label, error) => {
       queryClient.setQueryData(queryKeys.mealPlanCurrent, {seeded: true})
 
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnError(options, stalePlanError, {previousList: makeGroceryList()})
-      invokeOnError(options, networkError, {previousList: makeGroceryList()})
-      invokeOnError(options, numericCodeError, {previousList: makeGroceryList()})
+      runOnError(options, queryClient, error, {previousList: makeGroceryList()})
 
       expect(invalidateSpy).not.toHaveBeenCalled()
       expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(false)
     })
 
-    it('rolls nothing back when no snapshot was captured', () => {
+    it('rolls nothing back when the write failed before the optimistic update', () => {
       const writeSpy = jest.spyOn(queryClient, 'setQueryData')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnError(options, networkError, undefined)
-      invokeOnError(options, networkError, {previousList: undefined})
+      runOnError(options, queryClient, makeNetworkError(), undefined)
+      runOnError(options, queryClient, makeNetworkError(), {previousList: undefined})
 
       expect(writeSpy).not.toHaveBeenCalled()
       expect(readGroceryList(queryClient, PLAN_ID)).toBeUndefined()
@@ -552,34 +519,36 @@ describe('buildToggleGroceryItemMutationOptions', () => {
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnError(options, planNotActiveError, undefined)
+      runOnError(options, queryClient, makeApiError({error: API_ERROR_CODES.planNotActive}), undefined)
 
-      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.mealPlanCurrent])
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.mealPlanCurrent])
     })
   })
 
   describe('onSettled', () => {
-    it('refetches the grocery list once after a successful write', () => {
+    it('refetches this plan grocery list once after a successful write', () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
 
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnSettled(options, makeToggleResult(), null)
+      runOnSettled(options, queryClient, makeToggleResult(), null, {previousList: makeGroceryList()})
 
-      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.groceryList(PLAN_ID)])
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.groceryList(PLAN_ID)])
       expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))?.isInvalidated).toBe(true)
     })
 
-    it('refetches the grocery list once after a failed write', () => {
+    it('refetches this plan grocery list after a failed write too, so the server counts win', () => {
       queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
 
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnSettled(options, undefined, planNotActiveError)
+      runOnSettled(options, queryClient, undefined, makeApiError({error: API_ERROR_CODES.planNotActive}), {
+        previousList: makeGroceryList()
+      })
 
-      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([queryKeys.groceryList(PLAN_ID)])
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.groceryList(PLAN_ID)])
       expect(queryClient.getQueryState(queryKeys.groceryList(PLAN_ID))?.isInvalidated).toBe(true)
     })
 
@@ -590,10 +559,39 @@ describe('buildToggleGroceryItemMutationOptions', () => {
 
       const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
 
-      invokeOnSettled(options, makeToggleResult(), null)
+      runOnSettled(options, queryClient, makeToggleResult(), null, {previousList: makeGroceryList()})
 
       expect(queryClient.getQueryState(queryKeys.groceryList(OTHER_PLAN_ID))?.isInvalidated).toBe(false)
       expect(queryClient.getQueryState(queryKeys.mealPlanCurrent)?.isInvalidated).toBe(false)
+    })
+
+    it('completes without throwing when nothing is cached for the plan', () => {
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildToggleGroceryItemMutationOptions(queryClient, PLAN_ID)
+
+      runOnSettled(options, queryClient, undefined, makeNetworkError(), undefined)
+
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.groceryList(PLAN_ID)])
+      expect(readGroceryList(queryClient, PLAN_ID)).toBeUndefined()
+    })
+  })
+
+  describe('the plan the options were built for', () => {
+    it('builds every key from the planId it was constructed with', async () => {
+      queryClient.setQueryData(queryKeys.groceryList(PLAN_ID), makeGroceryList())
+      queryClient.setQueryData(queryKeys.groceryList(OTHER_PLAN_ID), makeGroceryList())
+
+      const cancelSpy = jest.spyOn(queryClient, 'cancelQueries')
+      const options = buildToggleGroceryItemMutationOptions(queryClient, OTHER_PLAN_ID)
+      const context = await runOnMutate(options, queryClient, {itemId: SPINACH_ID, isChecked: true})
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+
+      runOnSettled(options, queryClient, makeToggleResult(), null, context)
+
+      expect(cancelSpy).toHaveBeenCalledWith({queryKey: queryKeys.groceryList(OTHER_PLAN_ID)})
+      expect(invalidatedKeys(invalidateSpy)).toEqual([queryKeys.groceryList(OTHER_PLAN_ID)])
+      expect(requireGroceryList(queryClient, OTHER_PLAN_ID).checkedCount).toBe(3)
+      expect(requireGroceryList(queryClient, PLAN_ID).checkedCount).toBe(2)
     })
   })
 })

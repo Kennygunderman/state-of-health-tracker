@@ -1,14 +1,9 @@
-import {SaveNutritionTargetsPayload, SaveNutritionTargetsResult} from '@data/models/NutritionTargets'
 import {saveNutritionTargets} from '@queries/api/mealPlanning/saveNutritionTargets'
-import {useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-query'
+import {useMutation, useQueryClient} from '@tanstack/react-query'
 
 import {buildSaveNutritionTargetsMutationOptions} from './useSaveNutritionTargetsMutation.util'
 
-export const useSaveNutritionTargetsMutation = (): UseMutationResult<
-  SaveNutritionTargetsResult,
-  Error,
-  SaveNutritionTargetsPayload
-> => {
+export const useSaveNutritionTargetsMutation = () => {
   const queryClient = useQueryClient()
 
   return useMutation({

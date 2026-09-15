@@ -28,6 +28,11 @@ const SAVE_PREFERENCES_PAYLOAD: SaveMealPlanPreferencesPayload = {
   timeZone: TIME_ZONE
 }
 
+const SINGLE_FIELD_SAVE_PREFERENCES_PAYLOAD: SaveMealPlanPreferencesPayload = {
+  expectedRevision: 6,
+  noBudgetPreference: true
+}
+
 const makePreferences = (): MealPlanPreferences => ({
   setupStatus: 'completed',
   setupStep: null,
@@ -63,9 +68,10 @@ const makePreferences = (): MealPlanPreferences => ({
   hasActivePlan: true
 })
 
-const makeSaveResult = (): MealPlanPreferencesSaveResult => ({
+const makeSaveResult = (overrides: Partial<MealPlanPreferencesSaveResult> = {}): MealPlanPreferencesSaveResult => ({
   preferences: makePreferences(),
-  affectedMealCount: 5
+  affectedMealCount: 5,
+  ...overrides
 })
 
 const EXPECTED_INVALIDATED_KEYS: QueryKey[] = [
@@ -104,17 +110,24 @@ const makeFunctionContext = (): MutationFunctionContext => ({
   mutationKey: mutationKeys.savePreferences
 })
 
+interface OnSuccessInvocation {
+  result?: MealPlanPreferencesSaveResult
+  variables?: SaveMealPlanPreferencesPayload
+  onMutateResult?: unknown
+}
+
 const invokeOnSuccess = async (
   options: SavePreferencesOptions,
-  onMutateResult: unknown = undefined
+  invocation: OnSuccessInvocation = {}
 ): Promise<unknown> => {
   const {onSuccess} = options
+  const {result = makeSaveResult(), variables = SAVE_PREFERENCES_PAYLOAD, onMutateResult} = invocation
 
   if (!onSuccess) {
     throw new Error('buildSavePreferencesMutationOptions must declare onSuccess')
   }
 
-  return onSuccess(makeSaveResult(), SAVE_PREFERENCES_PAYLOAD, onMutateResult, makeFunctionContext())
+  return onSuccess(result, variables, onMutateResult, makeFunctionContext())
 }
 
 const isQueryInvalidated = (queryKey: QueryKey): boolean | undefined =>
@@ -193,6 +206,30 @@ describe('buildSavePreferencesMutationOptions', () => {
       expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(EXPECTED_INVALIDATED_KEYS)
     })
 
+    it('invalidates the affected meals, so the plan-settings banner shows the recomputed flags', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.affectedMealsAll})
+      expect(isQueryInvalidated(queryKeys.affectedMeals(PLAN_ID))).toBe(true)
+    })
+
+    it('invalidates the nutrition targets, because this save can flip the confirmed estimate to stale', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.nutritionTargets})
+      expect(isQueryInvalidated(queryKeys.nutritionTargets)).toBe(true)
+    })
+
     it('reaches every cached plan day, affected-meal set and alternatives set through their family roots', async () => {
       seedCache()
 
@@ -252,6 +289,50 @@ describe('buildSavePreferencesMutationOptions', () => {
 
       expect(writeSpy).not.toHaveBeenCalled()
     })
+
+    it('does the same cache work for a single-field payload as for a multi-field one', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      await invokeOnSuccess(options, {variables: SAVE_PREFERENCES_PAYLOAD})
+
+      const multiFieldKeys = serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))
+      const multiFieldRemovals = removeSpy.mock.calls.map(([filters]) => filters?.queryKey)
+
+      invalidateSpy.mockClear()
+      removeSpy.mockClear()
+
+      await invokeOnSuccess(options, {variables: SINGLE_FIELD_SAVE_PREFERENCES_PAYLOAD})
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(multiFieldKeys)
+      expect(removeSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(multiFieldRemovals)
+      expect(multiFieldKeys).toEqual(serialize(EXPECTED_INVALIDATED_KEYS))
+    })
+
+    it('does the same cache work whether the save reports no affected meals or several', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      await invokeOnSuccess(options, {result: makeSaveResult({affectedMealCount: 0})})
+
+      const noneFlaggedKeys = serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))
+      const noneFlaggedRemovals = removeSpy.mock.calls.length
+
+      invalidateSpy.mockClear()
+      removeSpy.mockClear()
+
+      await invokeOnSuccess(options, {result: makeSaveResult({affectedMealCount: 12})})
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(noneFlaggedKeys)
+      expect(removeSpy).toHaveBeenCalledTimes(noneFlaggedRemovals)
+      expect(noneFlaggedKeys).toEqual(serialize(EXPECTED_INVALIDATED_KEYS))
+    })
   })
 
   describe('onSuccess edge cases', () => {
@@ -274,7 +355,7 @@ describe('buildSavePreferencesMutationOptions', () => {
       const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
       const options = buildSavePreferencesMutationOptions(queryClient)
 
-      await expect(invokeOnSuccess(options, undefined)).resolves.toBeUndefined()
+      await expect(invokeOnSuccess(options, {onMutateResult: undefined})).resolves.toBeUndefined()
 
       expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
         serialize(EXPECTED_INVALIDATED_KEYS)
