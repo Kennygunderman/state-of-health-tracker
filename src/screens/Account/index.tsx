@@ -3,11 +3,15 @@ import React from 'react'
 import {ActivityIndicator, Image, Linking, ScrollView, TouchableOpacity, View} from 'react-native'
 
 import {useWeightUnitLabel} from '@hooks/userData/useWeightUnitLabel'
+import {HomeTabsParamList} from '@navigation/HomeTabs'
 import {mutationKeys} from '@queries/keys'
+import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useRunsTotalQuery} from '@queries/runs/useRunsTotalQuery'
 import {useUserAvatarQuery} from '@queries/user/useUserAvatarQuery'
 import {useWeighInsQuery} from '@queries/weighIns/useWeighInsQuery'
 import {useWorkoutSummariesInfiniteQuery} from '@queries/workouts/useWorkoutSummariesInfiniteQuery'
+import {NavigationProp, useNavigation} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
 import useUserData from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
@@ -27,6 +31,7 @@ import StarIcon from '@components/icons/StarIcon'
 import StepsIcon from '@components/icons/StepsIcon'
 import Text from '@components/Text'
 
+import Screens from '@constants/screens'
 import {
   ACCOUNT_AUTH_SECTION_TITLE,
   ACCOUNT_DAILY_CALORIES_LABEL,
@@ -60,6 +65,8 @@ const TILE_ICON_SIZE = 17
 const AVATAR_CAMERA_ICON_SIZE = 26
 
 const AccountScreen = () => {
+  const navigation = useNavigation<NavigationProp<HomeTabsParamList>>()
+
   const targetWorkouts = useUserData(state => state.targetWorkouts)
   const targetCalories = useUserData(state => state.targetCalories)
   const stepGoal = useUserData(state => state.stepGoal)
@@ -72,11 +79,23 @@ const AccountScreen = () => {
   const {data: weighIns = []} = useWeighInsQuery()
   const {data: totalRuns = 0} = useRunsTotalQuery()
   const {data: avatarBase64} = useUserAvatarQuery(isAuthed)
+  const targetsQuery = useNutritionTargetsQuery()
   const isUploadingAvatar = useIsMutating({mutationKey: mutationKeys.updateAvatar}) > 0
 
   const totalSummaries = summariesData?.pages[0]?.pagination.total ?? 0
 
   const initials = userEmail?.slice(0, 2).toUpperCase() ?? GUEST_AVATAR_INITIAL
+
+  const serverTargetCalories = selectNutritionTargets(targetsQuery)?.targets?.calories
+  const hasServerTargets = serverTargetCalories != null
+  const displayedTargetCalories = serverTargetCalories ?? targetCalories
+
+  const openTargetsEditor = () => {
+    navigation.navigate('MacrosStack', {
+      screen: Screens.MEAL_PLAN_EDIT_TARGETS,
+      params: {mode: 'edit', returnTo: {kind: 'tab', tab: Screens.ACCOUNT}}
+    })
+  }
 
   const openAppStoreReview = async () => {
     const supported = await Linking.canOpenURL(urls.iosStoreReview)
@@ -137,9 +156,10 @@ const AccountScreen = () => {
         <AccountListItem
           type="target-calories"
           label={ACCOUNT_DAILY_CALORIES_LABEL}
-          value={targetCalories.toLocaleString()}
+          value={displayedTargetCalories.toLocaleString()}
           tileVariant="danger"
           icon={<FlameIcon color={Theme.colors.danger} size={TILE_ICON_SIZE} />}
+          onPressOverride={hasServerTargets ? openTargetsEditor : undefined}
         />
 
         <AccountListItem

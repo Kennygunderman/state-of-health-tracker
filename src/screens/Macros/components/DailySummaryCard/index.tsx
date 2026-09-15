@@ -3,13 +3,19 @@ import React, {useState} from 'react'
 import {TouchableOpacity, View} from 'react-native'
 
 import {MacroTotals} from '@data/models/Macros'
+import {Navigation} from '@navigation/types'
+import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {useNavigation} from '@react-navigation/native'
 import {Theme} from '@styles/theme'
+import {hasAnyTargetValue} from '@utility/NutritionFormatUtility'
 import Svg, {Circle} from 'react-native-svg'
 
 import TargetCaloriesModal from '@components/dialog/TargetCaloriesModal'
 import MacroGramRow from '@components/MacroGramRow'
 import Text from '@components/Text'
 
+import Screens from '@constants/screens'
 import {CARBS_LABEL, FAT_LABEL, OVER_TEXT, PROTEIN_LABEL, REMAINING_TEXT} from '@constants/strings'
 
 import styles from './index.styled'
@@ -25,11 +31,25 @@ interface Props {
 
 const DailySummaryCard = ({totals, targets}: Props) => {
   const [isTargetModalVisible, setIsTargetModalVisible] = useState(false)
+  const navigation = useNavigation<Navigation>()
+  const nutritionTargetsRead = useNutritionTargetsQuery()
 
+  const hasServerTargets = hasAnyTargetValue(selectNutritionTargets(nutritionTargetsRead))
   const radius = (RING_SIZE - RING_STROKE_WIDTH) / 2
   const circumference = 2 * Math.PI * radius
   const fraction = progressFraction(totals.calories, targets.calories)
   const balance = calorieBalance(totals.calories, targets.calories)
+
+  const onEditTargetsPressed = () => {
+    if (!hasServerTargets) {
+      setIsTargetModalVisible(true)
+
+      return
+    }
+
+    // RootStackParamList has no MacrosStack member, so AAP 0.7.4's nested navigate cannot type from inside it
+    navigation.navigate(Screens.MEAL_PLAN_EDIT_TARGETS, {mode: 'edit', returnTo: {kind: 'tab', tab: 'MacrosStack'}})
+  }
 
   return (
     <View style={styles.card}>
@@ -60,10 +80,7 @@ const DailySummaryCard = ({totals, targets}: Props) => {
           )}
         </Svg>
 
-        <TouchableOpacity
-          style={styles.ringCenter}
-          activeOpacity={0.6}
-          onPress={() => setIsTargetModalVisible(true)}>
+        <TouchableOpacity style={styles.ringCenter} activeOpacity={0.6} onPress={onEditTargetsPressed}>
           <Text style={styles.balanceValue}>{formatCalories(balance.amount)}</Text>
 
           <Text style={[styles.balanceLabel, balance.isOver && styles.balanceLabelOver]}>

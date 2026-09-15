@@ -13,6 +13,6 @@ export const useSaveSetupStepMutation = (): UseMutationResult<
 
   return useMutation({
     ...buildSaveSetupStepMutationOptions(queryClient),
-    mutationFn: (request: SetupStepRequest) => saveSetupStep(request)
+    mutationFn: saveSetupStep
   })
 }

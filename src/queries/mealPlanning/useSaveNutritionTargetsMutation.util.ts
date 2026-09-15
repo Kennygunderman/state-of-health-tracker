@@ -11,8 +11,7 @@ export function buildSaveNutritionTargetsMutationOptions(
     onSuccess: () => {
       queryClient.invalidateQueries({queryKey: queryKeys.nutritionTargets})
       queryClient.invalidateQueries({queryKey: queryKeys.targetEstimate})
-      // The Diary and Macros History resolve their targets from the macros responses, so a target save has
-      // to reach the whole dailyMacros family — every cached day, not one date — or the two surfaces disagree.
+      // Diary and history read targets from the macros responses, so this must reach every cached day, not one date.
       queryClient.invalidateQueries({queryKey: queryKeys.dailyMacrosAll})
       queryClient.invalidateQueries({queryKey: queryKeys.macrosHistory})
       queryClient.invalidateQueries({queryKey: queryKeys.mealPlanPreferences})

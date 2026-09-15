@@ -9,8 +9,8 @@ import Endpoints from '@constants/endpoints'
 
 // The returned plan is a NEW plan: the server publishes it while the plan identified by `planId` becomes
 // `superseded`, which is why the response carries a different id and revision 1 rather than the old plan's.
-// No `startDate` is sent — a regeneration keeps the plan's own dates — and `expectedPlanRevision` in the
-// payload is what makes a stale screen unable to replace a plan that has already moved on.
+// A regeneration keeps the replaced plan's own dates, and `expectedPlanRevision` in the payload is what
+// makes a stale screen unable to replace a plan that has already moved on.
 export async function regeneratePlan(planId: string, payload: RegeneratePlanPayload): Promise<MealPlan> {
   try {
     const response = await httpPost(Endpoints.RegenerateMealPlan(planId), MealPlanResponse, payload)

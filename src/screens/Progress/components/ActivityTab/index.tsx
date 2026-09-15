@@ -3,7 +3,13 @@ import React, {useState} from 'react'
 import {Linking, TouchableOpacity, View} from 'react-native'
 
 import {Ionicons} from '@expo/vector-icons'
+import {HomeTabsParamList} from '@navigation/HomeTabs'
+import {Navigation} from '@navigation/types'
 import {useRequestHealthPermissionsMutation} from '@queries/activity/useRequestHealthPermissionsMutation'
+import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {BottomTabNavigationProp} from '@react-navigation/bottom-tabs'
+import {CompositeNavigationProp, useNavigation} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
 import {Theme} from '@styles/theme'
 
@@ -15,6 +21,7 @@ import Text from '@components/Text'
 import TickerText from '@components/TickerText'
 import {showToast} from '@components/toast/util/ShowToast'
 
+import Screens from '@constants/screens'
 import {
   ACTIVITY_CALORIE_BURN_LABEL,
   ACTIVITY_CONNECT_HEALTH_BODY,
@@ -57,8 +64,10 @@ const SEGMENT_LABELS: Record<CalorieSegmentKey, string> = {
 const INFO_ICON_SIZE = 14
 
 const ActivityTab = () => {
+  const navigation = useNavigation<CompositeNavigationProp<BottomTabNavigationProp<HomeTabsParamList>, Navigation>>()
   const stepGoal = useUserData(state => state.stepGoal)
   const targetCalories = useUserData(state => state.targetCalories)
+  const targetsQuery = useNutritionTargetsQuery()
   const summary = useActivitySummary()
   const {mutateAsync: requestPermissionsAsync, isPending: isRequestingPermissions} =
     useRequestHealthPermissionsMutation()
@@ -72,6 +81,9 @@ const ActivityTab = () => {
   const showConnectCard = summary.isStepsAvailable && summary.shouldRequestPermission
   const showDeniedCard = summary.isStepsAvailable && !summary.shouldRequestPermission && !summary.hasStepData
   const showStepsCard = summary.isStepsAvailable && !summary.shouldRequestPermission && summary.hasStepData
+
+  const serverCalories = selectNutritionTargets(targetsQuery)?.targets?.calories ?? null
+  const hasServerTargets = serverCalories !== null
 
   const onConnectPressed = async () => {
     try {
@@ -87,6 +99,17 @@ const ActivityTab = () => {
 
   const onBurnInfoPressed = () => {
     openGlobalBottomSheet(<BurnInfoBottomSheet />)
+  }
+
+  const onIntakeTargetPressed = () => {
+    if (hasServerTargets) {
+      navigation.navigate('MacrosStack', {
+        screen: Screens.MEAL_PLAN_EDIT_TARGETS,
+        params: {mode: 'edit', returnTo: {kind: 'tab', tab: 'ProgressStack'}}
+      })
+    } else {
+      setIsIntakeModalVisible(true)
+    }
   }
 
   return (
@@ -177,11 +200,11 @@ const ActivityTab = () => {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity activeOpacity={0.5} onPress={() => setIsIntakeModalVisible(true)}>
+          <TouchableOpacity activeOpacity={0.5} onPress={onIntakeTargetPressed}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_INTAKE_LABEL} `}
 
-              <Text style={styles.targetValue}>{formatCount(targetCalories)}</Text>
+              <Text style={styles.targetValue}>{formatCount(serverCalories ?? targetCalories)}</Text>
             </Text>
           </TouchableOpacity>
         </View>

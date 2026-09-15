@@ -240,6 +240,18 @@ describe('buildSaveSetupStepMutationOptions', () => {
       expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(EXPECTED_INVALIDATED_KEYS)
     })
 
+    it('invalidates the nutrition targets, because a step save can flip the confirmed estimate to stale', async () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSaveSetupStepMutationOptions(queryClient)
+
+      await invokeOnSuccess(options)
+
+      expect(invalidateSpy).toHaveBeenCalledWith({queryKey: queryKeys.nutritionTargets})
+      expect(isQueryInvalidated(queryKeys.nutritionTargets)).toBe(true)
+    })
+
     it('reaches every cached plan day, affected-meal set and alternatives set through their family roots', async () => {
       seedCache()
 
