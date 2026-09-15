@@ -39,6 +39,7 @@ import {
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_COOKING_BUDGET_TITLE,
   MEAL_PLAN_COOKING_TIME_HEADER,
+  MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL,
   MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL,
   MEAL_PLAN_OPTIONAL_LABEL,
   MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
@@ -96,6 +97,10 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
+      // The typed amount outranks the saved one on every render, so it is released by the same call that
+      // adopts the saved answers: an amount entered while the query was still in flight would otherwise stay
+      // on screen while the payload carried the value just seeded.
+      setEnteredBudget(null)
       seedFromPreferences(preferences)
     }
   }, [preferences, seedFromPreferences, seeded])
@@ -107,14 +112,16 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
 
   const onChangeBudget = useCallback(
     (text: string) => {
-      const sanitized = sanitizeBudgetInput(text)
+      // The field keeps what it holds when a keystroke cannot belong to a whole-dollar amount, so the
+      // decimal key the numeric pad offers is refused rather than emptying the amount already entered.
+      const sanitized = sanitizeBudgetInput(text, budgetText)
 
       setEnteredBudget(sanitized)
       // The draft carries the amount with the currency this release accepts, so the payload is never
       // assembled from a half-parsed field: an unparseable amount is no amount at all.
       setBudgetAmount(parseWeeklyBudget(sanitized))
     },
-    [setBudgetAmount]
+    [budgetText, setBudgetAmount]
   )
 
   const onToggleNoBudgetPreference = useCallback(() => {
@@ -247,32 +254,42 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
             carries the number pad's inset while the footer stays pinned outside it (0.7.2). */}
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <Text style={styles.headline}>{MEAL_PLAN_COOKING_BUDGET_TITLE}</Text>
 
           <View style={styles.cookingSection}>
-            <View style={styles.labelRow}>
-              <Text style={styles.controlLabel}>{MEAL_PLAN_COOKING_TIME_HEADER}</Text>
+            <Text style={styles.controlLabel}>{MEAL_PLAN_COOKING_TIME_HEADER}</Text>
+
+            {/* The four chips are one answer, so the group carries the radio semantics: a chip reports
+                itself as a selected button, which alone never says that choosing one releases the rest. */}
+            {/* BLITZY [A11Y]: the chips take SelectableChip's hit-slop path rather than its expanded
+                pressable, because 47:619 draws this row 40px tall around a 32px pill and the expanded host
+                would render it 52px. Each pill is well past 44px wide, so only its height falls short, and
+                the component's 6px slop covers that as far as this row's own bounds reach. Figma specifies
+                the smaller target, so it is implemented as drawn and flagged here for designer review. */}
+            <View style={styles.cookingChips} accessibilityRole="radiogroup">
+              <ChipCloud>
+                {COOKING_TIME_OPTIONS.map(option => (
+                  <SelectableChip
+                    key={option.value}
+                    label={option.label}
+                    selected={draft.cookingTimeLimitMin === option.value}
+                    onPress={() => onSelectCookingTime(option.value)}
+                  />
+                ))}
+              </ChipCloud>
             </View>
 
-            <ChipCloud>
-              {COOKING_TIME_OPTIONS.map(option => (
-                <SelectableChip
-                  key={option.value}
-                  label={option.label}
-                  selected={draft.cookingTimeLimitMin === option.value}
-                  expandTouchTarget
-                  onPress={() => onSelectCookingTime(option.value)}
-                />
-              ))}
-            </ChipCloud>
+            {/* Mounted whether or not it carries a message: a live region announces what changes inside it,
+                so one that appears already holding its error is never read out. */}
+            <View accessibilityLiveRegion="polite">
+              {shownValidation?.cookingTimeError != null && (
+                <InlineError message={COOKING_BUDGET_ERROR_COPY[shownValidation.cookingTimeError]} />
+              )}
+            </View>
           </View>
-
-          {shownValidation?.cookingTimeError != null && (
-            <InlineError message={COOKING_BUDGET_ERROR_COPY[shownValidation.cookingTimeError]} />
-          )}
 
           <View style={styles.budgetSection}>
             <View style={styles.labelRow}>
@@ -293,20 +310,22 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
               />
             </View>
 
+            <View accessibilityLiveRegion="polite">
+              {shownValidation?.budgetError != null && (
+                <InlineError message={COOKING_BUDGET_ERROR_COPY[shownValidation.budgetError]} />
+              )}
+            </View>
+
             <View style={styles.preferenceRow}>
               <CheckboxSquare
                 state={draft.noBudgetPreference ? 'checkedEmphasis' : 'unchecked'}
-                accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL}
+                accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL}
                 onPress={onToggleNoBudgetPreference}
               />
 
               <Text style={styles.preferenceLabel}>{MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL}</Text>
             </View>
           </View>
-
-          {shownValidation?.budgetError != null && (
-            <InlineError message={COOKING_BUDGET_ERROR_COPY[shownValidation.budgetError]} />
-          )}
 
           <Text style={styles.helperText}>{MEAL_PLAN_BUDGET_HELPER_TEXT}</Text>
 

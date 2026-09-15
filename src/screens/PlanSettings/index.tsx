@@ -15,9 +15,11 @@ import {
   selectNutritionTargets
 } from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useNavigation, useRoute} from '@react-navigation/native'
-import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
+import useAuthStore from '@store/auth/useAuthStore'
+import useMealPlanStore, {buildPendingIntent} from '@store/mealPlan/useMealPlanStore'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
+import type {RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
@@ -35,7 +37,6 @@ import Text from '@components/Text'
 import Screens from '@constants/screens'
 import {
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
-  MEAL_PLAN_CONSTRAINT_EDIT_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_TITLE,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
@@ -44,6 +45,7 @@ import {
   PLAN_REGENERATE_DISMISS_BUTTON_TEXT,
   PLAN_SETTINGS_FOOTNOTE,
   PLAN_SETTINGS_REGENERATE_BUTTON_TEXT,
+  PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE,
   PLAN_SETTINGS_TITLE,
   PLAN_SETTINGS_USE_FOR_NEXT_PLAN_BUTTON_TEXT,
   stringWithNamedParameters
@@ -81,7 +83,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<PlanSettingsRouteProp>()
 
+  const userId = useAuthStore(state => state.userId)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
+  const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
 
   const preferencesQuery = useMealPlanPreferencesQuery()
@@ -194,7 +198,15 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const onReviewAffectedPressed = useCallback(() => {
     // The banner names days rather than meals, so the review lands on the earliest flagged one with the plan
     // segment selected; the flags themselves stay until the user swaps those meals.
-    setSelectedPlanDate(earliestFlaggedDate(affectedMealsQuery.data ?? []))
+    const earliest = earliestFlaggedDate(affectedMealsQuery.data ?? [])
+
+    // Both the helper and the setter admit null, so a set that emptied between this render and this press would
+    // otherwise clear the day the user had chosen — the plan tab would reopen on its default day instead of the
+    // one they were reading.
+    if (earliest !== null) {
+      setSelectedPlanDate(earliest)
+    }
+
     setMacrosSegment('mealPlan')
     navigation.popTo(Screens.MACROS)
   }, [affectedMealsQuery.data, navigation, setMacrosSegment, setSelectedPlanDate])
@@ -216,16 +228,37 @@ const PlanSettingsScreen = (): React.JSX.Element => {
 
     setIsConfirmVisible(false)
 
-    navigation.navigate(Screens.MEAL_PLAN_GENERATING, {
-      context: {kind: 'regenerate', planId: plan.id, planRevision: plan.revision},
-      // Minted here, at the press that decides the replacement: the key belongs to this request, and a key
-      // minted at render would be reused by a second confirmation whose payload had moved on.
-      idempotencyKey: mintKey(uuidv4),
+    // Minted here, at the press that decides the replacement: the key belongs to this request, and a key
+    // minted at render would be reused by a second confirmation whose payload had moved on.
+    const idempotencyKey = mintKey(uuidv4)
+
+    const request: RegenerateRequestSnapshot = {
+      action: 'regenerate',
+      planId: plan.id,
+      expectedPlanRevision: plan.revision,
       expectedPreferencesRevision: preferences.revision,
-      expectedTargetsRevision: targetsRevision,
+      expectedTargetsRevision: targetsRevision
+    }
+
+    // Recorded before the screen that sends it has even mounted, so a launch killed in between still finds the
+    // key this press minted and asks again under it rather than committing a second plan (0.7.2). Scoped by
+    // user because `pendingIntents` is, and built through `buildPendingIntent` because that is what derives the
+    // fingerprint from the snapshot — the generating screen rebuilds the same snapshot and recognises this key
+    // as its own instead of minting a fresh one.
+    if (userId !== null) {
+      recordPendingIntent(buildPendingIntent(request, idempotencyKey, userId, Date.now()))
+    }
+
+    // Drawn from the snapshot rather than re-read from the queries, so the request that was recorded and the
+    // request that is sent cannot describe different revisions.
+    navigation.navigate(Screens.MEAL_PLAN_GENERATING, {
+      context: {kind: 'regenerate', planId: request.planId, planRevision: request.expectedPlanRevision},
+      idempotencyKey,
+      expectedPreferencesRevision: request.expectedPreferencesRevision,
+      expectedTargetsRevision: request.expectedTargetsRevision,
       startDate: plan.startDate
     })
-  }, [navigation, plan, preferences, targetsRevision])
+  }, [navigation, plan, preferences, recordPendingIntent, targetsRevision, userId])
 
   // Both reads feed the rows and the regenerate pin, so the card waits for both rather than rendering rows
   // that read 'Not set' for a target the server has not answered for yet (0.2.5).
@@ -301,8 +334,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
                 label={row.label}
                 value={row.value}
                 isFirst={index === 0}
-                accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_EDIT_ACCESSIBILITY_TEMPLATE, {
-                  label: row.label
+                accessibilityLabel={stringWithNamedParameters(PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE, {
+                  label: row.label,
+                  value: row.value
                 })}
                 onPress={() => openRow(row)}
               />
@@ -331,7 +365,10 @@ const PlanSettingsScreen = (): React.JSX.Element => {
             <Text style={styles.title}>{PLAN_SETTINGS_TITLE}</Text>
 
             {banner !== null && (
-              <View style={styles.bannerWrapper}>
+              // Announced as an alert here rather than inside InfoBanner, which serves ten frames in tones that
+              // are not alerts. The role is set without `accessible`, deliberately: grouping the wrapper would
+              // swallow the pill inside it, and the pill must stay reachable immediately after the announcement.
+              <View style={styles.bannerWrapper} accessibilityRole="alert" accessibilityLiveRegion="polite">
                 <InfoBanner
                   tone="error"
                   glyph="alert"

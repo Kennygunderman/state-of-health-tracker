@@ -31,11 +31,13 @@ import WizardHeader from '@components/WizardHeader'
 
 import Screens from '@constants/screens'
 import {
-  GOAL_WEIGHT_MODAL_ERROR,
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_GOAL_LABELS,
   MEAL_PLAN_GOAL_TITLE,
+  MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT,
   MEAL_PLAN_GOAL_WEIGHT_HEADER,
+  MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT,
+  MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT,
   MEAL_PLAN_KG_UNIT,
   MEAL_PLAN_LB_UNIT,
   MEAL_PLAN_OPTIONAL_LABEL,
@@ -59,7 +61,7 @@ import {
   validateMealPlanGoal
 } from './index.util'
 
-// The order 46:214 draws the three goals in. Frozen because it is module-global render input.
+// The order 46:170 draws the three goals in. Frozen because it is module-global render input.
 const GOAL_ORDER: readonly Goal[] = Object.freeze(['lose', 'maintain', 'gain'] as const)
 
 const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.freeze({
@@ -67,14 +69,21 @@ const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.free
   kg: MEAL_PLAN_KG_UNIT
 })
 
-// One message per code the validator can return. The two range codes and the goal-side code have no Figma
-// copy and no constant of their own, so they borrow the nearest accurate existing one.
+// The cap the shipped weight input already uses, so the two weight fields in the app accept the same width
+// of number. Five characters is also exactly enough for the widest goal weight the 30-300 kg envelope admits
+// at one decimal: 300 kg, or 661.3 lb — 661.4 converts to 300.006 kg and is rejected.
+const MAX_GOAL_WEIGHT_INPUT_LENGTH = 5
+
+// One message per code the validator can return, so each failure states the remedy that actually clears it.
+// The two option groups share a message because they fail for the same reason; the three goal-weight codes do
+// not — an out-of-range weight and one on the wrong side of the current weight are answered by different
+// edits, and a shared sentence would send the user to the wrong one.
 const GOAL_ERROR_COPY: Readonly<Record<MealPlanGoalErrorCode, string>> = Object.freeze({
   goal_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   pace_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
-  goal_weight_invalid: GOAL_WEIGHT_MODAL_ERROR,
-  goal_weight_out_of_range: GOAL_WEIGHT_MODAL_ERROR,
-  goal_weight_wrong_side: GOAL_WEIGHT_MODAL_ERROR
+  goal_weight_invalid: MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT,
+  goal_weight_out_of_range: MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT,
+  goal_weight_wrong_side: MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT
 })
 
 // The answers this step owns. A rejected revision compares only these, so a goal saved here is never
@@ -312,12 +321,16 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
 
           {!isPaceScope && isGoalWeightVisible(draft.goal) && (
             <View style={styles.fieldWrapper}>
+              {/* The frame draws this field filled with sample data; an optional field opens empty, so the
+                  header doubles as the placeholder exactly as the body step's fields do. */}
               <TextField
                 value={goalWeightText}
                 onChangeText={setEnteredGoalWeight}
+                placeholder={MEAL_PLAN_GOAL_WEIGHT_HEADER}
                 unit={WEIGHT_UNIT_LABELS[unit]}
                 state={errors?.goalWeight == null ? 'default' : 'error'}
                 keyboardType="decimal-pad"
+                maxLength={MAX_GOAL_WEIGHT_INPUT_LENGTH}
                 accessibilityLabel={MEAL_PLAN_GOAL_WEIGHT_HEADER}
               />
             </View>

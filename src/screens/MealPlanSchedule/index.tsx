@@ -38,6 +38,7 @@ import {
   MEAL_PLAN_STALE_REVISION_DIALOG_TITLE,
   MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
+  MEAL_PLAN_TIME_PICKER_PLACEHOLDER,
   MEAL_PLAN_USUAL_TIMES_HEADER,
   MEAL_SLOT_LABELS,
   TOAST_GENERIC_ERROR
@@ -185,8 +186,12 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
     <View style={styles.sheetContent}>
       <Text style={styles.sheetTitle}>{MEAL_SLOT_LABELS[slot]}</Text>
 
+      {/* Keyed by slot: Picker seeds its value from initialValue on mount only, and the sheet keeps one
+          mounted view, so an unkeyed element would reopen still showing the previously edited pill's time. */}
       <Picker
+        key={slot}
         items={pickerItems}
+        placeholder={MEAL_PLAN_TIME_PICKER_PLACEHOLDER}
         initialValue={timeFor(slot)}
         onValueSet={value => {
           setMealTime(slot, String(value))

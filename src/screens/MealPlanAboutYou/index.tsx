@@ -17,6 +17,8 @@ import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMu
 import {useWeighInsQuery} from '@queries/weighIns/useWeighInsQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
+import BorderRadius from '@styles/borderRadius'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
@@ -32,6 +34,7 @@ import PrimaryButton from '@components/PrimaryButton'
 import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SegmentedControl, {SegmentedControlOption} from '@components/SegmentedControl'
 import SetupFooter from '@components/SetupFooter'
+import SkeletonBlock from '@components/Skeleton'
 import TertiaryTextButton from '@components/TertiaryTextButton'
 import Text from '@components/Text'
 import TextField from '@components/TextField'
@@ -50,12 +53,16 @@ import {
   MEAL_PLAN_CURRENT_WEIGHT_HEADER,
   MEAL_PLAN_FEET_ERROR_TEXT,
   MEAL_PLAN_FEET_UNIT,
+  MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_HEIGHT_ERROR_TEXT,
   MEAL_PLAN_HEIGHT_HEADER,
+  MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL,
+  MEAL_PLAN_HEIGHT_UNIT_FT_IN,
   MEAL_PLAN_INCHES_ERROR_TEXT,
   MEAL_PLAN_INCHES_UNIT,
   MEAL_PLAN_KG_UNIT,
   MEAL_PLAN_LB_UNIT,
+  MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT,
   MEAL_PLAN_SEX_HEADER,
@@ -66,6 +73,8 @@ import {
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
   MEAL_PLAN_WEIGHT_ERROR_TEXT,
   MEAL_PLAN_WEIGHT_PREFILL_CAPTION,
+  MEAL_PLAN_WEIGHT_UNIT_ACCESSIBILITY_LABEL,
+  stringWithNamedParameters,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
@@ -87,7 +96,7 @@ import {
 const SEX_ORDER: readonly SexForEstimate[] = Object.freeze(['female', 'male', 'prefer_not_to_say'] as const)
 
 const HEIGHT_UNIT_OPTIONS: readonly SegmentedControlOption<HeightUnitPref>[] = Object.freeze([
-  Object.freeze({key: 'ft_in', label: MEAL_PLAN_FEET_UNIT} as const),
+  Object.freeze({key: 'ft_in', label: MEAL_PLAN_HEIGHT_UNIT_FT_IN} as const),
   Object.freeze({key: 'cm', label: MEAL_PLAN_CM_UNIT} as const)
 ])
 
@@ -96,8 +105,32 @@ const WEIGHT_UNIT_OPTIONS: readonly SegmentedControlOption<WeightUnitPref>[] = O
   Object.freeze({key: 'kg', label: MEAL_PLAN_KG_UNIT} as const)
 ])
 
-// One message per code the validator can return; the range and required codes of a field share the field's
-// single Figma message (03b draws "Enter your age to continue" for both).
+// Each field stops at the widest value its validator accepts, so a number pad cannot produce input the step
+// will only reject: ages and centimetre heights run to three digits, a foot count to one, inches to two, and
+// a weight to four digits and a decimal point.
+const AGE_MAX_LENGTH = 3
+const FEET_MAX_LENGTH = 1
+const INCHES_MAX_LENGTH = 2
+const CENTIMETERS_MAX_LENGTH = 3
+const WEIGHT_MAX_LENGTH = 5
+
+// The rhythm 46:297's form loads into: a label bar over its 48-tall control for age, height and weight, then
+// the sex label over its three option cards.
+const SKELETON_BLOCK_HEIGHTS: number[] = [
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.CONTROL_LG,
+  Sizes.CONTROL_LG
+]
+
+// One message per code the validator can return. A field's required and range codes share the field's single
+// Figma message, because 46:404 draws one row per field rather than one per reason.
 const ABOUT_YOU_ERROR_COPY: Readonly<Record<AboutYouErrorCode, string>> = Object.freeze({
   age_required: MEAL_PLAN_AGE_ERROR_TEXT,
   age_range: MEAL_PLAN_AGE_ERROR_TEXT,
@@ -378,7 +411,49 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     seedFromPreferences(preferences)
   }, [preferences, seedFromPreferences])
 
-  const heightErrorCode = errors?.centimeters ?? errors?.feet ?? errors?.inches ?? null
+  const ageErrorMessage = errors?.age == null ? null : ABOUT_YOU_ERROR_COPY[errors.age]
+  const feetErrorMessage = errors?.feet == null ? null : ABOUT_YOU_ERROR_COPY[errors.feet]
+  const inchesErrorMessage = errors?.inches == null ? null : ABOUT_YOU_ERROR_COPY[errors.inches]
+  const centimetersErrorMessage = errors?.centimeters == null ? null : ABOUT_YOU_ERROR_COPY[errors.centimeters]
+  const weightErrorMessage = errors?.weight == null ? null : ABOUT_YOU_ERROR_COPY[errors.weight]
+
+  // A field carries its own error in its label, so reaching the input after validation still says what is
+  // wrong with it — the row below the field announces itself once, at the moment validation runs.
+  const ageFieldLabel =
+    ageErrorMessage === null
+      ? MEAL_PLAN_AGE_HEADER
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: MEAL_PLAN_AGE_HEADER,
+          message: ageErrorMessage
+        })
+  const feetFieldLabel =
+    feetErrorMessage === null
+      ? MEAL_PLAN_FEET_UNIT
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: MEAL_PLAN_FEET_UNIT,
+          message: feetErrorMessage
+        })
+  const inchesFieldLabel =
+    inchesErrorMessage === null
+      ? MEAL_PLAN_INCHES_UNIT
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: MEAL_PLAN_INCHES_UNIT,
+          message: inchesErrorMessage
+        })
+  const centimetersFieldLabel =
+    centimetersErrorMessage === null
+      ? MEAL_PLAN_HEIGHT_HEADER
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: MEAL_PLAN_HEIGHT_HEADER,
+          message: centimetersErrorMessage
+        })
+  const weightFieldLabel =
+    weightErrorMessage === null
+      ? MEAL_PLAN_CURRENT_WEIGHT_HEADER
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: MEAL_PLAN_CURRENT_WEIGHT_HEADER,
+          message: weightErrorMessage
+        })
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -400,124 +475,199 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
 
           <Text style={styles.subCopy}>{MEAL_PLAN_ABOUT_YOU_SUBTITLE}</Text>
 
-          <View style={styles.form}>
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>{MEAL_PLAN_AGE_HEADER}</Text>
-              </View>
-
-              <TextField
-                value={fields.age}
-                onChangeText={text => onChangeField('age', text)}
-                placeholder={MEAL_PLAN_AGE_HEADER}
-                unit={MEAL_PLAN_AGE_UNIT}
-                state={errors?.age == null ? 'default' : 'error'}
-                keyboardType="numeric"
-                accessibilityLabel={MEAL_PLAN_AGE_HEADER}
-              />
-
-              {errors?.age != null && <InlineError message={ABOUT_YOU_ERROR_COPY[errors.age]} />}
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>{MEAL_PLAN_HEIGHT_HEADER}</Text>
-
-                <SegmentedControl
-                  options={[...HEIGHT_UNIT_OPTIONS]}
-                  selected={heightUnit}
-                  variant="unit"
-                  onChange={heightUnitPref => setStepFields('body', {heightUnitPref})}
+          {/* The saved answers decide both the field values and which unit each is read in, so the form waits
+              for them rather than rendering defaults it would then contradict. */}
+          {preferencesQuery.isLoading && (
+            <View style={styles.skeletonGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+              {SKELETON_BLOCK_HEIGHTS.map((height, index) => (
+                <SkeletonBlock
+                  key={`${height}-${index}`}
+                  height={height}
+                  // The stretch style overrides this, but Skeleton sizes its shimmer sweep from the prop, so
+                  // the column's own maximum is the width the animation is measured against.
+                  width={Sizes.CONTENT_MAX_WIDTH}
+                  borderRadius={BorderRadius.CARD_LG}
+                  style={styles.skeletonStretch}
                 />
+              ))}
+            </View>
+          )}
+
+          {!preferencesQuery.isLoading && (
+            <View style={styles.form}>
+              <View style={styles.fieldGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>{MEAL_PLAN_AGE_HEADER}</Text>
+                </View>
+
+                <View style={styles.controlSlot}>
+                  <TextField
+                    value={fields.age}
+                    onChangeText={text => onChangeField('age', text)}
+                    placeholder={MEAL_PLAN_AGE_HEADER}
+                    unit={MEAL_PLAN_AGE_UNIT}
+                    state={ageErrorMessage === null ? 'default' : 'error'}
+                    keyboardType="numeric"
+                    maxLength={AGE_MAX_LENGTH}
+                    accessibilityLabel={ageFieldLabel}
+                  />
+                </View>
+
+                {ageErrorMessage !== null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={ageErrorMessage} />
+                  </View>
+                )}
               </View>
 
-              {heightUnit === 'ft_in' ? (
-                <View style={styles.heightRow}>
-                  <View style={styles.heightField}>
-                    <TextField
-                      value={fields.feet}
-                      onChangeText={text => onChangeField('feet', text)}
-                      placeholder={MEAL_PLAN_FEET_UNIT}
-                      unit={MEAL_PLAN_FEET_UNIT}
-                      state={errors?.feet == null ? 'default' : 'error'}
-                      keyboardType="numeric"
-                      accessibilityLabel={MEAL_PLAN_FEET_UNIT}
-                    />
-                  </View>
+              <View style={styles.fieldGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>{MEAL_PLAN_HEIGHT_HEADER}</Text>
 
-                  <View style={styles.heightField}>
-                    <TextField
-                      value={fields.inches}
-                      onChangeText={text => onChangeField('inches', text)}
-                      placeholder={MEAL_PLAN_INCHES_UNIT}
-                      unit={MEAL_PLAN_INCHES_UNIT}
-                      state={errors?.inches == null ? 'default' : 'error'}
-                      keyboardType="numeric"
-                      accessibilityLabel={MEAL_PLAN_INCHES_UNIT}
+                  <View
+                    style={styles.unitToggleGroup}
+                    accessibilityRole="radiogroup"
+                    accessibilityLabel={MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL}>
+                    <SegmentedControl
+                      options={[...HEIGHT_UNIT_OPTIONS]}
+                      selected={heightUnit}
+                      variant="unit"
+                      onChange={heightUnitPref => setStepFields('body', {heightUnitPref})}
                     />
                   </View>
                 </View>
-              ) : (
-                <TextField
-                  value={fields.centimeters}
-                  onChangeText={text => onChangeField('centimeters', text)}
-                  placeholder={MEAL_PLAN_CM_UNIT}
-                  unit={MEAL_PLAN_CM_UNIT}
-                  state={errors?.centimeters == null ? 'default' : 'error'}
-                  keyboardType="decimal-pad"
-                  accessibilityLabel={MEAL_PLAN_HEIGHT_HEADER}
-                />
-              )}
 
-              {heightErrorCode != null && <InlineError message={ABOUT_YOU_ERROR_COPY[heightErrorCode]} />}
-            </View>
+                {heightUnit === 'ft_in' ? (
+                  <View style={styles.heightRow}>
+                    <View style={styles.heightField}>
+                      <TextField
+                        value={fields.feet}
+                        onChangeText={text => onChangeField('feet', text)}
+                        placeholder={MEAL_PLAN_FEET_UNIT}
+                        unit={MEAL_PLAN_FEET_UNIT}
+                        state={feetErrorMessage === null ? 'default' : 'error'}
+                        keyboardType="numeric"
+                        maxLength={FEET_MAX_LENGTH}
+                        accessibilityLabel={feetFieldLabel}
+                      />
+                    </View>
 
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>{MEAL_PLAN_CURRENT_WEIGHT_HEADER}</Text>
+                    <View style={styles.heightField}>
+                      <TextField
+                        value={fields.inches}
+                        onChangeText={text => onChangeField('inches', text)}
+                        placeholder={MEAL_PLAN_INCHES_UNIT}
+                        unit={MEAL_PLAN_INCHES_UNIT}
+                        state={inchesErrorMessage === null ? 'default' : 'error'}
+                        keyboardType="numeric"
+                        maxLength={INCHES_MAX_LENGTH}
+                        accessibilityLabel={inchesFieldLabel}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.controlSlot}>
+                    <TextField
+                      value={fields.centimeters}
+                      onChangeText={text => onChangeField('centimeters', text)}
+                      placeholder={MEAL_PLAN_CM_UNIT}
+                      unit={MEAL_PLAN_CM_UNIT}
+                      state={centimetersErrorMessage === null ? 'default' : 'error'}
+                      keyboardType="decimal-pad"
+                      maxLength={CENTIMETERS_MAX_LENGTH}
+                      accessibilityLabel={centimetersFieldLabel}
+                    />
+                  </View>
+                )}
 
-                <SegmentedControl
-                  options={[...WEIGHT_UNIT_OPTIONS]}
-                  selected={weightUnitPref}
-                  variant="unit"
-                  onChange={unitPref => setStepFields('body', {weightUnitPref: unitPref})}
-                />
+                {/* Each half of the paired row reports itself: 03b draws the error under the row rather than
+                    under the field, so an invalid foot count and an invalid inch count are two rows there and
+                    neither hides the other. */}
+                {feetErrorMessage !== null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={feetErrorMessage} />
+                  </View>
+                )}
+
+                {inchesErrorMessage !== null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={inchesErrorMessage} />
+                  </View>
+                )}
+
+                {centimetersErrorMessage !== null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={centimetersErrorMessage} />
+                  </View>
+                )}
               </View>
 
-              <TextField
-                value={fields.weight}
-                onChangeText={text => onChangeField('weight', text)}
-                placeholder={MEAL_PLAN_CURRENT_WEIGHT_HEADER}
-                unit={weightUnitPref === 'lb' ? MEAL_PLAN_LB_UNIT : MEAL_PLAN_KG_UNIT}
-                state={errors?.weight == null ? 'default' : 'error'}
-                keyboardType="decimal-pad"
-                accessibilityLabel={MEAL_PLAN_CURRENT_WEIGHT_HEADER}
-              />
+              <View style={styles.fieldGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>{MEAL_PLAN_CURRENT_WEIGHT_HEADER}</Text>
 
-              {showsPrefillCaption && <Text style={styles.prefillCaption}>{MEAL_PLAN_WEIGHT_PREFILL_CAPTION}</Text>}
+                  <View
+                    style={styles.unitToggleGroup}
+                    accessibilityRole="radiogroup"
+                    accessibilityLabel={MEAL_PLAN_WEIGHT_UNIT_ACCESSIBILITY_LABEL}>
+                    <SegmentedControl
+                      options={[...WEIGHT_UNIT_OPTIONS]}
+                      selected={weightUnitPref}
+                      variant="unit"
+                      onChange={unitPref => setStepFields('body', {weightUnitPref: unitPref})}
+                    />
+                  </View>
+                </View>
 
-              {errors?.weight != null && <InlineError message={ABOUT_YOU_ERROR_COPY[errors.weight]} />}
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>{MEAL_PLAN_SEX_HEADER}</Text>
-              </View>
-
-              <View style={styles.sexOptions} accessibilityRole="radiogroup">
-                {SEX_ORDER.map(sex => (
-                  <OptionCard
-                    key={sex}
-                    label={MEAL_PLAN_SEX_LABELS[sex]}
-                    selected={draft.sexForEstimate === sex}
-                    onPress={() => setStepFields('body', {sexForEstimate: sex})}
+                <View style={styles.controlSlot}>
+                  <TextField
+                    value={fields.weight}
+                    onChangeText={text => onChangeField('weight', text)}
+                    placeholder={MEAL_PLAN_CURRENT_WEIGHT_HEADER}
+                    unit={weightUnitPref === 'lb' ? MEAL_PLAN_LB_UNIT : MEAL_PLAN_KG_UNIT}
+                    state={weightErrorMessage === null ? 'default' : 'error'}
+                    keyboardType="decimal-pad"
+                    maxLength={WEIGHT_MAX_LENGTH}
+                    accessibilityLabel={weightFieldLabel}
                   />
-                ))}
+                </View>
+
+                {showsPrefillCaption && <Text style={styles.prefillCaption}>{MEAL_PLAN_WEIGHT_PREFILL_CAPTION}</Text>}
+
+                {weightErrorMessage !== null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={weightErrorMessage} />
+                  </View>
+                )}
               </View>
 
-              {errors?.sex != null && <InlineError message={ABOUT_YOU_ERROR_COPY[errors.sex]} />}
+              <View style={styles.fieldGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.fieldLabel}>{MEAL_PLAN_SEX_HEADER}</Text>
+                </View>
+
+                <View
+                  style={styles.sexOptions}
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel={MEAL_PLAN_SEX_HEADER}>
+                  {SEX_ORDER.map(sex => (
+                    <OptionCard
+                      key={sex}
+                      label={MEAL_PLAN_SEX_LABELS[sex]}
+                      selected={draft.sexForEstimate === sex}
+                      onPress={() => setStepFields('body', {sexForEstimate: sex})}
+                    />
+                  ))}
+                </View>
+
+                {errors?.sex != null && (
+                  <View accessibilityLiveRegion="polite">
+                    <InlineError message={ABOUT_YOU_ERROR_COPY[errors.sex]} />
+                  </View>
+                )}
+              </View>
             </View>
-          </View>
+          )}
         </KeyboardAwareScrollView>
       </ContentColumn>
 
@@ -525,14 +675,22 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
           isLoading={saveStepMutation.isPending}
+          // 46:555 keeps this enabled so every press re-validates. The one thing it waits for is the revision
+          // the saved row carries: sending the step without it is a write the server refuses outright.
+          disabled={preferencesQuery.isLoading}
           onPress={onContinuePressed}
+          style={styles.ctaHeight}
         />
 
-        <TertiaryTextButton
-          label={MEAL_PLAN_SKIP_BUTTON_TEXT}
-          disabled={saveStepMutation.isPending}
-          onPress={onSkipPressed}
-        />
+        {/* Skip is how setup declines the estimate, so setup is where it is offered. An edit opened from a
+            Review or Plan settings row is changing one answer, not choosing a target route. */}
+        {params.mode !== 'edit' && (
+          <TertiaryTextButton
+            label={MEAL_PLAN_SKIP_BUTTON_TEXT}
+            disabled={saveStepMutation.isPending || preferencesQuery.isLoading}
+            onPress={onSkipPressed}
+          />
+        )}
       </SetupFooter>
 
       <RevisionConflictDialog

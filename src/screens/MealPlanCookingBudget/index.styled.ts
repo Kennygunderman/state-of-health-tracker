@@ -27,27 +27,34 @@ export default StyleSheet.create({
     color: Theme.colors.text
   },
 
+  // Both sections follow the frame's own model: no section declares a gap, and every rung is the top padding
+  // of the block beneath it, so an inline error can appear between two blocks without doubling either gap.
   cookingSection: {
     alignSelf: 'stretch',
-    paddingTop: Spacing.GUTTER,
-    rowGap: Spacing.X_SMALL
+    paddingTop: Spacing.GUTTER
+  },
+  cookingChips: {
+    paddingTop: Spacing.X_SMALL
   },
   // Figma 47:632 declares 24px here, while the cooking section above deliberately opens at 20px (47:616) —
   // the two section rungs differ by design and must not be normalised to one value.
   budgetSection: {
     alignSelf: 'stretch',
-    paddingTop: Spacing.LARGE,
-    rowGap: Spacing.X_SMALL
+    paddingTop: Spacing.LARGE
   },
+  // space-between carries 'Optional' to the right edge of the row (47:632); the column gap is the floor that
+  // keeps the two labels apart once enlarged text has consumed the space between them.
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     columnGap: Spacing.SMALL
   },
   controlLabel: {
     flexShrink: 1,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textSecondary
   },
   optionalLabel: {
@@ -57,14 +64,15 @@ export default StyleSheet.create({
     color: Theme.colors.textMuted
   },
   budgetField: {
-    alignSelf: 'stretch'
+    alignSelf: 'stretch',
+    paddingTop: Spacing.X_SMALL
   },
 
   preferenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     columnGap: Spacing.SMALL,
-    paddingTop: Spacing.X_SMALL
+    paddingTop: Spacing.SMALL
   },
   preferenceLabel: {
     flex: 1,
@@ -72,16 +80,19 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text
   },
+  // LABEL, not META: 47:655 leaves this footnote's line height automatic, which Figma resolves to 16 and its
+  // wrapper measures as 24 (8 + 16). META's 18.85 belongs to the 13px styles the frame sets explicitly —
+  // 'Optional' above is one — and using it here would push everything below the helper down by ~3px.
   helperText: {
     paddingTop: Spacing.X_SMALL,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   },
 
   summaryCardWrapper: {
-    paddingTop: Spacing.GUTTER
+    paddingTop: Spacing.LARGE
   },
   summaryCard: {
     padding: Spacing.MEDIUM,

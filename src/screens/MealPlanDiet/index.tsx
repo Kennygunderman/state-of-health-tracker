@@ -44,8 +44,8 @@ import {
 import styles from './index.styled'
 import {buildAllergenChips, DIET_OPTIONS, dietWizardProgress, DietStepErrorCode, validateDietStep} from './index.util'
 
-// One message per code the step can report. The allergy group's copy is the inferred sentence 0.7.4 names for
-// it; the diet cards fall back to the shared option-group message.
+// The allergy group carries the inferred sentence 0.7.4 names for it; the diet cards fall back to the
+// option-group message every wizard step shares.
 const DIET_ERROR_COPY: Readonly<Record<DietStepErrorCode, string>> = Object.freeze({
   diet_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   allergens_required: MEAL_PLAN_ALLERGIES_ERROR_TEXT,
@@ -54,9 +54,13 @@ const DIET_ERROR_COPY: Readonly<Record<DietStepErrorCode, string>> = Object.free
   allergens_exclusive: MEAL_PLAN_ALLERGIES_EXCLUSIVE_ERROR_TEXT
 })
 
+// The codes the allergy group raises. They are mutually exclusive — an empty selection cannot also contradict
+// itself — so the group renders whichever one is live in the one error slot beneath the chips.
+const ALLERGEN_ERROR_CODES: readonly DietStepErrorCode[] = Object.freeze(['allergens_required', 'allergens_exclusive'])
+
 // The answers this step owns. A rejected revision compares only these, so a diet saved here is never
 // reported as conflicting with a meal time someone edited on another device.
-const DIET_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = ['diet', 'allergens']
+const DIET_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze(['diet', 'allergens'])
 
 const MealPlanDietScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -81,6 +85,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
   const progress = dietWizardProgress(preferences?.targetRoute ?? null)
   const errorCodes = validateDietStep(draft.diet, draft.allergens)
   const errors = hasSubmitted ? errorCodes : []
+  const allergenErrorCode = errors.find(code => ALLERGEN_ERROR_CODES.includes(code))
   const allergenChips = buildAllergenChips(draft.allergens)
 
   const advance = useCallback((): void => {
@@ -102,6 +107,18 @@ const MealPlanDietScreen = (): React.JSX.Element => {
       return
     }
 
+    // The server rejects a step save that does not name the exact revision it builds on, so a press that
+    // finds no row asks for one before writing. The CTA is disabled while the query is in flight, so the only
+    // way to arrive here without a row is the failed fetch 0.2.5 hands back to Continue — the draft is intact
+    // either way, and a refetch that still returns nothing reports rather than writes blind.
+    const revision = preferences?.revision ?? (await preferencesQuery.refetch()).data?.revision ?? null
+
+    if (revision === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
+      return
+    }
+
     try {
       await saveStepMutation.mutateAsync({
         step: 'diet',
@@ -109,7 +126,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
           diet: draft.diet,
           allergens: draft.allergens,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          expectedRevision: preferences?.revision
+          expectedRevision: revision
         }
       })
     } catch (error) {
@@ -185,7 +202,9 @@ const MealPlanDietScreen = (): React.JSX.Element => {
         <WizardHeader step={progress.step} totalSteps={progress.totalSteps} onBack={navigation.goBack} />
 
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.headline}>{MEAL_PLAN_DIET_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_DIET_TITLE}
+          </Text>
 
           <View style={styles.dietGroup} accessibilityRole="radiogroup">
             {DIET_OPTIONS.map(option => (
@@ -217,7 +236,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
             </ChipCloud>
           </View>
 
-          {errors.includes('allergens_required') && <InlineError message={DIET_ERROR_COPY.allergens_required} />}
+          {allergenErrorCode !== undefined && <InlineError message={DIET_ERROR_COPY[allergenErrorCode]} />}
 
           <Text style={styles.helperText}>{MEAL_PLAN_ALLERGIES_HELPER_TEXT}</Text>
         </ScrollView>
@@ -227,6 +246,9 @@ const MealPlanDietScreen = (): React.JSX.Element => {
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
           isLoading={saveStepMutation.isPending}
+          // Enabled on arrival and validating on press (0.7.4) the moment the row this save must name is
+          // readable; until the first fetch settles there is no revision to build on.
+          disabled={preferencesQuery.isLoading}
           onPress={onContinuePressed}
         />
       </SetupFooter>

@@ -976,6 +976,23 @@ export const MEAL_PLAN_PACE_LABELS: Record<string, string> = {
   '1.5': 'Fast'
 }
 
+// One message per way the optional goal weight can fail, because the three have different remedies and a
+// shared sentence would send the user to the wrong one. Frame 02 draws the field filled and error-free, so
+// none of the three is drawn copy: the first follows the pattern the file's own targets screen authors
+// ('Enter a carb target above 0 g', 09b `34:251`) with the unit left off because this field's unit toggles
+// between lb and kg, and the two below are this implementation's copy, flagged for designer review.
+export const MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT = 'Enter a goal weight above 0'
+
+// The supported body-weight envelope is 30-300 kg (66-661 lb). The bounds are deliberately not quoted: they
+// live in UnitConversionUtility and differ per unit, so naming them here would mean formatting them on the
+// screen, and a copy of them in this module would be free to drift from the check that actually rejects.
+export const MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT = 'Enter a realistic goal weight'
+
+// Raised when the goal weight sits on the wrong side of the current weight — above it while losing, below it
+// while gaining. Worded without naming a direction because either answer is the one the user may have meant
+// to change, and because a per-direction sentence would need a derivation the screen is not allowed to hold.
+export const MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT = "Your goal weight doesn't match the goal you chose"
+
 // --- Meal planning: about you (03, 03b) ---
 
 export const MEAL_PLAN_ABOUT_YOU_TITLE = 'A little about you.'
@@ -987,6 +1004,11 @@ export const MEAL_PLAN_AGE_HEADER = 'Age'
 export const MEAL_PLAN_AGE_UNIT = 'years'
 
 export const MEAL_PLAN_HEIGHT_HEADER = 'Height'
+
+// The height unit toggle names both imperial units together, while the feet input's own placeholder and
+// suffix name only feet. Figma draws them as three separate strings (nodes 46:469, 46:477 and 46:480), so
+// collapsing the toggle onto MEAL_PLAN_FEET_UNIT would silently drop the "/in" half of the choice.
+export const MEAL_PLAN_HEIGHT_UNIT_FT_IN = 'ft/in'
 
 export const MEAL_PLAN_FEET_UNIT = 'ft'
 
@@ -1148,6 +1170,11 @@ export const MEAL_PLAN_SCHEDULE_LABELS: Record<string, string> = {
 
 export const MEAL_PLAN_USUAL_TIMES_HEADER = 'Usual times'
 
+// The time picker's resting label. No frame draws the picker, and a slot whose time is not yet seeded
+// carries an empty value that matches no option, so without this the dropdown shows its own packaged
+// English string rather than app copy.
+export const MEAL_PLAN_TIME_PICKER_PLACEHOLDER = 'Choose a time'
+
 // The meridiem suffixes every meal time renders with, on the schedule pills and in the time picker
 // (07: '8:00 AM', '12:30 PM', '6:30 PM').
 export const MEAL_PLAN_TIME_AM_SUFFIX = 'AM'
@@ -1175,6 +1202,11 @@ export const MEAL_PLAN_BUDGET_PLACEHOLDER = '$0'
 export const MEAL_PLAN_BUDGET_UNIT = 'per week'
 
 export const MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL = 'No budget preference'
+
+// The visible label names the answer; only the sighted user can see that checking it empties and greys the
+// amount field above, so the spoken label carries that consequence (frame 08's note 47:697).
+export const MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL =
+  'No budget preference. When checked, the weekly amount field is cleared and disabled.'
 
 export const MEAL_PLAN_BUDGET_HELPER_TEXT = 'A preference only — grocery prices vary by store.'
 
@@ -1835,6 +1867,16 @@ export const MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE = 'Set serving fr
 
 export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
 
+// A field's error is announced with the field, so reaching the input later still says what is wrong with it
+// — the inline message below the field only announces itself at the moment validation runs.
+export const MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE = '{label}, {message}'
+
+// The unit toggles sit beside a label that names the measurement, not the choice, so each group is named
+// separately — otherwise "ft/in" and "cm" are announced with nothing saying what they switch.
+export const MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Height unit'
+
+export const MEAL_PLAN_WEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Weight unit'
+
 export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
 
 // A food row opens the serving editor rather than logging on the spot, so the hint names the step the tap
@@ -1857,6 +1899,13 @@ export const GROCERY_ITEM_ACCESSIBILITY_TEMPLATE = '{name}, {quantity}'
 // States the increase in words so the danger colour is never the only signal carrying the flag (WCAG 1.4.1).
 export const GROCERY_FLAG_ROW_ACCESSIBILITY_TEMPLATE =
   '{name}, amount went up. Now {newAmount}, was {oldAmount}, a change of {delta}.'
+
+// One accessible name for a whole plan-settings row, because the row is one button (16, node 38:403 and its
+// six siblings): the setting it names, the value it currently holds, and what opening it does — note 38:496,
+// each row reopens its setup screen. Opening with '{label}' keeps the spoken name a superset of the visible
+// one for voice control (WCAG 2.5.3), and the value belongs in it because the value is what the row reports.
+// Figma draws no hint text, and none is drawn here: this name is invisible accessibility.
+export const PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE = '{label}, {value}. Opens this step to change it'
 
 // Templates rather than fixed strings so the accessible name always opens with the label actually drawn —
 // 'Edit' or 'Recalculate' here, 'Change' below — which keeps the spoken name a superset of the visible one
