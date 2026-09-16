@@ -9,9 +9,9 @@ import {MEAL_PLAN_STALE_PLAN_TOAST, TOAST_GENERIC_ERROR} from '@constants/string
 import {
   canChangeLogDate,
   classifyLogFailure,
+  hasUnresolvedLogIntent,
   isPlanStateReadFailure,
   LogPlanDateRange,
-  logMutationScope,
   nextLogDate,
   planDayQueryRecovery,
   planDayQueryScope,
@@ -139,32 +139,23 @@ describe('resolveLogCacheScope', () => {
     const scope = resolveLogCacheScope({planId: PLAN_ID, plannedDate: PLANNED_DATE, selectedDate: STEPPED_DATE})
     const attempt = planLogAttempt(attemptInputs({diaryDate: scope.diaryDate}))
 
+    // The mutation invalidates `dailyMacros(date)` for the date its own payload carries (0.7.2), so the
+    // selected day reaching the payload is what keeps the written day and the dropped day the same day.
     expect(attempt.payload.date).toBe(scope.diaryDate)
     expect(attempt.payload.date).not.toBe(PLANNED_DATE)
   })
-})
 
-describe('logMutationScope', () => {
-  it('constructs the write on the selected day, which is the day whose diary cache it invalidates', () => {
+  it('keeps the meal the write addresses distinct from the day it is written to', () => {
     const scope = resolveLogCacheScope({planId: PLAN_ID, plannedDate: PLANNED_DATE, selectedDate: STEPPED_DATE})
     const attempt = planLogAttempt(attemptInputs({diaryDate: scope.diaryDate}))
-    const [planId, invalidatedDate] = logMutationScope(scope)
 
-    // The mutation hook invalidates `dailyMacros(date)` for this date (0.7.2). Handing it the route's planned
-    // day is the defect: the entry would land on Thursday while Tuesday's Diary was the one dropped.
-    expect(planId).toBe(PLAN_ID)
-    expect(invalidatedDate).toBe(STEPPED_DATE)
-    expect(invalidatedDate).toBe(attempt.payload.date)
-    expect(invalidatedDate).not.toBe(PLANNED_DATE)
-  })
-
-  it('follows the stepper, unlike the plan-day read', () => {
-    const opened = resolveLogCacheScope({planId: PLAN_ID, plannedDate: PLANNED_DATE, selectedDate: PLANNED_DATE})
-    const stepped = resolveLogCacheScope({planId: PLAN_ID, plannedDate: PLANNED_DATE, selectedDate: STEPPED_DATE})
-
-    expect(logMutationScope(opened)).toEqual([PLAN_ID, PLANNED_DATE])
-    expect(logMutationScope(stepped)).toEqual([PLAN_ID, STEPPED_DATE])
-    expect(planDayQueryScope(stepped)).toEqual([PLAN_ID, PLANNED_DATE])
+    // The route is `/plans/:planId/meals/:mealId/log`, and both path segments are strings: handing the diary
+    // date where the meal id belongs type-checks and addresses a meal that cannot exist. The meal id is a fact
+    // about the plan and never follows the stepper, so these two values are never interchangeable.
+    expect(attempt.mealId).toBe(MEAL_ID)
+    expect(attempt.mealId).not.toBe(scope.diaryDate)
+    expect(attempt.mealId).not.toBe(scope.plannedDate)
+    expect(planDayQueryScope(scope)).toEqual([PLAN_ID, PLANNED_DATE])
   })
 })
 
@@ -437,10 +428,14 @@ describe('classifyLogFailure', () => {
     const codes = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
 
     codes.forEach(code => {
+      // The plan moved on, so the tab's own plan is re-read; the diary is untouched, because nothing about it
+      // is what the server refused.
       expect(classifyLogFailure(apiError(409, code))).toEqual({
         disposition: 'retire',
         toast: MEAL_PLAN_STALE_PLAN_TOAST,
-        isUnconfirmed: false
+        isUnconfirmed: false,
+        refetchCurrentPlan: true,
+        refetchDiary: false
       })
     })
   })
@@ -449,9 +444,32 @@ describe('classifyLogFailure', () => {
     expect(classifyLogFailure(apiError(409, API_ERROR_CODES.idempotencyConflict))).toEqual({
       disposition: 'retire',
       toast: TOAST_GENERIC_ERROR,
-      isUnconfirmed: false
+      isUnconfirmed: false,
+      refetchCurrentPlan: false,
+      refetchDiary: false
     })
-    expect(classifyLogFailure(apiError(404, 'Meal not found')).disposition).toBe('retire')
+  })
+
+  it('re-reads the day on a 404, so the next attempt can name a bucket the day has', () => {
+    // The log route answers 404 when the diary meal in the body is not the caller's or not that day's (0.5.2),
+    // and it discloses no code for it — so the status is what earns the diary re-read.
+    expect(classifyLogFailure(apiError(404, 'Meal not found'))).toEqual({
+      disposition: 'retire',
+      toast: TOAST_GENERIC_ERROR,
+      isUnconfirmed: false,
+      refetchCurrentPlan: false,
+      refetchDiary: true
+    })
+  })
+
+  it('treats a 404 whose body does not decode as an unknown outcome, not a bucket refusal', () => {
+    // A 404 carrying no `error` member is the signal that the routes are not mounted at all (0.2.5), so it
+    // cannot be read as this day's diary refusing a bucket — and its write may still have committed.
+    const undecodable = classifyLogFailure(apiError(404))
+
+    expect(undecodable.isUnconfirmed).toBe(true)
+    expect(undecodable.disposition).toBe('keep')
+    expect(undecodable.refetchDiary).toBe(false)
   })
 
   it('keeps the intent pending and raises no toast on an unknown outcome', () => {
@@ -465,8 +483,54 @@ describe('classifyLogFailure', () => {
     ]
 
     unknown.forEach(error => {
-      expect(classifyLogFailure(error)).toEqual({disposition: 'keep', toast: null, isUnconfirmed: true})
+      // No refetch is decided here either: the display-only re-read that accompanies the banner is
+      // `planUnconfirmedRefetch`'s, and it fires once rather than per failure.
+      expect(classifyLogFailure(error)).toEqual({
+        disposition: 'keep',
+        toast: null,
+        isUnconfirmed: true,
+        refetchCurrentPlan: false,
+        refetchDiary: false
+      })
     })
+  })
+})
+
+describe('hasUnresolvedLogIntent', () => {
+  const intentInputs = (overrides: Partial<Parameters<typeof hasUnresolvedLogIntent>[0]> = {}) => ({
+    pendingIntents: pendingLogIntent(),
+    userId: USER_ID,
+    mealId: MEAL_ID,
+    now: ATTEMPTED_AT,
+    ...overrides
+  })
+
+  it('reports an intent recorded for this meal that no answer has resolved', () => {
+    expect(hasUnresolvedLogIntent(intentInputs())).toBe(true)
+  })
+
+  it('reports nothing when no intent is stored', () => {
+    expect(hasUnresolvedLogIntent(intentInputs({pendingIntents: NO_PENDING_INTENTS}))).toBe(false)
+  })
+
+  it('ignores an intent recorded for another meal', () => {
+    // That replay belongs to the screen opened on that meal; answering it here would offer its key against a
+    // different meal's write.
+    const recordedForAnotherMeal = intentInputs({pendingIntents: pendingLogIntent({mealId: 'meal-other'})})
+
+    expect(hasUnresolvedLogIntent(intentInputs({mealId: 'meal-dinner-thu'}))).toBe(false)
+    expect(hasUnresolvedLogIntent(recordedForAnotherMeal)).toBe(false)
+  })
+
+  it('ignores an intent belonging to another user, and one nobody is signed in to own', () => {
+    expect(hasUnresolvedLogIntent(intentInputs({userId: 'user-2'}))).toBe(false)
+    expect(hasUnresolvedLogIntent(intentInputs({userId: null}))).toBe(false)
+  })
+
+  it('ignores an intent past its life, so a long-abandoned key is never offered again', () => {
+    const eightDaysOn = ATTEMPTED_AT + 8 * 24 * 60 * 60 * 1000
+
+    expect(hasUnresolvedLogIntent(intentInputs({now: eightDaysOn}))).toBe(false)
   })
 })
 

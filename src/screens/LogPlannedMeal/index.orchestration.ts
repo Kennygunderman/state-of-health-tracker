@@ -1,8 +1,14 @@
 import {Meal} from '@data/models/Meal'
 import {MealSlot} from '@data/models/Recipe'
 import type {LogPlannedMealPayload} from '@queries/api/mealPlanning/logPlannedMeal'
-import {buildPendingIntent, MealPlanStore, PendingIntent, resolveKeyedRequest} from '@store/mealPlan/useMealPlanStore'
-import {API_ERROR_CODES, getApiErrorCode, isUnknownOutcome} from '@utility/ApiErrorUtility'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PendingIntent,
+  resolveKeyedRequest,
+  resolvePendingIntent
+} from '@store/mealPlan/useMealPlanStore'
+import {API_ERROR_CODES, getApiErrorCode, getApiErrorStatus, isUnknownOutcome} from '@utility/ApiErrorUtility'
 import {LogRequestSnapshot} from '@utility/IdempotencyUtility'
 
 import {MEAL_PLAN_STALE_PLAN_TOAST, TOAST_GENERIC_ERROR} from '@constants/strings'
@@ -38,16 +44,21 @@ const PLAN_STATE_CODES: ReadonlySet<string> = new Set<string>([
   API_ERROR_CODES.planNotActive
 ])
 
+// The status the log route answers when the diary meal named in the body is not the caller's, or its date is
+// not the date the body carries (0.5.2). It is read as a status rather than a code because the route answers
+// it for ownership, where a body is never disclosed.
+const NOT_FOUND_STATUS = 404
+
 export interface LogPlanDateRange {
   startDate: string
   endDate: string
 }
 
 /**
- * Which day each of the screen's three cache entries belongs to. The meal is a fact about the planned day the
- * route names, while the diary entry is written to the day the user selected — and the log mutation owns the
- * `dailyMacros(date)` invalidation for the date it is constructed with (0.7.2), so the two dates have to be
- * told apart at the point the hooks are wired rather than at the point the payload is built.
+ * Which day each of the screen's cache entries belongs to. The meal is a fact about the planned day the route
+ * names, while the diary entry is written to the day the user selected — and the log mutation invalidates
+ * `dailyMacros(date)` for the date its own payload carries (0.7.2), so the two are told apart here and the
+ * selected day reaches both the diary read and the payload.
  */
 export interface LogCacheScope {
   planId: string
@@ -71,16 +82,6 @@ export function resolveLogCacheScope(inputs: LogCacheScopeInputs): LogCacheScope
  */
 export function planDayQueryScope(scope: LogCacheScope): readonly [string, string] {
   return [scope.planId, scope.plannedDate]
-}
-
-/**
- * The arguments the log mutation is constructed with. Returned as the tuple the hook is called with, rather
- * than left to the call site, so which day the write is scoped to is a value under test: the hook invalidates
- * `dailyMacros(date)` for the date it was given (0.7.2), and the only correct date is the day the entry is
- * written to.
- */
-export function logMutationScope(scope: LogCacheScope): readonly [string, string] {
-  return [scope.planId, scope.diaryDate]
 }
 
 export interface LogDateStepInputs {
@@ -264,20 +265,54 @@ export interface LogFailureDecision {
   disposition: LogIntentDisposition
   toast: string | null
   isUnconfirmed: boolean
+  refetchCurrentPlan: boolean
+  refetchDiary: boolean
 }
 
 export function classifyLogFailure(error: unknown): LogFailureDecision {
   if (isUnknownOutcome(error)) {
-    return {disposition: 'keep', toast: null, isUnconfirmed: true}
+    return {disposition: 'keep', toast: null, isUnconfirmed: true, refetchCurrentPlan: false, refetchDiary: false}
   }
 
   const code = getApiErrorCode(error)
+  const isPlanStateRefusal = code !== null && PLAN_STATE_CODES.has(code)
 
   return {
     disposition: 'retire',
-    toast: code !== null && PLAN_STATE_CODES.has(code) ? MEAL_PLAN_STALE_PLAN_TOAST : TOAST_GENERIC_ERROR,
-    isUnconfirmed: false
+    toast: isPlanStateRefusal ? MEAL_PLAN_STALE_PLAN_TOAST : TOAST_GENERIC_ERROR,
+    isUnconfirmed: false,
+    // A refused write says something the screen was holding is out of date, and the two refusals say different
+    // things: the plan moved on, so the tab's own plan is re-read; or the diary bucket the body named is not
+    // this user's or not this day's, so the day's macros are re-read and the picker is rebuilt from the answer.
+    refetchCurrentPlan: isPlanStateRefusal,
+    refetchDiary: getApiErrorStatus(error) === NOT_FOUND_STATUS
   }
+}
+
+export interface LogUnresolvedIntentInputs {
+  pendingIntents: MealPlanStore['pendingIntents']
+  userId: string | null
+  mealId: string
+  now: number
+}
+
+/**
+ * Whether a log intent this screen can still answer was left unresolved by an earlier mount. An attempt whose
+ * response was lost keeps its intent, and only a server answer to that same key resolves it (0.7.2) — so a
+ * screen that opens on one states the outcome it cannot vouch for and offers the stored key again, rather than
+ * presenting a fresh write as if nothing had been sent.
+ *
+ * The intent is matched on its own snapshot: one filed for another meal belongs to another screen's replay,
+ * and `resolvePendingIntent` has already discarded one belonging to another user or past its 7-day life.
+ */
+export function hasUnresolvedLogIntent(inputs: LogUnresolvedIntentInputs): boolean {
+  if (inputs.userId === null) {
+    return false
+  }
+
+  const intent = resolvePendingIntent({pendingIntents: inputs.pendingIntents}, 'log', inputs.userId, inputs.now)
+
+  return intent !== null && intent.request.action === 'log' && intent.request.mealId === inputs.mealId
 }
 
 /**

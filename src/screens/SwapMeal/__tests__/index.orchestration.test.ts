@@ -13,10 +13,12 @@ import {AxiosError, AxiosResponse} from 'axios'
 
 import {
   guardsForNewAttempt,
+  KeyedMutationState,
   resolveAlternativesRevision,
   resolveReplayableSwap,
   resolveSwapRetryPlan,
   resolveUnconfirmedRefetch,
+  selectSwapAttemptState,
   SwapAttemptGuards
 } from '../index.orchestration'
 import {resolveSwapView, retiresPendingIntent, SwapView} from '../index.util'
@@ -339,18 +341,21 @@ describe('resolveSwapRetryPlan', () => {
 })
 
 describe('resolveReplayableSwap', () => {
-  it('answers with the stored request for this user, plan and meal', () => {
+  it('answers with the stored request for this user, plan and meal, and the key it was minted for', () => {
     const intent = storedIntent()
 
-    expect(
-      resolveReplayableSwap({
-        state: stateWith(intent),
-        userId: USER_ID,
-        planId: PLAN_ID,
-        mealId: MEAL_ID,
-        now: NOW
-      })
-    ).toEqual(intent.request)
+    const attempt = resolveReplayableSwap({
+      state: stateWith(intent),
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: MEAL_ID,
+      now: NOW
+    })
+
+    // The key travels with the request because it is what identifies the attempt in the shared mutation cache:
+    // without it the screen has no way to match the outcome of a commit the preview screen fired.
+    expect(attempt).toEqual({key: intent.key, request: intent.request})
+    expect(attempt?.key).toBe(STORED_KEY)
   })
 
   it('answers null when there is no signed-in user to scope the record to', () => {
@@ -410,6 +415,65 @@ describe('resolveReplayableSwap', () => {
     expect(
       resolveReplayableSwap({state: stateWith(null), userId: USER_ID, planId: PLAN_ID, mealId: MEAL_ID, now: NOW})
     ).toBeNull()
+  })
+})
+
+describe('selectSwapAttemptState', () => {
+  // The shape a swap commit's mutation-cache entry really has: `useSwapMealMutation(planId, mealId)` closes
+  // over both ids, so the variables are a bare payload and the idempotency key is the only field that can tie
+  // an entry back to the pending intent recorded beside it.
+  type TestState = KeyedMutationState & {status: string; error: Error | null}
+
+  const entry = (idempotencyKey: string | null, submittedAt: number, status = 'error'): TestState => ({
+    submittedAt,
+    status,
+    error: status === 'error' ? new Error('swap_failed') : null,
+    variables:
+      idempotencyKey === null
+        ? {recipeVersionId: 'recipe-1', portionMultiplier: 1, expectedPlanRevision: 3}
+        : {recipeVersionId: 'recipe-1', portionMultiplier: 1, expectedPlanRevision: 3, idempotencyKey}
+  })
+
+  it('answers with the entry whose variables carry the attempt key', () => {
+    const mine = entry(STORED_KEY, 10)
+
+    expect(selectSwapAttemptState([entry('idem-other', 5), mine, entry('idem-later', 20)], STORED_KEY)).toBe(mine)
+  })
+
+  it('answers null when there is no unresolved attempt to match', () => {
+    // A null key is the resolved case — the intent was retired by a server answer — and draws no banner even
+    // while the cache still holds the entry that resolved it.
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10)], null)).toBeNull()
+  })
+
+  it('answers null when no entry carries the key, and for an empty cache', () => {
+    expect(selectSwapAttemptState([entry('idem-other', 10)], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([], STORED_KEY)).toBeNull()
+  })
+
+  it('answers with the latest submission when a replay re-sends the same key', () => {
+    const replay = entry(STORED_KEY, 30)
+
+    // A replay sends the identical key, so the cache holds two entries for one attempt and the newer one is the
+    // outcome now on screen. Order in the array must not decide it.
+    expect(selectSwapAttemptState([replay, entry(STORED_KEY, 10)], STORED_KEY)).toBe(replay)
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10), replay], STORED_KEY)).toBe(replay)
+  })
+
+  it('ignores entries whose variables carry no usable key', () => {
+    // Nothing may be inferred from an entry that cannot be attributed: variables are typed `unknown` at the
+    // cache boundary, so a missing or non-string key is skipped rather than matched loosely.
+    expect(selectSwapAttemptState([entry(null, 10)], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: undefined}], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: {idempotencyKey: 7}}], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: 'idem-stored'}], STORED_KEY)).toBeNull()
+  })
+
+  it('preserves the entry type so the caller keeps its own status and error', () => {
+    const pending = entry(STORED_KEY, 10, 'pending')
+
+    expect(selectSwapAttemptState([pending], STORED_KEY)?.status).toBe('pending')
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10)], STORED_KEY)?.error).toBeInstanceOf(Error)
   })
 })
 

@@ -338,6 +338,20 @@ export function rendersAlternatives(view: SwapView): view is SwapViewWithAlterna
 }
 
 /**
+ * Whether the alternatives list carries frame 13's two explanatory pieces: the "Fits your targets" hint beside
+ * the overline, and the footnote promising that opening an alternative replaces nothing.
+ *
+ * Frame 13e drops BOTH, structurally — its overline block is a single-child column that never holds the hint,
+ * and its alternatives card is the last thing on the screen. After a confirmed failure the plan is known
+ * unchanged and the banner has already said so, so the screen's job is the error rather than reassurance about
+ * what a tap will do. A terminal outcome keeps them: it is frame 13's layout with a toast over it, so the list
+ * is still the screen's subject and a first-time reader still needs the promise.
+ */
+export function rendersAlternativesGuidance(view: SwapView): boolean {
+  return view.kind === 'list' || view.kind === 'terminal'
+}
+
+/**
  * The key lifecycle in one predicate (0.7.2). A terminal refusal OF THE KEYED SWAP retires the pending intent so
  * the next attempt mints a new key — replaying that key could only earn the same refusal, or
  * `idempotency_conflict` once the payload has to change. Everything else keeps it:

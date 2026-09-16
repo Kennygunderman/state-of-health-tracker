@@ -185,6 +185,19 @@ export function orderGrocerySections(sections: GrocerySection[]): GrocerySection
   return [...namedAisles, ...unknownAisles, ...closingAisle]
 }
 
+/**
+ * 37:260 makes the flagged row the Checked card's first row, so an amount that went up is the first thing read
+ * in that block rather than something to hunt for among the struck-through rows. Neither the response nor the
+ * optimistic repartition orders them, so the order is derived here; within each group the server's own order is
+ * preserved, which keeps the rows stable as items are checked off.
+ */
+export function orderCheckedItems(items: GroceryItem[]): GroceryItem[] {
+  const flagged = items.filter(item => groceryRowVariant(item) === 'flagged')
+  const unflagged = items.filter(item => groceryRowVariant(item) !== 'flagged')
+
+  return [...flagged, ...unflagged]
+}
+
 export function groceryCategoryLabel(category: string): string {
   return lookupLabel(GROCERY_CATEGORY_LABELS, category) ?? GROCERY_CATEGORY_LABELS[CLOSING_AISLE]
 }

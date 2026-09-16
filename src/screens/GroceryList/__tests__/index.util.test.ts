@@ -19,6 +19,7 @@ import {
   groceryEyebrow,
   GroceryQueryState,
   groceryRowVariant,
+  orderCheckedItems,
   orderGrocerySections,
   resolveGroceryView,
   shouldShowUncheckAll
@@ -487,6 +488,67 @@ describe('orderGrocerySections', () => {
 
       expect(sections).toEqual(snapshot)
       expect(ordered).not.toBe(sections)
+    })
+  })
+})
+
+describe('orderCheckedItems', () => {
+  describe('ordering', () => {
+    it('puts the flagged row first, as 37:260 draws it', () => {
+      const items = [
+        makeItem({id: 'item-spinach', isChecked: true}),
+        makeItem({id: 'item-broccoli', isChecked: true}),
+        makeFlaggedItem('item-chicken')
+      ]
+
+      expect(orderCheckedItems(items).map(item => item.id)).toEqual(['item-chicken', 'item-spinach', 'item-broccoli'])
+    })
+
+    it('keeps the response order within each group so rows stay stable', () => {
+      const items = [
+        makeItem({id: 'item-spinach', isChecked: true}),
+        makeFlaggedItem('item-chicken'),
+        makeItem({id: 'item-broccoli', isChecked: true}),
+        makeFlaggedItem('item-salmon'),
+        makeItem({id: 'item-rice', isChecked: true})
+      ]
+
+      expect(orderCheckedItems(items).map(item => item.id)).toEqual([
+        'item-chicken',
+        'item-salmon',
+        'item-spinach',
+        'item-broccoli',
+        'item-rice'
+      ])
+    })
+
+    it('leaves an all-muted block untouched, so a decrease never reorders the list', () => {
+      const items = [
+        makeItem({id: 'item-spinach', isChecked: true}),
+        makeItem({id: 'item-oil', isChecked: true, displayText: '4 tbsp'})
+      ]
+
+      expect(orderCheckedItems(items).map(item => item.id)).toEqual(['item-spinach', 'item-oil'])
+    })
+  })
+
+  describe('edge cases', () => {
+    it('returns an empty block for an empty list', () => {
+      expect(orderCheckedItems([])).toEqual([])
+    })
+
+    it('never promotes an unchecked row, because only a checked row can carry the flagged treatment', () => {
+      const items = [makeItem({id: 'item-avocado', flag: INCREASE_FLAG}), makeFlaggedItem('item-chicken')]
+
+      expect(orderCheckedItems(items).map(item => item.id)).toEqual(['item-chicken', 'item-avocado'])
+    })
+
+    it('does not mutate the list it was given', () => {
+      const items = [makeItem({id: 'item-spinach', isChecked: true}), makeFlaggedItem('item-chicken')]
+
+      orderCheckedItems(items)
+
+      expect(items.map(item => item.id)).toEqual(['item-spinach', 'item-chicken'])
     })
   })
 })

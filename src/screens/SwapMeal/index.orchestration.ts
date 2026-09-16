@@ -56,12 +56,35 @@ export interface ReplayableSwapInput {
   now: number
 }
 
+export interface SwapAttempt {
+  /**
+   * The idempotency key the unresolved attempt was minted for. It travels with the request because it is the
+   * only field that identifies the attempt in the shared mutation cache: the commit is fired by the preview
+   * screen, which is gone by the time its outcome is drawn here, so this screen owns no hook instance whose
+   * status it could read and must match a cache entry instead. The key is what the preview recorded beside the
+   * intent immediately before calling `mutate`, and it is the same key a replay re-sends.
+   */
+  key: string
+  request: SwapRequestSnapshot
+}
+
 export interface SwapRetryInput {
   state: Pick<MealPlanStore, 'pendingIntents'>
   snapshot: SwapRequestSnapshot
   userId: string
   attemptedAt: number
   freshKey: string
+}
+
+/**
+ * What `selectSwapAttemptState` needs of a mutation-cache entry, declared structurally rather than imported so
+ * the selector stays a pure function of its arguments and is testable without a query client. TanStack's
+ * `MutationState` satisfies it, and the selector is generic over the entry type so the caller keeps its own
+ * typed `status` and `error` instead of a widened pair.
+ */
+export interface KeyedMutationState {
+  submittedAt: number
+  variables: unknown
 }
 
 export interface SwapRetryVariables {
@@ -118,11 +141,13 @@ export function resolveAlternativesRevision(input: AlternativesRevisionInput): n
 }
 
 /**
- * The stored request of an unresolved commit this screen may replay, or null when there is nothing replayable.
- * The record has to be for this user, this plan and this meal: an intent for another meal describes a different
- * request, and replaying its key would commit that swap instead of the one the banner is offering to retry.
+ * The unresolved commit this screen may replay — its stored request and the key it was minted for — or null when
+ * there is nothing replayable. The record has to be for this user, this plan and this meal: an intent for
+ * another meal describes a different request, and replaying its key would commit that swap instead of the one
+ * the banner is offering to retry. Because the record is scoped that tightly, its key is also a sound identity
+ * for the attempt in the shared mutation cache (`selectSwapAttemptState`).
  */
-export function resolveReplayableSwap(input: ReplayableSwapInput): SwapRequestSnapshot | null {
+export function resolveReplayableSwap(input: ReplayableSwapInput): SwapAttempt | null {
   if (input.userId === null) {
     return null
   }
@@ -135,7 +160,48 @@ export function resolveReplayableSwap(input: ReplayableSwapInput): SwapRequestSn
 
   const request = intent.request
 
-  return request.planId === input.planId && request.mealId === input.mealId ? request : null
+  if (request.planId !== input.planId || request.mealId !== input.mealId) {
+    return null
+  }
+
+  return {key: intent.key, request}
+}
+
+const readIdempotencyKey = (variables: unknown): string | null => {
+  if (typeof variables !== 'object' || variables === null) {
+    return null
+  }
+
+  const {idempotencyKey} = variables as Partial<SwapMealPayload>
+
+  return typeof idempotencyKey === 'string' ? idempotencyKey : null
+}
+
+/**
+ * The mutation-cache entry that belongs to `attemptKey`, or null when the cache holds none. This is how the
+ * drawn failure states are reached at all: the commit is fired by the preview screen under a key the preview
+ * records beside its pending intent, so the attempt is identified by that key and by nothing else. Matching on
+ * the meal cannot work — `useSwapMealMutation(planId, mealId)` closes over both and its wire body carries
+ * neither, so every entry's variables are a bare `SwapMealPayload`.
+ *
+ * A null key means there is no unresolved attempt on record, which is the resolved case and draws no banner. The
+ * latest submission wins where a key appears twice, because a replay re-sends the same key and the newer entry
+ * is the outcome now on screen.
+ */
+export function selectSwapAttemptState<TState extends KeyedMutationState>(
+  states: readonly TState[],
+  attemptKey: string | null
+): TState | null {
+  if (attemptKey === null) {
+    return null
+  }
+
+  return states
+    .filter(state => readIdempotencyKey(state.variables) === attemptKey)
+    .reduce<TState | null>(
+      (latest, state) => (latest === null || state.submittedAt >= latest.submittedAt ? state : latest),
+      null
+    )
 }
 
 /**

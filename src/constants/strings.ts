@@ -1894,6 +1894,12 @@ export const ADD_FOOD_ROW_LABEL_SEPARATOR = ', '
 
 export const SWAP_ALTERNATIVE_ACCESSIBILITY_TEMPLATE = '{name}, {meta}'
 
+// The calorie-change pill leads with a mathematical minus sign, which screen readers announce
+// inconsistently, so the direction of the change is spoken in words rather than left to the glyph.
+export const SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE = '{calories} calories lower'
+
+export const SWAP_PREVIEW_DELTA_UP_ACCESSIBILITY_TEMPLATE = '{calories} calories higher'
+
 export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
 
 export const GROCERY_UNCHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Uncheck {name}'

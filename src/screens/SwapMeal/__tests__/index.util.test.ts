@@ -16,6 +16,7 @@ import {
   isPlanInactive,
   isPlanRevisionStale,
   rendersAlternatives,
+  rendersAlternativesGuidance,
   resolveSwapView,
   retiresPendingIntent,
   SKELETON_ALTERNATIVE_ROWS,
@@ -888,6 +889,39 @@ describe('rendersAlternatives', () => {
     ]
 
     withoutList.forEach(view => expect(rendersAlternatives(view)).toBe(false))
+  })
+})
+
+describe('rendersAlternativesGuidance', () => {
+  it('carries the hint and the footnote on the alternatives state', () => {
+    expect(rendersAlternativesGuidance(resolveSwapView(swapInput()))).toBe(true)
+  })
+
+  it('carries them on a terminal refusal, which is the same layout under a toast', () => {
+    expect(
+      rendersAlternativesGuidance(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})))
+    ).toBe(true)
+  })
+
+  it('drops both on a confirmed failure, which draws the list without either', () => {
+    // Frame 13e's overline block is a single-child column and its card is the last thing on the screen: after a
+    // confirmed failure the plan is known unchanged and the banner has already said so, so neither the
+    // "fits your targets" hint nor the footnote's promise is drawn.
+    const failed = resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
+
+    expect(rendersAlternatives(failed)).toBe(true)
+    expect(rendersAlternativesGuidance(failed)).toBe(false)
+  })
+
+  it('drops both on every state that draws no list at all', () => {
+    const withoutList = [
+      resolveSwapView(swapInput({isAlternativesPending: true, alternatives: undefined})),
+      resolveSwapView(swapInput({alternatives: []})),
+      resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined})),
+      resolveSwapView(swapInput({swapError: transportError()}))
+    ]
+
+    withoutList.forEach(view => expect(rendersAlternativesGuidance(view)).toBe(false))
   })
 })
 

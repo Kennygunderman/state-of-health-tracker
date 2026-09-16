@@ -27,11 +27,13 @@ export default StyleSheet.create({
     fontWeight: FontWeight.BOLD,
     color: Theme.colors.text
   },
+  // The design's meta style, not its sub-copy: this line shares one text style with the 'of {n} kcal'
+  // suffix below it, and its box is too short to seat sub-copy's taller line.
   subtitle: {
-    fontSize: FontSize.BODY,
-    lineHeight: LineHeight.BODY,
+    fontSize: FontSize.LABEL,
+    lineHeight: LineHeight.META,
     fontWeight: FontWeight.REGULAR,
-    color: Theme.colors.textSecondary
+    color: Theme.colors.textMuted
   },
 
   thisMealSection: {
@@ -42,9 +44,11 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.CARD_LG
   },
 
+  // Both cards take the narrower of the design's two card insets: the progress bar and the legend span
+  // the card's full inner width, and the design draws them at 321 rather than 313.
   totalsCard: {
     marginTop: Spacing.SMALL,
-    padding: Spacing.GUTTER,
+    padding: Spacing.MEDIUM,
     backgroundColor: Theme.colors.card,
     borderRadius: BorderRadius.CARD_LG
   },

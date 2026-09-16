@@ -1,10 +1,10 @@
-import React, {useCallback, useEffect, useRef} from 'react'
+import React from 'react'
 
 import {FlatList, ListRenderItemInfo, TouchableOpacity, useWindowDimensions, View} from 'react-native'
 
 import type {GroceryItem} from '@data/models/GroceryList'
 import {GroceryListRouteProp, Navigation} from '@navigation/types'
-import {queryKeys} from '@queries/keys'
+import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useGroceryListQuery} from '@queries/mealPlanning/useGroceryListQuery'
 import {useToggleGroceryItemMutation} from '@queries/mealPlanning/useToggleGroceryItemMutation'
 import {useUncheckAllGroceriesMutation} from '@queries/mealPlanning/useUncheckAllGroceriesMutation'
@@ -13,8 +13,6 @@ import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
-import {useQueryClient} from '@tanstack/react-query'
-import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import BackCircleButton from '@components/BackCircleButton'
@@ -40,7 +38,6 @@ import {
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
   MEAL_PLAN_CREATE_BUTTON_TEXT,
   MEAL_PLAN_LOAD_ERROR_TITLE,
-  MEAL_PLAN_STALE_PLAN_TOAST,
   MEAL_PLAN_TITLE,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
   stringWithNamedParameters,
@@ -57,22 +54,27 @@ import {
   groceryCategoryLabel,
   groceryEyebrow,
   groceryRowVariant,
+  GroceryView,
+  orderCheckedItems,
   orderGrocerySections,
   resolveGroceryView,
   shouldShowUncheckAll
 } from './index.util'
 
-// Three cards, so the placeholder occupies the rhythm of the sections it stands in for.
-const SKELETON_CARD_HEIGHTS: number[] = [Sizes.CONTROL_LG, Sizes.CONTROL_LG, Sizes.CONTROL_LG]
+// 13c's skeleton vocabulary, shaped like the loaded screen: a section label, then a card per aisle it stands in for.
+const SKELETON_BLOCKS: ReadonlyArray<{height: number; borderRadius: number}> = [
+  {height: Sizes.SKELETON_BAR, borderRadius: BorderRadius.CHECKBOX},
+  {height: Sizes.CONTROL_LG, borderRadius: BorderRadius.CARD_LG},
+  {height: Sizes.CONTROL_LG, borderRadius: BorderRadius.CARD_LG}
+]
+
+// The route may carry no plan while the current one is still being read, and 14c would then claim "no active
+// plan" about a plan that is about to arrive. Held as a constant so the guard allocates nothing per render.
+const PLAN_RESOLVING_VIEW: GroceryView = {kind: 'loading'}
 
 // Both write hooks are scoped to a plan, and this screen can open without one (14c). The empty id is never
 // sent: every control that fires them renders only inside a decoded list, which exists only for a real plan.
 const NO_PLAN_ID = ''
-
-// `stale_plan` and `plan_not_active` are one outcome here: the plan this screen was opened for is no longer the
-// one the server reads or writes, whichever request surfaced it (AAP 0.2.5).
-const isPlanGoneCode = (code: string | null): boolean =>
-  code === API_ERROR_CODES.planNotActive || code === API_ERROR_CODES.stalePlan
 
 // Keys are namespaced so the Checked block can never collide with a category code the server adds later.
 const CATEGORY_BLOCK_KEY_PREFIX = 'category:'
@@ -98,91 +100,74 @@ const GroceryListScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<GroceryListRouteProp>()
   const {width} = useWindowDimensions()
-  const queryClient = useQueryClient()
 
-  const groceryQuery = useGroceryListQuery(params.planId)
-  const toggleMutation = useToggleGroceryItemMutation(params.planId ?? NO_PLAN_ID)
-  const uncheckAllMutation = useUncheckAllGroceriesMutation(params.planId ?? NO_PLAN_ID)
+  const currentPlanQuery = useCurrentMealPlanQuery()
 
-  const view = resolveGroceryView(
-    {isLoading: groceryQuery.isLoading, isError: groceryQuery.isError, data: groceryQuery.data},
-    params.planId
-  )
+  // Opening the list without a plan id means "shop the plan I am on", so the current plan answers for it. AAP
+  // 0.7.4 treats a missing id and an absent current plan as the one no-plan state, which this resolves to null.
+  const planId = params.planId ?? currentPlanQuery.data?.current?.id ?? null
+
+  const groceryQuery = useGroceryListQuery(planId)
+  const toggleMutation = useToggleGroceryItemMutation(planId ?? NO_PLAN_ID)
+  const uncheckAllMutation = useUncheckAllGroceriesMutation(planId ?? NO_PLAN_ID)
+
+  const isResolvingPlan = params.planId === null && currentPlanQuery.isLoading
+
+  const view: GroceryView = isResolvingPlan
+    ? PLAN_RESOLVING_VIEW
+    : resolveGroceryView(
+        {isLoading: groceryQuery.isLoading, isError: groceryQuery.isError, data: groceryQuery.data},
+        planId
+      )
 
   const eyebrow = groceryEyebrow(view)
 
-  // AAP 0.2.5 gives a recognised code its own recovery rather than the generic retry card. The refetch is what
-  // moves the Meal Plan tab onto the plan that replaced this one; nothing navigates away from the list.
-  const recoverFromStalePlan = useCallback((): void => {
-    showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
-    queryClient.refetchQueries({queryKey: queryKeys.mealPlanCurrent})
-  }, [queryClient])
-
-  const onWriteFailed = useCallback(
-    (error: unknown): void => {
-      if (isPlanGoneCode(getApiErrorCode(error))) {
-        recoverFromStalePlan()
-
-        return
-      }
-
-      // The optimistic write has already rolled back in the mutation's own handler, so the report is all that is
-      // left to do.
+  // Both writes are optimistic and both roll themselves back, so a rejection leaves this screen nothing to undo
+  // and nothing to invalidate: reporting it is the whole job, and the row is already back where it was.
+  const onToggleItem = async (item: GroceryItem): Promise<void> => {
+    try {
+      await toggleMutation.mutateAsync({itemId: item.id, isChecked: !item.isChecked})
+    } catch {
       showToast('error', TOAST_GENERIC_ERROR)
-    },
-    [recoverFromStalePlan]
-  )
-
-  // Read from the query error rather than the view, because a superseded plan is a fact about the plan even on a
-  // background refetch that left decoded rows on screen. Null for a network or undecodable failure, which AAP
-  // 0.2.5 answers with the inline retry card alone.
-  const readErrorCode = getApiErrorCode(groceryQuery.error)
-  const stalePlanReadCode = isPlanGoneCode(readErrorCode) ? readErrorCode : null
-
-  const recoveredStalePlanCode = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (stalePlanReadCode === null) {
-      // Cleared so a stale-plan read that returns after a successful retry reports itself once more.
-      recoveredStalePlanCode.current = null
-
-      return
     }
+  }
 
-    if (recoveredStalePlanCode.current === stalePlanReadCode) {
-      return
+  const onUncheckAllPressed = async (): Promise<void> => {
+    try {
+      await uncheckAllMutation.mutateAsync()
+    } catch {
+      showToast('error', TOAST_GENERIC_ERROR)
     }
-
-    recoveredStalePlanCode.current = stalePlanReadCode
-
-    recoverFromStalePlan()
-  }, [recoverFromStalePlan, stalePlanReadCode])
-
-  const onToggleItem = useCallback(
-    (item: GroceryItem): void => {
-      toggleMutation.mutate({itemId: item.id, isChecked: !item.isChecked}, {onError: error => onWriteFailed(error)})
-    },
-    [onWriteFailed, toggleMutation]
-  )
-
-  const onUncheckAllPressed = useCallback((): void => {
-    uncheckAllMutation.mutate(undefined, {onError: error => onWriteFailed(error)})
-  }, [onWriteFailed, uncheckAllMutation])
+  }
 
   // A row is busy while its own toggle is in flight, and every row is busy while the whole list is being
   // cleared: a second press during either would write against a count the server is already changing.
   const isRowPending = (item: GroceryItem): boolean =>
     uncheckAllMutation.isPending || (toggleMutation.isPending && toggleMutation.variables?.itemId === item.id)
 
+  /**
+   * 37:35 then 37:38, in that order on every screen: the eyebrow 16 below the back row and the title 4 below the
+   * eyebrow. Held in one place so the two header shapes — beside the action (37:32) and without it (37:371) —
+   * cannot drift apart. The overline renders even where a state has nothing to say (loading, error), so the
+   * title keeps its own rung instead of moving up as the screen resolves.
+   */
+  const overlineAndTitle = (): React.JSX.Element => (
+    <>
+      <SectionOverline text={eyebrow.text} tone={eyebrow.tone} />
+
+      <Text style={styles.title}>{GROCERY_LIST_TITLE}</Text>
+    </>
+  )
+
   const loadingBlock = (): React.JSX.Element => (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {SKELETON_CARD_HEIGHTS.map((height, index) => (
-        <View key={`${height}-${index}`} style={styles.skeletonRow}>
+      {SKELETON_BLOCKS.map((block, index) => (
+        <View key={`${block.height}-${index}`} style={styles.skeletonRow}>
           <SkeletonBlock
-            height={height}
+            height={block.height}
             // Skeleton takes a number, so the card's width is computed the way ContentColumn derives it.
             width={contentColumnWidth(width)}
-            borderRadius={BorderRadius.CARD_LG}
+            borderRadius={block.borderRadius}
           />
         </View>
       ))}
@@ -211,8 +196,10 @@ const GroceryListScreen = (): React.JSX.Element => {
         icon={<GroceryCartIcon variant="empty" color={Theme.colors.accentGreen} />}
         headline={GROCERY_NO_PLAN_TITLE}
         body={GROCERY_NO_PLAN_BODY}
+        variant="tile"
+        bottomInset="lg"
         primaryLabel={MEAL_PLAN_CREATE_BUTTON_TEXT}
-        onPrimary={() => navigation.navigate(Screens.MEAL_PLAN_INTRO)}
+        onPrimary={() => navigation.push(Screens.MEAL_PLAN_INTRO)}
       />
     </View>
   )
@@ -225,6 +212,8 @@ const GroceryListScreen = (): React.JSX.Element => {
         icon={<GroceryCartIcon variant="empty" color={Theme.colors.accentGreen} />}
         headline={GROCERY_EMPTY_PLAN_TITLE}
         body={GROCERY_EMPTY_PLAN_BODY}
+        variant="tile"
+        bottomInset="lg"
       />
     </View>
   )
@@ -247,7 +236,7 @@ const GroceryListScreen = (): React.JSX.Element => {
                   kind: 'checked',
                   key: CHECKED_BLOCK_KEY,
                   title: stringWithNamedParameters(GROCERY_CHECKED_HEADER_TEMPLATE, {n: view.list.checkedCount}),
-                  items: view.list.checkedItems
+                  items: orderCheckedItems(view.list.checkedItems)
                 } satisfies GroceryBlock
               ]
             : [])
@@ -306,6 +295,7 @@ const GroceryListScreen = (): React.JSX.Element => {
           data={blocks}
           keyExtractor={block => block.key}
           renderItem={renderBlock}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={
             view.kind === 'noPlan' || view.kind === 'emptyList' ? styles.listContentEmpty : styles.listContent
           }
@@ -317,13 +307,9 @@ const GroceryListScreen = (): React.JSX.Element => {
                 <Text style={styles.backLabel}>{MEAL_PLAN_TITLE}</Text>
               </View>
 
-              <Text style={styles.title}>{GROCERY_LIST_TITLE}</Text>
-
               {showsUncheckAll ? (
                 <View style={styles.eyebrowRow}>
-                  <View style={styles.headerStack}>
-                    <SectionOverline text={eyebrow.text} tone={eyebrow.tone} />
-                  </View>
+                  <View style={styles.headerStack}>{overlineAndTitle()}</View>
 
                   <TouchableOpacity
                     style={styles.uncheckAllButton}
@@ -337,11 +323,9 @@ const GroceryListScreen = (): React.JSX.Element => {
                   </TouchableOpacity>
                 </View>
               ) : (
-                !!eyebrow.text && (
-                  <View style={styles.overlineBlock}>
-                    <SectionOverline text={eyebrow.text} tone={eyebrow.tone} />
-                  </View>
-                )
+                // 37:371 and 37:374: with nothing to sit beside, the row is gone and the overline and the title are
+                // plain blocks on the same two rungs.
+                <View style={styles.overlineBlock}>{overlineAndTitle()}</View>
               )}
 
               {banner !== null && (

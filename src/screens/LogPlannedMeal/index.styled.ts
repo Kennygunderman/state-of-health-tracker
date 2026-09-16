@@ -78,6 +78,11 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textSecondary
   },
+  // Node 38:52's 8px gap under the "Servings" label. The loaded body takes it from ServingsStepper's own row
+  // padding, so this is the placeholder's copy of it — applying both would double the gap.
+  stepperSection: {
+    paddingTop: Spacing.X_SMALL
+  },
   chipsSection: {
     paddingTop: Spacing.SMALL
   },

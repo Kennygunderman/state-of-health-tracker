@@ -12,12 +12,12 @@ import {useMealPlanDayQuery} from '@queries/mealPlanning/useMealPlanDayQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
+import {useSessionStore} from '@store/session/useSessionStore'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {mintKey} from '@utility/IdempotencyUtility'
-import {formatDayKey} from '@utility/MealPlanDateUtility'
 import {applyFractionPart} from '@utility/ServingsUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -59,10 +59,10 @@ import SlotPicker from './components/SlotPicker'
 import {
   canChangeLogDate,
   classifyLogFailure,
+  hasUnresolvedLogIntent,
   isPlanStateReadFailure,
   LogCommitTarget,
   LogPlanDateRange,
-  logMutationScope,
   nextLogDate,
   planDayQueryRecovery,
   planDayQueryScope,
@@ -84,7 +84,6 @@ import {
 
 const ONE_PORTION = 1
 
-// A null here is what keeps the footer, the figures and the bucket picker off the screen.
 interface LogReadyState {
   meal: MealPlanMeal
   planRevision: number
@@ -98,9 +97,6 @@ interface LogReadyState {
  * bucket: an unresolved intent describing the identical request answers with the key it was minted for, so a
  * lost response is replayed rather than writing a second diary entry (0.7.2). A failure never leaves this
  * screen — the portion, the date and the bucket all stay exactly as entered.
- *
- * Every decision between a query answer and that write is a pure function in `index.orchestration.ts`, which
- * is where they are held under test; this file performs them.
  */
 const LogPlannedMealScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -113,16 +109,17 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   const setPostLogResult = useMealPlanStore(state => state.setPostLogResult)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
+  // Read only. This is the day the Diary itself calls today, and the only value the post-log destination may
+  // be decided against: a second reading of "today" could send the user to a screen the entry is not on.
+  const sessionDayKey = useSessionStore(state => state.sessionStartDateIso)
 
   const [logDate, setLogDate] = useState(params.date)
   const [servings, setServings] = useState(ONE_PORTION)
   const [chosenBucketId, setChosenBucketId] = useState<string | null>(null)
   const [skeletonWidth, setSkeletonWidth] = useState(0)
 
-  // The meal belongs to the planned day the route names; the entry is written to the day the user selected.
-  // The log mutation invalidates `dailyMacros(date)` for the date it is constructed with (0.7.2), so it is
-  // scoped to the selected day — scoped to the route's, a meal stepped onto today would leave today's Diary
-  // cached without the entry it just wrote.
+  // The meal belongs to the planned day the route names; the entry is written to the day the user selected,
+  // which is the day the diary is read for and the date the payload carries.
   const cacheScope = useMemo(
     () => resolveLogCacheScope({planId: params.planId, plannedDate: params.date, selectedDate: logDate}),
     [logDate, params.date, params.planId]
@@ -131,10 +128,15 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   const dayQuery = useMealPlanDayQuery(...planDayQueryScope(cacheScope))
   const macrosQuery = useDailyMacrosQuery(cacheScope.diaryDate)
   const currentPlanQuery = useCurrentMealPlanQuery()
-  const logMutation = useLogPlannedMealMutation(...logMutationScope(cacheScope))
+  const logMutation = useLogPlannedMealMutation(cacheScope.planId, params.mealId)
 
-  // One clock for this mount: the stepper's "Today" label and the post-log destination are both day-key
-  // granular, so re-reading it per render could only let two reads of the same day disagree.
+  const refetchDisplay = dayQuery.refetch
+  const refetchDiary = macrosQuery.refetch
+  const refetchCurrentPlan = currentPlanQuery.refetch
+
+  // One clock for this mount: the stepper's day labels and the stored intent's 7-day life are day-granular, so
+  // re-reading it per render could only let two readings of the same day disagree. The post-log destination is
+  // decided against the session's day key instead, because that is the one the Diary itself is showing.
   const now = useMemo(() => new Date(), [])
 
   const hasRefetchedUnconfirmed = useRef(false)
@@ -186,10 +188,20 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
   const isLoading = dayQuery.isLoading || macrosQuery.isLoading
 
+  // An intent an earlier mount left unresolved, which this screen is the one that can still answer. Read only
+  // while the mutation is idle: a request in flight has its intent recorded too, so an unguarded read would
+  // state an unconfirmed outcome over a write that simply has not answered yet.
+  const hasStoredIntent = useMemo(
+    () => hasUnresolvedLogIntent({pendingIntents, userId, mealId: params.mealId, now: now.getTime()}),
+    [now, params.mealId, pendingIntents, userId]
+  )
+
   // The one failure the plan draws on this frame: an outcome that may already have committed promises
   // nothing and offers the same key again. Every confirmed refusal is reported by toast instead, because the
   // key it answered is spent.
-  const isUnconfirmed = logMutation.isError && classifyLogFailure(logMutation.error).isUnconfirmed
+  const isUnconfirmed = logMutation.isError
+    ? classifyLogFailure(logMutation.error).isUnconfirmed
+    : logMutation.isIdle && hasStoredIntent
 
   const onLogged = useCallback(
     (result: LogPlannedMealResult, loaded: LogReadyState): void => {
@@ -200,14 +212,22 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         dateIso: loaded.target.diaryDate,
         slotLabel: loaded.target.bucketLabel,
         recipeName: loaded.meal.recipe.name,
-        viewTarget: resolveViewTarget(loaded.target.diaryDate, formatDayKey(now))
+        viewTarget: resolveViewTarget(loaded.target.diaryDate, sessionDayKey)
       })
       setSelectedPlanDate(params.date)
       setMacrosSegment('mealPlan')
       // The success banner is the plan tab's (38:351), raised from postLogResult — no toast is raised here.
       navigation.popTo(Screens.MACROS)
     },
-    [clearPendingIntent, navigation, now, params.date, setMacrosSegment, setPostLogResult, setSelectedPlanDate]
+    [
+      clearPendingIntent,
+      navigation,
+      params.date,
+      sessionDayKey,
+      setMacrosSegment,
+      setPostLogResult,
+      setSelectedPlanDate
+    ]
   )
 
   const onLogFailed = useCallback(
@@ -223,12 +243,23 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       if (decision.toast !== null) {
         showToast('error', decision.toast)
       }
+
+      if (decision.refetchCurrentPlan) {
+        refetchCurrentPlan()
+      }
+
+      // A rebuilt bucket list is what lets the next attempt name a bucket the day actually has.
+      if (decision.refetchDiary) {
+        refetchDiary()
+      }
     },
-    [clearPendingIntent]
+    [clearPendingIntent, refetchCurrentPlan, refetchDiary]
   )
 
-  const onAddToDiaryPressed = useCallback((): void => {
-    if (ready === null) {
+  const onAddToDiaryPressed = useCallback(async (): Promise<void> => {
+    // Nothing to log, or a request already in flight under a key of its own: a second press must not open a
+    // second write, and the banner's "Try again" reaches this handler as well as the footer's CTA does.
+    if (ready === null || logMutation.isPending) {
       return
     }
 
@@ -254,7 +285,17 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
     hasRefetchedUnconfirmed.current = false
 
-    logMutation.mutate(attempt.payload, {onSuccess: result => onLogged(result, ready), onError: onLogFailed})
+    // Awaited here rather than handed to per-call callbacks: the mutation's own options own the cache
+    // invalidations and this screen owns every consequence the user meets. Per-call callbacks are also dropped
+    // when the screen unmounts mid-flight, which would leave a committed write's intent unresolved and the
+    // next mount stating an outcome the server had already confirmed.
+    try {
+      const result = await logMutation.mutateAsync(attempt.payload)
+
+      onLogged(result, ready)
+    } catch (error) {
+      onLogFailed(error)
+    }
   }, [
     cacheScope.planId,
     logMutation,
@@ -267,10 +308,6 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     servings,
     userId
   ])
-
-  const refetchDisplay = dayQuery.refetch
-  const refetchDiary = macrosQuery.refetch
-  const refetchCurrentPlan = currentPlanQuery.refetch
 
   useEffect(() => {
     const refetch = planUnconfirmedRefetch({
@@ -359,6 +396,8 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         <>
           <View style={styles.recipeCardSection}>{skeletonBar(Sizes.CONTROL_LG)}</View>
 
+          <View style={styles.stepperSection}>{skeletonBar(Sizes.CONTROL)}</View>
+
           <View style={styles.chipsSection}>{skeletonBar(Sizes.CONTROL)}</View>
 
           <View style={styles.thisAddsSection}>{skeletonBar(Sizes.CONTROL_LG)}</View>
@@ -423,7 +462,11 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         <View style={styles.thisAddsCard}>
           <SectionOverline text={THIS_ADDS_LABEL} />
 
-          <MetricGrid4 items={buildThisAddsItems(thisAddsTotals(loaded.meal.planned, servings))} />
+          {/* One element, so the four figures are read as caption-and-value pairs rather than four orphan
+              numbers, and polite so a changed portion is announced without interrupting the field. */}
+          <View accessible accessibilityLiveRegion="polite">
+            <MetricGrid4 items={buildThisAddsItems(thisAddsTotals(loaded.meal.planned, servings))} />
+          </View>
         </View>
       </View>
 
@@ -454,6 +497,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <View style={styles.headerRow}>
@@ -501,15 +545,16 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         </KeyboardAwareScrollView>
       </ContentColumn>
 
-      {ready !== null && (
-        <SetupFooter hairline>
-          <PrimaryButton
-            label={LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT}
-            isLoading={logMutation.isPending}
-            onPress={onAddToDiaryPressed}
-          />
-        </SetupFooter>
-      )}
+      {/* Node 38:9 draws the footer and its one CTA in every state, so a screen still loading — or holding an
+          error where there is nothing to log — shows the action disabled rather than dropping it. */}
+      <SetupFooter hairline>
+        <PrimaryButton
+          label={LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT}
+          isLoading={logMutation.isPending}
+          disabled={ready === null}
+          onPress={onAddToDiaryPressed}
+        />
+      </SetupFooter>
     </SafeAreaView>
   )
 }
