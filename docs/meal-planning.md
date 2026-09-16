@@ -1,0 +1,704 @@
+# Meal planning — mobile engineering guide
+
+The engineering entry point for the meal-planning feature in this repository: where each Figma
+frame landed, how to run the feature locally, which conventions it broke and why, and — in the last
+two sections — what this delivery could **not** verify.
+
+This path is load-bearing. `mobile/README.md` links `docs/meal-planning.md`, so renaming or moving
+this file breaks that link.
+
+**What this guide does not own.** The API, its database, the food catalog, the recipe seeds and the
+operator command order live in the sibling repository and are documented there. Section 11 links
+those documents; nothing here restates them, so when the two disagree about the server, the backend
+documents are right.
+
+| Section                                                                                                 |                                                                         |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [1. Screen ↔ Figma map](#1-screen--figma-map)                                                          | Which frame is which screen, and what the frame numbering does not mean |
+| [2. Where the code lives](#2-where-the-code-lives)                                                      | Directory map and the one new module convention                         |
+| [3. Running it locally](#3-running-it-locally)                                                          | Command order, and the two switches that make the feature appear at all |
+| [4. Environment and the API-origin guard](#4-environment-and-the-api-origin-guard)                      | Why a debug build now refuses a production origin                       |
+| [5. Typeface](#5-typeface-helvetica-neue-vs-the-platform-default)                                       | A recorded, reversible deviation from Figma                             |
+| [6. Tokens and the style gate](#6-tokens-and-the-style-gate)                                            | New tokens, the literal scan, and three gaps left open                  |
+| [7. Lint: the baseline gate](#7-lint-the-baseline-gate)                                                 | Two commands, and the exit code that is _not_ the gate                  |
+| [8. `npm ci` and the peer-dependency workaround](#8-npm-ci-and-the-peer-dependency-workaround)          | Documented, deliberately not fixed                                      |
+| [9. Why two files in `scripts/` are not TypeScript](#9-why-two-files-in-scripts-are-not-typescript)     | A convention break with a reason                                        |
+| [10. Physical-device verification checklist — UNRUN](#10-physical-device-verification-checklist--unrun) | Reproduced in full, every item unchecked                                |
+| [11. Cross-repository pointers and delivery shape](#11-cross-repository-pointers-and-delivery-shape)    | The two pull requests and their order                                   |
+
+---
+
+## 1. Screen ↔ Figma map
+
+The visual source of truth is the Figma file **"Meal Plan Flow — State of Health"**, file key
+`ZytSsn2tKVpMCSoibMJ274`: 31 screen states, all 393×852, each with an adjacent "— note" frame
+carrying implementation guidance. Several of those notes are the only record of a behavioural
+decision, so read the note beside a frame before changing the screen it describes.
+
+Open any node by appending its id to the file URL, with every `:` replaced by `-`:
+
+```text
+https://www.figma.com/design/ZytSsn2tKVpMCSoibMJ274/Meal-Plan-Flow-%E2%80%94-State-of-Health?node-id=<id>
+```
+
+So node `46:9` is `?node-id=46-9`, node `34:301` is `?node-id=34-301`, node `38:504` is
+`?node-id=38-504`.
+
+**Everything drawn inside a frame is sample content** — the dates, meal names, calorie figures,
+quantities and badges are illustrative, not fixtures and not defaults. Only frame 01's explicitly
+labelled "Example week" card is static illustrative content in the app; every other value on every
+other screen comes from the API. A frame showing a selected option is likewise not a preselected
+answer: the wizard steps open with nothing chosen.
+
+### The 14 flows and their 31 states
+
+| Flow | Frame(s)                                                  | Node(s)                        | Implemented in                                                                                                          |
+| ---- | --------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| F1   | 01 Introduction                                           | `46:9`                         | `src/screens/MealPlanIntro/`                                                                                            |
+| F1   | 02 Your goal                                              | `46:136`                       | `src/screens/MealPlanGoal/`                                                                                             |
+| F2   | 03 About you · 03b About you errors                       | `46:260` · `46:404`            | `src/screens/MealPlanAboutYou/` — both states, one screen                                                               |
+| F3   | 04 Activity                                               | `47:9`                         | `src/screens/MealPlanActivity/`                                                                                         |
+| F3   | 05 Diet and allergies                                     | `47:116`                       | `src/screens/MealPlanDiet/`                                                                                             |
+| F4   | 06 Food preferences                                       | `47:238`                       | `src/screens/MealPlanFoodPreferences/`                                                                                  |
+| F4   | 06b Food search                                           | `47:346`                       | `src/screens/MealPlanFoodSearch/`                                                                                       |
+| F5   | 07 Meals and schedule                                     | `47:471`                       | `src/screens/MealPlanSchedule/`                                                                                         |
+| F5   | 08 Cooking and budget                                     | `47:582`                       | `src/screens/MealPlanCookingBudget/`                                                                                    |
+| F6   | 09 Targets and review                                     | `34:9`                         | `src/screens/MealPlanTargets/`                                                                                          |
+| F6   | 09b Edit targets                                          | `34:185`                       | `src/screens/MealPlanEditTargets/`                                                                                      |
+| F7   | 10 Generating · 10b Generation failed · 10c No match      | `34:301` · `34:364` · `34:436` | `src/screens/MealPlanGenerating/` — three states, one screen                                                            |
+| F8   | 11c No plan · 11 Meal plan · 11b Meal plan logged         | `49:433` · `49:9` · `49:251`   | `src/screens/Macros/components/MealPlanTab/`                                                                            |
+| F9   | 12 Recipe detail                                          | `49:532`                       | `src/screens/RecipeDetail/`                                                                                             |
+| F10  | 13c Swap loading · 13 Swap meal                           | `36:291` · `36:9`              | `src/screens/SwapMeal/`                                                                                                 |
+| F10  | 13b Swap preview                                          | `36:130`                       | `src/screens/SwapPreview/`                                                                                              |
+| F11  | 13d Swap no results · 13e Swap failed                     | `36:372` · `36:459`            | `src/screens/SwapMeal/` — two further states of the same screen                                                         |
+| F12  | 14 Grocery list · 14b Grocery checked · 14c Grocery empty | `37:9` · `37:165` · `37:348`   | `src/screens/GroceryList/`                                                                                              |
+| F13  | 15 Log meal                                               | `38:9`                         | `src/screens/LogPlannedMeal/`                                                                                           |
+| F13  | 15b Diary result                                          | `38:160`                       | the **existing** `src/screens/Macros/` Diary, with the new caption on `MealEntryRow` — not a new screen (note `38:351`) |
+| F14  | 16 Plan settings · 16b Regenerate confirm                 | `38:359` · `38:504`            | `src/screens/PlanSettings/` — 16b is its private `PlanConfirmDialog`                                                    |
+
+Thirty-one states across 21 rows and 20 destinations, because six screens render more than one
+state: `SwapMeal` four (13c, 13, 13d, 13e), `MealPlanGenerating` three, `MealPlanTab` three,
+`GroceryList` three, `MealPlanAboutYou` two, and `PlanSettings` two counting its dialog. The
+twentieth destination is the shipped `Macros` Diary, which 15b is.
+
+### What the frame numbering does not mean
+
+The file numbers its frames in reading order, which reads like navigation in four places where it
+is not:
+
+- **10b and 10c are mutually exclusive outcomes of 10, not its successors.** 10b is a _confirmed_
+  generation failure; 10c is "no compatible plan" — a different response, a different body, and an
+  inverted footer. Neither follows the other.
+- **13d and 13e are sibling outcomes and never sequential.** 13d follows 13c when the alternatives
+  response comes back empty. 13e follows 13b's commit when the commit _confirms_ a failure. One
+  cannot lead to the other.
+- **14c is an alternate state of the grocery list, not 14b's successor.** It renders when there is
+  no plan at all; a plan that exists but needs no ingredients has its own copy, distinct from 14c's.
+- **15 → 15b passes through 11b.** "Add to diary" on 15 returns to the plan day — frame 11b, inside
+  Macros, with the segmented control and the tab bar present. 15b is reached from 11b's "View diary"
+  link or the logged card's "View in diary", never directly from 15.
+
+### Two placements a frame cannot tell you
+
+**Plan settings has no drawn entry point.** No frame draws one, and the plan header's only action is
+the grocery cart (note `49:243`). The entry point is therefore inferred: `PlanSettingsRow`, the last
+item below the meal cards on every plan day
+(`src/screens/Macros/components/MealPlanTab/components/PlanSettingsRow/`). It is also where 13d's
+"Edit preferences" goes.
+
+**11, 11b and 11c are not routes.** They render inside the existing Macros screen, behind the
+Diary / Meal Plan segmented control that `src/screens/Macros/index.tsx` owns, which is why the map
+sends them to a `components/` folder rather than to `src/screens/`. The existing bottom navigation
+is untouched; the remaining-calorie ring stays in the Diary and the Meal Plan body shows planned
+totals without implying anything was eaten.
+
+### Copy that deliberately differs from the frames
+
+Two strings in `src/constants/strings.ts` do not match what the file draws. Both are decisions, not
+drift, so quote the constant rather than the frame when you write an assertion or a screenshot
+caption.
+
+- **`MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'`** — the diary caption under a planned meal.
+  Node `38:267` renders it with **no trailing period**, and so does the constant; the period that
+  appears in prose about this label is sentence punctuation, not part of the string.
+- **`MEAL_PLAN_ACTIVITY_INFO_BODY`** — the 04 info card. It **replaces** the copy drawn at node
+  `47:95` ("Outside of workouts you log in the app.") with:
+
+  ```text
+  Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.
+  ```
+
+  The activity factor multiplies BMR exactly once and already accounts for habitual training, which
+  is what the option sub-copy anchors describe, so the original wording contradicted the calculation
+  this screen feeds. Logged workouts and runs never change a target.
+
+Everything else renders the frame's copy verbatim. The inferred states — the unconfirmed-outcome
+banners, the feature-unavailable card, the empty-grocery-list copy and the plural forms of the
+flagged-amount banner — have their own constants in the same file, grouped by screen.
+
+---
+
+## 2. Where the code lives
+
+| Path                                                                                                                       | Holds                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/screens/MealPlan*/`, `RecipeDetail/`, `SwapMeal/`, `SwapPreview/`, `GroceryList/`, `LogPlannedMeal/`, `PlanSettings/` | The 18 routes, registered in `src/navigation/MacrosStack.tsx` with params typed in `src/navigation/types.ts`                                                                                                                      |
+| `src/screens/Macros/components/MealPlanTab/`                                                                               | The Meal Plan segment: `DayStrip`, `EmptyPlanState` (11c), `LastDayCard`, `LoggedBadge`, `MealPlanCard`, `PlanHeader`, `PlanSettingsRow`, `PlannedTotalsCard`                                                                     |
+| `src/components/`                                                                                                          | The components two or more screens share — `ContentColumn`, `WizardHeader`, `OptionCard`, `TextField`, `InfoBanner`, `EmptyState`, `MetricGrid4`, `RecipeHero`, `MealPlanSetupProvider` and the rest                              |
+| `src/components/icons/`                                                                                                    | The 20 icon components transcribed from the Figma exports                                                                                                                                                                         |
+| `src/queries/mealPlanning/`, `src/queries/catalog/`                                                                        | Query and mutation hooks; every key is registered in `src/queries/keys.ts`                                                                                                                                                        |
+| `src/queries/api/mealPlanning/`, `src/queries/api/catalog/`                                                                | One request function per endpoint, with `decoder/` codecs and `converter/` mappers                                                                                                                                                |
+| `src/store/mealPlan/useMealPlanStore.ts`                                                                                   | Client state only — segment, selected day, banner dismissal, and the persisted pending-intent slice                                                                                                                               |
+| `src/hooks/mealPlanning/`                                                                                                  | `useMealPlanEntitlement` and `useHomeTabsNavigation`, each with a tested `.util.ts`                                                                                                                                               |
+| `src/utility/`                                                                                                             | Helpers used across trees: `ServingsUtility`, `NutritionFormatUtility`, `UnitConversionUtility`, `MealPlanDateUtility`, `IdempotencyUtility`, `RevisionConflictUtility`, `MealPlanEntitlementUtility`, `MealPlanLifecycleUtility` |
+| `src/data/models/`                                                                                                         | The domain types the converters produce                                                                                                                                                                                           |
+| `src/styles/`                                                                                                              | Tokens — see section 6                                                                                                                                                                                                            |
+| `src/constants/strings.ts`                                                                                                 | Every fixed string, imported as `@constants/strings`                                                                                                                                                                              |
+
+Two things in here a reader cannot infer:
+
+**`index.orchestration.ts`.** Three screens — `MealPlanTargets`, `LogPlannedMeal` and `SwapMeal` —
+carry a module of this name beside `index.util.ts`, with its own
+`__tests__/index.orchestration.test.ts`. It holds a multi-step sequence that drives mutations and
+decides what to do with their errors (confirm targets, then save the start date, then generate, for
+example), kept out of the component so the sequence is testable without a renderer. `index.util.ts`
+keeps its usual job: pure derivation. Reach for an orchestration module only when a screen's press
+handler has to make more than one server write in order and resume correctly after a failure.
+
+**Promoted helpers.** `FoodDetail`'s servings stepper and fraction-chip logic now lives in
+`src/utility/ServingsUtility.ts`, because `LogPlannedMeal` needs the same behaviour and a component
+must never import another component's `index.util.ts`. The selected fraction chip on 15 is
+deliberately identical to FoodDetail's existing convention — `greenTint` fill, `accentGreen` border
+and label — per note `38:152`.
+
+---
+
+## 3. Running it locally
+
+```bash
+npm ci --legacy-peer-deps          # plain `npm ci` fails — see section 8
+cp .env.dist .env                  # then point SOH_API_BASE_URL at your dev API
+npx tsc --noEmit
+npm run lint                       # read section 7 before judging its exit code
+npm test -- --runInBand
+npm run ios                        # == npx expo run:ios; needs macOS + Xcode
+```
+
+`npm start` (`npx expo start --dev-client`) is the Metro-only entry point for a development client
+that is already installed. `npm run android` is `npx expo run:android`. There are no other scripts
+for this feature; nothing was added to `package.json`.
+
+### Two switches decide whether the feature exists
+
+Both default to off. A developer who misses either sees the app exactly as it was before this
+feature and will reasonably conclude the work is broken, so check them first.
+
+**1 — The API must be running with `MEAL_PLANNING_ENABLED=true`, after its catalog release and
+recipe seeds are loaded.** While the flag is off, every `/meal-planning/*` route except
+`/meal-planning/targets*` and every `/recipes/*` route answers `503 feature_disabled`, and the Meal
+Plan segment renders the unavailable card. Enabling the flag before loading the catalog produces a
+server that answers but cannot plan. The command order is owned by
+[`backend/docs/meal-planning/README.md`](../../backend/docs/meal-planning/README.md) — follow it
+there rather than reconstructing it here.
+
+**2 — Firebase Remote Config `meal_planning_enabled` must have been fetched at least once.** The
+packaged default in `src/service/remoteConfig/initRemoteConfig.ts` is `false`, so an install that
+has never activated a console value hides the feature by design. The policy is stricter than a
+boolean read and lives in one place, `src/utility/MealPlanEntitlementUtility.ts`: only a value the
+SDK has _activated from the console_ (`valueSource === 'remote'`) can enable the feature. A failed
+or throttled fetch deliberately changes nothing, because the SDK caches an activated value across
+launches — so once `true` has been activated, it stays `true` offline.
+
+The value reaches a device on its **next cold start**, not while the app is in the foreground:
+`initRemoteConfig()` is called once from `MinimumVersionSheet`'s mount-only effect, and
+`setConfigSettings` pins `minimumFetchIntervalMillis` to `900_000` (15 minutes). There is no
+foreground refresh and none was added.
+
+Worth knowing because it inverts the existing precedent: `log_with_ai_enabled` ships with a packaged
+default of `true` and is a kill switch for a live feature, while `meal_planning_enabled` ships
+`false` and is an enable switch for an unseeded one. They sit in the same `setDefaults` call.
+
+---
+
+## 4. Environment and the API-origin guard
+
+A development or test run can no longer reach the production API by omission. Four changes
+together:
+
+**`.env.dist` carries a localhost placeholder.** The tracked template previously held the
+production API URL, so copying it produced a working `.env` pointed at production data. It now
+reads `SOH_API_BASE_URL=http://localhost:3000`. `.env` itself stays git-ignored.
+
+**`src/constants/endpoints.ts` throws at module load.** Under `__DEV__` and under Jest the module
+runs `assertNonProductionApi()`, which rejects a missing origin, a malformed origin, and any origin
+that is not recognisably non-production. A **release build keeps the previous fallback unchanged** —
+the guard exists so that a debug build or a test run can never silently use it.
+
+The predicate (`isNonProductionApiOrigin`) accepts:
+
+- `localhost` or `127.0.0.1`,
+- an RFC 1918 private IPv4 address — `10/8`, `172.16/12`, `192.168/16`,
+- a host ending in one of the four ngrok suffixes, matched on a label boundary so a host that merely
+  contains `ngrok` fails,
+- a host listed in `SOH_DEV_API_HOSTS`.
+
+Anything it cannot read as scheme + host + optional port is rejected as malformed rather than
+normalised: a backslash, userinfo, a control character, surrounding whitespace or a non-ASCII label
+separator each move the host the request stack actually resolves, so the guard only accepts hosts no
+character can shift. Neither error message includes the rejected value — this throws at module load,
+so the message reaches Jest, Metro and CI logs, and a misconfigured origin can itself carry a
+credential.
+
+`assertNonProductionApi()` is exported from the same module for the same reason: call it from a QA
+session to print the resolved origin before any device or API validation (section 10's
+preconditions do).
+
+**`SOH_DEV_API_HOSTS` is an in-code constant, not an environment variable.** That is a constraint,
+not a preference: `babel.config.js`'s `react-native-dotenv` allowlist and `env.d.ts` declare exactly
+four `@env` names — `USDA_BASE_URL`, `USDA_FOOD_API_KEY`, `SOH_API_KEY`, `SOH_API_BASE_URL` — and
+both files are out of scope for this feature, so a fifth name could not be introduced. Add a shared
+development host by editing the array in `endpoints.ts`.
+
+**`.env.test` is tracked on purpose.** `react-native-dotenv` layers `.env.<NODE_ENV>` over `.env`,
+and Jest sets `NODE_ENV=test`, so this file supplies a non-production origin on a clean checkout
+where no developer-local `.env` exists. Without it, every suite that transitively imports
+`Endpoints` would fail the preflight at import time. The isolated missing-origin and
+production-origin cases are covered in `src/__tests__/constants/endpoints.test.ts`, which drives the
+exported predicate directly.
+
+---
+
+## 5. Typeface: Helvetica Neue vs the platform default
+
+Every text style in the Figma file names **Helvetica Neue**. No file under `src/` sets a
+`fontFamily` — a repository-wide search returns zero matches — so the app renders **San Francisco on
+iOS and Roboto on Android**, and the new screens do the same as every shipped one.
+
+**Option A is the working decision of this delivery:** keep the platform default family and match
+size, weight, line height and letter spacing exactly. The consequence is a glyph-shape difference
+from the Figma frames that no token can remove, so **every screenshot comparison must note it**. It
+is a deviation from the visual source of truth, recorded here so it can be reversed knowingly rather
+than discovered later.
+
+**Option B**, bundling a licensed Helvetica Neue, remains available and is smaller than it looks:
+`expo-font` is already a dependency and already registered in `app.json`'s plugin list, so the
+remaining work is the licensed `.otf` files under `assets/fonts/`, a `useFonts` load gate at app
+start, a `FontFamily` token in `src/styles/fontSize.ts`, `fontFamily` in every new `index.styled.ts`,
+and a licence review. No `FontFamily` token exists today, precisely because option A is in force —
+adding one is the first step of option B, not a tidy-up.
+
+---
+
+## 6. Tokens and the style gate
+
+The styling rule requires every colour, spacing value, radius, size and font metric in a stylesheet
+to resolve to a named token, and it sanctions adding a named token when the palette is missing one.
+That allowance is what the additions below rest on.
+
+### Added value tokens
+
+| Token                       | Value                  | File                         |
+| --------------------------- | ---------------------- | ---------------------------- |
+| `Theme.colors.heroScrim`    | `rgba(8,13,10,0.6)`    | `src/styles/theme.ts`        |
+| `Theme.colors.dangerBorder` | `rgba(226,104,94,0.4)` | `src/styles/theme.ts`        |
+| `Spacing.TIGHT`             | `6`                    | `src/styles/spacing.ts`      |
+| `Spacing.MICRO`             | `2`                    | `src/styles/spacing.ts`      |
+| `BorderRadius.EMPTY_TILE`   | `26`                   | `src/styles/borderRadius.ts` |
+| `BorderRadius.CHECKBOX`     | `6`                    | `src/styles/borderRadius.ts` |
+| `BorderRadius.BAR`          | `3`                    | `src/styles/borderRadius.ts` |
+| `BorderRadius.SEGMENT`      | `2`                    | `src/styles/borderRadius.ts` |
+
+Every other Figma colour, spacing value and radius already mapped 1:1 to an existing token, and
+`src/styles/shadow.ts` was not touched: `Shadow.CTA_GLOW` already is the design's single effect.
+
+### `src/styles/sizes.ts` — new file
+
+The repository had no tokens for control geometry, stroke width or opacity; new stylesheets need all
+three, so this file adds them as `Sizes`, `Stroke` and `Opacity`.
+
+Its naming principle matters more than its contents: **each entry is named for its purpose, never
+for its value, so equal numbers used for different things never share a token.** `Sizes` holds 58
+entries over 37 distinct numbers — `Sizes.RING` and `Sizes.EMPTY_TILE` are both `104` — and
+`Opacity` holds 9 over 6, with `PRESSED` and `LOGGED_TILE` both `0.6`. `Stroke`'s 17 entries happen
+to be 17 distinct Figma-confirmed widths, from `THIN: 1` to `SPINNER_TRACK: 5.3`, several of them
+per-glyph (`WARNING_TRIANGLE: 1.53`, `CART_HEADER: 1.275`). Collapsing a duplicated pair would
+couple two unrelated surfaces to one number, and the next design change would move both. Do not
+deduplicate them.
+
+### Three maps appended to `src/styles/fontSize.ts`
+
+```text
+LineHeight    SCREEN_TITLE 34.5 · STAT_LG 32.2 · GREETING 25.3 · BODY 21.75 · STEP_BODY 21
+              ROW_VALUE 19.5 · META 18.85 · OPTION_SUBCOPY 17.55 · LABEL 16 · OVERLINE 13.31
+LetterSpacing TITLE -0.4 · HERO -1.0 · OVERLINE 0.6 · EYEBROW 1 · NONE 0
+FontWeight    EXTRA_LIGHT '200' · REGULAR '400' · SEMIBOLD '600' · BOLD '700'
+```
+
+Two facts a reader would otherwise get wrong:
+
+- **Letter spacing is in pixels here, not em.** Figma expresses it as a fraction of the font size;
+  React Native measures it in pixels. Each value was converted once, at the size it belongs to
+  (`-0.0133em` on a 30px title becomes `-0.4`), so do not convert again at the call site.
+- **A style Figma leaves at "auto" sets no `lineHeight` at all.** The maps carry the line heights
+  Figma pins, plus one deliberate addition: `LineHeight.LABEL` (16) is the height Figma _resolves_
+  for the single-line 13px style, named because `META`'s 18.85 would stretch a fixed-height row.
+
+`FontWeight` exists so weights stop being bare string literals; the scan below treats a quoted
+numeric weight as a hit.
+
+### The literal scan
+
+```bash
+node scripts/token-literal-scan.mjs $(git diff --name-only --diff-filter=ACMR master -- 'src/**/index.styled.ts')
+```
+
+`master` is the base your branch forked from — substitute another if yours did not.
+
+The scan is the enforceable form of the styling rule's no-magic-numbers and no-hardcoded-hex
+clauses. It exits `1` on the **first** hit, printing `file:line:column`, the literal and a reason,
+and `2` on a file it cannot read; with no arguments it says so and exits `0`.
+
+It runs two scans, chosen per file by name: a style-object scan that classifies the value of a
+`property:` (every non-`.tsx` file and every `*.styled.*` module), and a JSX-attribute scan for
+`.tsx` files that classifies attribute values — `activeOpacity={0.5}`, `strokeWidth={1.6}`,
+`color="#16BC85"` — from an allowlist of design-carrying props. Behaviour props (`numberOfLines`,
+`delayPressIn`, `maxLength`) and SVG path geometry inside a `viewBox` are deliberately unlisted:
+transcribed artwork is not a token. Colour literals are flagged in both scans — `#hex` and
+`rgb(`/`rgba(`/`hsl(`/`hsla(` — because the rule forbids hardcoded hex.
+
+**A hit is fixed by adding a named token and referencing it — never by widening the exemption list,
+and never by an ignore comment, which the scanner does not honour.** The exemptions are keywords and
+structural factors only: `0`, `'auto'`, `undefined`, `'transparent'`, `'currentColor'`, the layout
+and text keywords, and `flex`/`flexGrow`/`flexShrink`.
+
+### Migrate on touch
+
+The styling rule asks you to migrate a file's literals when you touch it, so shipped literals in
+untouched files were left alone while these were migrated to tokens: `Macros/index.styled.ts`,
+`FoodDetail/index.styled.ts`, and the stylesheets of `PrimaryButton`, `SecondaryButton`,
+`SegmentedControl` and `FoodListRow`. If you touch another shipped stylesheet, do the same there —
+that is also why the scan is fed a diff rather than a fixed file list.
+
+### Three gaps left open
+
+These are recorded, not closed. Do not read them as resolved.
+
+1. **No layout primitive.** The repository has no `Stack`/`Row`/`Flex` component; layout is written
+   as `flexDirection`/`gap` per stylesheet, and this feature followed that convention.
+   `ContentColumn` is the only layout component it adds. Introducing a general primitive would mean
+   touching every shipped screen to stay consistent, which is outside this scope.
+2. **The typeface** — section 5.
+3. **Colour contrast.** `src/styles/theme.ts` carries an accessible-colour register marked
+   `STATUS: OPEN, BLOCKED ON A DESIGN DECISION`: eight colour pairs ship below their WCAG 2.1
+   thresholds, from `white` on `green` at 2.45:1 to `inputBorder` on `inset` at 1.12:1. Each entry
+   names the Figma nodes that draw it, the measured ratio, the threshold and a pre-computed remedy
+   using existing palette tokens. They were not changed unilaterally because Figma draws them
+   exactly as the app renders them and the constants are read across the app, well beyond this
+   feature. This is accepted, tracked accessibility debt awaiting a design ruling — the register
+   records the decision, it does not make the palette compliant.
+
+---
+
+## 7. Lint: the baseline gate
+
+`npm run lint` is `npx eslint .`, and this repository had pre-existing findings before the feature
+started. The gate therefore measures _new_ findings against a captured baseline rather than
+demanding a clean run.
+
+### The artefacts
+
+- `docs/lint-baseline.json` — the pre-feature ESLint report, captured on the pristine base commit
+  `603718ee` **before the first feature edit**, at byte-for-byte the scope `npm run lint` uses:
+
+  ```bash
+  npx eslint --no-fix -f json . -o docs/lint-baseline.json
+  ```
+
+  (`-o` writes the file even though ESLint exits `1` on the findings it found.) Recounted from the
+  committed artefact: **487 files linted, 49 findings in 31 files — 34 errors and 15 warnings**, of
+  which **9 findings in 6 files sit outside `src/`** (`.eslintrc.js`, `App.tsx`, `babel.config.js`,
+  `jest.config.js`, `metro.config.js`, `scripts/transform-imports.js`). These are the planning
+  figures and they match the artefact exactly.
+
+  The tracked report is a projection: ESLint's raw output embeds each linted file's own text in
+  `source`/`output` and in a message's `fix`/`suggestions`, so those fields are elided before the
+  artefact is committed. Nothing the comparison keys on — `filePath`, `ruleId`, `message`, `line`,
+  `column` — is touched.
+
+- `docs/lint-baseline.provenance.json` — the record that proves the baseline is the reviewed one:
+  source commit, capture command, capture scope, totals, per-rule composition and a SHA-256 digest
+  of the projected results. **The comparator refuses to run against a baseline this record does not
+  describe**, so a regenerated or hand-edited artefact cannot pass unnoticed.
+
+### The gate, in two steps
+
+```bash
+# 1 — the files this change touched must be clean
+npx eslint --no-fix $(git diff --name-only --diff-filter=ACMR master -- '*.ts' '*.tsx' '*.js' '*.mjs')
+
+# 2 — the full run must introduce nothing
+npx eslint --no-fix -f json . -o /tmp/lint-after.json || true
+node scripts/lint-baseline-compare.mjs docs/lint-baseline.json /tmp/lint-after.json
+```
+
+Step 1 exits `0`: touched files are clean, per the styling rule's migrate-on-touch clause. Step 2
+exits `0` when no finding is absent from the baseline.
+
+> **The full `eslint .` run's own non-zero exit is expected and is not the gate.** ESLint exits `1`
+> while any pre-existing finding remains in an untouched file, which is why step 2 pipes it through
+> `|| true` and judges the comparator's exit code instead. The comparator prints this note on every
+> pass; read it before filing a failing lint run as a regression.
+
+The comparator's exit codes are `0` pass, `1` a new finding or a lost file, `2` unusable input.
+It normalises every `filePath` to a repo-relative POSIX path, so the baseline stays valid from any
+checkout root, and it matches findings by `(file, rule id, message)` and compares **occurrence
+counts**, so a second copy of an existing finding also fails. It fails closed on coverage too: every
+baseline file still on disk must appear in the after report, and it derives the changed-file list
+itself from the working tree against the baseline's commit — a report that lints fewer files holds
+fewer findings and would otherwise pass. `--require` overrides that derivation for a caller that
+already has the list; `--project` writes the elided projection described above. Its own behaviour is
+covered by `scripts/__tests__/lint-baseline-compare.test.js`.
+
+### State after this feature
+
+The measured after-run: **857 files linted, 42 findings in 24 files — 29 errors and 13 warnings**,
+and the comparator reports **0 new findings**. The count fell because seven baseline findings sat in
+files this feature touched and were fixed there (`.eslintrc.js`, `App.tsx`, `jest.config.js`,
+`src/constants/endpoints.ts`, `src/constants/strings.ts`,
+`src/screens/Macros/components/DailySummaryCard/index.tsx`,
+`src/screens/FoodDetail/index.util.ts`). The 24 files that remain are all untouched pre-existing
+ones, led by `src/components/Picker/index.tsx` (6), `scripts/transform-imports.js` (4) and the two
+offline-sync test suites (3 each).
+
+**Fixing findings in files this feature does not touch is out of scope.** The baseline is not
+regenerated to make a change pass; a new finding is fixed in the file that introduced it. A genuine
+recapture — the lint scope or the ESLint configuration changing on purpose — means re-running the
+capture command against the new base, projecting it, and updating the provenance record in the same
+reviewed commit.
+
+---
+
+## 8. `npm ci` and the peer-dependency workaround
+
+`npm ci` fails on a clean checkout with a pre-existing `ERESOLVE`: `jest-expo@57.0.0` declares a
+peer of `@react-native/jest-preset ^0.85.0`, while the root pins `^0.86.0` to match
+`react-native@0.86.0`. `npm ci --legacy-peer-deps` installs successfully and still runs the
+`patch-package` postinstall step.
+
+This is documented, not fixed. Resolving it would mean moving `jest-expo`, the jest preset or React
+Native itself, and a framework upgrade is out of scope for this feature. **An `.npmrc` carrying
+`legacy-peer-deps` is deliberately not committed** — a repository-wide flag would silence future
+peer conflicts that deserve a look, so the flag is passed per command instead. **No dependency
+version changed here:** `package.json` gains nothing from this feature.
+
+---
+
+## 9. Why two files in `scripts/` are not TypeScript
+
+The file-conventions rule says the application source is TypeScript, and it stays that way: the only
+non-TypeScript file under `src/` is the legacy data module `src/assets/exercises.js`, which the rule
+already names as the exception. Nothing below licenses another one.
+
+The two repository gates in `scripts/` are a different case. `scripts/lint-baseline-compare.mjs` and
+`scripts/token-literal-scan.mjs` run under **bare `node`** — outside Babel, Metro and the TypeScript
+program, and with no dependency on `node_modules` — because a gate that needs the app's build
+pipeline in order to run cannot police the app's build pipeline. They are dependency-free ESM for
+that reason, and `scripts/transform-imports.js` is the existing precedent for plain JavaScript in
+this folder.
+
+The comparator's test is `scripts/__tests__/lint-baseline-compare.test.js`, and the extension is
+forced twice over. The file-conventions rule requires the `.test.ts` suffix _because Jest ignores
+anything else_ — and Jest's collection is exactly where `.mjs` fails: `jest-expo`'s preset sets no
+`testMatch`, so Jest's defaults apply (`**/__tests__/**/*.[jt]s?(x)` and
+`**/?(*.)+(spec|test).[tj]s?(x)`), which resolve `.js`, `.jsx`, `.ts` and `.tsx` and **not** `.mjs`.
+A test written as `.test.mjs` would silently never run. `.test.js` is therefore the only extension
+that both satisfies the rule's intent — the runner actually picks the file up — and can import a
+bare-node ESM script; it runs the script as a child process and asserts its exit codes and output.
+
+Be accurate about the coverage here: **only the comparator has a test.**
+`token-literal-scan.mjs` has none, deliberately — its behaviour is a single classification pass whose
+output the gate itself makes visible on every run.
+
+---
+
+## 10. Physical-device verification checklist — UNRUN
+
+> **UNRUN.** Not one item below was executed. This section is a checklist to run, not a record of
+> results. No passing TypeScript, lint or Jest run in this repository is evidence that the native
+> app behaves as described.
+
+Why it could not be run:
+
+- **Native iOS build, simulator and visual comparison were unavailable** in the Linux environment
+  this work was produced in — no macOS, no Xcode, no iOS toolchain. `npm run ios` cannot execute
+  there, and Metro starting does not validate a native build.
+- **The Firebase build files were not provided.** iOS needs `GoogleService-Info.plist` (delivered on
+  EAS through `GOOGLE_SERVICES_INFO_PLIST_FILE`, which `app.config.js` reads) and Android needs
+  `google-services.json`; `app.json` references both. They are build prerequisites to be injected as
+  **untracked** files and **never committed**. `.gitignore` already ignores the plist; it does
+  **not** ignore `google-services.json`, so check `git status` after adding that one.
+- **Android is unverified beyond `npx tsc --noEmit`** — no Android SDK and no Firebase file in this
+  environment. That line is **unrun** as well.
+
+Native configuration flows through `app.json` and Expo config plugins; the generated `ios/` and
+`android/` projects are git-ignored and are not present in the repository. Do not edit a generated
+native project — change the config and regenerate.
+
+### Making the failure states reachable
+
+The failure frames need a server that fails on demand. The API exposes
+`MEAL_PLANNING_FAULT=off | generation | swap | log`, read once at startup, default `off`, **forced to
+`off` whenever `NODE_ENV` is `production`**. **Never set it in production.**
+
+| Value        | Effect                                                                                                                                                                                                             | Reaches                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `generation` | `POST /plans` and `/regenerate` throw **before** their transaction, so nothing is written and the same idempotency key retried without the fault succeeds                                                          | 10b                                      |
+| `swap`       | The swap commit throws before its transaction, with the same property                                                                                                                                              | 13e                                      |
+| `log`        | The `/log` transaction **commits**, then the handler drops the response socket instead of writing a body — a network error over a durable write, which a retry must resolve by replay rather than by writing again | the commit-then-response-loss path on 15 |
+
+13d needs no fault: choose a slot whose only eligible recipe is the one already planned. Full
+details are in [`backend/docs/meal-planning/README.md`](../../backend/docs/meal-planning/README.md).
+
+### Preconditions
+
+- [ ] Dev API running with `MEAL_PLANNING_ENABLED=true`, after `catalog:load` and `recipes:seed`
+- [ ] `assertNonProductionApi()` prints a non-production origin for the build under test
+- [ ] Development Firebase project's Remote Config `meal_planning_enabled` set to `true` **and
+      fetched once** — cold-start the app after flipping it
+- [ ] Development client built and launched against the dev API (`npm run ios`), signed in with the
+      development test account
+
+### Onboarding
+
+- [ ] Macros → Meal Plan segment shows 11c
+- [ ] "Create my plan" opens 01
+- [ ] Complete 02–08 and confirm **nothing is preselected on first entry** at any step
+- [ ] Continue with empty required fields on 03 shows the inline errors of 03b, keeping entered
+      values
+- [ ] The Skip path shows 09b blank, skips Activity, and the step counter reads "n of 6"
+
+### Targets
+
+- [ ] 09 shows the calculated estimate
+- [ ] "Edit" opens 09b; saving returns to 09 with the saved values
+- [ ] The Diary ring, Account's Target Calories row and Progress → Activity all show that same value
+- [ ] Account's Target Calories row opens the full-screen editor, not the legacy modal
+
+### Generation
+
+- [ ] "Generate my weekly plan" shows 10 — an indeterminate spinner with no percentage — then 11
+      with seven day chips covering the saved week
+- [ ] With `MEAL_PLANNING_FAULT=generation`: 10b appears, the saved answers are intact, and "Try
+      again" reuses the same idempotency key
+- [ ] A deliberately over-constrained profile (vegan + 15 min + many dislikes) shows 10c, which
+      names the limiting constraints and inverts the footer
+- [ ] "Edit preferences" on 10b and on 10c both return to Review
+
+### Recipe and swap
+
+- [ ] A meal card opens 12
+- [ ] The "Your portion / Full recipe" toggle changes displayed quantities only — not the plan, not
+      the grocery list
+- [ ] "Swap" shows 13c's skeleton, then 13
+- [ ] An alternative opens 13b with its delta pill and calorie bar; "Use this meal" returns to the
+      day with the swap toast and updated totals
+- [ ] With `MEAL_PLANNING_FAULT=swap`: 13e appears and the original meal _and_ grocery list are
+      unchanged
+- [ ] A slot with no alternatives shows 13d
+- [ ] Airplane mode during the commit shows the neutral unconfirmed-outcome variant — no "unchanged"
+      assurance — and its "Try again" replays the same key
+
+### Grocery list
+
+- [ ] The header cart opens 14
+- [ ] Items check and stay checked across a reopen
+- [ ] A swap that increases an already-checked ingredient shows 14b: the item stays checked and is
+      flagged in the Checked section with its old amount, new amount and delta
+- [ ] "Uncheck all" appears only while something is checked, and clears checks and flags
+- [ ] With no plan, 14c appears
+
+### Logging
+
+- [ ] "Log meal" opens 15
+- [ ] The stepper and fraction chips behave exactly like FoodDetail's, including the selected-chip
+      styling
+- [ ] The Snack slot appears only when the plan includes one
+- [ ] "Add to diary" tapped twice quickly produces **one** diary entry
+- [ ] With `MEAL_PLANNING_FAULT=log`: the first tap shows the unconfirmed-outcome state, and its
+      retry resolves to the single committed entry — not a second one
+- [ ] After logging, the plan day returns as 11b **with the segmented control and the tab bar
+      present**, showing the success banner and the LOGGED card
+- [ ] "View in diary" opens the Diary on the entry's own date
+- [ ] The diary row's caption reads `From meal plan`
+- [ ] Editing the entry's servings keeps LOGGED; editing its name detaches it (caption and link
+      gone); deleting it clears LOGGED
+- [ ] Swapping a slot that was already logged shows the logged-then-swapped card treatment, naming
+      the recipe that was eaten
+
+### Plan settings
+
+- [ ] `PlanSettingsRow` below the meal cards opens 16
+- [ ] Changing diet to vegan produces the affected-meals banner and flagged meal cards
+- [ ] "Review affected meals" lands on the earliest flagged day
+- [ ] "Use for next plan" leaves the current plan intact
+- [ ] "Regenerate this week" opens 16b with counts bound to the real plan; "Replace plan" runs 10
+      and lands on 11
+- [ ] "Plan another week" on the last day opens Review with next week's start date
+
+### Both kill switches
+
+- [ ] Remote Config `meal_planning_enabled=false`, then cold-start: the Diary / Meal Plan segmented
+      control is **not rendered** at all and Add Food hides its Catalog section
+- [ ] Restore `true`, cold-start, then set `MEAL_PLANNING_ENABLED=false` on the API: the segment
+      stays, the Meal Plan body shows the unavailable card, Add Food **keeps** its Catalog section
+      (`/catalog/*` is ungated), and targets on Account, Diary and Progress keep working — no crash
+- [ ] Restore `MEAL_PLANNING_ENABLED=true` before continuing
+
+### Layout and accessibility
+
+- [ ] iPhone SE (375×667): every screen scrolls clear of its pinned footer
+- [ ] iPhone 15 Pro Max (430×932): no stretched or clipped content
+- [ ] iPad: content column capped at 600 px and centred
+- [ ] VoiceOver reaches and labels every control on 11, 13b, 14 and 15
+- [ ] Dynamic type at 100 %, 135 % and 200 %: CTAs stay visible and dense rows grow rather than clip
+
+### Screenshots
+
+- [ ] Capture a matched screenshot for each of the 31 frames at 393×852, and note the section 5 font
+      delta on every one
+
+---
+
+## 11. Cross-repository pointers and delivery shape
+
+The API side of this feature is documented in the sibling repository. These links resolve in a
+checkout that holds both repositories side by side, as this workspace does; from a standalone clone
+of the mobile repository, read them in `state-of-health-be` at the same paths under
+`docs/meal-planning/`.
+
+| Document                                                                                                                             | Owns                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`backend/docs/meal-planning/README.md`](../../backend/docs/meal-planning/README.md)                                                 | Operator commands in execution order, the local databases, the switch-on order, the CLI entry points, environment variables and `MEAL_PLANNING_FAULT` |
+| [`backend/docs/meal-planning/api.md`](../../backend/docs/meal-planning/api.md)                                                       | Every endpoint, request and response shape, and error code the hooks in `src/queries/mealPlanning/` consume                                           |
+| [`backend/docs/meal-planning/catalog-policy.md`](../../backend/docs/meal-planning/catalog-policy.md)                                 | The food catalog: coverage plan, validation checks, provenance classes and the search benchmark                                                       |
+| [`backend/docs/meal-planning/planning-policy.md`](../../backend/docs/meal-planning/planning-policy.md)                               | Target calculation, plan generation, swap selection, grocery aggregation and the bounds each applies                                                  |
+| [`backend/docs/meal-planning/release-and-recovery.md`](../../backend/docs/meal-planning/release-and-recovery.md)                     | Release order, both kill switches and the rollback path                                                                                               |
+| [`backend/docs/meal-planning/requirement-evidence-checklist.md`](../../backend/docs/meal-planning/requirement-evidence-checklist.md) | Requirement → implementation → test mapping, including what is marked ready for human review                                                          |
+
+Read `api.md` before changing a decoder or a converter: the io-ts codecs in
+`src/queries/api/mealPlanning/decoder/` and `src/queries/api/catalog/decoder/` are the client half
+of the contract it describes, and the two must agree field for field.
+
+### Delivery shape
+
+This work is delivered as **two unmerged pull requests, one per repository, cross-linked in their
+descriptions** — the API changes in `state-of-health-be` and the client changes here.
+
+**The backend ships first.** Its contract changes are additive: `MealEntryResponse` gains fields,
+`inputMethod` gains a value, and the entry-logging endpoint accepts a second body shape. An older
+client decodes those responses unchanged, so the server can lead safely — while a client that leads
+would call routes that do not exist yet.
+
+Not part of this work, and deliberately absent from both pull requests: merging them, deploying to
+any environment, an App Store submission, and the `app.json` `version`/`buildNumber` bump a store
+release needs. `app.json` still reads version 2.0.1, build 30.
