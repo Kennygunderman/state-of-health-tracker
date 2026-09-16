@@ -1,7 +1,7 @@
 import {MealPlan} from '@data/models/MealPlan'
 import {RegeneratePlanPayload} from '@data/models/PlanGenerationResult'
 import {mutationKeys, queryKeys} from '@queries/keys'
-import {QueryClient, QueryKey} from '@tanstack/react-query'
+import {MutationFunctionContext, QueryClient, QueryKey} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import {buildRegeneratePlanMutationOptions} from '../useRegeneratePlanMutation.util'
@@ -106,6 +106,21 @@ const invokeOnSuccess = (options: RegenerateOptions, variables: RegeneratePlanPa
   onSuccess(REGENERATED_PLAN, variables)
 }
 
+const invokeOnSuccessWithTrailingArguments = (options: RegenerateOptions, client: QueryClient): void => {
+  const onSuccess = options.onSuccess as (
+    data: MealPlan,
+    variables: RegeneratePlanPayload,
+    onMutateResult: unknown,
+    context: MutationFunctionContext
+  ) => void
+
+  onSuccess(REGENERATED_PLAN, REGENERATE_VARIABLES, undefined, {
+    client,
+    meta: undefined,
+    mutationKey: mutationKeys.regeneratePlan
+  })
+}
+
 const retryPredicate = (options: RegenerateOptions): ((failureCount: number, error: unknown) => boolean) =>
   // RetryValue<Error> also admits a boolean and a number, and the predicate is documented against arbitrary
   // transport failures, so the fixtures below are typed as unknown rather than as Error.
@@ -122,6 +137,7 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks()
+  queryClient.clear()
 })
 
 describe('buildRegeneratePlanMutationOptions', () => {
@@ -185,6 +201,18 @@ describe('buildRegeneratePlanMutationOptions', () => {
 
       SEEDED_DETAIL_KEYS.forEach(queryKey => expect(isQueryInvalidated(queryClient, queryKey)).toBe(true))
       expect(isQueryInvalidated(queryClient, queryKeys.mealPlanCurrent)).toBe(true)
+      expect(isQueryInvalidated(queryClient, queryKeys.mealPlanPreferences)).toBe(true)
+    })
+
+    it('invalidates the saved preferences, which Plan settings re-reads once the week it described is replaced', () => {
+      seedCache(queryClient)
+
+      const invalidateSpy = spyOnInvalidate(queryClient)
+      const options = buildRegeneratePlanMutationOptions(queryClient)
+
+      invokeOnSuccess(options, REGENERATE_VARIABLES)
+
+      expect(serialize(invalidatedKeys(invalidateSpy))).toContain(JSON.stringify(queryKeys.mealPlanPreferences))
       expect(isQueryInvalidated(queryClient, queryKeys.mealPlanPreferences)).toBe(true)
     })
 
@@ -261,6 +289,19 @@ describe('buildRegeneratePlanMutationOptions', () => {
       expect(otherClient.getQueryData(SEEDED_PREVIEW_KEY)).toBeUndefined()
     })
 
+    it('ignores the onMutateResult and mutation context TanStack passes after the variables', () => {
+      seedCache(queryClient)
+
+      const invalidateSpy = spyOnInvalidate(queryClient)
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildRegeneratePlanMutationOptions(queryClient)
+
+      expect(() => invokeOnSuccessWithTrailingArguments(options, queryClient)).not.toThrow()
+      expect(invalidatedKeys(invalidateSpy)).toEqual(EXPECTED_INVALIDATED_KEYS)
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+      expect(removeSpy).toHaveBeenCalledWith({queryKey: queryKeys.swapPreviewAll})
+    })
+
     it('performs every operation against an empty cache without throwing', () => {
       const invalidateSpy = spyOnInvalidate(queryClient)
       const removeSpy = jest.spyOn(queryClient, 'removeQueries')
@@ -304,7 +345,28 @@ describe('buildRegeneratePlanMutationOptions', () => {
 
       expect(retry(0, {response: {status: 504, data: {error: 'Failed to regenerate plan'}}})).toBe(true)
       expect(retry(0, {response: {status: 502}})).toBe(true)
+    })
+
+    it('retries a response whose body does not decode to a machine-readable error', () => {
+      const retry = retryPredicate(buildRegeneratePlanMutationOptions(queryClient))
+
       expect(retry(0, {response: {status: 502, data: '<html>Bad Gateway</html>'}})).toBe(true)
+      expect(retry(0, {response: {status: 500, data: {error: 42}}})).toBe(true)
+      expect(retry(0, {response: {status: 500, data: null}})).toBe(true)
+      expect(retry(0, {response: {status: 409, data: {}}})).toBe(true)
+    })
+
+    it('reads a thrown class instance and a plain object of the same shape as the same outcome', () => {
+      const retry = retryPredicate(buildRegeneratePlanMutationOptions(queryClient))
+      const refusal = {response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}}
+      const thrownRefusal = Object.assign(new Error('Request failed with status code 409'), refusal)
+      const gateway = {response: {status: 502, data: '<html>Bad Gateway</html>'}}
+      const thrownGateway = Object.assign(new Error('Request failed with status code 502'), gateway)
+
+      expect(retry(0, thrownRefusal)).toBe(retry(0, refusal))
+      expect(retry(0, thrownRefusal)).toBe(false)
+      expect(retry(0, thrownGateway)).toBe(retry(0, gateway))
+      expect(retry(0, thrownGateway)).toBe(true)
     })
 
     it('retries an error it cannot read at all, without throwing', () => {
@@ -316,7 +378,9 @@ describe('buildRegeneratePlanMutationOptions', () => {
       expect(retry(0, 'boom')).toBe(true)
       expect(retry(0, 42)).toBe(true)
     })
+  })
 
+  describe('retryDelay', () => {
     it('waits 1500 ms before that single replay', () => {
       const options = buildRegeneratePlanMutationOptions(queryClient)
 
