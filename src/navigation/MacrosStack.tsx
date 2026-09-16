@@ -6,9 +6,27 @@ import {Theme} from '@styles/theme'
 import AddFoodScreen from '@screens/AddFood'
 import CreateFoodScreen from '@screens/CreateFood'
 import FoodDetailScreen from '@screens/FoodDetail'
+import GroceryListScreen from '@screens/GroceryList'
+import LogPlannedMealScreen from '@screens/LogPlannedMeal'
 import LogWithAIScreen from '@screens/LogWithAI'
 import MacrosScreen from '@screens/Macros'
 import MacrosHistoryScreen from '@screens/MacrosHistory'
+import MealPlanAboutYouScreen from '@screens/MealPlanAboutYou'
+import MealPlanActivityScreen from '@screens/MealPlanActivity'
+import MealPlanCookingBudgetScreen from '@screens/MealPlanCookingBudget'
+import MealPlanDietScreen from '@screens/MealPlanDiet'
+import MealPlanEditTargetsScreen from '@screens/MealPlanEditTargets'
+import MealPlanFoodPreferencesScreen from '@screens/MealPlanFoodPreferences'
+import MealPlanFoodSearchScreen from '@screens/MealPlanFoodSearch'
+import MealPlanGeneratingScreen from '@screens/MealPlanGenerating'
+import MealPlanGoalScreen from '@screens/MealPlanGoal'
+import MealPlanIntroScreen from '@screens/MealPlanIntro'
+import MealPlanScheduleScreen from '@screens/MealPlanSchedule'
+import MealPlanTargetsScreen from '@screens/MealPlanTargets'
+import PlanSettingsScreen from '@screens/PlanSettings'
+import RecipeDetailScreen from '@screens/RecipeDetail'
+import SwapMealScreen from '@screens/SwapMeal'
+import SwapPreviewScreen from '@screens/SwapPreview'
 
 import MealPlanSetupProvider, {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
 
@@ -51,6 +69,74 @@ const MacrosNavigator = (): React.JSX.Element => {
       <Stack.Screen name={Screens.LOG_WITH_AI} component={LogWithAIScreen} options={{title: ''}} />
 
       <Stack.Screen name={Screens.MACROS_HISTORY} component={MacrosHistoryScreen} options={{title: ''}} />
+
+      <Stack.Screen name={Screens.MEAL_PLAN_INTRO} component={MealPlanIntroScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.MEAL_PLAN_GOAL} component={MealPlanGoalScreen} options={{headerShown: false}} />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_ABOUT_YOU}
+        component={MealPlanAboutYouScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_ACTIVITY}
+        component={MealPlanActivityScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen name={Screens.MEAL_PLAN_DIET} component={MealPlanDietScreen} options={{headerShown: false}} />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_FOOD_PREFERENCES}
+        component={MealPlanFoodPreferencesScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_FOOD_SEARCH}
+        component={MealPlanFoodSearchScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_SCHEDULE}
+        component={MealPlanScheduleScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_COOKING_BUDGET}
+        component={MealPlanCookingBudgetScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen name={Screens.MEAL_PLAN_TARGETS} component={MealPlanTargetsScreen} options={{headerShown: false}} />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_EDIT_TARGETS}
+        component={MealPlanEditTargetsScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen
+        name={Screens.MEAL_PLAN_GENERATING}
+        component={MealPlanGeneratingScreen}
+        options={{headerShown: false}}
+      />
+
+      <Stack.Screen name={Screens.RECIPE_DETAIL} component={RecipeDetailScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.SWAP_MEAL} component={SwapMealScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.SWAP_PREVIEW} component={SwapPreviewScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.GROCERY_LIST} component={GroceryListScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.LOG_PLANNED_MEAL} component={LogPlannedMealScreen} options={{headerShown: false}} />
+
+      <Stack.Screen name={Screens.PLAN_SETTINGS} component={PlanSettingsScreen} options={{headerShown: false}} />
     </Stack.Navigator>
   )
 }
