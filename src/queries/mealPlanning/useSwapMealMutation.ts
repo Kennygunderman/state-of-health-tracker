@@ -1,13 +1,10 @@
-import {SwapMealPayload, SwapMealResult} from '@data/models/SwapAlternative'
+import {SwapMealPayload} from '@data/models/SwapAlternative'
 import {swapMeal} from '@queries/api/mealPlanning/swapMeal'
-import {DefaultError, useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-query'
+import {useMutation, useQueryClient} from '@tanstack/react-query'
 
 import {buildSwapMealMutationOptions} from './useSwapMealMutation.util'
 
-export const useSwapMealMutation = (
-  planId: string,
-  mealId: string
-): UseMutationResult<SwapMealResult, DefaultError, SwapMealPayload> => {
+export const useSwapMealMutation = (planId: string, mealId: string) => {
   const queryClient = useQueryClient()
 
   return useMutation({

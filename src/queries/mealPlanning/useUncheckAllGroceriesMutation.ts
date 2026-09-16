@@ -1,15 +1,9 @@
-import type {UncheckAllGroceriesResult} from '@data/models/GroceryList'
 import {uncheckAllGroceries} from '@queries/api/mealPlanning/uncheckAllGroceries'
-import {useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-query'
+import {useMutation, useQueryClient} from '@tanstack/react-query'
 
-import {
-  buildUncheckAllGroceriesMutationOptions,
-  UncheckAllGroceriesContext
-} from './useUncheckAllGroceriesMutation.util'
+import {buildUncheckAllGroceriesMutationOptions} from './useUncheckAllGroceriesMutation.util'
 
-export const useUncheckAllGroceriesMutation = (
-  planId: string
-): UseMutationResult<UncheckAllGroceriesResult, Error, void, UncheckAllGroceriesContext> => {
+export const useUncheckAllGroceriesMutation = (planId: string) => {
   const queryClient = useQueryClient()
 
   return useMutation({
