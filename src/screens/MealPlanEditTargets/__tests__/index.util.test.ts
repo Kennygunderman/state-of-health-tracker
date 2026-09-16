@@ -17,6 +17,7 @@ import {
   resolveTargetsSave,
   resolveTargetsSaveSource,
   sanitizeIntegerInput,
+  targetFieldText,
   TargetsSaveInputs,
   validateEditTargets
 } from '../index.util'
@@ -78,6 +79,54 @@ describe('target bounds', () => {
     expect(CALORIES_MAX).toBe(6000)
     expect(MACRO_MIN).toBe(1)
     expect(MACRO_MAX).toBe(1000)
+  })
+})
+
+describe('targetFieldText', () => {
+  describe('a member the server left unset', () => {
+    it('opens the field blank for null rather than showing a zero the user never chose', () => {
+      expect(targetFieldText(null)).toBe('')
+    })
+
+    it('opens the field blank for undefined', () => {
+      expect(targetFieldText(undefined)).toBe('')
+    })
+
+    it('blanks only the unset members of a calories-only account', () => {
+      expect(targetFieldText(1900)).toBe('1900')
+      expect(targetFieldText(null)).toBe('')
+    })
+  })
+
+  describe('a stored figure', () => {
+    it('renders a whole target unchanged and ungrouped', () => {
+      expect(targetFieldText(1940)).toBe('1940')
+    })
+
+    it('renders a zero the server actually holds, which validation then rejects as below the minimum', () => {
+      expect(targetFieldText(0)).toBe('0')
+    })
+
+    it('rounds a fraction to the whole number the field can hold', () => {
+      expect(targetFieldText(1940.4)).toBe('1940')
+      expect(targetFieldText(1940.5)).toBe('1941')
+    })
+  })
+
+  describe('agreeing with the estimate comparison', () => {
+    it('renders a fractional estimate as the figure resolveTargetsSaveSource still calls a confirmation', () => {
+      const estimate = makeEstimate({calories: 1940.4, protein: 146.2, carbs: 194.4, fat: 65.4})
+
+      const shown: EditTargetsFields = {
+        calories: targetFieldText(estimate.calories),
+        protein: targetFieldText(estimate.protein),
+        carbs: targetFieldText(estimate.carbs),
+        fat: targetFieldText(estimate.fat)
+      }
+
+      expect(shown).toEqual({calories: '1940', protein: '146', carbs: '194', fat: '65'})
+      expect(resolveTargetsSaveSource(makeSaveInputs({estimate, fields: shown}))).toBe('estimated')
+    })
   })
 })
 

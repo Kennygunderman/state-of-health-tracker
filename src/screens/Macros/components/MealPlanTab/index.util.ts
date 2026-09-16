@@ -3,13 +3,31 @@ import {MealPlanPreferences, SetupStatus, SetupStep} from '@data/models/MealPlan
 import {httpStatusOf, isRoutesMissingError, MealPlanAvailability} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import {RootStackParamList} from '@navigation/types'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {clampDayKeyToPlan, defaultSelectedPlanDate, isLastPlanDay} from '@utility/MealPlanDateUtility'
+import {
+  clampDayKeyToPlan,
+  defaultSelectedPlanDate,
+  isLastPlanDay,
+  parseDayKey,
+  resolvePostLogViewTarget
+} from '@utility/MealPlanDateUtility'
 import {isWriteAllowedByVerdict} from '@utility/MealPlanLifecycleUtility'
+import {format} from 'date-fns'
 
 import Screens from '@constants/screens'
-import {PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON} from '@constants/strings'
+import {
+  MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE,
+  MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE,
+  MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
+  MEAL_PLAN_CREATE_BUTTON_TEXT,
+  MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT,
+  PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 const NOT_FOUND_STATUS = 404
+
+// The plan surfaces that name a weekday in prose spell it out, unlike the day strip's abbreviation.
+const WEEKDAY_FORMAT = 'EEEE'
 
 const STALE_PLAN_CODES: readonly string[] = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
 
@@ -103,11 +121,16 @@ const hasError = (error: unknown): boolean => error !== null && error !== undefi
 const isResourceNotFoundError = (error: unknown): boolean =>
   httpStatusOf(error) === NOT_FOUND_STATUS && !isRoutesMissingError(error)
 
-const isStalePlanError = (error: unknown): boolean => {
-  const code = getApiErrorCode(error)
-
+/**
+ * A plan the server will no longer read or write, whichever request surfaced it. Both codes earn the same
+ * recovery, so the tab treats them as one condition and reads it from the code it already decoded rather
+ * than re-deriving it from the error.
+ */
+export function isStalePlanCode(code: string | null): boolean {
   return code !== null && STALE_PLAN_CODES.includes(code)
 }
+
+const isStalePlanError = (error: unknown): boolean => isStalePlanCode(getApiErrorCode(error))
 
 const isResourceOrStalePlanError = (error: unknown): boolean =>
   isStalePlanError(error) || isResourceNotFoundError(error)
@@ -290,6 +313,38 @@ export function resolveSelectedPlanDate(plan: MealPlan, storedDate: string | nul
     : clampDayKeyToPlan(storedDate, plan.startDate, plan.endDate)
 }
 
+// The weekday of a plan day as the totals overline and the post-log banner read it ('Saturday'). Built from
+// the day key's own parts, so a 'YYYY-MM-DD' value is never a UTC instant that names the day before.
+export function planDayWeekdayName(dayKey: string): string {
+  return format(parseDayKey(dayKey), WEEKDAY_FORMAT)
+}
+
+// The empty state's primary action names what answering it will do, which the setup status has already
+// decided; the two resume statuses share one label because both continue the same unfinished setup.
+export function resolveEmptyPlanCtaLabel(cta: EmptyPlanCta): string {
+  if (cta === 'create') {
+    return MEAL_PLAN_CREATE_BUTTON_TEXT
+  }
+
+  return cta === 'planNextWeek' ? MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT : MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT
+}
+
+/**
+ * The post-log banner names the slot the entry went to, and the weekday as well when that entry is not on
+ * today's date — where "View diary" leads to Macros History rather than the Diary segment, so the day has to
+ * be said out loud for the banner to describe where the meal actually landed.
+ */
+export function formatPostLogBannerBody(dateIso: string, slotLabel: string, todayDayKey: string): string {
+  if (resolvePostLogViewTarget(dateIso, todayDayKey) === 'diary') {
+    return stringWithNamedParameters(MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE, {slot: slotLabel})
+  }
+
+  return stringWithNamedParameters(MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE, {
+    weekday: planDayWeekdayName(dateIso),
+    slot: slotLabel
+  })
+}
+
 export function latestLoggedEntry(entries: LoggedEntryRef[]): LoggedEntryRef | null {
   return entries.reduce<LoggedEntryRef | null>(
     (latest, entry) => (latest === null || isLaterEntry(entry, latest) ? entry : latest),
@@ -333,7 +388,7 @@ export function resolveMealFlagReason(flags: MealPlanFlag[]): string | null {
 
 // The Diary-versus-History rule is shared with the post-log banner on the logging screen, so it lives in
 // @utility/MealPlanDateUtility and this tab only re-exports it under the name its callers use.
-export {resolvePostLogViewTarget as resolveViewTarget} from '@utility/MealPlanDateUtility'
+export {resolvePostLogViewTarget as resolveViewTarget}
 
 // The width one of `itemCount` equally flexed siblings takes inside `availableWidth`, once the gaps between
 // them are removed.

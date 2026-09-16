@@ -11,6 +11,8 @@ import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQ
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
 import {useRoute} from '@react-navigation/native'
+import BorderRadius from '@styles/borderRadius'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
@@ -24,6 +26,7 @@ import InlineError from '@components/InlineError'
 import PrimaryButton from '@components/PrimaryButton'
 import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SetupFooter from '@components/SetupFooter'
+import SkeletonBlock from '@components/Skeleton'
 import TertiaryTextButton from '@components/TertiaryTextButton'
 import Text from '@components/Text'
 import TextField from '@components/TextField'
@@ -35,12 +38,17 @@ import {
   MEAL_PLAN_CALORIES_HEADER,
   MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
   MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  MEAL_PLAN_CHOSEN_TARGETS_CAPTION,
+  MEAL_PLAN_CHOSEN_TARGETS_OVERLINE,
+  MEAL_PLAN_DONE_BUTTON_TEXT,
   MEAL_PLAN_EDIT_TARGETS_SUBTITLE,
   MEAL_PLAN_EDIT_TARGETS_TITLE,
   MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
   MEAL_PLAN_GRAMS_UNIT,
   MEAL_PLAN_KCAL_UNIT,
+  MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_MACRO_LABELS,
   MEAL_PLAN_MANUAL_MACROS_BANNER_BODY,
   MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
@@ -49,17 +57,21 @@ import {
   MEAL_PLAN_STALE_REVISION_DIALOG_TITLE,
   MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
+  stringWithNamedParameters,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 import styles from './index.styled'
 import {
+  CALORIES_MAX,
   EditTargetsFieldKey,
   EditTargetsFields,
   feasibilityBannerBody,
+  MACRO_MAX,
   resolveEditTargetsIntent,
   resolveTargetsSave,
   sanitizeIntegerInput,
+  targetFieldText,
   validateEditTargets
 } from './index.util'
 
@@ -68,42 +80,57 @@ interface TargetFieldSpec {
   readonly label: string
   readonly unit: string
   readonly errorMessage: string
+  readonly maxLength: number
 }
 
-// The four fields in the order 34:214 draws them, each with the message 09b shows for it.
+// The four fields in the order 34:214 draws them, each with the message 09b shows for it. Each field stops
+// accepting digits at the width of its own upper bound, so a figure the server would refuse outright cannot be
+// typed — the bounds stay declared once, in index.util, and the keyboard limit is read off them.
 const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
   Object.freeze({
     key: 'calories',
     label: MEAL_PLAN_CALORIES_HEADER,
     unit: MEAL_PLAN_KCAL_UNIT,
-    errorMessage: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT
+    errorMessage: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+    maxLength: String(CALORIES_MAX).length
   } as const),
   Object.freeze({
     key: 'protein',
     label: MEAL_PLAN_MACRO_LABELS.protein,
     unit: MEAL_PLAN_GRAMS_UNIT,
-    errorMessage: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT
+    errorMessage: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+    maxLength: String(MACRO_MAX).length
   } as const),
   Object.freeze({
     key: 'carbs',
     label: MEAL_PLAN_MACRO_LABELS.carbs,
     unit: MEAL_PLAN_GRAMS_UNIT,
-    errorMessage: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT
+    errorMessage: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+    maxLength: String(MACRO_MAX).length
   } as const),
   Object.freeze({
     key: 'fat',
     label: MEAL_PLAN_MACRO_LABELS.fat,
     unit: MEAL_PLAN_GRAMS_UNIT,
-    errorMessage: MEAL_PLAN_FAT_TARGET_ERROR_TEXT
+    errorMessage: MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+    maxLength: String(MACRO_MAX).length
   } as const)
 ])
 
-const BLANK_FIELDS: EditTargetsFields = Object.freeze({calories: '', protein: '', carbs: '', fat: ''})
+// One bar and one field per block of 34:214, so the waiting shape is the form's own rather than a generic
+// placeholder the loaded screen then contradicts.
+const SKELETON_BLOCK_HEIGHTS: readonly number[] = Object.freeze([
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG,
+  Sizes.SKELETON_BAR_SM,
+  Sizes.CONTROL_LG
+])
 
-// Whole digits only, and rounded exactly as index.util's estimate comparison rounds: a field showing 1940 has
-// to count as holding an estimate of 1940.4, or an explicit confirmation would be demoted to a manual save.
-const fieldText = (value: number | null | undefined): string =>
-  value === null || value === undefined ? '' : String(Math.round(value))
+const BLANK_FIELDS: EditTargetsFields = Object.freeze({calories: '', protein: '', carbs: '', fat: ''})
 
 // A rejected targets revision is compared on the figures alone: everything else TargetsResponse carries is
 // server-derived from them, so comparing it would report the server's bookkeeping as the user's change.
@@ -148,10 +175,10 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
     }
 
     return {
-      calories: fieldText(source.calories),
-      protein: fieldText(source.protein),
-      carbs: fieldText(source.carbs),
-      fat: fieldText(source.fat)
+      calories: targetFieldText(source.calories),
+      protein: targetFieldText(source.protein),
+      carbs: targetFieldText(source.carbs),
+      fat: targetFieldText(source.fat)
     }
   }, [estimate, intent, targets])
 
@@ -159,9 +186,24 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   const validation = validateEditTargets(fields)
   const errors = hasSubmitted ? validation.errors : {}
 
+  // The manual route (Skip, or "Prefer not to say") opens on blank fields, so there is no calculated estimate
+  // for the standing copy to say these figures replace — note 34:177 titles that route for the user's own
+  // chosen targets instead.
+  const isManualRoute = intent === 'manual_entry'
+  // Which figures each field opens on is the targets read's answer, so the form waits for it rather than
+  // rendering blanks that a resolved read would then contradict.
+  const isLoadingTargets = targetsQuery.isLoading
+
   const onChangeField = useCallback(
     (key: EditTargetsFieldKey, text: string) => {
-      setEnteredFields(current => ({...(current ?? openingFields), [key]: sanitizeIntegerInput(text)}))
+      setEnteredFields(current => {
+        const base = current ?? openingFields
+
+        // The field's own current value is what a refused entry falls back to. sanitizeIntegerInput rejects a
+        // decimal point, a sign or a malformed group outright rather than stripping the offending character,
+        // so without `previous` that rejection would clear a figure the user never meant to delete.
+        return {...base, [key]: sanitizeIntegerInput(text, base[key])}
+      })
       // Edited figures are no longer the ones the advisory described.
       setFeasibilityBody(null)
     },
@@ -231,8 +273,13 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         // An estimate computed from inputs that have since moved is refused rather than stored: the figures are
         // refetched and the user stays here to review them. Never an automatic retry, never a navigation.
         if (code === API_ERROR_CODES.estimateStale) {
-          estimateQuery.refetch()
-          showToast('error', MEAL_PLAN_GENERATION_TERMINAL_COPY.stale_revision.body)
+          // Dropping the draft is what repopulates the four fields: with nothing entered they derive from the
+          // estimate query again, so the refetched figures are the ones left on screen to review. Only the
+          // title is toasted — its body tells the user to generate a plan again, which is untrue of the
+          // Account, Progress and Diary entry points, none of which reaches this editor with a plan in view.
+          setEnteredFields(null)
+          await estimateQuery.refetch()
+          showToast('error', MEAL_PLAN_GENERATION_TERMINAL_COPY.stale_revision.title)
 
           return
         }
@@ -331,45 +378,94 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
             <Text style={styles.headerLabel}>{MEAL_PLAN_REVIEW_HEADER_LABEL}</Text>
           </View>
 
-          <Text style={styles.headline}>{MEAL_PLAN_EDIT_TARGETS_TITLE}</Text>
+          <Text style={styles.headline}>
+            {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_EDIT_TARGETS_TITLE}
+          </Text>
 
-          <Text style={styles.subCopy}>{MEAL_PLAN_EDIT_TARGETS_SUBTITLE}</Text>
+          <Text style={styles.subCopy}>
+            {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_CAPTION : MEAL_PLAN_EDIT_TARGETS_SUBTITLE}
+          </Text>
 
-          <View style={styles.fieldGroup}>
-            {TARGET_FIELDS.map(field => (
-              <View key={field.key} style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>{field.label}</Text>
-
-                <TextField
-                  value={fields[field.key]}
-                  onChangeText={text => onChangeField(field.key, text)}
-                  placeholder={field.label}
-                  unit={field.unit}
-                  state={errors[field.key] === undefined ? 'default' : 'error'}
-                  keyboardType="numeric"
-                  accessibilityLabel={field.label}
+          {isLoadingTargets && (
+            <View style={styles.skeletonGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+              {SKELETON_BLOCK_HEIGHTS.map((height, index) => (
+                <SkeletonBlock
+                  key={`${height}-${index}`}
+                  height={height}
+                  // The stretch style overrides this, but Skeleton sizes its shimmer sweep from the prop, so
+                  // the column's own maximum is the width the animation is measured against.
+                  width={Sizes.CONTENT_MAX_WIDTH}
+                  borderRadius={BorderRadius.CARD_LG}
+                  style={styles.skeletonStretch}
                 />
+              ))}
+            </View>
+          )}
 
-                {errors[field.key] !== undefined && <InlineError message={field.errorMessage} />}
+          {!isLoadingTargets && (
+            <>
+              <View style={styles.fieldGroup}>
+                {TARGET_FIELDS.map(field => (
+                  <View key={field.key} style={styles.fieldBlock}>
+                    <Text style={styles.fieldLabel}>{field.label}</Text>
+
+                    <TextField
+                      value={fields[field.key]}
+                      onChangeText={text => onChangeField(field.key, text)}
+                      placeholder={field.label}
+                      unit={field.unit}
+                      state={errors[field.key] === undefined ? 'default' : 'error'}
+                      keyboardType="numeric"
+                      maxLength={field.maxLength}
+                      // A field that is reporting an error carries the reason in its own label, so it is
+                      // announced with the field and not only by the row beneath it.
+                      accessibilityLabel={
+                        errors[field.key] === undefined
+                          ? field.label
+                          : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+                              label: field.label,
+                              message: field.errorMessage
+                            })
+                      }
+                    />
+
+                    {errors[field.key] !== undefined && (
+                      <View accessibilityLiveRegion="polite">
+                        <InlineError message={field.errorMessage} />
+                      </View>
+                    )}
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
 
-          <View style={styles.bannerWrapper}>
-            {feasibilityBody === null ? (
-              <InfoBanner tone="success" glyph="info" body={MEAL_PLAN_MANUAL_MACROS_BANNER_BODY} />
-            ) : (
-              <InfoBanner tone="neutral" glyph="info" body={feasibilityBody} />
-            )}
-          </View>
+              {/* The advisory replaces the standing note in place, because both describe the figures above and
+                  09b draws a single banner in this slot. It is announced as a status rather than an alert: the
+                  save it reports on succeeded. */}
+              <View style={styles.bannerWrapper} accessibilityLiveRegion={feasibilityBody === null ? 'none' : 'polite'}>
+                {feasibilityBody === null ? (
+                  <InfoBanner tone="success" glyph="info" body={MEAL_PLAN_MANUAL_MACROS_BANNER_BODY} />
+                ) : (
+                  <InfoBanner tone="neutral" glyph="info" body={feasibilityBody} />
+                )}
+              </View>
+            </>
+          )}
         </KeyboardAwareScrollView>
       </ContentColumn>
 
       <SetupFooter hairline>
         <PrimaryButton
-          label={MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT}
+          // Once an advisory is showing, the write has already committed and this press only acknowledges it
+          // and leaves — the repeat guard in submitTargets recognises the unchanged figures and returns
+          // without a second revision. Editing any field clears the advisory, so the label reverts with it.
+          label={feasibilityBody === null ? MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT : MEAL_PLAN_DONE_BUTTON_TEXT}
           isLoading={saveTargetsMutation.isPending}
+          // 46:555 keeps this enabled so every press re-validates, and 34:285 is drawn enabled beside a live
+          // error. The one thing it waits for is the targets read: the revision that read carries is what
+          // pins the write, and sending targets without it is refused outright.
+          disabled={isLoadingTargets}
           onPress={onSavePressed}
+          style={styles.ctaHeight}
         />
 
         <TertiaryTextButton

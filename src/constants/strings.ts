@@ -835,6 +835,10 @@ export const MEAL_PLAN_UNAVAILABLE_TEXT = "Meal planning isn't available right n
 
 export const MEAL_PLAN_LOAD_ERROR_TITLE = "Couldn't load this right now."
 
+// The body of a failed read. Distinct from MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY, which belongs to a write whose
+// outcome the server never described: a read that failed changed nothing, so retrying it is plainly safe.
+export const MEAL_PLAN_LOAD_ERROR_BODY = 'Check your connection, then try again.'
+
 export const MEAL_PLAN_OFFLINE_BANNER_TEXT = 'Showing your last saved plan'
 
 export const MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE = "We couldn't confirm that"

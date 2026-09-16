@@ -121,6 +121,18 @@ const parseTargetValue = (text: string): number | null => {
 }
 
 /**
+ * A stored target as the field opens on it.
+ *
+ * A member the server left unset becomes an empty field rather than '0': the four targets are independently
+ * nullable, so a calories-only account must open with three blank macros and not three zeros, which
+ * `validateEditTargets` would reject as below the minimum and which the user never chose. The rounding has to
+ * match the one `resolveTargetsSaveSource` compares against — a field showing 1940 counts as holding an
+ * estimate of 1940.4 — or confirming an untouched estimate would be demoted to a manual save.
+ */
+export const targetFieldText = (value: number | null | undefined): string =>
+  value === null || value === undefined ? '' : String(Math.round(value))
+
+/**
  * The target as the field stores it: a bare whole number, no separators.
  *
  * Only presentation is removed — surrounding space, well-formed group separators and a redundant leading

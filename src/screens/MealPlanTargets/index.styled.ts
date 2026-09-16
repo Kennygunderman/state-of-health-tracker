@@ -39,6 +39,20 @@ export default StyleSheet.create({
   targetsCardWrapper: {
     paddingTop: Spacing.MEDIUM
   },
+  // Caption 34:80 is a sibling of card 34:35, not a child of it: it is the 4th of 8 children of the content
+  // column, so it renders on the page fill at the 353px gutter measure rather than on the card fill at 313.
+  targetsCaptionWrapper: {
+    paddingTop: Spacing.X_SMALL
+  },
+  // LineHeight.LABEL, not META: 34:80 carries the 13px style whose line height Figma leaves automatic and
+  // resolves to exactly 16 — which wrapper 34:79 confirms a second way, being 8 padding plus a 16 line box.
+  // META's 18.85 would over-lead it and push everything below the card down by 3px.
+  targetsCaption: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.LABEL,
+    color: Theme.colors.textMuted
+  },
   planStartsCardWrapper: {
     paddingTop: Spacing.MEDIUM
   },

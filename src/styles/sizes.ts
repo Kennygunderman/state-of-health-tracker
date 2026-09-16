@@ -39,6 +39,14 @@ export const Sizes = {
   BANNER_TEXT_INSET_T: 2,
   ROW_VALUE_INSET_T: 2,
   ROW_VALUE_INSET_B: 0.5,
+  // Figma declares a text block's wrapper height as the CEILING of its
+  // padding + pinned fractional line height, so the block closes on a whole
+  // pixel while the text keeps its fractional metrics: 34:208 is 353x51 over
+  // 16 + 34.5 = 50.5, and 34:211 is 353x30 over 8 + 21.75 = 29.75. These are
+  // the remainders that reconcile the two. They are bottom padding rather than
+  // a fixed height so the block still grows with the user's text size.
+  TITLE_BLOCK_INSET_B: 0.5,
+  SUBCOPY_BLOCK_INSET_B: 0.25,
   // The trailing-chevron slot a row's layout advances by (Figma 36:71 / 36:538), not the glyph canvas.
   CHEVRON_SLOT: 8,
   PROGRESS_SEGMENT_W: 33,

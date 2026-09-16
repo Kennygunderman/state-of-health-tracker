@@ -33,7 +33,6 @@ interface Props {
   readonly calorieFigure: string
   readonly unitLabel: string
   readonly macros: TargetsCardMacro[]
-  readonly caption: string
   readonly editLabel: string
   readonly estimateFigure?: string
   readonly onEditPress: () => void
@@ -44,7 +43,6 @@ const TargetsCard = ({
   calorieFigure,
   unitLabel,
   macros,
-  caption,
   editLabel,
   estimateFigure,
   onEditPress
@@ -89,10 +87,6 @@ const TargetsCard = ({
             isFirst={index === 0}
           />
         ))}
-      </View>
-
-      <View style={styles.captionWrapper}>
-        <Text style={styles.caption}>{caption}</Text>
       </View>
     </View>
   )

@@ -48,6 +48,16 @@ export default StyleSheet.create({
     letterSpacing: LetterSpacing.TITLE,
     color: Theme.colors.text
   },
+  planSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: Spacing.X_SMALL
+  },
+  planSwitchLink: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    color: Theme.colors.accentGreen
+  },
   errorCard: {
     flexDirection: 'row',
     alignItems: 'center',

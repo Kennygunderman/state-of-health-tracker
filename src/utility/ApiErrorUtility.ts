@@ -49,6 +49,16 @@ export function getApiErrorCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null
 }
 
+// The transport's own answer, read here beside the body's code so that no screen reaches into an axios shape of
+// its own to branch on a status. `null` means the attempt produced no numeric status at all — a timeout, a
+// network error, or a rejection that never reached a response — which is precisely the case a caller must not
+// read as a server verdict.
+export function getApiErrorStatus(error: unknown): number | null {
+  const status = (error as {response?: {status?: unknown}} | null)?.response?.status
+
+  return typeof status === 'number' ? status : null
+}
+
 // 'confirmed' means the server described the outcome of this attempt in a decodable body — a 4xx carrying
 // `{error: string}`, or a 5xx carrying a recognised failure code. It never asserts that nothing was written:
 // a repeated revisioned save answers `stale_revision`/`stale_targets` precisely because the first attempt
@@ -57,10 +67,10 @@ export function getApiErrorCode(error: unknown): string | null {
 // assurances. Anything else is 'unknown' — the request may have committed before the response was lost, so
 // callers must not promise nothing changed, and keyed mutations retry with the same idempotency key.
 export function classifyOutcome(error: unknown): ApiOutcome {
-  const status = (error as {response?: {status?: unknown}} | null)?.response?.status
+  const status = getApiErrorStatus(error)
   const code = getApiErrorCode(error)
 
-  if (typeof status !== 'number') {
+  if (status === null) {
     return 'unknown'
   }
 

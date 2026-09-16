@@ -15,13 +15,31 @@ export const actionBarPadding = (bottomInset: number): ViewStyle => ({
   paddingBottom: Math.max(bottomInset, Sizes.FOOTER_MIN_BOTTOM)
 })
 
+// The bar is pinned over the scroll view rather than inside it, so the content has to reserve the bar's own
+// height — its 12px top padding, the 52px control, and the same safe-area floor the bar applies — or the last
+// row of a long recipe can never be scrolled clear of it.
+export const scrollBottomReserve = (bottomInset: number): ViewStyle => ({
+  paddingBottom: Spacing.SMALL + Sizes.CTA + Math.max(bottomInset, Sizes.FOOTER_MIN_BOTTOM)
+})
+
+// The loading placeholder's dimensions. Skeleton sizes its shimmer sweep from a numeric width rather than a
+// style, so the one measured value it needs — the content column's live width — is resolved from tokens here
+// instead of leaving arithmetic over Spacing and Sizes in the screen.
+export const HERO_PLACEHOLDER_HEIGHT = Sizes.HERO_BAND_H
+
+export const PLACEHOLDER_RADIUS = BorderRadius.CARD_LG
+
+export const PLACEHOLDER_ROW_HEIGHTS: readonly number[] = [Sizes.CONTROL_LG, Sizes.CONTROL, Sizes.SKELETON_BAR]
+
+export const placeholderWidth = (windowWidth: number): number =>
+  Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - Spacing.GUTTER * 2
+
 export default StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: Theme.colors.background
   },
   scrollContent: {
-    flexGrow: 1,
     paddingBottom: ACTION_BAR_RESERVE
   },
 
@@ -50,7 +68,7 @@ export default StyleSheet.create({
 
   nutritionCard: {
     alignSelf: 'stretch',
-    padding: Spacing.GUTTER,
+    padding: Spacing.MEDIUM,
     marginTop: Spacing.MEDIUM,
     backgroundColor: Theme.colors.card,
     borderRadius: BorderRadius.CARD_LG
@@ -60,12 +78,12 @@ export default StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between'
   },
-  nutritionOverline: {
-    fontSize: FontSize.OVERLINE,
-    fontWeight: FontWeight.SEMIBOLD,
-    letterSpacing: LetterSpacing.OVERLINE,
-    lineHeight: LineHeight.OVERLINE,
-    textTransform: 'uppercase',
+  // Figma 49:563 sets this label in the 13px regular meta style, sentence case, not the 11px uppercase eyebrow
+  // the metric captions below it use — so it takes no letter spacing and no textTransform.
+  nutritionCardLabel: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
     color: Theme.colors.textMuted
   },
   portionValue: {

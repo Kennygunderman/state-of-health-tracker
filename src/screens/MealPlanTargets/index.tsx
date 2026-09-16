@@ -7,13 +7,16 @@ import type {StepMode} from '@navigation/types'
 import {MealPlanTargetsRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {
+  isNutritionTargetsReadFailure,
+  selectNutritionTargets
+} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
-import {Sizes} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
@@ -133,6 +136,25 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
   const estimateErrorCode = getApiErrorCode(estimateQuery.error)
   const isEstimateUnavailable = estimateErrorCode === API_ERROR_CODES.estimateUnavailable
+
+  // A route-missing targets answer is deliberately not a read failure: it cannot come back on a retry, so
+  // drawing the retry card for it would offer a dead control. The card still renders and the local target
+  // stands, exactly as it does for a user who never opted in (AAP 0.7.5).
+  const hasTargetsReadFailure = isNutritionTargetsReadFailure(targetsQuery)
+  const hasReadFailure = !preferencesQuery.isLoading && (preferences === null || hasTargetsReadFailure)
+
+  // Retries whichever read failed, never both blindly: a targets read that never answered is what leaves the
+  // confirmation save with no revision to pin, so resolving it here is what keeps a later Generate from
+  // arguing with the server about a conflict the user never had.
+  const onRetryReadsPressed = useCallback(() => {
+    if (preferences === null) {
+      preferencesQuery.refetch()
+    }
+
+    if (hasTargetsReadFailure) {
+      targetsQuery.refetch()
+    }
+  }, [hasTargetsReadFailure, preferences, preferencesQuery, targetsQuery])
 
   const openEditTargets = useCallback(
     (mode: 'edit' | 'manual', intent?: 'confirm_estimate' | 'edit_saved' | 'manual_entry') => {
@@ -299,7 +321,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
             accessibilityLabel={formatPlanDayLabel(previousDay)}
             accessibilityState={{disabled: !step.canStepBack}}
             style={[styles.sheetStepButton, !step.canStepBack && styles.sheetStepButtonDisabled]}
-            activeOpacity={0.7}
+            activeOpacity={Opacity.PRESSED}
             disabled={!step.canStepBack}
             onPress={() => onStep(previousDay)}>
             <ChevronLeftIcon color={step.canStepBack ? Theme.colors.text : Theme.colors.textDisabled} />
@@ -312,7 +334,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
             accessibilityLabel={formatPlanDayLabel(nextDay)}
             accessibilityState={{disabled: !step.canStepForward}}
             style={[styles.sheetStepButton, !step.canStepForward && styles.sheetStepButtonDisabled]}
-            activeOpacity={0.7}
+            activeOpacity={Opacity.PRESSED}
             disabled={!step.canStepForward}
             onPress={() => onStep(nextDay)}>
             <ChevronRightIcon color={step.canStepForward ? Theme.colors.text : Theme.colors.textDisabled} />
@@ -368,19 +390,26 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
     if (displayed.source !== 'unavailable') {
       return (
-        <View style={styles.targetsCardWrapper}>
-          <TargetsCard
-            label={displayed.cardLabel}
-            calorieFigure={displayed.calories}
-            unitLabel={displayed.unitLabel}
-            macros={displayed.macros}
-            caption={displayed.caption}
-            editLabel={displayed.editLabel}
-            onEditPress={() =>
-              openEditTargets('edit', displayed.source === 'estimate' ? 'confirm_estimate' : 'edit_saved')
-            }
-          />
-        </View>
+        <>
+          <View style={styles.targetsCardWrapper}>
+            <TargetsCard
+              label={displayed.cardLabel}
+              calorieFigure={displayed.calories}
+              unitLabel={displayed.unitLabel}
+              macros={displayed.macros}
+              editLabel={displayed.editLabel}
+              onEditPress={() =>
+                openEditTargets('edit', displayed.source === 'estimate' ? 'confirm_estimate' : 'edit_saved')
+              }
+            />
+          </View>
+
+          {/* Outside the card, because 34:80 is its sibling rather than its child, and it belongs to this
+              branch alone: the frame draws no caption under a skeleton or an unavailable estimate. */}
+          <View style={styles.targetsCaptionWrapper}>
+            <Text style={styles.targetsCaption}>{displayed.caption}</Text>
+          </View>
+        </>
       )
     }
 
@@ -450,11 +479,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
           {preferencesQuery.isLoading && loadingBlock()}
 
-          {!preferencesQuery.isLoading &&
-            preferences === null &&
-            errorBlock(() => {
-              preferencesQuery.refetch()
-            })}
+          {hasReadFailure && errorBlock(onRetryReadsPressed)}
 
           {preferences !== null && reviewBody(preferences)}
         </KeyboardAwareScrollView>

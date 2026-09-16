@@ -65,11 +65,6 @@ const SEARCH_DEBOUNCE_MS = 400
 
 const BRANDED_MIN_QUERY_LENGTH = 2
 
-// Deliberately not the branded threshold: branded search starts above two characters while catalog search
-// starts at two, matching `useCatalogSearchInfiniteQuery`'s own `enabled` predicate. The two are specified
-// separately and must not be collapsed into one constant.
-const CATALOG_MIN_QUERY_LENGTH = 2
-
 // An empty query is what keeps the catalog request from firing while the section is hidden: the search hook
 // stays mounted on every render (hook order never changes) and its `enabled` predicate rejects the query.
 const NO_CATALOG_QUERY = ''
@@ -145,7 +140,6 @@ const AddFoodScreen = () => {
 
   // `/catalog/foods` answers with `items`, not `foods` — the two search endpoints name their page differently
   const catalogFoods = useMemo(() => catalogQuery.data?.pages.flatMap(page => page.items) ?? [], [catalogQuery.data])
-  const isCatalogSearchActive = isCatalogVisible && debouncedQuery.trim().length >= CATALOG_MIN_QUERY_LENGTH
 
   // Excludes pagination on both paged queries so scrolling the library or the catalog doesn't flash the
   // search spinner
@@ -164,10 +158,16 @@ const AddFoodScreen = () => {
   // so the empty state and New Food button still render
   const showLibrary = foods.length > 0 || isLoadingFoods || !showBranded
 
-  // Unlike branded, the catalog section stays mounted for the whole search: its loading, no-results and error
-  // states are distinct answers the user is owed, so the section renders whenever the search is running.
   // Only a decoded empty page is "no results" — an error must never reach the same caption
   const hasNoCatalogResults = isCatalogLoaded && catalogFoods.length === 0
+
+  // Unlike branded, the catalog section stays mounted for the whole search: its loading, no-results and error
+  // states are each a distinct answer the user is owed, so the section renders for any of them rather than
+  // only when it has rows. The four conditions are the search hook's own state, never a second reading of the
+  // query length — below the hook's two-character minimum it is disabled, which leaves all four false, and a
+  // hidden catalog is fed an empty query, which does the same
+  const showCatalog =
+    isCatalogVisible && (catalogFoods.length > 0 || isCatalogLoading || hasCatalogError || hasNoCatalogResults)
 
   const sections = useMemo<Section[]>(() => {
     const visibleSections: Section[] = []
@@ -176,7 +176,7 @@ const AddFoodScreen = () => {
       visibleSections.push({key: 'library', title: YOUR_FOODS_HEADER, data: foods})
     }
 
-    if (isCatalogSearchActive) {
+    if (showCatalog) {
       visibleSections.push({key: 'catalog', title: CATALOG_HEADER, data: catalogFoods})
     }
 
@@ -185,7 +185,7 @@ const AddFoodScreen = () => {
     }
 
     return visibleSections
-  }, [showLibrary, foods, isCatalogSearchActive, catalogFoods, showBranded, brandedFoods])
+  }, [showLibrary, foods, showCatalog, catalogFoods, showBranded, brandedFoods])
 
   const openFoodDetail = useCallback(
     (food: Food) => {
@@ -277,11 +277,21 @@ const AddFoodScreen = () => {
 
   const renderSectionHeader = useCallback(
     ({section}: {section: SectionListData<SectionItem, Section>}) => {
+      // The "New Food" button rides whichever section renders first, so exactly one is ever visible:
+      // library claims it unconditionally, catalog only when library is hidden, and branded only when
+      // both of the sections above it are hidden.
       if (section.key === 'catalog') {
         return (
           <>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeaderText}>{section.title}</Text>
+
+              {!showLibrary && (
+                <SecondaryButton
+                  label={NEW_FOOD_BUTTON_TEXT}
+                  onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
+                />
+              )}
             </View>
 
             {isCatalogLoading && (
@@ -341,7 +351,7 @@ const AddFoodScreen = () => {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionHeaderText}>{section.title}</Text>
 
-            {!showLibrary && (
+            {!showLibrary && !showCatalog && (
               <SecondaryButton
                 label={NEW_FOOD_BUTTON_TEXT}
                 onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
@@ -375,6 +385,7 @@ const AddFoodScreen = () => {
       hasNoCatalogResults,
       debouncedQuery,
       showLibrary,
+      showCatalog,
       navigation,
       searchText,
       isLoadingFoods,

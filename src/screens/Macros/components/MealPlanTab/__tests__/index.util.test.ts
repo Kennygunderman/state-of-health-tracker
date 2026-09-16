@@ -7,14 +7,24 @@ import {
   MealPlanMeal
 } from '@data/models/MealPlan'
 import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import Screens from '@constants/screens'
+import {
+  MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
+  MEAL_PLAN_CREATE_BUTTON_TEXT,
+  MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT
+} from '@constants/strings'
 
 import {
   arePlanActionsOffered,
   flexItemWidth,
+  formatPostLogBannerBody,
+  isStalePlanCode,
   latestLoggedEntry,
   MealPlanBodyInputs,
+  planDayWeekdayName,
+  resolveEmptyPlanCtaLabel,
   resolveLastDayAction,
   resolveMealFlagReason,
   resolveMealLoggedState,
@@ -903,5 +913,60 @@ describe('flexItemWidth', () => {
   it('returns 0 for a non-positive item count', () => {
     expect(flexItemWidth(353, 6, 0)).toBe(0)
     expect(flexItemWidth(353, 6, -2)).toBe(0)
+  })
+})
+
+describe('isStalePlanCode', () => {
+  it('recognises a plan the server has replaced', () => {
+    expect(isStalePlanCode(API_ERROR_CODES.stalePlan)).toBe(true)
+  })
+
+  it('recognises a plan the server will no longer write', () => {
+    expect(isStalePlanCode(API_ERROR_CODES.planNotActive)).toBe(true)
+  })
+
+  it('leaves every other decoded code to its own handling', () => {
+    expect(isStalePlanCode(API_ERROR_CODES.featureDisabled)).toBe(false)
+    expect(isStalePlanCode(API_ERROR_CODES.noMatchingMeals)).toBe(false)
+    expect(isStalePlanCode(API_ERROR_CODES.staleRevision)).toBe(false)
+  })
+
+  it('treats an undecodable failure as no code at all', () => {
+    expect(isStalePlanCode(null)).toBe(false)
+  })
+})
+
+describe('planDayWeekdayName', () => {
+  it('spells the weekday out for a plan day', () => {
+    expect(planDayWeekdayName(PLAN_START_DATE)).toBe('Sunday')
+  })
+
+  it('reads the day key as a local date rather than a UTC instant', () => {
+    expect(planDayWeekdayName(PLAN_END_DATE)).toBe('Saturday')
+  })
+})
+
+describe('resolveEmptyPlanCtaLabel', () => {
+  it('offers a first plan to a user who has not started', () => {
+    expect(resolveEmptyPlanCtaLabel('create')).toBe(MEAL_PLAN_CREATE_BUTTON_TEXT)
+  })
+
+  it('offers the following week to a user whose setup is finished', () => {
+    expect(resolveEmptyPlanCtaLabel('planNextWeek')).toBe(MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT)
+  })
+
+  it('offers to continue an unfinished setup from either resume point', () => {
+    expect(resolveEmptyPlanCtaLabel('continueSetupStep')).toBe(MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT)
+    expect(resolveEmptyPlanCtaLabel('continueSetupReview')).toBe(MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT)
+  })
+})
+
+describe('formatPostLogBannerBody', () => {
+  it('names only the slot for a meal logged on today', () => {
+    expect(formatPostLogBannerBody(PLAN_START_DATE, 'breakfast', PLAN_START_DATE)).toBe('Added to breakfast')
+  })
+
+  it('names the weekday as well when the entry sits on another day', () => {
+    expect(formatPostLogBannerBody(PLAN_END_DATE, 'lunch', PLAN_START_DATE)).toBe("Added to Saturday's lunch")
   })
 })

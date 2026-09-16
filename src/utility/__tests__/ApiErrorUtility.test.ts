@@ -5,6 +5,7 @@ import {
   API_ERROR_CODES,
   classifyOutcome,
   getApiErrorCode,
+  getApiErrorStatus,
   isFeatureDisabledError,
   isPlanOrCapabilityRefusal,
   isPlanStateError,
@@ -53,6 +54,39 @@ describe('getApiErrorCode', () => {
     const error = {response: {data: {error: 42}}}
 
     expect(getApiErrorCode(error)).toBeNull()
+  })
+})
+
+describe('getApiErrorStatus', () => {
+  it('extracts the status from an axios-shaped error', () => {
+    expect(getApiErrorStatus(makeAxiosError(404, {error: 'not_found'}))).toBe(404)
+  })
+
+  it('reads the status even when the body carries no code, which is the undecodable case', () => {
+    expect(getApiErrorStatus(makeAxiosError(404, '<html>Not Found</html>'))).toBe(404)
+  })
+
+  it('returns null when the rejection never reached a response', () => {
+    expect(getApiErrorStatus(makeAxiosError())).toBeNull()
+    expect(getApiErrorStatus(new Error('network down'))).toBeNull()
+  })
+
+  it('returns null for null and undefined', () => {
+    expect(getApiErrorStatus(null)).toBeNull()
+    expect(getApiErrorStatus(undefined)).toBeNull()
+  })
+
+  it('returns null when the status is not a number', () => {
+    expect(getApiErrorStatus({response: {status: '404'}})).toBeNull()
+  })
+
+  it('reads the same status classifyOutcome branches on, so the two can never disagree', () => {
+    const notFound = makeAxiosError(404, {error: 'catalog_food_not_found'})
+
+    expect(getApiErrorStatus(notFound)).toBe(404)
+    expect(classifyOutcome(notFound)).toBe('confirmed')
+    expect(getApiErrorStatus(makeAxiosError())).toBeNull()
+    expect(classifyOutcome(makeAxiosError())).toBe('unknown')
   })
 })
 

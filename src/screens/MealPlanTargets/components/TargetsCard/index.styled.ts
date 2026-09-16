@@ -89,22 +89,10 @@ export default StyleSheet.create({
     borderTopWidth: Stroke.THIN,
     borderTopColor: Theme.colors.hairline
   },
+  // The card's last child: caption 34:80 is a sibling of this card, not a child of it, so the screen renders
+  // it below on the page fill at the full 353px measure.
   legendWrapper: {
     alignSelf: 'stretch',
     paddingTop: Spacing.X_SMALL
-  },
-  captionWrapper: {
-    alignSelf: 'stretch',
-    paddingTop: Spacing.X_SMALL
-  },
-  // 13px multi-line meta, so LineHeight.META: Figma sizes 34:80 against the 353px page column, where it fits
-  // on one line, but this card nests it at the 313px content measure, where it wraps — and a wrapping 13px
-  // caption is what text-meta's 18.85 is for. Nothing constrains the growth: captionWrapper hugs, unlike the
-  // fixed 24px wrapper 34:79 gives it in the frame.
-  caption: {
-    fontSize: FontSize.LABEL,
-    fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
-    color: Theme.colors.textMuted
   }
 })
