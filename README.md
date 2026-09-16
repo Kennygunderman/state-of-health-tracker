@@ -41,6 +41,8 @@ Your training and your diet are the same goal, so why are they in separate apps?
 
 **Macros.** Type "3 eggs, toast with jelly, hash browns" and the AI breaks it into foods with calories and macros you can tweak. Prefer doing it by hand? Search the USDA database, which covers nearly every labeled food in the US, or build your own custom foods.
 
+**Meal plan.** Answer a few questions about your goals and the foods you'd rather skip, check the calorie and macro targets that come out of them, and the app builds you a week of meals plus the grocery list to shop it. Open a recipe for its ingredients and instructions, or swap a meal you don't want and the list follows. Eaten one? Log the portion you actually had into the same diary as everything else, labeled "From meal plan" so you can tell later where it came from. Planned recipes come from a vetted catalog and their nutrition is calculated from the ingredient records behind them; where a food's numbers are an estimate, the app says so. It sits beside the diary in Macros, under a Diary / Meal Plan toggle.
+
 **Runs.** GPS tracking with your route on the map, pace, speed, and calorie burn. Runs feed into the same daily activity picture as your lifts and steps.
 
 **Progress.** Body weight trends against your goal, strength charts for every exercise, and a full history of everything you've logged. Every day you train or eat, the app keeps the diary for you.
@@ -59,6 +61,19 @@ Your training and your diet are the same goal, so why are they in separate apps?
 npm install
 npx expo run:ios
 ```
+
+Copy `.env` from `.env.dist` and point `SOH_API_BASE_URL` at your own API — it holds a localhost placeholder, and debug builds and test runs refuse a production origin outright, so a copied template can't quietly read live data.
+
+## Meal planning
+
+The Meal Plan side of the Macros tab has its own engineering guide: [`docs/meal-planning.md`](docs/meal-planning.md). It maps every Figma frame to the screen that implements it, walks through running the feature locally, and records the decisions you'd otherwise have to reverse-engineer — the typeface that departs from the design, the `npm ci --legacy-peer-deps` workaround, the lint findings left standing, and a physical-iPhone verification checklist that is **unrun**, because no iOS build, simulator or device was available where this was written.
+
+Two switches decide whether the feature is visible at all, and both are off by default:
+
+- **The API must be running with `MEAL_PLANNING_ENABLED=true`**, after its catalog release and recipe seeds are loaded. Until then the Meal Plan segment shows an unavailable card. The server-side command order belongs to `backend/docs/meal-planning/README.md` in the sibling `state-of-health-be` repository — follow it there.
+- **Firebase Remote Config `meal_planning_enabled` must have been fetched at least once.** The packaged default is `false`, so an install that has never picked up a console value hides the feature by design, and a console change reaches a device on its next cold start rather than mid-session.
+
+Miss either one and the app looks exactly as it did before this feature — gated off, not broken. A device build additionally needs the Firebase files `app.json` points at: `GoogleService-Info.plist` for iOS (passed through `GOOGLE_SERVICES_INFO_PLIST_FILE`) and `google-services.json` for Android. Both are untracked build prerequisites — add them to your own checkout, and keep them out of commits.
 
 ## Shipping a release
 
