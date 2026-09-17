@@ -1,11 +1,13 @@
 import {useEffect, useRef} from 'react'
 
 import {CurrentMealPlans} from '@data/models/MealPlan'
-import {fetchCurrentMealPlan} from '@queries/api/mealPlanning/fetchCurrentMealPlan'
 import {DefaultError, useQuery, useQueryClient, UseQueryResult} from '@tanstack/react-query'
 
-import {queryKeys} from '../keys'
-import {answerDayKeyFromUpdatedAt, shouldRefetchCurrentMealPlan} from './useCurrentMealPlanQuery.util'
+import {
+  answerDayKeyFromUpdatedAt,
+  applyCurrentMealPlanRollover,
+  buildCurrentMealPlanQueryOptions
+} from './useCurrentMealPlanQuery.util'
 
 // enabled exists because /meal-planning/plans/current is gated by the meal-planning kill switch: no gated
 // request may be issued while the flag is off, and the entitlement hook cannot skip a hook call to stop it.
@@ -19,9 +21,9 @@ import {answerDayKeyFromUpdatedAt, shouldRefetchCurrentMealPlan} from './useCurr
 // exact key. That makes observedDayKey's initial value no longer load-bearing: a fresh observer has no
 // previous session day to compare against, so a remount or a cold start restored from AsyncStorage decides
 // from the answer's own fetch-day (dataUpdatedAt) instead, and refetches anything fetched on an earlier day.
-// Invalidation, not a refetch or reset, is what does it: it keeps the stale plan as data when the refetch
-// fails, which is what leaves an offline session with its read-only plan and its last-saved-plan banner
-// rather than the no-plan state.
+//
+// The ref and the effect stay here because they are React state; the options and the rollover action they
+// drive live in the .util factories, which is what the suite exercises (no renderer is installed).
 export const useCurrentMealPlanQuery = (
   enabled = true,
   sessionDayKey?: string
@@ -29,11 +31,7 @@ export const useCurrentMealPlanQuery = (
   const queryClient = useQueryClient()
   const observedDayKey = useRef(sessionDayKey)
 
-  const query = useQuery({
-    queryKey: queryKeys.mealPlanCurrent,
-    queryFn: fetchCurrentMealPlan,
-    enabled
-  })
+  const query = useQuery(buildCurrentMealPlanQueryOptions(enabled))
 
   const answerDayKey = answerDayKeyFromUpdatedAt(query.dataUpdatedAt)
 
@@ -42,13 +40,7 @@ export const useCurrentMealPlanQuery = (
 
     observedDayKey.current = sessionDayKey
 
-    if (!enabled) {
-      return
-    }
-
-    if (shouldRefetchCurrentMealPlan({previousDayKey, sessionDayKey, answerDayKey})) {
-      queryClient.invalidateQueries({queryKey: queryKeys.mealPlanCurrent})
-    }
+    applyCurrentMealPlanRollover(queryClient, enabled, {previousDayKey, sessionDayKey, answerDayKey})
   }, [answerDayKey, enabled, queryClient, sessionDayKey])
 
   return query

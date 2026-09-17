@@ -152,13 +152,16 @@ export type PlanSummaryStep = 'goal' | 'body' | 'diet' | 'schedule'
 // The draft plus the provenance that says whether its nulls are answers. Structural on purpose:
 // this screen may not import the provider's util, and the provider's dirty record satisfies
 // editedSteps as it stands.
+//
+// fallbackWeightUnitPref is required because a goal weight is stored in kilograms and can only be shown
+// in the unit it was answered in. The manual route reaches this card with a goal weight but no body step,
+// so neither the draft nor the saved row carries a unit, and guessing one here would relabel the number.
 export interface PlanSummaryDraft {
   draft: PlanSummarySource
   seeded: boolean
   editedSteps?: Partial<Record<PlanSummaryStep, boolean>>
+  fallbackWeightUnitPref: WeightUnitPref
 }
-
-const DEFAULT_WEIGHT_UNIT_PREF: WeightUnitPref = 'lb'
 
 const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.freeze({
   lb: MEAL_PLAN_LB_UNIT,
@@ -184,12 +187,10 @@ const formatGoalWeight = (goalWeightKg: number, unit: WeightUnitPref): string =>
 const showsGoalWeight = (goal: Goal, goalWeightKg: number | null): goalWeightKg is number =>
   goal !== 'maintain' && goalWeightKg !== null && Number.isFinite(goalWeightKg)
 
-const goalRowValue = (goal: Goal, goalWeightKg: number | null, weightUnitPref: WeightUnitPref | null): string => {
+const goalRowValue = (goal: Goal, goalWeightKg: number | null, unit: WeightUnitPref): string => {
   const goalLabel = MEAL_PLAN_GOAL_LABELS[goal]
 
   if (!showsGoalWeight(goal, goalWeightKg)) return goalLabel
-
-  const unit = weightUnitPref ?? DEFAULT_WEIGHT_UNIT_PREF
 
   return stringWithNamedParameters(MEAL_PLAN_SUMMARY_GOAL_WITH_WEIGHT_TEMPLATE, {
     goal: goalLabel,
@@ -234,7 +235,10 @@ export const buildPlanSummaryRows = (state: PlanSummaryDraft, preferences?: Plan
   const rows: SummaryRow[] = []
 
   if (goal !== null) {
-    rows.push({label: MEAL_PLAN_GOAL_ROW_LABEL, value: goalRowValue(goal, goalWeightKg, weightUnitPref)})
+    rows.push({
+      label: MEAL_PLAN_GOAL_ROW_LABEL,
+      value: goalRowValue(goal, goalWeightKg, weightUnitPref ?? state.fallbackWeightUnitPref)
+    })
   }
 
   if (diet !== null) {

@@ -15,9 +15,19 @@ import process from 'node:process'
 //     left where it is, since the design-system rules refactor a shipped value only in the styled module
 //     the change actually touches.
 // Applying the style-object scan to component source would misread ordinary arithmetic (`length - 1`) as a
-// style value, which is why the attribute scan works from the two allowlists below instead: a prop carrying
-// a design value is listed, a prop carrying behaviour (`numberOfLines`, `delayPressIn`, `maxLength`) is not,
-// and SVG artwork geometry inside a viewBox stays unlisted because it is transcribed path data, not a token.
+// style value, which is why the attribute scan works from the numeric allowlist below and the colour-name
+// predicate instead: a prop carrying a numeric design value is listed, a prop carrying behaviour
+// (`numberOfLines`, `delayPressIn`, `maxLength`) is not, and SVG artwork geometry inside a viewBox stays
+// unlisted because it is transcribed path data, not a token.
+//
+// Two classification rules do not read from a list, because a list of them would rot:
+//   * a colour-valued position is recognised by its name — exactly `color`, `fill` or `stroke`, or any
+//     `*Color` prop — and on one of those every quoted non-exempt literal is a hit, since a token is an
+//     expression and never a string. That catches `color: 'red'` and `stroke="red"` without enumerating the
+//     147 CSS colour names; the hex and `rgb(`/`hsl(` patterns below remain the fallback for a colour
+//     written on a property this rule does not name.
+//   * `fontWeight` is classified before the exemptions, because 0.6.5 permits only the named `FontWeight`
+//     tokens there: a numeric weight is a hit even when it is the otherwise-exempt `0`.
 const EXEMPT_VALUES = Object.freeze([
   '0',
   'auto',
@@ -78,19 +88,9 @@ const NUMERIC_ATTRIBUTES = Object.freeze([
   'strokeWidth'
 ])
 
-const COLOR_ATTRIBUTES = Object.freeze([
-  'backdropColor',
-  'backgroundColor',
-  'color',
-  'dotColor',
-  'fill',
-  'placeholderTextColor',
-  'selectionColor',
-  'shadowColor',
-  'stroke',
-  'tintColor',
-  'underlayColor'
-])
+const COLOR_PROPERTIES = Object.freeze(['color', 'fill', 'stroke'])
+
+const COLOR_PROPERTY_SUFFIX = 'Color'
 
 const QUOTE_CHARACTERS = Object.freeze(["'", '"', '`'])
 
@@ -106,7 +106,7 @@ const IDENTIFIER_CHARACTER_PATTERN = /[A-Za-z0-9_$]/
 const NUMERIC_LITERAL_PATTERN =
   /-?(?:0[xX][\da-fA-F][\da-fA-F_]*|0[bB][01][01_]*|0[oO][0-7][0-7_]*|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][-+]?\d[\d_]*)?)n?/g
 const NUMERIC_SEPARATOR_PATTERN = /_/g
-const NUMERIC_STRING_PATTERN = /^\d+$/
+const NUMERIC_STRING_PATTERN = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/
 const PERCENTAGE_PATTERN = /^-?\d+(?:\.\d+)?%$/
 const PROPERTY_PATTERN = /([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g
 const ATTRIBUTE_PATTERN = /([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g
@@ -127,6 +127,10 @@ const isExemptValue = text => EXEMPT_VALUES.includes(text)
 
 const isExemptProperty = propertyName => EXEMPT_PROPERTIES.includes(propertyName)
 
+const isColorValuedName = name => COLOR_PROPERTIES.includes(name) || name.endsWith(COLOR_PROPERTY_SUFFIX)
+
+const isNumericString = text => NUMERIC_STRING_PATTERN.test(text)
+
 const isPercentage = text => PERCENTAGE_PATTERN.test(text)
 
 const isQuoted = text => text.length > 1 && QUOTE_CHARACTERS.includes(text[0])
@@ -143,17 +147,22 @@ const isZeroLiteral = text => {
 
 const classifyValue = (propertyName, valueText) => {
   const literal = unquote(valueText)
+  const quoted = isQuoted(valueText)
+
+  if (propertyName === FONT_WEIGHT_PROPERTY && isNumericString(literal)) {
+    return quoted ? REASON_FONT_WEIGHT_STRING : REASON_NUMERIC
+  }
 
   if (isExemptValue(literal) || isPercentage(literal)) {
     return null
   }
 
-  if (isQuoted(valueText)) {
-    if (NUMERIC_STRING_PATTERN.test(literal)) {
-      return propertyName === FONT_WEIGHT_PROPERTY ? REASON_FONT_WEIGHT_STRING : REASON_NUMERIC_STRING
+  if (quoted) {
+    if (isNumericString(literal)) {
+      return REASON_NUMERIC_STRING
     }
 
-    if (HEX_COLOR_PATTERN.test(literal) || COLOR_FUNCTION_PATTERN.test(literal)) {
+    if (isColorValuedName(propertyName) || HEX_COLOR_PATTERN.test(literal) || COLOR_FUNCTION_PATTERN.test(literal)) {
       return REASON_COLOR
     }
 
@@ -265,7 +274,7 @@ const findNumericLiterals = code =>
     .map(match => ({index: match.index, text: match[0]}))
 
 const isDesignValueAttribute = attributeName =>
-  NUMERIC_ATTRIBUTES.includes(attributeName) || COLOR_ATTRIBUTES.includes(attributeName)
+  NUMERIC_ATTRIBUTES.includes(attributeName) || isColorValuedName(attributeName)
 
 const stringAt = (strings, index) => strings.find(entry => entry.index === index)
 

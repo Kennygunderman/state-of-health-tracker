@@ -7,10 +7,14 @@ import {
   AboutYouErrors,
   AboutYouInitialInput,
   buildBodyStepValues,
+  convertHeightFieldsToUnit,
+  convertWeightFieldToUnit,
   initialFieldsFor,
   MealPlanAboutYouFields,
+  mergeAboutYouFields,
   resolveWeighInPrefill,
   selectLatestWeighIn,
+  suggestedWeightField,
   validateAboutYou,
   WIZARD_TOTAL_STEPS_ESTIMATED,
   WIZARD_TOTAL_STEPS_MANUAL,
@@ -49,7 +53,7 @@ const makeInitialInput = (overrides: Partial<AboutYouInitialInput> = {}): AboutY
   savedWeightKg: null,
   heightUnit: 'cm',
   weightUnit: 'kg',
-  prefill: {value: '', showCaption: false},
+  prefill: {value: '', unit: null, showCaption: false},
   ...overrides
 })
 
@@ -130,65 +134,111 @@ describe('selectLatestWeighIn', () => {
 
 describe('resolveWeighInPrefill', () => {
   it('suggests nothing when there is no weigh-in to suggest', () => {
-    expect(resolveWeighInPrefill(null, 'lbs')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(null, 'kg')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(null, 'st')).toEqual({value: '', showCaption: false})
+    expect(resolveWeighInPrefill(null, 'lbs')).toEqual({value: '', unit: null, showCaption: false})
+    expect(resolveWeighInPrefill(null, 'kg')).toEqual({value: '', unit: null, showCaption: false})
+    expect(resolveWeighInPrefill(null, 'st')).toEqual({value: '', unit: null, showCaption: false})
   })
 
   it('suggests a pounds reading inside the supported range with its caption', () => {
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 182.2}), 'lbs')).toEqual({value: '182.2', showCaption: true})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 182.2}), 'lbs')).toEqual({
+      value: '182.2',
+      unit: 'lb',
+      showCaption: true
+    })
   })
 
   it('suggests a kilogram reading inside the supported range with its caption', () => {
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 82.6}), 'kg')).toEqual({value: '82.6', showCaption: true})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 82.6}), 'kg')).toEqual({
+      value: '82.6',
+      unit: 'kg',
+      showCaption: true
+    })
   })
 
   it('suppresses the suggestion for a stone user even when the number would pass as kilograms', () => {
     const weighIn = makeWeighIn({weight: 82.6})
 
-    expect(resolveWeighInPrefill(weighIn, 'st')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(weighIn, 'kg')).toEqual({value: '82.6', showCaption: true})
+    expect(resolveWeighInPrefill(weighIn, 'st')).toEqual({value: '', unit: null, showCaption: false})
+    expect(resolveWeighInPrefill(weighIn, 'kg')).toEqual({value: '82.6', unit: 'kg', showCaption: true})
   })
 
   it('starts the field empty when the stored number falls outside the range read in the current unit', () => {
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 60}), 'lbs')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 700}), 'lbs')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 29.9}), 'kg')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 300.1}), 'kg')).toEqual({value: '', showCaption: false})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 60}), 'lbs')).toEqual({value: '', unit: null, showCaption: false})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 700}), 'lbs')).toEqual({
+      value: '',
+      unit: null,
+      showCaption: false
+    })
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 29.9}), 'kg')).toEqual({
+      value: '',
+      unit: null,
+      showCaption: false
+    })
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 300.1}), 'kg')).toEqual({
+      value: '',
+      unit: null,
+      showCaption: false
+    })
   })
 
   it('gates the same stored number on the unit it is read in, not on the number alone', () => {
     const weighIn = makeWeighIn({weight: 60})
 
-    expect(resolveWeighInPrefill(weighIn, 'lbs')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(weighIn, 'kg')).toEqual({value: '60', showCaption: true})
+    expect(resolveWeighInPrefill(weighIn, 'lbs')).toEqual({value: '', unit: null, showCaption: false})
+    expect(resolveWeighInPrefill(weighIn, 'kg')).toEqual({value: '60', unit: 'kg', showCaption: true})
   })
 
   describe('at the edges of the supported range', () => {
     it('suggests the exact kilogram bounds, so the window is inclusive at both ends', () => {
       expect(resolveWeighInPrefill(makeWeighIn({weight: MIN_BODY_WEIGHT_KG}), 'kg')).toEqual({
         value: '30',
+        unit: 'kg',
         showCaption: true
       })
       expect(resolveWeighInPrefill(makeWeighIn({weight: MAX_BODY_WEIGHT_KG}), 'kg')).toEqual({
         value: '300',
+        unit: 'kg',
         showCaption: true
       })
     })
 
     it('withholds a suggestion at 66 lb, which reads as 29.94 kg and falls under the kilogram floor', () => {
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 66}), 'lbs')).toEqual({value: '', showCaption: false})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66}), 'lbs')).toEqual({
+        value: '',
+        unit: null,
+        showCaption: false
+      })
     })
 
     it('suggests the first pound reading that clears the derived floor', () => {
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.1}), 'lbs')).toEqual({value: '', showCaption: false})
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.14}), 'lbs')).toEqual({value: '66.14', showCaption: true})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.1}), 'lbs')).toEqual({
+        value: '',
+        unit: null,
+        showCaption: false
+      })
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 66.14}), 'lbs')).toEqual({
+        value: '66.14',
+        unit: 'lb',
+        showCaption: true
+      })
     })
 
     it('suggests the last pound reading that stays under the derived ceiling', () => {
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 661}), 'lbs')).toEqual({value: '661', showCaption: true})
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 661.4}), 'lbs')).toEqual({value: '', showCaption: false})
-      expect(resolveWeighInPrefill(makeWeighIn({weight: 662}), 'lbs')).toEqual({value: '', showCaption: false})
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 661}), 'lbs')).toEqual({
+        value: '661',
+        unit: 'lb',
+        showCaption: true
+      })
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 661.4}), 'lbs')).toEqual({
+        value: '',
+        unit: null,
+        showCaption: false
+      })
+      expect(resolveWeighInPrefill(makeWeighIn({weight: 662}), 'lbs')).toEqual({
+        value: '',
+        unit: null,
+        showCaption: false
+      })
     })
 
     it('turns on either side of the derived pound bounds rather than the rounded ones', () => {
@@ -214,12 +264,24 @@ describe('resolveWeighInPrefill', () => {
   // kilogram range check and is suggested as 182 kg: the residual risk sanctioned by AAP 0.1.4, where the
   // caption and the explicit Continue are the safeguards
   it('suggests a stored 182 to a kilogram user with the caption, the sanctioned residual risk', () => {
-    expect(resolveWeighInPrefill(makeWeighIn({weight: 182}), 'kg')).toEqual({value: '182', showCaption: true})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: 182}), 'kg')).toEqual({
+      value: '182',
+      unit: 'kg',
+      showCaption: true
+    })
   })
 
   it('rejects a non-finite stored weight in every unit', () => {
-    expect(resolveWeighInPrefill(makeWeighIn({weight: NaN}), 'lbs')).toEqual({value: '', showCaption: false})
-    expect(resolveWeighInPrefill(makeWeighIn({weight: Infinity}), 'kg')).toEqual({value: '', showCaption: false})
+    expect(resolveWeighInPrefill(makeWeighIn({weight: NaN}), 'lbs')).toEqual({
+      value: '',
+      unit: null,
+      showCaption: false
+    })
+    expect(resolveWeighInPrefill(makeWeighIn({weight: Infinity}), 'kg')).toEqual({
+      value: '',
+      unit: null,
+      showCaption: false
+    })
   })
 
   it('never shows the caption without a value, so the copy cannot appear over an empty field', () => {
@@ -599,13 +661,13 @@ describe('initialFieldsFor', () => {
   })
 
   it('uses the weigh-in suggestion only while no weight has been saved', () => {
-    const fields = initialFieldsFor(makeInitialInput({prefill: {value: '182.2', showCaption: true}}))
+    const fields = initialFieldsFor(makeInitialInput({prefill: {value: '182.2', unit: 'kg', showCaption: true}}))
 
     expect(fields.weight).toBe('182.2')
   })
 
   it('prefers a saved weight over the weigh-in suggestion', () => {
-    const input = makeInitialInput({savedWeightKg: 82.6, prefill: {value: '182.2', showCaption: true}})
+    const input = makeInitialInput({savedWeightKg: 82.6, prefill: {value: '182.2', unit: 'kg', showCaption: true}})
 
     expect(initialFieldsFor(input).weight).toBe('82.6')
   })
@@ -670,7 +732,7 @@ describe('initialFieldsFor', () => {
       savedWeightKg: 82.644529814,
       heightUnit: 'ft_in',
       weightUnit: 'lb',
-      prefill: {value: '170', showCaption: true}
+      prefill: {value: '170', unit: 'lb', showCaption: true}
     })
 
     expect(initialFieldsFor(input)).toEqual({
@@ -680,5 +742,224 @@ describe('initialFieldsFor', () => {
       centimeters: '',
       weight: '182.2'
     })
+  })
+})
+
+describe('mergeAboutYouFields', () => {
+  it('returns the saved fields unchanged when nothing has been entered', () => {
+    const savedFields = makeFields()
+
+    expect(mergeAboutYouFields(savedFields, {})).toEqual(savedFields)
+  })
+
+  it('replaces only the field that was entered', () => {
+    const savedFields = makeFields({age: '', weight: '170'})
+
+    expect(mergeAboutYouFields(savedFields, {age: '34'})).toEqual({
+      age: '34',
+      feet: '5',
+      inches: '10',
+      centimeters: '177.8',
+      weight: '170'
+    })
+  })
+
+  it('keeps the weigh-in suggestion in the weight field while another field is being answered', () => {
+    const savedFields = initialFieldsFor(makeInitialInput({prefill: {value: '182.2', unit: 'kg', showCaption: true}}))
+
+    expect(mergeAboutYouFields(savedFields, {age: '34', centimeters: '177.8'}).weight).toBe('182.2')
+  })
+
+  it('lets a weigh-in that arrives after another field was answered still reach the weight field', () => {
+    const answered = {age: '34'}
+    const beforeWeighIns = initialFieldsFor(makeInitialInput({prefill: {value: '', unit: null, showCaption: false}}))
+    const afterWeighIns = initialFieldsFor(makeInitialInput({prefill: {value: '182.2', unit: 'kg', showCaption: true}}))
+
+    expect(mergeAboutYouFields(beforeWeighIns, answered).weight).toBe('')
+    expect(mergeAboutYouFields(afterWeighIns, answered).weight).toBe('182.2')
+  })
+
+  it('keeps a typed weight when the weigh-in suggestion changes underneath it', () => {
+    const savedFields = initialFieldsFor(makeInitialInput({prefill: {value: '182.2', unit: 'kg', showCaption: true}}))
+
+    expect(mergeAboutYouFields(savedFields, {weight: '176'}).weight).toBe('176')
+  })
+
+  it('treats an emptied field as an answer rather than falling back to the saved value', () => {
+    expect(mergeAboutYouFields(makeFields(), {weight: ''}).weight).toBe('')
+  })
+})
+
+describe('convertWeightFieldToUnit', () => {
+  it('reads a pound weight as kilograms', () => {
+    expect(convertWeightFieldToUnit('182.2', 'lb', 'kg')).toEqual({weight: '82.6'})
+  })
+
+  it('reads a kilogram weight as pounds', () => {
+    expect(convertWeightFieldToUnit('82.6', 'kg', 'lb')).toEqual({weight: '182.1'})
+  })
+
+  it('returns the same measurement after a switch and a switch back', () => {
+    const toKilograms = convertWeightFieldToUnit('182.2', 'lb', 'kg')
+    const backToPounds = convertWeightFieldToUnit(toKilograms.weight ?? '', 'kg', 'lb')
+
+    expect(backToPounds).toEqual({weight: '182.1'})
+  })
+
+  it('converts a whole number without a trailing decimal', () => {
+    expect(convertWeightFieldToUnit('80', 'kg', 'lb')).toEqual({weight: '176.4'})
+  })
+
+  it('changes nothing when the unit has not changed', () => {
+    expect(convertWeightFieldToUnit('182.2', 'lb', 'lb')).toEqual({})
+  })
+
+  it('changes nothing when the field is empty', () => {
+    expect(convertWeightFieldToUnit('', 'lb', 'kg')).toEqual({})
+    expect(convertWeightFieldToUnit('   ', 'lb', 'kg')).toEqual({})
+  })
+
+  it('changes nothing when the field holds no readable measurement', () => {
+    expect(convertWeightFieldToUnit('abc', 'lb', 'kg')).toEqual({})
+    expect(convertWeightFieldToUnit('1.2.3', 'lb', 'kg')).toEqual({})
+    expect(convertWeightFieldToUnit('-5', 'lb', 'kg')).toEqual({})
+  })
+
+  it('carries a half-typed decimal across as the number it reads', () => {
+    expect(convertWeightFieldToUnit('80.', 'kg', 'lb')).toEqual({weight: '176.4'})
+  })
+})
+
+describe('convertHeightFieldsToUnit', () => {
+  it('reads feet and inches as centimetres', () => {
+    expect(convertHeightFieldsToUnit(makeFields({feet: '5', inches: '10'}), 'ft_in', 'cm')).toEqual({
+      centimeters: '177.8'
+    })
+  })
+
+  it('reads centimetres as feet and inches', () => {
+    expect(convertHeightFieldsToUnit(makeFields({centimeters: '177.8'}), 'cm', 'ft_in')).toEqual({
+      feet: '5',
+      inches: '10'
+    })
+  })
+
+  it('reads a foot count with no inches entered as that many whole feet', () => {
+    expect(convertHeightFieldsToUnit(makeFields({feet: '5', inches: ''}), 'ft_in', 'cm')).toEqual({
+      centimeters: '152.4'
+    })
+  })
+
+  it('carries a whole number of feet without producing twelve inches', () => {
+    expect(convertHeightFieldsToUnit(makeFields({centimeters: '182.9'}), 'cm', 'ft_in')).toEqual({
+      feet: '6',
+      inches: '0'
+    })
+  })
+
+  it('changes nothing when the unit has not changed', () => {
+    expect(convertHeightFieldsToUnit(makeFields(), 'cm', 'cm')).toEqual({})
+    expect(convertHeightFieldsToUnit(makeFields(), 'ft_in', 'ft_in')).toEqual({})
+  })
+
+  it('changes nothing when the height being left behind is empty', () => {
+    expect(convertHeightFieldsToUnit(makeFields({feet: '', inches: ''}), 'ft_in', 'cm')).toEqual({})
+    expect(convertHeightFieldsToUnit(makeFields({centimeters: ''}), 'cm', 'ft_in')).toEqual({})
+  })
+
+  it('changes nothing when the height being left behind is unreadable', () => {
+    expect(convertHeightFieldsToUnit(makeFields({feet: 'x'}), 'ft_in', 'cm')).toEqual({})
+    expect(convertHeightFieldsToUnit(makeFields({centimeters: 'x'}), 'cm', 'ft_in')).toEqual({})
+  })
+
+  it("leaves the other unit's fields alone so the merge keeps reading the saved answer", () => {
+    expect(convertHeightFieldsToUnit(makeFields(), 'ft_in', 'cm')).not.toHaveProperty('feet')
+    expect(convertHeightFieldsToUnit(makeFields(), 'cm', 'ft_in')).not.toHaveProperty('centimeters')
+  })
+})
+
+describe('a unit switch after a value was entered', () => {
+  it('submits the weight the user gave rather than the same number relabelled', () => {
+    const savedFields = initialFieldsFor(makeInitialInput({weightUnit: 'lb'}))
+    const typed = mergeAboutYouFields(savedFields, {age: '34', centimeters: '177.8', weight: '182.2'})
+    const converted = mergeAboutYouFields(typed, convertWeightFieldToUnit(typed.weight, 'lb', 'kg'))
+
+    expect(buildBodyStepValues(converted, 'cm', 'kg')?.weightKg).toBeCloseTo(82.6, 1)
+    expect(buildBodyStepValues(typed, 'cm', 'kg')?.weightKg).toBeCloseTo(182.2, 1)
+  })
+
+  it('submits the height the user gave rather than the same number under the other unit', () => {
+    const typed = mergeAboutYouFields(makeFields(), {feet: '5', inches: '10'})
+    const converted = mergeAboutYouFields(typed, convertHeightFieldsToUnit(typed, 'ft_in', 'cm'))
+
+    expect(buildBodyStepValues(converted, 'cm', 'kg')?.heightCm).toBeCloseTo(177.8, 1)
+  })
+})
+
+describe('suggestedWeightField', () => {
+  it('leaves a suggestion alone when the field already shows the unit it was read in', () => {
+    expect(suggestedWeightField({value: '182.2', unit: 'lb', showCaption: true}, 'lb')).toBe('182.2')
+    expect(suggestedWeightField({value: '82.6', unit: 'kg', showCaption: true}, 'kg')).toBe('82.6')
+  })
+
+  it('expresses the same weight in the unit the field is showing', () => {
+    expect(suggestedWeightField({value: '182.2', unit: 'lb', showCaption: true}, 'kg')).toBe('82.6')
+    expect(suggestedWeightField({value: '82.6', unit: 'kg', showCaption: true}, 'lb')).toBe('182.1')
+  })
+
+  it('has nothing to express when no weigh-in was suggestible', () => {
+    expect(suggestedWeightField({value: '', unit: null, showCaption: false}, 'kg')).toBe('')
+    expect(suggestedWeightField({value: '', unit: null, showCaption: false}, 'lb')).toBe('')
+  })
+})
+
+describe('a weigh-in that answers after the unit was switched', () => {
+  // The sequence that relabels a weight if the suggestion is dropped in raw: nothing loaded, the user moves
+  // the toggle, and the answer then arrives carrying the number as it was read under the old unit.
+  it('submits the weight the user was shown, not the digits of the other unit', () => {
+    const suggestion = resolveWeighInPrefill(makeWeighIn({weight: 182.2}), 'lbs')
+    const afterSwitchToKg = initialFieldsFor(
+      makeInitialInput({weightUnit: 'kg', heightUnit: 'cm', prefill: suggestion})
+    )
+    const answered = mergeAboutYouFields(afterSwitchToKg, {age: '34', centimeters: '177.8'})
+
+    expect(answered.weight).toBe('82.6')
+    expect(buildBodyStepValues(answered, 'cm', 'kg')?.weightKg).toBeCloseTo(82.6, 1)
+  })
+
+  it('shows nothing in the field until the answer arrives, and the right unit once it has', () => {
+    const before = initialFieldsFor(
+      makeInitialInput({weightUnit: 'kg', prefill: {value: '', unit: null, showCaption: false}})
+    )
+    const after = initialFieldsFor(
+      makeInitialInput({weightUnit: 'kg', prefill: resolveWeighInPrefill(makeWeighIn({weight: 182.2}), 'lbs')})
+    )
+
+    expect(before.weight).toBe('')
+    expect(after.weight).toBe('82.6')
+  })
+
+  it('lets a newer weigh-in replace an older suggestion after a unit switch, rather than freezing it', () => {
+    // No override is written for a displayed suggestion, so the newer answer re-derives in the selected unit.
+    const older = resolveWeighInPrefill(makeWeighIn({weight: 182.2}), 'lbs')
+    const newer = resolveWeighInPrefill(makeWeighIn({weight: 176}), 'lbs')
+    const afterOlder = initialFieldsFor(makeInitialInput({weightUnit: 'kg', prefill: older}))
+    const afterNewer = initialFieldsFor(makeInitialInput({weightUnit: 'kg', prefill: newer}))
+
+    expect(mergeAboutYouFields(afterOlder, {}).weight).toBe('82.6')
+    expect(mergeAboutYouFields(afterNewer, {}).weight).toBe('79.8')
+    expect(
+      buildBodyStepValues(mergeAboutYouFields(afterNewer, {age: '34', centimeters: '177.8'}), 'cm', 'kg')?.weightKg
+    ).toBeCloseTo(79.8, 1)
+  })
+
+  it('still carries a weight the user typed across a unit switch', () => {
+    const typed = mergeAboutYouFields(makeFields(), {weight: '182.2'})
+    const converted = mergeAboutYouFields(typed, convertWeightFieldToUnit(typed.weight, 'lb', 'kg'))
+
+    expect(converted.weight).toBe('82.6')
+    expect(
+      buildBodyStepValues(mergeAboutYouFields(converted, {age: '34', centimeters: '177.8'}), 'cm', 'kg')?.weightKg
+    ).toBeCloseTo(82.6, 1)
   })
 })

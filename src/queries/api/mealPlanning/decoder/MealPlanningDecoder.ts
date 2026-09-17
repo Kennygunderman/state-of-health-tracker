@@ -180,6 +180,10 @@ export const MealPlanResponse = io.type({
   id: io.string,
   revision: io.number,
   generationAttempt: io.number,
+  // The idempotency key of the write that published this plan. Required, because the one thing it is for is
+  // proving that a plan a client just read is the product of its own unresolved request: a member that could
+  // be absent would make every such comparison inconclusive and leave a possibly committed key unresolved.
+  generationKey: io.string,
   startDate: DayKeyString,
   endDate: DayKeyString,
   status: planStatusCode,

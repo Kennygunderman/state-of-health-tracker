@@ -1,15 +1,26 @@
 import {MacroTotals} from '@data/models/Macros'
 import {RecipeBadge, RecipeIngredient} from '@data/models/Recipe'
+import {RecipeDetailContext} from '@navigation/types'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {DisplayedIngredient} from '@utility/ServingsUtility'
 
+import RecipeRow from '../components/RecipeRow'
 import {
   buildContextPillText,
   buildMetricGridItems,
+  buildRecipeDetailSections,
+  isSameRecipeRow,
   PlannedNutritionSource,
+  previewQueryScope,
+  RecipeDetailReadState,
+  RecipeDetailRow,
+  RecipeDetailSection,
   resolveActionBarState,
   resolveBadgeLabels,
   resolveDisplayedIngredients,
   resolvePlannedNutrition,
   resolveRecipeDetailErrorBranch,
+  resolveRecipeDetailRead,
   shouldShowBadgeCaption
 } from '../index.util'
 
@@ -543,5 +554,657 @@ describe('resolveRecipeDetailErrorBranch', () => {
 
   it('sends a disabled-feature response to the inline branch, since this is not the capability check', () => {
     expect(resolveRecipeDetailErrorBranch(503, 'feature_disabled')).toBe('inline')
+  })
+})
+
+const apiError = (status: number, code: string | null = null): unknown => ({
+  response: {status, data: code === null ? {} : {error: code}}
+})
+
+const lostResponse = (): unknown => new Error('Network Error')
+
+const readState = (overrides: Partial<RecipeDetailReadState> = {}): RecipeDetailReadState => ({
+  recipeError: null,
+  dayError: null,
+  previewError: null,
+  isReadInFlight: false,
+  hasContent: true,
+  ...overrides
+})
+
+describe('resolveRecipeDetailRead', () => {
+  describe('per-route classification', () => {
+    // The defect this covers: one collapsed `recipeQuery.error ?? dayQuery.error` made every 404 read as
+    // "this recipe isn't available", so a plan day that was gone popped a screen whose recipe had loaded.
+    it('reports a recipe 404 as the recipe being unavailable', () => {
+      const outcome = resolveRecipeDetailRead(readState({recipeError: apiError(404), hasContent: false}))
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'recipeUnavailable'})
+    })
+
+    it('reports a day 404 as plan recovery, never as the recipe being unavailable', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: apiError(404)}))
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'planRecovery'})
+      expect(outcome.failure?.recovery).not.toBe('recipeUnavailable')
+    })
+
+    it('reports a preview 404 as plan recovery against the preview read', () => {
+      const outcome = resolveRecipeDetailRead(readState({previewError: apiError(404)}))
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'planRecovery'})
+    })
+
+    it('reports both confirmed plan-state codes as plan recovery', () => {
+      const stale = resolveRecipeDetailRead(readState({dayError: apiError(409, API_ERROR_CODES.stalePlan)}))
+      const notActive = resolveRecipeDetailRead(readState({dayError: apiError(409, API_ERROR_CODES.planNotActive)}))
+
+      expect(stale.failure).toEqual({source: 'day', recovery: 'planRecovery'})
+      expect(notActive.failure).toEqual({source: 'day', recovery: 'planRecovery'})
+    })
+
+    // A 5xx echoing a plan-state code is an UNKNOWN outcome: nothing described this attempt, so a second one
+    // may well load the screen the user is on. Sending them through plan recovery on that would abandon it.
+    it('keeps an unconfirmed plan-state echo on the retry branch', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: apiError(502, API_ERROR_CODES.stalePlan)}))
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'retry'})
+    })
+
+    // The capability state belongs to the Macros entitlement router, and this screen holds no plan of its own
+    // to recover, so it offers the read again rather than claiming the plan changed.
+    it('keeps a disabled-feature answer on the retry branch', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}))
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'retry'})
+    })
+
+    it('puts a lost or unreadable response on the retry branch for every read', () => {
+      expect(resolveRecipeDetailRead(readState({recipeError: lostResponse()})).failure).toEqual({
+        source: 'recipe',
+        recovery: 'retry'
+      })
+      expect(resolveRecipeDetailRead(readState({dayError: lostResponse()})).failure).toEqual({
+        source: 'day',
+        recovery: 'retry'
+      })
+      expect(resolveRecipeDetailRead(readState({previewError: lostResponse()})).failure).toEqual({
+        source: 'preview',
+        recovery: 'retry'
+      })
+    })
+
+    it('reports no failure when no read has failed', () => {
+      expect(resolveRecipeDetailRead(readState()).failure).toBeNull()
+    })
+
+    it('ignores the preview read in the plan context, where the field is absent', () => {
+      const outcome = resolveRecipeDetailRead({
+        recipeError: null,
+        dayError: null,
+        isReadInFlight: false,
+        hasContent: true
+      })
+
+      expect(outcome.failure).toBeNull()
+      expect(outcome.isSavedCopy).toBe(false)
+    })
+  })
+
+  describe('precedence between reads', () => {
+    it('leaves the screen on a recipe 404 even when a plan route also refused', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({recipeError: apiError(404), dayError: apiError(409, API_ERROR_CODES.stalePlan)})
+      )
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'recipeUnavailable'})
+    })
+
+    it('prefers a plan refusal over a merely retryable failure of another read', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({recipeError: apiError(500), dayError: apiError(409, API_ERROR_CODES.planNotActive)})
+      )
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'planRecovery'})
+    })
+
+    it('names the recipe read first when every failure is retryable', () => {
+      const outcome = resolveRecipeDetailRead(readState({recipeError: apiError(500), dayError: apiError(500)}))
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'retry'})
+    })
+  })
+
+  describe('failures over cached content', () => {
+    // The defect this covers: the error branch used to live inside the missing-data guard, so a failed read
+    // behind a seeded plan day rendered as ordinary, authoritative-looking content.
+    it('discloses content shown over a failed read as a saved copy', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: lostResponse(), hasContent: true}))
+
+      expect(outcome).toEqual({
+        placeholder: 'none',
+        failure: {source: 'day', recovery: 'retry'},
+        isSavedCopy: true,
+        isWriteUnconfirmed: true
+      })
+    })
+
+    it('discloses a saved copy for a plan refusal too, and keeps the recovery', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: apiError(404), hasContent: true}))
+
+      expect(outcome.isSavedCopy).toBe(true)
+      expect(outcome.failure?.recovery).toBe('planRecovery')
+    })
+
+    it('never calls content a saved copy when nothing failed', () => {
+      expect(resolveRecipeDetailRead(readState()).isSavedCopy).toBe(false)
+      expect(resolveRecipeDetailRead(readState({isReadInFlight: true})).isSavedCopy).toBe(false)
+    })
+
+    // The screen is already popping, so there is nothing to disclose and nothing to retry.
+    it('never calls content a saved copy when the recipe itself is gone', () => {
+      const outcome = resolveRecipeDetailRead(readState({recipeError: apiError(404), hasContent: true}))
+
+      expect(outcome.isSavedCopy).toBe(false)
+      expect(outcome.placeholder).toBe('none')
+    })
+  })
+
+  describe('the placeholder that stands in for absent content', () => {
+    it('shows the loading strip while a read is still in flight', () => {
+      expect(resolveRecipeDetailRead(readState({hasContent: false, isReadInFlight: true})).placeholder).toBe('loading')
+    })
+
+    // Every read has answered and the meal this route names is still not among them — swapped, regenerated or
+    // logged away under the screen. A skeleton waiting for a read that already returned never resolves.
+    it('shows the retry card when the reads settled with nothing to render and nothing to report', () => {
+      expect(resolveRecipeDetailRead(readState({hasContent: false, isReadInFlight: false})).placeholder).toBe('error')
+    })
+
+    it('shows the retry card once a read has failed with nothing to render', () => {
+      expect(resolveRecipeDetailRead(readState({hasContent: false, dayError: lostResponse()})).placeholder).toBe(
+        'error'
+      )
+    })
+
+    // Kept through the refetch a Try-again press starts, so the card does not flash back to a skeleton.
+    it('keeps the retry card while the retry is in flight', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({hasContent: false, dayError: lostResponse(), isReadInFlight: true})
+      )
+
+      expect(outcome.placeholder).toBe('error')
+    })
+
+    it('shows no placeholder at all for a recipe 404', () => {
+      expect(resolveRecipeDetailRead(readState({hasContent: false, recipeError: apiError(404)})).placeholder).toBe(
+        'none'
+      )
+    })
+
+    it('shows no placeholder once there is content', () => {
+      expect(resolveRecipeDetailRead(readState()).placeholder).toBe('none')
+      expect(resolveRecipeDetailRead(readState({dayError: lostResponse()})).placeholder).toBe('none')
+    })
+  })
+
+  describe("the preview read's own recovery", () => {
+    // The defect this covers: every non-404, non-plan-state preview failure was classified as a generic retry,
+    // so a candidate the server had confirmed no longer fits the plan was offered again instead of retired.
+    // AAP 0.2.5 states one error rule per query, and this is `useSwapPreviewQuery`'s own.
+    it('retires the candidate on a confirmed recipe_ineligible from the preview read', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({previewError: apiError(422, API_ERROR_CODES.recipeIneligible)})
+      )
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'previewIneligible'})
+    })
+
+    // A 5xx that merely echoed the code described nothing about this attempt, so retiring a candidate on it
+    // would discard one the server never refused.
+    it('keeps an unconfirmed recipe_ineligible echo on the retry branch', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({previewError: apiError(502, API_ERROR_CODES.recipeIneligible)})
+      )
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'retry'})
+    })
+
+    // Only the preview route has a candidate to refuse; the day route never speaks about one.
+    it('never retires a candidate on a recipe_ineligible from the day read', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: apiError(422, API_ERROR_CODES.recipeIneligible)}))
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'retry'})
+    })
+
+    it('offers the read again when the preview attempt reached no response', () => {
+      const outcome = resolveRecipeDetailRead(readState({previewError: lostResponse(), hasContent: false}))
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'retry'})
+    })
+
+    it('keeps the plan-state answers it shares with the day read on plan recovery', () => {
+      const stale = resolveRecipeDetailRead(readState({previewError: apiError(409, API_ERROR_CODES.stalePlan)}))
+      const notActive = resolveRecipeDetailRead(readState({previewError: apiError(409, API_ERROR_CODES.planNotActive)}))
+
+      expect(stale.failure).toEqual({source: 'preview', recovery: 'planRecovery'})
+      expect(notActive.failure).toEqual({source: 'preview', recovery: 'planRecovery'})
+    })
+
+    // A retired candidate leaves the screen, so there is nothing to disclose as a saved copy and nothing to
+    // offer again on the way out.
+    it('leaves the screen on a retired candidate rather than disclosing a saved copy', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({previewError: apiError(422, API_ERROR_CODES.recipeIneligible), hasContent: true})
+      )
+
+      expect(outcome.isSavedCopy).toBe(false)
+      expect(outcome.placeholder).toBe('none')
+    })
+
+    it('draws no retry card for a retired candidate with nothing cached', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({previewError: apiError(422, API_ERROR_CODES.recipeIneligible), hasContent: false})
+      )
+
+      expect(outcome.placeholder).toBe('none')
+    })
+
+    // With no cached preview the hero above is a bare skeleton, so this card is the only control on screen and
+    // is what has to carry both the retry and the way back to the alternatives.
+    it('draws the retry card when a retryable preview failure left nothing cached', () => {
+      const outcome = resolveRecipeDetailRead(readState({previewError: apiError(500), hasContent: false}))
+
+      expect(outcome).toEqual({
+        placeholder: 'error',
+        failure: {source: 'preview', recovery: 'retry'},
+        isSavedCopy: false,
+        isWriteUnconfirmed: true
+      })
+    })
+
+    it('retires the candidate ahead of a plan refusal the day read reported', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({
+          dayError: apiError(409, API_ERROR_CODES.stalePlan),
+          previewError: apiError(422, API_ERROR_CODES.recipeIneligible)
+        })
+      )
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'previewIneligible'})
+    })
+
+    it('leaves on the missing recipe rather than the retired candidate when both answered', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({recipeError: apiError(404), previewError: apiError(422, API_ERROR_CODES.recipeIneligible)})
+      )
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'recipeUnavailable'})
+    })
+  })
+
+  describe('whether a write may be offered', () => {
+    // The defect this covers: the action bar read the day's verdict alone, and the day route answers
+    // independently of the recipe read. A day that had already answered `isWritable: true` beside a recipe
+    // still in flight enabled Log and Swap over a skeleton.
+    it('withholds the write while a required read is still in flight', () => {
+      const outcome = resolveRecipeDetailRead(readState({hasContent: false, isReadInFlight: true}))
+
+      expect(outcome.isWriteUnconfirmed).toBe(true)
+      expect(resolveActionBarState('plan', true, outcome.isWriteUnconfirmed)).toEqual({
+        isVisible: true,
+        isEnabled: false,
+        isPending: true
+      })
+    })
+
+    it('withholds the write when a required read failed with nothing cached', () => {
+      const outcome = resolveRecipeDetailRead(readState({hasContent: false, recipeError: lostResponse()}))
+
+      expect(outcome.isWriteUnconfirmed).toBe(true)
+      expect(resolveActionBarState('plan', true, outcome.isWriteUnconfirmed).isEnabled).toBe(false)
+    })
+
+    // Every read answered and the meal this route names is still not in the day that came back — swapped,
+    // regenerated or logged away under the screen. There is no planned portion to log.
+    it('withholds the write when the reads settled without the routed meal', () => {
+      const outcome = resolveRecipeDetailRead(readState({hasContent: false, isReadInFlight: false}))
+
+      expect(outcome.isWriteUnconfirmed).toBe(true)
+      expect(resolveActionBarState('plan', true, outcome.isWriteUnconfirmed).isEnabled).toBe(false)
+    })
+
+    it('withholds the write over a saved copy', () => {
+      const outcome = resolveRecipeDetailRead(readState({dayError: lostResponse()}))
+
+      expect(outcome).toMatchObject({isSavedCopy: true, isWriteUnconfirmed: true})
+    })
+
+    it('offers the write once the reads answered with everything frame 12 needs', () => {
+      const outcome = resolveRecipeDetailRead(readState())
+
+      expect(outcome.isWriteUnconfirmed).toBe(false)
+      expect(resolveActionBarState('plan', true, outcome.isWriteUnconfirmed)).toEqual({
+        isVisible: true,
+        isEnabled: true,
+        isPending: false
+      })
+    })
+
+    it('is never false while anything required is missing or failed', () => {
+      const states = [
+        readState({hasContent: false}),
+        readState({hasContent: false, isReadInFlight: true}),
+        readState({hasContent: false, recipeError: lostResponse()}),
+        readState({hasContent: false, dayError: apiError(404)}),
+        readState({previewError: apiError(500)}),
+        readState({dayError: apiError(409, API_ERROR_CODES.planNotActive)})
+      ]
+
+      states.forEach(state => expect(resolveRecipeDetailRead(state).isWriteUnconfirmed).toBe(true))
+    })
+
+    // Strictly the wider of the two flags: the saved copy is about what the user is looking at, this is about
+    // whether anything may be written from it.
+    it('never discloses a saved copy without also withholding the write', () => {
+      const outcomes = [null, lostResponse(), apiError(404), apiError(409, API_ERROR_CODES.stalePlan)].flatMap(
+        dayError =>
+          [true, false].flatMap(hasContent =>
+            [true, false].map(isReadInFlight =>
+              resolveRecipeDetailRead(readState({dayError, hasContent, isReadInFlight}))
+            )
+          )
+      )
+
+      expect(outcomes.filter(outcome => outcome.isSavedCopy && !outcome.isWriteUnconfirmed)).toEqual([])
+    })
+
+    // An answered refusal stays a refusal, so the press keeps explaining itself rather than reporting a plan
+    // the server has spoken about as one this screen could not re-read.
+    it('reports a refusal as a refusal rather than as an unconfirmed read', () => {
+      const {isWriteUnconfirmed} = resolveRecipeDetailRead(readState({hasContent: false, isReadInFlight: true}))
+
+      expect(resolveActionBarState('plan', false, isWriteUnconfirmed).isPending).toBe(false)
+      expect(resolveActionBarState('plan', undefined, isWriteUnconfirmed).isPending).toBe(true)
+    })
+  })
+})
+
+describe('resolveActionBarState with an unconfirmed read', () => {
+  // The plan revision both destinations would pin their write to is exactly what a failed read could not
+  // confirm, so the controls take the app's disabled treatment and the saved-copy banner carries the reason.
+  it('withholds the controls when content is a saved copy, whatever the verdict said', () => {
+    expect(resolveActionBarState('plan', true, true)).toEqual({isVisible: true, isEnabled: false, isPending: true})
+    expect(resolveActionBarState('plan', null, true)).toEqual({isVisible: true, isEnabled: false, isPending: true})
+    expect(resolveActionBarState('plan', undefined, true)).toEqual({isVisible: true, isEnabled: false, isPending: true})
+  })
+
+  // An answered refusal is more informative than "we could not re-read it", so it keeps its own state and the
+  // press still explains itself.
+  it('keeps an answered refusal reported as a refusal rather than as pending', () => {
+    expect(resolveActionBarState('plan', false, true)).toEqual({isVisible: true, isEnabled: false, isPending: false})
+  })
+
+  it('never draws the bar in the preview context, confirmed read or not', () => {
+    expect(resolveActionBarState('preview', true, true).isVisible).toBe(false)
+    expect(resolveActionBarState('preview', true, false).isVisible).toBe(false)
+  })
+
+  it('behaves exactly as before when the read is confirmed', () => {
+    expect(resolveActionBarState('plan', true, false)).toEqual(resolveActionBarState('plan', true))
+    expect(resolveActionBarState('plan', false, false)).toEqual(resolveActionBarState('plan', false))
+    expect(resolveActionBarState('plan', null, false)).toEqual(resolveActionBarState('plan', null))
+  })
+
+  it('never reports a state as both enabled and pending', () => {
+    const verdicts = [true, false, null, undefined]
+    const states = verdicts.flatMap(verdict => [
+      resolveActionBarState('plan', verdict, true),
+      resolveActionBarState('plan', verdict, false)
+    ])
+
+    states.forEach(state => expect(state.isEnabled && state.isPending).toBe(false))
+  })
+})
+
+describe('previewQueryScope', () => {
+  const planContext: RecipeDetailContext = {kind: 'plan', planId: 'plan-1', mealId: 'meal-1', date: '2026-07-05'}
+  const previewContext: RecipeDetailContext = {
+    kind: 'preview',
+    planId: 'plan-1',
+    mealId: 'meal-1',
+    date: '2026-07-05',
+    candidateRecipeVersionId: 'version-9',
+    planRevision: 4
+  }
+
+  it('enables the read with the candidate and revision in the preview context', () => {
+    expect(previewQueryScope(previewContext)).toEqual(['plan-1', 'meal-1', 'version-9', 4, true])
+  })
+
+  it('issues no preview request in the plan context, which has no candidate', () => {
+    expect(previewQueryScope(planContext)).toEqual(['plan-1', 'meal-1', '', 0, false])
+  })
+
+  // The arguments are also the cache key, so the disabled scope must not name an entry the swap flow could
+  // mistake for a real preview of this screen's own recipe.
+  it('names no real recipe version or revision while disabled', () => {
+    const [, , recipeVersionId, planRevision, isEnabled] = previewQueryScope(planContext)
+
+    expect(isEnabled).toBe(false)
+    expect(recipeVersionId).toBe('')
+    expect(planRevision).toBe(0)
+  })
+})
+
+describe('buildRecipeDetailSections', () => {
+  const displayed = (name: string, quantityText: string): DisplayedIngredient => ({
+    name,
+    quantityText,
+    isOptional: false
+  })
+
+  it('projects the two lists as sections, ingredients first', () => {
+    const sections = buildRecipeDetailSections([displayed('Spinach', '1 cup')], ['Wilt the spinach.'])
+
+    expect(sections.map(section => section.key)).toEqual(['ingredients', 'instructions'])
+  })
+
+  it('carries each ingredient name and its formatted quantity onto its row', () => {
+    const [ingredients] = buildRecipeDetailSections(
+      [displayed('Spinach', '1 cup'), displayed('Feta', '4 oz')],
+      ['Wilt the spinach.']
+    )
+
+    expect(ingredients.data).toEqual([
+      {kind: 'ingredient', key: 'ingredient:0:Spinach', name: 'Spinach', quantityText: '1 cup'},
+      {kind: 'ingredient', key: 'ingredient:1:Feta', name: 'Feta', quantityText: '4 oz'}
+    ])
+  })
+
+  it('numbers instruction rows from one', () => {
+    const [, instructions] = buildRecipeDetailSections([], ['Season the chicken.', 'Sear it, then rest it.'])
+
+    expect(instructions.data).toEqual([
+      {kind: 'instruction', key: 'instruction:0', step: 1, text: 'Season the chicken.'},
+      {kind: 'instruction', key: 'instruction:1', step: 2, text: 'Sear it, then rest it.'}
+    ])
+  })
+
+  // A recipe may legitimately list one food twice — raw and cooked, or in two steps — and a collided key would
+  // have the virtualizer reuse one cell for two rows.
+  it('keys two rows of the same ingredient distinctly', () => {
+    const [ingredients] = buildRecipeDetailSections([displayed('Rice', '1 cup'), displayed('Rice', '2 cup')], [])
+    const keys = ingredients.data.map(row => row.key)
+
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  // The portion toggle changes exactly the quantity text, so keys that moved with it would discard and rebuild
+  // every mounted cell on each press.
+  it('keeps every key stable when only the displayed quantity changes', () => {
+    const portion = buildRecipeDetailSections([displayed('Rice', '¾ cup')], ['Cook the rice.'])
+    const full = buildRecipeDetailSections([displayed('Rice', '1½ cup')], ['Cook the rice.'])
+
+    expect(full.map(section => section.data.map(row => row.key))).toEqual(
+      portion.map(section => section.data.map(row => row.key))
+    )
+  })
+
+  it('keys every row of a whole recipe uniquely', () => {
+    const sections = buildRecipeDetailSections(
+      [displayed('Rice', '1 cup'), displayed('Beans', '⅓ cup')],
+      ['Rinse.', 'Simmer.', 'Rinse.']
+    )
+    const keys = sections.flatMap(section => section.data.map(row => row.key))
+
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('returns two empty sections for a recipe with nothing to show', () => {
+    expect(buildRecipeDetailSections([], [])).toEqual([
+      {key: 'ingredients', data: []},
+      {key: 'instructions', data: []}
+    ])
+  })
+})
+
+describe('isSameRecipeRow', () => {
+  const displayed = (name: string, quantityText: string): DisplayedIngredient => ({
+    name,
+    quantityText,
+    isOptional: false
+  })
+
+  const INSTRUCTIONS = ['Season the chicken.', 'Sear it, then rest it.']
+
+  const project = (riceQuantity: string, instructions: readonly string[] = INSTRUCTIONS): RecipeDetailSection[] =>
+    buildRecipeDetailSections([displayed('Rice', riceQuantity), displayed('Beans', '⅓ cup')], instructions)
+
+  // The comparison the memo boundary exists for. A portion-toggle press changes the ingredient amounts and
+  // nothing else, yet the projection rebuilds BOTH sections as fresh objects — so a reference comparison would
+  // re-render every instruction row for no change at all.
+  it('reports every instruction row unchanged across a portion toggle', () => {
+    const [, portionSteps] = project('¾ cup')
+    const [, fullSteps] = project('1½ cup')
+
+    expect(portionSteps.data).toHaveLength(INSTRUCTIONS.length)
+    portionSteps.data.forEach((row, position) => {
+      expect(row).not.toBe(fullSteps.data[position])
+      expect(isSameRecipeRow(row, fullSteps.data[position])).toBe(true)
+    })
+  })
+
+  // The rows the toggle did change must compare unequal, or the boundary would hold a stale amount on screen.
+  it('reports the ingredient row whose amount changed as changed', () => {
+    const [portionIngredients] = project('¾ cup')
+    const [fullIngredients] = project('1½ cup')
+
+    expect(isSameRecipeRow(portionIngredients.data[0], fullIngredients.data[0])).toBe(false)
+  })
+
+  it('reports an ingredient row the rebuild left alone as unchanged', () => {
+    const [portionIngredients] = project('¾ cup')
+    const [fullIngredients] = project('1½ cup')
+
+    expect(isSameRecipeRow(portionIngredients.data[1], fullIngredients.data[1])).toBe(true)
+  })
+
+  // The unrelated-refetch case: a background answer rebuilds the whole projection with identical values, and
+  // every row has to compare equal or the entire list re-renders for nothing.
+  it('reports every row unchanged when a rebuild reproduced identical values', () => {
+    const before = project('¾ cup')
+    const after = project('¾ cup')
+
+    before.forEach((section, index) =>
+      section.data.forEach((row, position) => {
+        expect(row).not.toBe(after[index].data[position])
+        expect(isSameRecipeRow(row, after[index].data[position])).toBe(true)
+      })
+    )
+  })
+
+  it('reports a changed instruction as changed and leaves its neighbour unchanged', () => {
+    const [, before] = project('¾ cup')
+    const [, after] = project('¾ cup', ['Season the chicken.', 'Sear it for eight minutes.'])
+
+    expect(isSameRecipeRow(before.data[0], after.data[0])).toBe(true)
+    expect(isSameRecipeRow(before.data[1], after.data[1])).toBe(false)
+  })
+
+  it('reports rows at different positions as different rows', () => {
+    const [ingredients] = project('¾ cup')
+
+    expect(isSameRecipeRow(ingredients.data[0], ingredients.data[1])).toBe(false)
+  })
+
+  it('reports rows from the two sections as different rows', () => {
+    const [ingredients, steps] = project('¾ cup')
+
+    expect(isSameRecipeRow(ingredients.data[0], steps.data[0])).toBe(false)
+  })
+
+  it('reports a row as the same as itself', () => {
+    const [ingredients, steps] = project('¾ cup')
+
+    expect(isSameRecipeRow(ingredients.data[0], ingredients.data[0])).toBe(true)
+    expect(isSameRecipeRow(steps.data[0], steps.data[0])).toBe(true)
+  })
+
+  // The discriminant is what separates them, so a shared key is not enough to call two rows the same.
+  it('never reports rows of different kinds as the same, even on a shared key', () => {
+    const asIngredient: RecipeDetailRow = {kind: 'ingredient', key: 'shared', name: 'Rice', quantityText: '1 cup'}
+    const asInstruction: RecipeDetailRow = {kind: 'instruction', key: 'shared', step: 1, text: 'Rice'}
+
+    expect(isSameRecipeRow(asIngredient, asInstruction)).toBe(false)
+    expect(isSameRecipeRow(asInstruction, asIngredient)).toBe(false)
+  })
+})
+
+describe("the row's memo boundary", () => {
+  // Read off the boundary itself rather than assumed, because a comparison that exists but is not wired in
+  // leaves the boundary defeated exactly as the defect described: React stores a custom comparator here, and
+  // its absence means the default reference comparison — which the rebuilt row objects always fail.
+  const boundary = RecipeRow as unknown as {
+    compare: ((previous: {row: RecipeDetailRow}, next: {row: RecipeDetailRow}) => boolean) | null
+  }
+
+  const stepRow = (text: string): RecipeDetailRow => ({kind: 'instruction', key: 'instruction:0', step: 1, text})
+
+  it('was constructed with a comparison of its own rather than the reference default', () => {
+    expect(typeof boundary.compare).toBe('function')
+  })
+
+  it('skips the re-render of a row a rebuild reproduced identically', () => {
+    const previous = stepRow('Season the chicken.')
+    const next = stepRow('Season the chicken.')
+
+    expect(previous).not.toBe(next)
+    expect(boundary.compare?.({row: previous}, {row: next})).toBe(true)
+  })
+
+  it('re-renders a row whose content changed', () => {
+    expect(boundary.compare?.({row: stepRow('Season the chicken.')}, {row: stepRow('Sear the chicken.')})).toBe(false)
+  })
+
+  it("decides exactly as the projection's own comparison does", () => {
+    const ingredientRow: RecipeDetailRow = {
+      kind: 'ingredient',
+      key: 'ingredient:0:Rice',
+      name: 'Rice',
+      quantityText: '¾ cup'
+    }
+    const pairs: [RecipeDetailRow, RecipeDetailRow][] = [
+      [stepRow('Season the chicken.'), stepRow('Season the chicken.')],
+      [stepRow('Season the chicken.'), stepRow('Sear the chicken.')],
+      [ingredientRow, {...ingredientRow}],
+      [ingredientRow, {...ingredientRow, quantityText: '1½ cup'}],
+      [ingredientRow, {...ingredientRow, key: 'ingredient:1:Rice'}],
+      [ingredientRow, stepRow('Season the chicken.')]
+    ]
+
+    pairs.forEach(([previous, next]) =>
+      expect(boundary.compare?.({row: previous}, {row: next})).toBe(isSameRecipeRow(previous, next))
+    )
   })
 })

@@ -74,6 +74,13 @@ export interface DislikedFoodSummary {
   foodGroup: string
 }
 
+// Disliked foods by the id the payload carries, which is how the setup flow keeps a name for a selection the
+// saved row cannot name yet: `dislikedFoodIds` is the whole of what a dislikes save sends, so a food chosen
+// from catalog search has no server-side name until that save has landed and been refetched. The screen that
+// stages it and the screen that reviews it are different routes, so the index is shared state rather than
+// either screen's own — and it is keyed by id for the same reason the payload is: the id is the identity.
+export type DislikedFoodLabelIndex = Readonly<Record<string, DislikedFoodSummary>>
+
 export interface BudgetPreference {
   amount: number
   currency: string

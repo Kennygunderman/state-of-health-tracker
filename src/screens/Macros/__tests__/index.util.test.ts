@@ -8,7 +8,8 @@ import {
   formatCalories,
   formatMacroPair,
   progressFraction,
-  resolveMacroTargets
+  resolveMacroTargets,
+  resolveMacrosBodyKey
 } from '../index.util'
 
 const makeTargets = (overrides: Partial<MacroTargets> = {}): MacroTargets => ({
@@ -124,5 +125,19 @@ describe('formatMacroPair', () => {
 
   it('omits thousands separators for large values', () => {
     expect(formatMacroPair(1200, 1500)).toBe('1200 / 1500g')
+  })
+})
+
+describe('resolveMacrosBodyKey', () => {
+  it('keys the diary body', () => {
+    expect(resolveMacrosBodyKey(true)).toBe('diary')
+  })
+
+  it('keys the meal plan body', () => {
+    expect(resolveMacrosBodyKey(false)).toBe('mealPlan')
+  })
+
+  it('gives the two segments different keys so the container remounts and the offset resets', () => {
+    expect(resolveMacrosBodyKey(true)).not.toBe(resolveMacrosBodyKey(false))
   })
 })

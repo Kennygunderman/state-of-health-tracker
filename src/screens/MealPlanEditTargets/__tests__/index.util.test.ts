@@ -10,13 +10,19 @@ import {
   CALORIES_MAX,
   CALORIES_MIN,
   EditTargetsFields,
+  EditTargetsReadinessInputs,
   feasibilityBannerBody,
   MACRO_MAX,
   MACRO_MIN,
   resolveEditTargetsIntent,
+  resolveEditTargetsReadiness,
   resolveTargetsSave,
   resolveTargetsSaveSource,
   sanitizeIntegerInput,
+  shouldOfferRecalculate,
+  targetFieldAccessibilityLabel,
+  targetFieldDisplayText,
+  targetFieldMaxLength,
   targetFieldText,
   TargetsSaveInputs,
   validateEditTargets
@@ -99,8 +105,14 @@ describe('targetFieldText', () => {
   })
 
   describe('a stored figure', () => {
-    it('renders a whole target unchanged and ungrouped', () => {
+    // The two halves of one rule, which is why they are asserted together: the field stores the bare digits
+    // every later check is built from, and presents the grouped figure 34:214 draws. Storing the grouped text
+    // instead would stop resolveTargetsSaveSource parsing it, demoting a confirmation of the server's own
+    // estimate to a manual save; presenting the bare text is the figure reading '1940' where the review card,
+    // the diary and Figma all read '1,940'.
+    it('stores a whole target as bare digits and presents it grouped', () => {
       expect(targetFieldText(1940)).toBe('1940')
+      expect(targetFieldDisplayText(targetFieldText(1940))).toBe('1,940')
     })
 
     it('renders a zero the server actually holds, which validation then rejects as below the minimum', () => {
@@ -177,10 +189,15 @@ describe('sanitizeIntegerInput', () => {
     expect(sanitizeIntegerInput('1e3', '1940')).toBe('1940')
   })
 
-  it('refuses a malformed group instead of reading it as a larger number', () => {
-    expect(sanitizeIntegerInput('1,94', '1940')).toBe('1940')
-    expect(sanitizeIntegerInput('19,4000', '1940')).toBe('1940')
-    expect(sanitizeIntegerInput(',940', '1940')).toBe('1940')
+  // The field displays a grouped figure, so every edit of one arrives here mid-grouping: backspacing '1,940'
+  // hands over '1,94', and refusing that would leave the field unable to delete its own last digit. A
+  // separator is presentation wherever it falls, so it is stripped rather than read as part of a number — the
+  // refusals above still hold, because they turn on characters that change the value rather than its grouping.
+  it('accepts a separator wherever an edit leaves it, because the field displays a grouped figure', () => {
+    expect(sanitizeIntegerInput('1,94', '1,940')).toBe('194')
+    expect(sanitizeIntegerInput(',940', '1,940')).toBe('940')
+    expect(sanitizeIntegerInput('1,940', '194')).toBe('1940')
+    expect(sanitizeIntegerInput('19,4000', '1,940')).toBe('194000')
   })
 
   // A caller with nothing to preserve — the manual route opens every field blank — still never receives a
@@ -193,7 +210,7 @@ describe('sanitizeIntegerInput', () => {
 
   // Nothing the bounds check rejects for its syntax may reach it in a rewritten, acceptable form.
   it('refuses every entry validateEditTargets rejects as not a number', () => {
-    const refused = ['19.40', '1940.5', '-500', '+500', 'one thousand', '1e3', 'NaN', '1,94']
+    const refused = ['19.40', '1940.5', '-500', '+500', 'one thousand', '1e3', 'NaN']
 
     refused.forEach(text => {
       expect(sanitizeIntegerInput(text, '1940')).toBe('1940')
@@ -582,5 +599,230 @@ describe('feasibilityBannerBody', () => {
 
     expect(feasibilityBannerBody(warnings)).toBe(expected)
     expect(feasibilityBannerBody(warnings)).toBe(expected)
+  })
+})
+
+describe('targetFieldDisplayText', () => {
+  it('groups a stored figure the way every other target surface renders it', () => {
+    expect(targetFieldDisplayText('1940')).toBe('1,940')
+    expect(targetFieldDisplayText('6000')).toBe('6,000')
+    expect(targetFieldDisplayText('1000')).toBe('1,000')
+  })
+
+  it('leaves a figure with nothing to group alone', () => {
+    expect(targetFieldDisplayText('146')).toBe('146')
+    expect(targetFieldDisplayText('0')).toBe('0')
+  })
+
+  it('presents an empty field as empty rather than inventing a zero', () => {
+    expect(targetFieldDisplayText('')).toBe('')
+  })
+
+  // Defensive: the sanitiser means only digits reach the field, and a value it cannot read is handed back
+  // untouched rather than replaced, so no state the screen can reach rewrites what the user is typing.
+  it('passes an unreadable entry through unchanged', () => {
+    expect(targetFieldDisplayText('19.4')).toBe('19.4')
+  })
+})
+
+describe('targetFieldMaxLength', () => {
+  it('measures each field in the grouped presentation it displays', () => {
+    expect(targetFieldMaxLength('calories')).toBe('6,000'.length)
+    expect(targetFieldMaxLength('protein')).toBe('1,000'.length)
+    expect(targetFieldMaxLength('carbs')).toBe('1,000'.length)
+    expect(targetFieldMaxLength('fat')).toBe('1,000'.length)
+  })
+
+  // The regression this exists for: measured on the bare number every limit is a character short of its own
+  // grouped bound, so the drawn 1,940 calorie target cannot be typed and 6,000 cannot be reached at all.
+  it('admits every figure inside the bounds once it is grouped', () => {
+    expect(targetFieldDisplayText('1940').length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
+    expect(targetFieldDisplayText(String(CALORIES_MAX)).length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
+    expect(targetFieldDisplayText(String(CALORIES_MIN)).length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
+    expect(targetFieldDisplayText(String(MACRO_MAX)).length).toBeLessThanOrEqual(targetFieldMaxLength('protein'))
+    expect(targetFieldDisplayText(String(MACRO_MIN)).length).toBeLessThanOrEqual(targetFieldMaxLength('fat'))
+  })
+})
+
+describe('targetFieldAccessibilityLabel', () => {
+  it('names the unit the field holds, which the drawn suffix never announces', () => {
+    expect(targetFieldAccessibilityLabel({label: 'Calories', unitText: 'kilocalories'})).toBe('Calories, kilocalories')
+    expect(targetFieldAccessibilityLabel({label: 'Protein', unitText: 'grams'})).toBe('Protein, grams')
+  })
+
+  // The unit survives the error rather than being replaced by it: a field reached after validation still has to
+  // say what it holds as well as what is wrong with it.
+  it('keeps the unit in the name when the field is reporting an error', () => {
+    expect(
+      targetFieldAccessibilityLabel({
+        label: 'Carbs',
+        unitText: 'grams',
+        errorMessage: 'Enter a carb target above 0 g'
+      })
+    ).toBe('Carbs, grams, Enter a carb target above 0 g')
+  })
+})
+
+const makeReadinessInputs = (overrides: Partial<EditTargetsReadinessInputs> = {}): EditTargetsReadinessInputs => ({
+  intent: 'edit_saved',
+  isTargetsLoading: false,
+  isTargetsRouteMissing: false,
+  hasTargetsReadFailure: false,
+  isEstimateLoading: false,
+  isEstimateUnavailable: false,
+  hasEstimateReadFailure: false,
+  hasDraft: false,
+  ...overrides
+})
+
+describe('resolveEditTargetsReadiness', () => {
+  it('edits and saves once the reads have answered', () => {
+    expect(resolveEditTargetsReadiness(makeReadinessInputs())).toEqual({
+      status: 'ready',
+      showFields: true,
+      canSave: true,
+      retryTargets: false,
+      retryEstimate: false
+    })
+  })
+
+  describe('a targets read that has not answered', () => {
+    it('waits rather than rendering blank fields over a first load', () => {
+      const readiness = resolveEditTargetsReadiness(makeReadinessInputs({isTargetsLoading: true}))
+
+      expect(readiness.status).toBe('loading')
+      expect(readiness.showFields).toBe(false)
+      expect(readiness.canSave).toBe(false)
+    })
+
+    // The defect this exists for: a failed read left the fields editable and Save live with no revision to
+    // pin, so the user could enter a target the server was always going to refuse.
+    it('withholds the save and offers a retry for a genuine failure', () => {
+      expect(resolveEditTargetsReadiness(makeReadinessInputs({hasTargetsReadFailure: true}))).toEqual({
+        status: 'read_failed',
+        showFields: false,
+        canSave: false,
+        retryTargets: true,
+        retryEstimate: false
+      })
+    })
+
+    // The editor refetches while recovering from a rejected revision, and a refetch that fails must not take
+    // the user's entered figures down with it.
+    it('keeps a draft on screen through a failure, still without saving it', () => {
+      const readiness = resolveEditTargetsReadiness(makeReadinessInputs({hasTargetsReadFailure: true, hasDraft: true}))
+
+      expect(readiness.status).toBe('read_failed')
+      expect(readiness.showFields).toBe(true)
+      expect(readiness.canSave).toBe(false)
+    })
+
+    it('offers no retry for a route that is not mounted, because the next attempt answers identically', () => {
+      expect(resolveEditTargetsReadiness(makeReadinessInputs({isTargetsRouteMissing: true}))).toEqual({
+        status: 'unavailable',
+        showFields: false,
+        canSave: false,
+        retryTargets: false,
+        retryEstimate: false
+      })
+    })
+
+    it('reports the missing route ahead of any other state', () => {
+      const readiness = resolveEditTargetsReadiness(
+        makeReadinessInputs({isTargetsRouteMissing: true, isTargetsLoading: true, hasDraft: true})
+      )
+
+      expect(readiness.status).toBe('unavailable')
+    })
+  })
+
+  describe('an estimate the intent depends on', () => {
+    it('waits for it when the visit exists to confirm it', () => {
+      const readiness = resolveEditTargetsReadiness(
+        makeReadinessInputs({intent: 'confirm_estimate', isEstimateLoading: true})
+      )
+
+      expect(readiness.status).toBe('loading')
+      expect(readiness.canSave).toBe(false)
+    })
+
+    it('hands over to manual entry when the server says none can be calculated', () => {
+      const readiness = resolveEditTargetsReadiness(
+        makeReadinessInputs({intent: 'confirm_estimate', isEstimateUnavailable: true})
+      )
+
+      expect(readiness.status).toBe('estimate_unavailable')
+      expect(readiness.showFields).toBe(false)
+      expect(readiness.canSave).toBe(false)
+    })
+
+    it('retries the estimate when that is the read that failed', () => {
+      const readiness = resolveEditTargetsReadiness(
+        makeReadinessInputs({intent: 'confirm_estimate', hasEstimateReadFailure: true})
+      )
+
+      expect(readiness.status).toBe('read_failed')
+      expect(readiness.retryEstimate).toBe(true)
+      expect(readiness.retryTargets).toBe(false)
+    })
+  })
+
+  // Every other visit treats the estimate as the enhancement it is: it gates the recalculate offer and nothing
+  // else, so a slow or broken estimate never blocks an edit that does not depend on one.
+  describe('an estimate no intent depends on', () => {
+    it('edits saved figures without waiting for it', () => {
+      expect(resolveEditTargetsReadiness(makeReadinessInputs({isEstimateLoading: true})).status).toBe('ready')
+      expect(resolveEditTargetsReadiness(makeReadinessInputs({hasEstimateReadFailure: true})).status).toBe('ready')
+      expect(resolveEditTargetsReadiness(makeReadinessInputs({isEstimateUnavailable: true})).status).toBe('ready')
+    })
+
+    it('accepts manual entry with no estimate at all', () => {
+      const readiness = resolveEditTargetsReadiness(
+        makeReadinessInputs({intent: 'manual_entry', isEstimateUnavailable: true, hasEstimateReadFailure: true})
+      )
+
+      expect(readiness.status).toBe('ready')
+      expect(readiness.canSave).toBe(true)
+    })
+  })
+})
+
+describe('shouldOfferRecalculate', () => {
+  // Without the offer, a user arriving from Account, the diary or Plan settings on a set the server calls
+  // stale, legacy or incomplete can only retype the estimate by hand — which saves it as a manual set and
+  // leaves the staleness it was meant to clear in place.
+  it('offers a recalculation for every saved set 0.5.2 calls one to review', () => {
+    expect(shouldOfferRecalculate({intent: 'edit_saved', targets: makeTargets({stale: true}), hasEstimate: true})).toBe(
+      true
+    )
+    expect(
+      shouldOfferRecalculate({intent: 'edit_saved', targets: makeTargets({source: 'legacy'}), hasEstimate: true})
+    ).toBe(true)
+    expect(
+      shouldOfferRecalculate({intent: 'edit_saved', targets: makeTargets({complete: false}), hasEstimate: true})
+    ).toBe(true)
+  })
+
+  it('leaves a settled set alone', () => {
+    expect(shouldOfferRecalculate({intent: 'edit_saved', targets: makeTargets(), hasEstimate: true})).toBe(false)
+  })
+
+  it('offers nothing it cannot deliver, so an unloaded estimate shows no link', () => {
+    expect(
+      shouldOfferRecalculate({intent: 'edit_saved', targets: makeTargets({stale: true}), hasEstimate: false})
+    ).toBe(false)
+  })
+
+  it('adds no link to a visit already holding the estimate, or to the manual route', () => {
+    expect(
+      shouldOfferRecalculate({intent: 'confirm_estimate', targets: makeTargets({stale: true}), hasEstimate: true})
+    ).toBe(false)
+    expect(
+      shouldOfferRecalculate({intent: 'manual_entry', targets: makeTargets({stale: true}), hasEstimate: true})
+    ).toBe(false)
+  })
+
+  it('has nothing to recalculate when the server holds no targets', () => {
+    expect(shouldOfferRecalculate({intent: 'edit_saved', targets: null, hasEstimate: true})).toBe(false)
   })
 })

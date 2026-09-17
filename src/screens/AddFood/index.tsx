@@ -21,6 +21,7 @@ import {useFoodsInfiniteQuery} from '@queries/foods/useFoodsQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
+import {isCatalogQuerySearchable, resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
 import ListSwipeItemManager from '@utility/ListSwipeItemManager'
 
 import SearchBar from '@components/SearchBar'
@@ -53,12 +54,15 @@ import FoodResultRow from './components/FoodResultRow'
 import LibraryFoodRow from './components/LibraryFoodRow'
 import styles from './index.styled'
 import {
+  AddFoodSectionKey,
   CATALOG_SKELETON_ROWS,
   catalogProvenanceBadge,
   catalogSkeletonBarWidth,
   isCatalogSearchResult,
+  isCatalogSectionVisible,
   mapBrandedFoodToFood,
-  mapCatalogFoodToFood
+  mapCatalogFoodToFood,
+  newFoodButtonOwner
 } from './index.util'
 
 const SEARCH_DEBOUNCE_MS = 400
@@ -72,7 +76,7 @@ const NO_CATALOG_QUERY = ''
 type SectionItem = Food | CatalogFood | BrandedFood
 
 interface Section {
-  key: 'library' | 'catalog' | 'branded'
+  key: AddFoodSectionKey
   title: string
   data: SectionItem[]
 }
@@ -158,16 +162,23 @@ const AddFoodScreen = () => {
   // so the empty state and New Food button still render
   const showLibrary = foods.length > 0 || isLoadingFoods || !showBranded
 
-  // Only a decoded empty page is "no results" — an error must never reach the same caption
-  const hasNoCatalogResults = isCatalogLoaded && catalogFoods.length === 0
+  // The catalog's one precedence rule, shared with the wizard's food search so the two surfaces answer a
+  // search the same way (@utility/CatalogSearchStateUtility): rows outrank a failed background refetch, and
+  // only a decoded empty page reaches the no-results caption. The query-state members are the search hook's
+  // own — a hidden catalog is additionally fed an empty query, so the hook is idle either way
+  const catalogState = resolveCatalogSearchState({
+    isVisible: isCatalogVisible,
+    isSearchable: isCatalogQuerySearchable(debouncedQuery),
+    rowCount: catalogFoods.length,
+    isLoading: isCatalogLoading,
+    isError: hasCatalogError,
+    isSuccess: isCatalogLoaded
+  })
 
-  // Unlike branded, the catalog section stays mounted for the whole search: its loading, no-results and error
-  // states are each a distinct answer the user is owed, so the section renders for any of them rather than
-  // only when it has rows. The four conditions are the search hook's own state, never a second reading of the
-  // query length — below the hook's two-character minimum it is disabled, which leaves all four false, and a
-  // hidden catalog is fed an empty query, which does the same
-  const showCatalog =
-    isCatalogVisible && (catalogFoods.length > 0 || isCatalogLoading || hasCatalogError || hasNoCatalogResults)
+  const showCatalog = isCatalogSectionVisible(catalogState)
+
+  // Exactly one section draws the "New Food" button — the first one that renders
+  const newFoodOwner = newFoodButtonOwner({showLibrary, showCatalog, showBranded})
 
   const sections = useMemo<Section[]>(() => {
     const visibleSections: Section[] = []
@@ -277,16 +288,13 @@ const AddFoodScreen = () => {
 
   const renderSectionHeader = useCallback(
     ({section}: {section: SectionListData<SectionItem, Section>}) => {
-      // The "New Food" button rides whichever section renders first, so exactly one is ever visible:
-      // library claims it unconditionally, catalog only when library is hidden, and branded only when
-      // both of the sections above it are hidden.
       if (section.key === 'catalog') {
         return (
           <>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeaderText}>{section.title}</Text>
 
-              {!showLibrary && (
+              {newFoodOwner === section.key && (
                 <SecondaryButton
                   label={NEW_FOOD_BUTTON_TEXT}
                   onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
@@ -294,7 +302,7 @@ const AddFoodScreen = () => {
               )}
             </View>
 
-            {isCatalogLoading && (
+            {catalogState === 'loading' && (
               <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
                 {CATALOG_SKELETON_ROWS.map((row, rowIndex) => (
                   <View key={rowIndex} style={styles.catalogSkeletonRow}>
@@ -322,7 +330,7 @@ const AddFoodScreen = () => {
               </View>
             )}
 
-            {hasCatalogError && (
+            {catalogState === 'error' && (
               <TouchableOpacity
                 style={styles.retryContainer}
                 activeOpacity={Opacity.PRESSED}
@@ -335,7 +343,7 @@ const AddFoodScreen = () => {
               </TouchableOpacity>
             )}
 
-            {hasNoCatalogResults && (
+            {catalogState === 'empty' && (
               <Text style={styles.catalogEmptyText}>
                 {stringWithNamedParameters(MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE, {
                   query: debouncedQuery.trim()
@@ -351,7 +359,7 @@ const AddFoodScreen = () => {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionHeaderText}>{section.title}</Text>
 
-            {!showLibrary && !showCatalog && (
+            {newFoodOwner === section.key && (
               <SecondaryButton
                 label={NEW_FOOD_BUTTON_TEXT}
                 onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
@@ -366,10 +374,12 @@ const AddFoodScreen = () => {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionHeaderText}>{section.title}</Text>
 
-            <SecondaryButton
-              label={NEW_FOOD_BUTTON_TEXT}
-              onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
-            />
+            {newFoodOwner === section.key && (
+              <SecondaryButton
+                label={NEW_FOOD_BUTTON_TEXT}
+                onPress={() => navigation.push(Screens.CREATE_FOOD, {prefillName: searchText})}
+              />
+            )}
           </View>
 
           {!isLoadingFoods && foods.length === 0 && <Text style={styles.emptyText}>{NO_FOOD_FOUND_EMPTY_TEXT}</Text>}
@@ -377,15 +387,12 @@ const AddFoodScreen = () => {
       )
     },
     [
-      isCatalogLoading,
+      catalogState,
       skeletonBarAreaWidth,
       onSkeletonBarAreaLayout,
-      hasCatalogError,
       onCatalogRetryPressed,
-      hasNoCatalogResults,
       debouncedQuery,
-      showLibrary,
-      showCatalog,
+      newFoodOwner,
       navigation,
       searchText,
       isLoadingFoods,

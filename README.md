@@ -58,11 +58,13 @@ Your training and your diet are the same goal, so why are they in separate apps?
 ## Development
 
 ```bash
-npm install
+npm ci --legacy-peer-deps
 npx expo run:ios
 ```
 
-Copy `.env` from `.env.dist` and point `SOH_API_BASE_URL` at your own API — it holds a localhost placeholder, and debug builds and test runs refuse a production origin outright, so a copied template can't quietly read live data.
+The `--legacy-peer-deps` flag is required, not optional: plain `npm ci` fails on a pre-existing peer conflict between `jest-expo` and the React Native jest preset. It is documented rather than fixed — [`docs/meal-planning.md`](docs/meal-planning.md) explains why, and there is deliberately no `.npmrc` carrying the flag.
+
+Copy `.env` from `.env.dist` and point `SOH_API_BASE_URL` at your own API — it holds a localhost placeholder, and debug builds and test runs refuse a production origin outright, so a copied template can't quietly read live data. On launch, the packager console prints the origin it accepted, so you can see which API the build is talking to.
 
 ## Meal planning
 

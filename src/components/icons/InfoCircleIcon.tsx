@@ -5,6 +5,10 @@ import Svg, {Path} from 'react-native-svg'
 
 import {IconProps} from './IconProps'
 
+// Ring plus vertical stem is the whole glyph: Figma draws no detached dot under the stem on `34:272` or on its
+// recolours `34:497`/`36:438`/`47:91`, so there are exactly two subpaths, and no strokeLinecap or strokeLinejoin
+// because SVG's butt/miter defaults are what those nodes specify. The library info-circle glyphs carry a dot,
+// so the absence reads like an omission and is not one.
 const InfoCircleIcon = ({color, size = Sizes.ICON, strokeWidth = Stroke.WARNING_TRIANGLE}: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 18 18" fill="none">
     <Path

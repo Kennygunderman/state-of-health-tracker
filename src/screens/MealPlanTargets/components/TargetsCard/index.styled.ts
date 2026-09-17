@@ -63,6 +63,12 @@ export default StyleSheet.create({
     lineHeight: LineHeight.LABEL,
     color: Theme.colors.accentGreen
   },
+  // The accessibility grouping wrapper. It carries no spacing of its own — the card declares no gap and every
+  // child below sets its own paddingTop — so stretching it to the card's measure leaves the drawn layout of
+  // 34:36 exactly as it was before the figures became one announcement.
+  summaryGroup: {
+    alignSelf: 'stretch'
+  },
   figureWrapper: {
     alignSelf: 'stretch',
     paddingTop: Spacing.X_SMALL

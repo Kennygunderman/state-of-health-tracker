@@ -41,6 +41,7 @@ import {
   resolveConstraintReturnTo,
   resolveGenerationSummary,
   resolveGenerationView,
+  resolveSettledGenerationPlanId,
   resolveTerminalRecovery
 } from './index.util'
 
@@ -52,6 +53,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
   const userId = useAuthStore(state => state.userId)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
+  const setSelectedPlanId = useMealPlanStore(state => state.setSelectedPlanId)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
 
   const preferencesQuery = useMealPlanPreferencesQuery()
@@ -74,6 +76,10 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
   const hasAttempted = useRef(false)
   const recoveredTerminalCode = useRef<string | null>(null)
   const hasRefetchedUnconfirmed = useRef(false)
+  // The key the attempt actually went out under — the stored one on a replay, the route's otherwise. It is
+  // what an unconfirmed outcome is reconciled against, so it is read from the attempt rather than from the
+  // route, which cannot know that a stored key was replayed instead.
+  const sentIdempotencyKey = useRef<string | null>(null)
 
   const preferences = preferencesQuery.data ?? null
   const targets = targetsQuery.data ?? null
@@ -154,25 +160,30 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
 
     recoveredTerminalCode.current = null
     hasRefetchedUnconfirmed.current = false
+    sentIdempotencyKey.current = plan.idempotencyKey
 
     try {
-      if (context.kind === 'regenerate') {
-        await regenerateMutation.mutateAsync({
-          idempotencyKey: plan.idempotencyKey,
-          expectedPlanRevision: context.planRevision,
-          expectedPreferencesRevision,
-          expectedTargetsRevision
-        })
-      } else {
-        await generateMutation.mutateAsync({
-          startDate: plan.request.action === 'generate' ? plan.request.startDate : startDate,
-          idempotencyKey: plan.idempotencyKey,
-          expectedPreferencesRevision,
-          expectedTargetsRevision
-        })
-      }
+      // The commit answers with the plan it produced — on a fresh write and on a replay of a committed key
+      // alike — so the plan the user is taken back to is that plan, never the week that happened to be
+      // selected before. Leaving the selection alone is what reopened the current week after a next-week
+      // generation or an upcoming-plan regeneration.
+      const committed =
+        context.kind === 'regenerate'
+          ? await regenerateMutation.mutateAsync({
+              idempotencyKey: plan.idempotencyKey,
+              expectedPlanRevision: context.planRevision,
+              expectedPreferencesRevision,
+              expectedTargetsRevision
+            })
+          : await generateMutation.mutateAsync({
+              startDate: plan.request.action === 'generate' ? plan.request.startDate : startDate,
+              idempotencyKey: plan.idempotencyKey,
+              expectedPreferencesRevision,
+              expectedTargetsRevision
+            })
 
       clearPendingIntent(generationRequest.action)
+      setSelectedPlanId(resolveSettledGenerationPlanId({kind: 'committed', plan: committed}))
       setMacrosSegment('mealPlan')
       leaveTo(Screens.MACROS)
     } catch (error) {
@@ -194,6 +205,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
     recordPendingIntent,
     regenerateMutation,
     setMacrosSegment,
+    setSelectedPlanId,
     startDate,
     userId
   ])
@@ -233,14 +245,41 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
     }
   }, [clearPendingIntent, context, generationRequest.action, leaveTo, refetchCurrentPlan, view.terminalCode])
 
+  /**
+   * The one thing that can still resolve an outcome the server never confirmed: a plan carrying the very key
+   * this attempt sent. On that exact match the request did commit, so the intent is retired, the plan it
+   * produced becomes the selection and the flow finishes as the success it always was.
+   *
+   * Anything else leaves the refetch display-only — it neither clears the intent nor claims success nor
+   * replaces the unconfirmed card — because a week in hand may be the one another device wrote or the one
+   * this request was about to replace (AAP 0.2.5, 0.7.2).
+   */
+  const reconcileUnconfirmedOutcome = useCallback(async (): Promise<void> => {
+    const answer = await refetchCurrentPlan()
+    const planId = resolveSettledGenerationPlanId({
+      kind: 'refetched',
+      plans: answer.data,
+      sentKey: sentIdempotencyKey.current
+    })
+
+    if (planId === null) {
+      return
+    }
+
+    clearPendingIntent(generationRequest.action)
+    setSelectedPlanId(planId)
+    setMacrosSegment('mealPlan')
+    leaveTo(Screens.MACROS)
+  }, [clearPendingIntent, generationRequest.action, leaveTo, refetchCurrentPlan, setMacrosSegment, setSelectedPlanId])
+
   useEffect(() => {
     if (view.kind !== 'unconfirmed' || hasRefetchedUnconfirmed.current) {
       return
     }
 
     hasRefetchedUnconfirmed.current = true
-    refetchCurrentPlan()
-  }, [refetchCurrentPlan, view.kind])
+    reconcileUnconfirmedOutcome()
+  }, [reconcileUnconfirmedOutcome, view.kind])
 
   const onActionPressed = useCallback(
     (action: GenerationAction): void => {

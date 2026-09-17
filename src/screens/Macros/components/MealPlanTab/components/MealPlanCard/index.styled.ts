@@ -136,6 +136,11 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.greenTint
   },
+  // The app's ordinary treatment for a control that is drawn but not on offer, applied while the day's write
+  // verdict has not arrived or the plan no longer accepts writes.
+  pillDimmed: {
+    opacity: Opacity.DISABLED
+  },
   pillLabelSecondary: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,

@@ -9,6 +9,9 @@ export function convertMealPlan(data: io.TypeOf<typeof MealPlanResponse>): MealP
     id: data.id,
     revision: data.revision,
     generationAttempt: data.generationAttempt,
+    // The publishing write's idempotency key, carried through so a screen holding an unresolved generation
+    // can recognise this plan as its own result rather than guessing from dates (0.2.5).
+    generationKey: data.generationKey,
     startDate: data.startDate,
     endDate: data.endDate,
     // Carried, never defaulted. The status decides whether Swap and Log are offered at all, so reading an

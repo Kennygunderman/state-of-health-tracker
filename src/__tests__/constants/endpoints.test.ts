@@ -4,7 +4,11 @@
 import Endpoints, {
   assertNonProductionApi,
   assertNonProductionApiOrigin,
-  isNonProductionApiOrigin
+  isNonProductionApiOrigin,
+  isOriginPreflightEnforced,
+  PRODUCTION_API_FALLBACK_ORIGIN,
+  resolveApiOrigin,
+  SOH_DEV_API_HOSTS
 } from '@constants/endpoints'
 
 const PRODUCTION_ORIGIN = 'https://stateofhealthapi.com'
@@ -211,12 +215,88 @@ describe('isNonProductionApiOrigin', () => {
     )
   })
 
-  describe('release builds, where the preflight never runs', () => {
-    it('returns false for a rejected origin instead of throwing, so classification stays side-effect free', () => {
-      expect(() => isNonProductionApiOrigin(PRODUCTION_ORIGIN)).not.toThrow()
-      expect(() => isNonProductionApiOrigin('')).not.toThrow()
-      expect(() => isNonProductionApiOrigin(BACKSLASH_USERINFO_ORIGIN)).not.toThrow()
+  describe('an injected SOH_DEV_API_HOSTS allowlist', () => {
+    // A public-looking DNS name on purpose: it is neither loopback, private LAN nor an ngrok tunnel, so
+    // acceptance can only come from the injected list. The parser lower-cases the host and strips one
+    // trailing dot, so the shouted and dotted forms have to match the same entry.
+    const INJECTED_DEV_API_HOSTS = ['dev-api.internal.example']
+
+    it.each([
+      'https://dev-api.internal.example',
+      'https://dev-api.internal.example:8443',
+      'HTTPS://DEV-API.INTERNAL.EXAMPLE',
+      'https://dev-api.internal.example.:8443'
+    ])('accepts %s because the injected list carries its host', origin => {
+      expect(isNonProductionApiOrigin(origin, INJECTED_DEV_API_HOSTS)).toBe(true)
     })
+
+    it.each([
+      'https://notdev-api.internal.example',
+      'https://dev-api.internal.example.evil.com',
+      'https://evil.dev-api.internal.example',
+      PRODUCTION_ORIGIN
+    ])('rejects %s, which the injected list does not carry', origin => {
+      expect(isNonProductionApiOrigin(origin, INJECTED_DEV_API_HOSTS)).toBe(false)
+    })
+
+    it('rejects an allow-listed host against the shipped list, which is empty, so the default is closed', () => {
+      expect(isNonProductionApiOrigin('https://dev-api.internal.example')).toBe(false)
+    })
+
+    // Vacuous while the shipped list is empty — the injected cases above are what prove the branch today. It
+    // is written as a loop because it.each over an empty array throws, and it exists so a host added to the
+    // shipped list is covered without a new test.
+    it('accepts every host the shipped list carries', () => {
+      for (const host of SOH_DEV_API_HOSTS) {
+        expect(isNonProductionApiOrigin(`https://${host}`)).toBe(true)
+      }
+    })
+  })
+})
+
+describe('release builds, where the preflight never runs', () => {
+  it('returns false for a rejected origin instead of throwing, so classification stays side-effect free', () => {
+    expect(() => isNonProductionApiOrigin(PRODUCTION_ORIGIN)).not.toThrow()
+    expect(() => isNonProductionApiOrigin('')).not.toThrow()
+    expect(() => isNonProductionApiOrigin(BACKSLASH_USERINFO_ORIGIN)).not.toThrow()
+  })
+
+  it('resolves an absent SOH_API_BASE_URL to the production fallback', () => {
+    expect(resolveApiOrigin(undefined)).toBe(PRODUCTION_API_FALLBACK_ORIGIN)
+    expect(resolveApiOrigin(undefined)).toBe('https://stateofhealthapi.com')
+  })
+
+  it('resolves an empty SOH_API_BASE_URL to the production fallback', () => {
+    expect(resolveApiOrigin('')).toBe(PRODUCTION_API_FALLBACK_ORIGIN)
+    expect(resolveApiOrigin('')).toBe('https://stateofhealthapi.com')
+  })
+
+  it('resolves a configured origin to itself', () => {
+    expect(resolveApiOrigin('http://localhost:3000')).toBe('http://localhost:3000')
+    expect(resolveApiOrigin('https://dev-api.internal.example')).toBe('https://dev-api.internal.example')
+  })
+
+  it('is the resolver the shipped endpoints are built from', () => {
+    expect(Endpoints.MacroTargets).toBe(`${resolveApiOrigin('http://localhost:3000')}/api/user/targets`)
+  })
+
+  it('enforces the preflight under a development build or Jest, and skips it only when neither applies', () => {
+    expect(isOriginPreflightEnforced({isDevBuild: false, isJestRuntime: false})).toBe(false)
+    expect(isOriginPreflightEnforced({isDevBuild: true, isJestRuntime: false})).toBe(true)
+    expect(isOriginPreflightEnforced({isDevBuild: false, isJestRuntime: true})).toBe(true)
+    expect(isOriginPreflightEnforced({isDevBuild: true, isJestRuntime: true})).toBe(true)
+  })
+
+  it('falls back to the one origin development and tests refuse', () => {
+    const message = messageThrownFor(PRODUCTION_API_FALLBACK_ORIGIN)
+
+    expect(isNonProductionApiOrigin(PRODUCTION_API_FALLBACK_ORIGIN)).toBe(false)
+    expect(message).toBe(PRODUCTION_ORIGIN_MESSAGE)
+    expect(message).not.toContain(PRODUCTION_API_FALLBACK_ORIGIN)
+  })
+
+  it('throws that the variable is not set when the release path has nothing to fall back from', () => {
+    expect(() => assertNonProductionApiOrigin(undefined)).toThrow('SOH_API_BASE_URL is not set')
   })
 })
 

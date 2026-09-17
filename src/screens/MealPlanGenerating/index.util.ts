@@ -1,3 +1,4 @@
+import type {CurrentMealPlans, MealPlan} from '@data/models/MealPlan'
 import type {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import {ALLERGEN_NONE, MEAL_SLOTS_IN_WIRE_ORDER} from '@data/models/MealPlanPreferences'
 import type {NutritionTargets} from '@data/models/NutritionTargets'
@@ -125,6 +126,15 @@ export interface GenerationRequestInputs {
   expectedPreferencesRevision: number
   expectedTargetsRevision: number
 }
+
+/**
+ * What is known about the outcome of this screen's own attempt, and nothing more: either the server answered
+ * it directly, or the plan read was refetched after a lost response and may or may not hold the plan that key
+ * produced.
+ */
+export type GenerationSettlement =
+  | {kind: 'committed'; plan: MealPlan}
+  | {kind: 'refetched'; plans: CurrentMealPlans | null | undefined; sentKey: string | null}
 
 const NO_VALUE = ''
 
@@ -461,6 +471,40 @@ export const resolveTerminalRecovery = (
   }
 
   return {clearsPendingIntent: true, refetchesCurrentPlan: false, toast: null, route: null}
+}
+
+/**
+ * The plan the tab must open once this screen's generation is settled, and null while nothing in hand proves
+ * that it is.
+ *
+ * A confirmed commit is its own proof: the response IS the plan, whichever week it is. That is why the
+ * selection follows the returned plan instead of being left where it was — a next-week generation or an
+ * upcoming-plan regeneration would otherwise reopen the week that happened to be on screen.
+ *
+ * After a lost response there is exactly one proof: a refetched plan whose `generationKey` equals the key
+ * this attempt sent. Dates, revisions and generation attempts cannot tell the plan that key committed from
+ * one another device made or from the week it was about to replace, so anything short of that exact match
+ * leaves the refetch display-only — the intent stays pending and the screen keeps promising nothing, because
+ * only a server answer to the same key may resolve it (0.2.5, 0.7.2).
+ */
+export const resolveSettledGenerationPlanId = (settlement: GenerationSettlement): string | null => {
+  if (settlement.kind === 'committed') {
+    return settlement.plan.id
+  }
+
+  const {plans, sentKey} = settlement
+
+  // An absent or empty key is not an identity. Guarded here because it is the one comparison that must never
+  // succeed by accident — an attempt that never went out has nothing to reconcile against.
+  if (plans === null || plans === undefined || sentKey === null || sentKey.length === 0) {
+    return null
+  }
+
+  if (plans.current !== null && plans.current.generationKey === sentKey) {
+    return plans.current.id
+  }
+
+  return plans.upcoming !== null && plans.upcoming.generationKey === sentKey ? plans.upcoming.id : null
 }
 
 /**

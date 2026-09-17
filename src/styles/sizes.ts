@@ -7,6 +7,10 @@ export const Sizes = {
   CONTROL: 44,
   CONTROL_LG: 48,
   CTA: 52,
+  // Figma 49:674 authors the recipe action bar's narrow action at a fixed 110 (`designedWidth: "110px"`)
+  // while its wide sibling 49:671 declares no width at all, so the pair is a remainder split and never a
+  // proportion: the 235 the comp resolves to holds only at a 393 frame.
+  ACTION_SECONDARY_W: 110,
   ADD_CONTROL: 28,
 
   TILE_SM: 40,
@@ -37,8 +41,11 @@ export const Sizes = {
   SEGMENT_COMPACT_ENVELOPE_INSET_V: 7.5,
   BANNER_ICON_INSET_T: 1,
   BANNER_TEXT_INSET_T: 2,
+  BANNER_BODY_INSET_T: 2,
   ROW_VALUE_INSET_T: 2,
   ROW_VALUE_INSET_B: 0.5,
+  OPTION_SUBCOPY_GAP: 2,
+  DAY_CHIP_NUMBER_INSET_T: 2,
   // Figma declares a text block's wrapper height as the CEILING of its
   // padding + pinned fractional line height, so the block closes on a whole
   // pixel while the text keeps its fractional metrics: 34:208 is 353x51 over
@@ -105,6 +112,7 @@ export const Opacity = {
 
   LOGGED_TILE: 0.6,
   PRESSED: 0.6,
+  PRESSED_SEGMENT: 0.7,
   PRESSED_CTA: 0.5,
   HERO_ART: 0.5,
   DISABLED: 0.5,

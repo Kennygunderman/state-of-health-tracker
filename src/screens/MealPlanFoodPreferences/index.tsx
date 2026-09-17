@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import {ScrollView, View} from 'react-native'
 
+import type {DislikedFoodSummary} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
 import {MealPlanFoodPreferencesRouteProp, Navigation} from '@navigation/types'
 import {useCatalogSuggestionsQuery} from '@queries/catalog/useCatalogSuggestionsQuery'
@@ -9,6 +10,7 @@ import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPref
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -16,9 +18,9 @@ import {SafeAreaView} from 'react-native-safe-area-context'
 import CatalogSearchField from '@components/CatalogSearchField'
 import ChipCloud from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import ConfirmModal from '@components/dialog/ConfirmModal'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SectionOverline from '@components/SectionOverline'
 import SelectableChip from '@components/SelectableChip'
 import SetupFooter from '@components/SetupFooter'
@@ -47,12 +49,13 @@ import {
 } from '@constants/strings'
 
 import styles, {SUGGESTION_SKELETON_HEIGHT, SUGGESTION_SKELETON_WIDTH} from './index.styled'
-
-// Dislikes is the fifth step of seven, or the fourth of six on the manual-target route, which skips the
-// calculation-only Activity step. The folder carries no util, so the two shapes sit here.
-const ESTIMATED_ROUTE_PROGRESS = {step: 5, totalSteps: 7}
-
-const MANUAL_ROUTE_PROGRESS = {step: 4, totalSteps: 6}
+import {
+  buildDislikeLabelIndex,
+  buildSelectedDislikes,
+  foodPreferencesWizardProgress,
+  resolveFoodPreferencesControls,
+  resolveSuggestionsViewState
+} from './index.util'
 
 // Three chip-shaped blocks stand in for the suggestions cloud while it loads, a state no frame in this flow
 // draws. The keys are the placeholders' own identity: no data sits behind them.
@@ -65,8 +68,7 @@ interface DislikesConflictShape {
   dislikedFoodIds: string[]
 }
 
-// The one answer this step owns, so a dislike saved here is never reported as conflicting with a diet or a
-// meal time someone edited on another device.
+// The one answer this step owns: a diet or meal time edited elsewhere is not a conflict here.
 const DISLIKES_CONFLICT_FIELDS: readonly (keyof DislikesConflictShape & string)[] = Object.freeze(['dislikedFoodIds'])
 
 const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
@@ -74,14 +76,28 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanFoodPreferencesRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const suggestionsQuery = useCatalogSuggestionsQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
-  const {draft, seeded, seedFromPreferences, toggleDislikedFood} = useMealPlanSetupDraft()
+  const {
+    data: preferencesData,
+    isPending: isLoadingPreferences,
+    refetch: refetchPreferences
+  } = useMealPlanPreferencesQuery()
+  const {
+    data: suggestionsData,
+    isPending: isLoadingSuggestions,
+    isError: hasSuggestionsError
+  } = useCatalogSuggestionsQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
+  const {draft, dislikeLabels, seeded, seedFromPreferences, toggleDislikedFood} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel, so this step's unsaved edits are dropped on the way out —
+  // by whichever exit the user takes. A successful save marks them stored first, so leaving keeps them.
+  const {markSaved: markDislikesSaved, discardEdits: discardDislikeEdits} = useSetupStepEdit(
+    'dislikes',
+    params.mode === 'edit'
+  )
 
   const [hasConflict, setHasConflict] = useState(false)
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
@@ -89,25 +105,41 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
     }
   }, [preferences, seedFromPreferences, seeded])
 
-  const progress = preferences?.targetRoute === 'manual' ? MANUAL_ROUTE_PROGRESS : ESTIMATED_ROUTE_PROGRESS
-  const suggestions = suggestionsQuery.data ?? []
+  const progress = foodPreferencesWizardProgress(preferences?.targetRoute ?? null)
+  const suggestions = suggestionsData ?? []
+  const suggestionsState = resolveSuggestionsViewState(isLoadingSuggestions, hasSuggestionsError)
+  const controls = resolveFoodPreferencesControls({
+    isPreferencesPending: isLoadingPreferences,
+    isSavePending: isSaving,
+    suggestionsState
+  })
 
-  // The chips render names while the draft holds ids, so the two name sources this screen already has are
-  // merged into one lookup. An id neither can name — a food staged on 06b straight from catalog search —
-  // stays in the draft and is still saved; its name arrives once the save invalidates the preferences query.
-  const selectedChips = useMemo(() => {
-    const namedFoods = [...(preferences?.dislikedFoods ?? []), ...(suggestionsQuery.data ?? [])]
-    const namesById = new Map(namedFoods.map(food => [food.id, food.name] as const))
+  // The chips render names while the payload carries ids, so all three sources of a name are merged into one
+  // lookup — and the flow's own index is what names a food staged from catalog search, which neither the
+  // saved row nor the suggestions list can name until a save has landed. Every selected food therefore has a
+  // chip the user can review and remove, and the count below is the selection's own length.
+  const selectedDislikes = useMemo(
+    () =>
+      buildSelectedDislikes(
+        draft.dislikedFoodIds,
+        buildDislikeLabelIndex(dislikeLabels, preferences?.dislikedFoods ?? [], suggestionsData ?? [])
+      ),
+    [dislikeLabels, draft.dislikedFoodIds, preferences?.dislikedFoods, suggestionsData]
+  )
 
-    return draft.dislikedFoodIds.flatMap(id => {
-      const label = namesById.get(id)
-
-      return label === undefined ? [] : [{id, label}]
-    })
-  }, [draft.dislikedFoodIds, preferences?.dislikedFoods, suggestionsQuery.data])
+  // The band is virtualized, so the chip is built by a renderer the list calls for the rows it mounts
+  // rather than by a hundred elements handed over on every render.
+  const renderSelectedChip = useCallback(
+    (food: DislikedFoodSummary): React.JSX.Element => (
+      <SelectableChip label={food.name} selected removable expandTouchTarget onPress={() => toggleDislikedFood(food)} />
+    ),
+    [toggleDislikedFood]
+  )
 
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markDislikesSaved()
 
     if (params.mode === 'edit') {
       returnFromTargets({kind: 'stack', route: params.returnTo})
@@ -116,20 +148,18 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
     }
 
     navigation.navigate(Screens.MEAL_PLAN_SCHEDULE, params)
-  }, [navigation, params, returnFromTargets])
+  }, [markDislikesSaved, navigation, params, returnFromTargets])
 
   const onSearchPressed = useCallback((): void => {
     navigation.push(Screens.MEAL_PLAN_FOOD_SEARCH, {mode: params.mode})
   }, [navigation, params.mode])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
-    // Nothing here is required (47:338), so the step has no answer to validate and no inline error to
-    // report. Its one precondition is the revision the save must carry: when the preferences query failed,
-    // it is refetched here rather than sending a write the server would answer 409.
+    // The server requires this step's exact revision, so a query that never produced one is asked again.
     let current = preferences
 
     if (current === null) {
-      const refetchedRow = await preferencesQuery.refetch()
+      const refetchedRow = await refetchPreferences()
 
       current = refetchedRow.data ?? null
     }
@@ -141,7 +171,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
     }
 
     try {
-      await saveStepMutation.mutateAsync({
+      await saveSetupStep({
         step: 'dislikes',
         payload: {
           dislikedFoodIds: draft.dislikedFoodIds,
@@ -150,18 +180,15 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
         }
       })
     } catch (error) {
-      // The selection lives in the provider draft, so a failed save loses none of it and nothing navigates.
       if (getApiErrorCode(error) !== API_ERROR_CODES.staleRevision) {
         showToast('error', TOAST_GENERIC_ERROR)
 
         return
       }
 
-      // A rejected revision is never retried blindly (0.7.2): the authoritative row is refetched and this
-      // step's own answer is compared with it. Equal ids mean the write this client lost the response to, or
-      // the identical edit from another device, already landed — so it resolves silently rather than
-      // reporting a conflict or writing a second time.
-      const refetched = await preferencesQuery.refetch()
+      // A rejected revision is never retried blindly (0.7.2): equal ids mean this client's own lost write, or
+      // the identical edit from another device, already landed, so it resolves silently rather than writing again.
+      const refetched = await refetchPreferences()
       const fresh = refetched.data ?? null
 
       if (fresh === null) {
@@ -182,23 +209,22 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
         return
       }
 
-      // A real difference is the user's to settle, so it raises the persistent dialog rather than a toast
-      // that fades: 'Keep mine' re-presses this save, which by then closes over the revision just
-      // refetched, and a second rejection repeats the cycle.
       setHasConflict(true)
 
       return
     }
 
     advance()
-  }, [advance, draft.dislikedFoodIds, preferences, preferencesQuery, saveStepMutation])
+  }, [advance, draft.dislikedFoodIds, preferences, refetchPreferences, saveSetupStep])
 
-  // 'Use theirs' discards this step's draft ids in favour of the refetched row; seeding reads the whole
-  // saved row, so every other step's edits survive it.
+  // 'Use theirs' discards this step's draft ids in favour of the refetched row. Seeding adopts that row as
+  // the stored answers without overwriting any step the user has edited — which is what protects the other
+  // steps here, and also why this step's own edits have to be dropped explicitly afterwards.
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardDislikeEdits()
+  }, [discardDislikeEdits, preferences, seedFromPreferences])
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -220,37 +246,26 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
             />
           </View>
 
-          {selectedChips.length > 0 && (
+          {selectedDislikes.count > 0 && (
             <>
               <View style={[styles.sectionWrapper, styles.sectionWrapperFirst]}>
                 <SectionOverline
-                  text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedChips.length})}
+                  text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedDislikes.count})}
                 />
               </View>
 
               <View style={styles.cloudWrapper}>
-                <ChipCloud variant="scroll">
-                  {selectedChips.map(chip => (
-                    <SelectableChip
-                      key={chip.id}
-                      label={chip.label}
-                      selected
-                      removable
-                      expandTouchTarget
-                      onPress={() => toggleDislikedFood(chip.id)}
-                    />
-                  ))}
-                </ChipCloud>
+                <ChipCloud variant="scroll" items={selectedDislikes.foods} renderChip={renderSelectedChip} />
               </View>
             </>
           )}
 
-          <View style={[styles.sectionWrapper, selectedChips.length === 0 && styles.sectionWrapperFirst]}>
+          <View style={[styles.sectionWrapper, selectedDislikes.count === 0 && styles.sectionWrapperFirst]}>
             <SectionOverline text={MEAL_PLAN_SUGGESTIONS_HEADER} />
           </View>
 
           <View style={styles.cloudWrapper}>
-            {suggestionsQuery.isPending && (
+            {suggestionsState === 'loading' && (
               <View style={styles.skeletonRow} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
                 {SUGGESTION_SKELETON_KEYS.map(key => (
                   <SkeletonBlock
@@ -263,11 +278,11 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
               </View>
             )}
 
-            {suggestionsQuery.isError && (
+            {suggestionsState === 'unavailable' && (
               <Text style={styles.helperText}>{MEAL_PLAN_SUGGESTIONS_UNAVAILABLE_TEXT}</Text>
             )}
 
-            {!suggestionsQuery.isPending && !suggestionsQuery.isError && (
+            {suggestionsState === 'ready' && (
               <ChipCloud>
                 {suggestions.map(suggestion => (
                   <SelectableChip
@@ -275,7 +290,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
                     label={suggestion.name}
                     selected={draft.dislikedFoodIds.includes(suggestion.id)}
                     expandTouchTarget
-                    onPress={() => toggleDislikedFood(suggestion.id)}
+                    onPress={() => toggleDislikedFood(suggestion)}
                   />
                 ))}
               </ChipCloud>
@@ -290,21 +305,24 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
         <View style={styles.footerContent}>
           <PrimaryButton
             label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-            isLoading={saveStepMutation.isPending}
-            disabled={preferencesQuery.isPending}
+            isLoading={controls.isContinueLoading}
+            disabled={controls.isContinueDisabled}
             onPress={onContinuePressed}
           />
         </View>
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

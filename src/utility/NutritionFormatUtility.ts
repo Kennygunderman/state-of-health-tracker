@@ -1,6 +1,6 @@
 import type {ManualNutritionTargetValues, NutritionTargets} from '@data/models/NutritionTargets'
 
-const CALORIE_LOCALE = 'en-US'
+const NUMBER_LOCALE = 'en-US'
 const GRAM_SUFFIX = 'g'
 const MACRO_PAIR_SEPARATOR = ' / '
 const PLUS_SIGN = '+'
@@ -9,10 +9,21 @@ const PLUS_SIGN = '+'
 // sign is applied here after Math.abs instead of being left to Intl (en-US emits '-' and even '-0')
 const MINUS_SIGN = '\u2212'
 
+/**
+ * A whole figure grouped for display: 1940 reads as '1,940'.
+ *
+ * The one grouped presentation every target surface shares, which is why it is named for the notation rather
+ * than for calories: the editor's gram fields are grouped by the same rule as its calorie field, and a second
+ * implementation is how a target comes to read '1,940' on one screen and '1940' on another.
+ */
+export function formatWholeNumber(value: number): string {
+  return Math.round(value).toLocaleString(NUMBER_LOCALE)
+}
+
 // formatCalories and formatMacroGrams reproduce the shipped screens/Macros and MacroGramRow output byte
 // for byte: the planner and the diary must never render the same confirmed figure two different ways
 export function formatCalories(value: number): string {
-  return Math.round(value).toLocaleString(CALORIE_LOCALE)
+  return formatWholeNumber(value)
 }
 
 export function formatMacroGrams(value: number): string {

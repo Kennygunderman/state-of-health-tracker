@@ -1,10 +1,26 @@
-import {StyleSheet} from 'react-native'
+import {Insets, StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+/* BLITZY [A11Y]: the two vertical edges are arithmetic on Sizes.TOUCH_TARGET, not a chosen inset:
+   FontSize.LABEL + top + bottom is exactly Sizes.TOUCH_TARGET, so the target holds against the 13px type
+   box and clears it against the taller band the platform font actually draws for uncheckAllLabel. Both
+   edges stay inside eyebrowRow's slack either side of the centred label — the overline, its 4px rung and
+   the 34.5px title leave roughly 18px above and below — which matters because a child's hitSlop cannot
+   extend past its parent's own hit rect; neither platform looks for a target outside the ancestor's
+   bounds. Horizontal slop keeps the 12px it had: the label is far wider than 44 on its own. */
+const UNCHECK_ALL_SLOP_ABOVE = Spacing.MEDIUM
+
+export const UNCHECK_ALL_HIT_SLOP: Insets = {
+  top: UNCHECK_ALL_SLOP_ABOVE,
+  right: Spacing.SMALL,
+  bottom: Sizes.TOUCH_TARGET - FontSize.LABEL - UNCHECK_ALL_SLOP_ABOVE,
+  left: Spacing.SMALL
+}
 
 export default StyleSheet.create({
   container: {

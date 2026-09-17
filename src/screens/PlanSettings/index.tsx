@@ -1,6 +1,6 @@
-import React, {useCallback, useState} from 'react'
+import React, {useCallback, useEffect, useRef, useState} from 'react'
 
-import {ScrollView, View} from 'react-native'
+import {AccessibilityInfo, Platform, ScrollView, View} from 'react-native'
 
 import type {MealPlan, MealPlanSummary} from '@data/models/MealPlan'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
@@ -14,12 +14,12 @@ import {
   isNutritionTargetsReadFailure,
   selectNutritionTargets
 } from '@queries/mealPlanning/useNutritionTargetsQuery.util'
-import {useNavigation, useRoute} from '@react-navigation/native'
+import {useSavePreferencesMutation} from '@queries/mealPlanning/useSavePreferencesMutation'
+import {useFocusEffect, useNavigation, useRoute} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
-import useMealPlanStore, {buildPendingIntent} from '@store/mealPlan/useMealPlanStore'
+import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
-import type {RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
@@ -43,6 +43,7 @@ import {
   PLAN_REGENERATE_CONFIRM_BUTTON_TEXT,
   PLAN_REGENERATE_DIALOG_TITLE,
   PLAN_REGENERATE_DISMISS_BUTTON_TEXT,
+  PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE,
   PLAN_SETTINGS_FOOTNOTE,
   PLAN_SETTINGS_REGENERATE_BUTTON_TEXT,
   PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE,
@@ -51,17 +52,23 @@ import {
   stringWithNamedParameters
 } from '@constants/strings'
 
-import PlanConfirmDialog from './components/PlanConfirmDialog'
+import PlanConfirmDialog, {PlanConfirmNotice} from './components/PlanConfirmDialog'
 import SettingsRow from './components/SettingsRow'
 import styles, {regenerateSummaryValueColor} from './index.styled'
 import {
   buildPlanSettingsRows,
   buildRegenerateDialogBody,
   buildRegenerateSummaryRows,
+  canSubmitRegeneration,
   derivePlanSettingsBanner,
+  deriveRegenerateConfirmState,
   earliestFlaggedDate,
   nextPlanAcknowledgementTarget,
   PlanSettingsRow,
+  RegenerateLatchEvent,
+  reconcilePreferencesTimeZone,
+  resolveRegenerateLatch,
+  resolveRegenerateLaunch,
   shouldRecalculateTargets,
   shouldShowUseForNextPlan
 } from './index.util'
@@ -70,6 +77,10 @@ import {
 // an unrelated height.
 const SKELETON_ROW_HEIGHTS: number[] = [Sizes.CONTROL_LG, Sizes.CONTROL_LG, Sizes.CONTROL_LG, Sizes.CONTROL]
 
+// The randomness a key is minted from, entering at the press that decides to mint (0.7.2). Module scope so
+// the launch decision is handed the same source on every render.
+const mintRegenerateKey = (): string => mintKey(uuidv4)
+
 /**
  * Frames 16 / 16b: the seven saved answers of the running plan, the flagged-meals banner, and the two ways an
  * edit can be applied.
@@ -77,7 +88,12 @@ const SKELETON_ROW_HEIGHTS: number[] = [Sizes.CONTROL_LG, Sizes.CONTROL_LG, Size
  * Every row was already persisted by its own "Save changes", so this screen writes nothing through its own
  * controls: `buildPlanSettingsRows` hands it navigation descriptors it dispatches, "Use for next plan" is an
  * acknowledgement that navigates and mutates nothing (AAP 0.7.4), and "Regenerate this week" confirms through
- * 16b and then hands the keyed write to `MealPlanGenerating`, which owns the idempotency key from there.
+ * 16b, resolves which key that write must carry against the regeneration already on record, and hands it to
+ * `MealPlanGenerating`, which sends it from there.
+ *
+ * Its one write is not a control at all: the full preferences save carries the device's time zone when it no
+ * longer matches the stored one, which is the refresh AAP 0.5.2 requires of every such save. See the effect
+ * below for why it belongs here and why it is silent.
  */
 const PlanSettingsScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -87,13 +103,44 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
+  // Subscribed, not read at the press: a confirmation decided before the persisted slice arrived would
+  // conclude that no regeneration was pending, and this is what re-renders the screen when it does arrive.
+  const hasHydratedIntents = useMealPlanStore(state => state.hasHydratedIntents)
+  // The same read in all three of its states. The press keeps gating on the boolean, which is 'succeeded'
+  // alone and so fails closed; the dialog needs the third case to say whether it is waiting on that read or
+  // refused by it.
+  const intentsHydration = useMealPlanStore(state => state.intentsHydration)
+  const retryIntentsHydration = useMealPlanStore(state => state.retryIntentsHydration)
 
   const preferencesQuery = useMealPlanPreferencesQuery()
   const targetsQuery = useNutritionTargetsQuery()
   const currentPlanQuery = useCurrentMealPlanQuery()
   const affectedMealsQuery = useAffectedMealsQuery(params.planId)
+  const {mutateAsync: savePreferences} = useSavePreferencesMutation()
 
   const [isConfirmVisible, setIsConfirmVisible] = useState(false)
+  // Held while the zone reconciliation and the refetches it triggers are in flight, because that save moves
+  // the very revisions "Regenerate this week" pins.
+  const [isReconcilingTimeZone, setIsReconcilingTimeZone] = useState(false)
+  // Keyed on the zone rather than set once, so a save that failed is retried on the next open and a server
+  // that stored a different spelling of the same zone cannot start a loop.
+  const reconciledTimeZone = useRef<string | null>(null)
+
+  /**
+   * Held from the moment a confirmation dispatches a launch until a re-launch is legitimate again. A ref
+   * rather than state because it has to stop the very next press in the same tick: two queued taps on the
+   * dialog's confirm both run before React re-renders it away, and each would otherwise file its own key into
+   * the single `pendingIntents.regenerate` slot — one user intent, two keys, the second burying the first.
+   */
+  const isLaunchLatched = useRef(false)
+
+  /**
+   * The same latch as a render, because a ref is deliberately invisible to React: the guard above is what
+   * makes a second press decide nothing, and this is what makes the button say so. Never written on its own
+   * — `applyRegenerateLatch` sets both from one `resolveRegenerateLatch` answer, so the button cannot read
+   * as available while the ref is refusing presses, or as busy while it is not.
+   */
+  const [isLaunchDispatched, setIsLaunchDispatched] = useState(false)
 
   const preferences = preferencesQuery.data ?? null
   // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route is
@@ -108,6 +155,31 @@ const PlanSettingsScreen = (): React.JSX.Element => {
 
   const banner = derivePlanSettingsBanner(affectedMealsQuery.data, affectedMealsQuery.isError)
 
+  // The alert as VoiceOver has to be given it: one string carrying the same title and body the banner draws.
+  const bannerAnnouncement =
+    banner === null
+      ? null
+      : stringWithNamedParameters(PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE, {title: banner.title, body: banner.body})
+
+  const announcedBanner = useRef<string | null>(null)
+
+  useEffect(() => {
+    // iOS honours neither half of the wrapper's markup: `accessibilityRole="alert"` sets traits on a view that
+    // is not an accessibility element (it deliberately lacks `accessible`, which would swallow the 'Review
+    // affected meals' pill) and `accessibilityLiveRegion` is Android-only in RN 0.86 — so the appearing alert
+    // is announced here instead, and Android is left to its live region rather than told twice. Guarded by the
+    // message announced, so a re-render or a refetch answering the same flags does not repeat it.
+    if (bannerAnnouncement === null || bannerAnnouncement === announcedBanner.current) {
+      return
+    }
+
+    announcedBanner.current = bannerAnnouncement
+
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(bannerAnnouncement)
+    }
+  }, [bannerAnnouncement])
+
   const showUseForNextPlan =
     plan !== null &&
     shouldShowUseForNextPlan({hasIncompatibilities: plan.hasIncompatibilities, targetsStale: plan.targetsStale})
@@ -119,8 +191,58 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const targetsRevision = targetsQuery.isSuccess ? (targets?.revision ?? NO_TARGETS_REVISION) : null
 
   // A read that has not answered is not silently disabling: the card below explains it and offers the retry
-  // that makes this control available again.
-  const canRegenerate = plan !== null && preferences !== null && targetsRevision !== null
+  // that makes this control available again. The zone reconciliation below is the fourth term, because it
+  // moves the revisions a regeneration pins — see `canSubmitRegeneration`.
+  const canRegenerate = canSubmitRegeneration({
+    hasPlan: plan !== null,
+    hasPreferences: preferences !== null,
+    hasTargetsRevision: targetsRevision !== null,
+    isReconcilingTimeZone
+  })
+
+  /**
+   * Runs the stored-zone reconciliation once per mount, and only when the two zones actually disagree — which
+   * makes it a no-op for everyone who has not travelled. The decision, the `409 stale_revision` recovery and
+   * the single re-submission all live in `reconcilePreferencesTimeZone`, where they are tested; this effect
+   * supplies the collaborators and records what came back.
+   *
+   * It is silent by design: nobody asked for it, so nothing it does may interrupt the user. `failed` is the
+   * one retryable outcome and it is retried by reopening the screen, which is why the guard below is keyed on
+   * the zone rather than set once.
+   */
+  useEffect(() => {
+    if (preferences === null || preferences.timeZone === null) {
+      return
+    }
+
+    const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+    if (deviceTimeZone === preferences.timeZone || reconciledTimeZone.current === deviceTimeZone) {
+      return
+    }
+
+    reconciledTimeZone.current = deviceTimeZone
+    setIsReconcilingTimeZone(true)
+
+    reconcilePreferencesTimeZone({
+      storedTimeZone: preferences.timeZone,
+      deviceTimeZone,
+      expectedRevision: preferences.revision,
+      savePreferences,
+      refetchPreferences: async () => (await preferencesQuery.refetch()).data ?? null
+    })
+      .then(outcome => {
+        if (outcome === 'failed') {
+          reconciledTimeZone.current = null
+        }
+      })
+      .finally(() => {
+        setIsReconcilingTimeZone(false)
+      })
+    // `preferencesQuery` is read for its stable `refetch` only; listing the query object itself would retrigger
+    // this on every render, because TanStack rebuilds that result each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferences, savePreferences])
 
   /**
    * A row descriptor's route, dispatched as a push. Every step route takes a `StepMode`, but `navigate` types
@@ -211,6 +333,35 @@ const PlanSettingsScreen = (): React.JSX.Element => {
     navigation.popTo(Screens.MACROS)
   }, [affectedMealsQuery.data, navigation, setMacrosSegment, setSelectedPlanDate])
 
+  /**
+   * One latch event, applied to the guard and to what the dialog draws. The ref is written first and
+   * synchronously — that is the half that stops the very next press in the same tick — and the state write
+   * React applies on a later render is what the confirm button reads. Both take the same value from the same
+   * rule, so `resolveRegenerateLatch` stays the only place the lifecycle is decided.
+   */
+  const applyRegenerateLatch = useCallback((event: RegenerateLatchEvent): void => {
+    const isLatched = resolveRegenerateLatch(event)
+
+    isLaunchLatched.current = isLatched
+    setIsLaunchDispatched(isLatched)
+  }, [])
+
+  const onRegeneratePressed = useCallback(() => {
+    // Reopening 16b is a new user intent, so the latch the last launch left is released here — this press is
+    // also the only way back to the confirmation, which is what keeps the button from dying for the session.
+    applyRegenerateLatch('confirmReopened')
+    setIsConfirmVisible(true)
+  }, [applyRegenerateLatch])
+
+  useFocusEffect(
+    useCallback(() => {
+      // Returning to this screen means the launch this latch was guarding has ended: the generating screen it
+      // dispatched is gone, so a further confirmation is a new intent rather than a duplicate of that one —
+      // and an intent still unresolved is replayed under its own key rather than minted over.
+      applyRegenerateLatch('screenFocused')
+    }, [applyRegenerateLatch])
+  )
+
   const onUseForNextPlanPressed = useCallback(() => {
     // Acknowledgement only (0.7.4): every edit was already persisted by its own "Save changes" and the server
     // reads the latest preferences when it next generates, so this dispatches the descriptor's navigation and
@@ -222,43 +373,80 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   }, [navigation, setMacrosSegment])
 
   const onConfirmRegeneratePressed = useCallback(() => {
-    if (plan === null || preferences === null || targetsRevision === null) {
+    const decision = resolveRegenerateLaunch({
+      isLaunchLatched: isLaunchLatched.current,
+      hasHydratedIntents,
+      // Read at the press rather than subscribed: the record a launch may not overwrite is whatever is on
+      // disk at this moment, and nothing on this screen renders from it.
+      state: useMealPlanStore.getState(),
+      plan: plan === null ? null : {id: plan.id, revision: plan.revision, startDate: plan.startDate},
+      expectedPreferencesRevision: preferences?.revision ?? null,
+      expectedTargetsRevision: targetsRevision,
+      userId,
+      attemptedAt: Date.now(),
+      mintFreshKey: mintRegenerateKey
+    })
+
+    // A press the decision declined — a launch already dispatched, a pin that has not answered, or a slice
+    // still on its way out of storage — leaves the dialog up, so the next press decides again.
+    if (decision.kind === 'ignored') {
       return
     }
 
+    // Latched synchronously, ahead of every record and every dispatch: `setIsConfirmVisible(false)` is a state
+    // write React applies on a later render, so a second queued press would otherwise run this body again and
+    // file a second key for one user intent. The same call puts the confirm button into its pending state,
+    // which is the user-visible half of that refusal rather than the guarantee behind it.
+    applyRegenerateLatch('launchDispatched')
     setIsConfirmVisible(false)
 
-    // Minted here, at the press that decides the replacement: the key belongs to this request, and a key
-    // minted at render would be reused by a second confirmation whose payload had moved on.
-    const idempotencyKey = mintKey(uuidv4)
+    // An unresolved regeneration of another plan holds the one slot this screen could record into. It is not
+    // this week's to replay and not this press's to overwrite, so the press goes to the plan tab, which owns
+    // reconstructing a generation from a persisted intent.
+    if (decision.kind === 'handOff') {
+      setMacrosSegment('mealPlan')
+      navigation.popTo(Screens.MACROS)
 
-    const request: RegenerateRequestSnapshot = {
-      action: 'regenerate',
-      planId: plan.id,
-      expectedPlanRevision: plan.revision,
-      expectedPreferencesRevision: preferences.revision,
-      expectedTargetsRevision: targetsRevision
+      return
     }
 
-    // Recorded before the screen that sends it has even mounted, so a launch killed in between still finds the
-    // key this press minted and asks again under it rather than committing a second plan (0.7.2). Scoped by
-    // user because `pendingIntents` is, and built through `buildPendingIntent` because that is what derives the
-    // fingerprint from the snapshot — the generating screen rebuilds the same snapshot and recognises this key
-    // as its own instead of minting a fresh one.
-    if (userId !== null) {
-      recordPendingIntent(buildPendingIntent(request, idempotencyKey, userId, Date.now()))
+    // Recorded before the screen that sends it has even mounted, so a launch killed in between still finds
+    // this key and asks again under it rather than committing a second plan (0.7.2). The record is the
+    // decision's own, which is what ties the stored fingerprint to the request below: the generating screen
+    // rebuilds that snapshot from these params and recognises the key as its own instead of minting.
+    if (decision.intent !== null) {
+      recordPendingIntent(decision.intent)
     }
 
-    // Drawn from the snapshot rather than re-read from the queries, so the request that was recorded and the
-    // request that is sent cannot describe different revisions.
-    navigation.navigate(Screens.MEAL_PLAN_GENERATING, {
-      context: {kind: 'regenerate', planId: request.planId, planRevision: request.expectedPlanRevision},
-      idempotencyKey,
-      expectedPreferencesRevision: request.expectedPreferencesRevision,
-      expectedTargetsRevision: request.expectedTargetsRevision,
-      startDate: plan.startDate
-    })
-  }, [navigation, plan, preferences, recordPendingIntent, targetsRevision, userId])
+    navigation.navigate(Screens.MEAL_PLAN_GENERATING, decision.params)
+  }, [
+    applyRegenerateLatch,
+    hasHydratedIntents,
+    navigation,
+    plan,
+    preferences,
+    recordPendingIntent,
+    setMacrosSegment,
+    targetsRevision,
+    userId
+  ])
+
+  // What the confirmation draws, from the two facts that make a press decide nothing: this screen's own latch
+  // and the persisted read the launch may not mint ahead of. A declined press is otherwise indistinguishable
+  // from an ignored one — the dialog stays up, nothing moves, and the button still invites the tap.
+  const confirmState = deriveRegenerateConfirmState({isLaunchDispatched, intentsHydration})
+
+  // A refused read of the persisted intents is the one reason the confirmation is disabled rather than busy:
+  // the slice may already hold the key of a regeneration that committed, so nothing may be minted until a
+  // read succeeds — and asking storage again is the only way out of it.
+  const confirmNotice: PlanConfirmNotice | undefined =
+    confirmState.reason === 'failedIntentsRead'
+      ? {
+          body: MEAL_PLAN_LOAD_ERROR_TITLE,
+          actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+          onAction: retryIntentsHydration
+        }
+      : undefined
 
   // Both reads feed the rows and the regenerate pin, so the card waits for both rather than rendering rows
   // that read 'Not set' for a target the server has not answered for yet (0.2.5).
@@ -397,7 +585,7 @@ const PlanSettingsScreen = (): React.JSX.Element => {
             label={PLAN_SETTINGS_REGENERATE_BUTTON_TEXT}
             variant="dark"
             disabled={!canRegenerate}
-            onPress={() => setIsConfirmVisible(true)}
+            onPress={onRegeneratePressed}
           />
         </SetupFooter>
       </View>
@@ -410,6 +598,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
           summaryRows={regenerateRows(plan.summary)}
           confirmLabel={PLAN_REGENERATE_CONFIRM_BUTTON_TEXT}
           dismissLabel={PLAN_REGENERATE_DISMISS_BUTTON_TEXT}
+          isConfirmPending={confirmState.isPending}
+          isConfirmDisabled={confirmState.isDisabled}
+          notice={confirmNotice}
           onConfirm={onConfirmRegeneratePressed}
           onDismiss={() => setIsConfirmVisible(false)}
         />

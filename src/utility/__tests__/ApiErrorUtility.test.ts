@@ -6,9 +6,12 @@ import {
   classifyOutcome,
   getApiErrorCode,
   getApiErrorStatus,
+  isConfirmedPlanStateError,
   isFeatureDisabledError,
   isPlanOrCapabilityRefusal,
+  isPlanReadInvalidatedError,
   isPlanStateError,
+  isResourceNotFoundError,
   isUnknownOutcome,
   terminalErrorCode
 } from '../ApiErrorUtility'
@@ -368,6 +371,104 @@ describe('isPlanStateError', () => {
     expect(isPlanStateError(new Error('Network Error'))).toBe(false)
     expect(isPlanStateError(null)).toBe(false)
     expect(isPlanStateError(undefined)).toBe(false)
+  })
+})
+
+describe('isConfirmedPlanStateError', () => {
+  it('recognises a 4xx whose decoded body says the plan has moved on', () => {
+    expect(isConfirmedPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(true)
+    expect(isConfirmedPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(
+      true
+    )
+    expect(isConfirmedPlanStateError(makeAxiosError(404, {error: API_ERROR_CODES.planNotActive}))).toBe(true)
+  })
+
+  // The misclassification the finding names: the code string alone is not an answer, because a gateway that
+  // echoes it described nothing about this attempt.
+  it('refuses a 5xx carrying a plan-state string, whose outcome is unknown', () => {
+    expect(isConfirmedPlanStateError({response: {status: 502, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(false)
+    expect(isConfirmedPlanStateError({response: {status: 500, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(
+      false
+    )
+    expect(isConfirmedPlanStateError({response: {status: 504, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(false)
+  })
+
+  it('refuses an undecodable or absent body, whatever the status', () => {
+    expect(isConfirmedPlanStateError({response: {status: 409}})).toBe(false)
+    expect(isConfirmedPlanStateError({response: {status: 500, data: '<html>bad gateway</html>'}})).toBe(false)
+    expect(isConfirmedPlanStateError(new Error('Network Error'))).toBe(false)
+    expect(isConfirmedPlanStateError(null)).toBe(false)
+    expect(isConfirmedPlanStateError(undefined)).toBe(false)
+  })
+
+  it('leaves every other confirmed code to its own handling', () => {
+    expect(isConfirmedPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.previewStale}}})).toBe(
+      false
+    )
+    expect(isConfirmedPlanStateError({response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(
+      false
+    )
+  })
+})
+
+describe('isResourceNotFoundError', () => {
+  // The literal body `GET /meal-planning/plans/:planId/days/:date` returns for a plan that is absent or
+  // foreign, and for a date outside the plan's week: a human string, not a machine code.
+  const PLAN_NOT_FOUND_BODY = {error: 'Plan not found'}
+
+  it("recognises the resource route's combined not-found/not-yours 404 from its real body", () => {
+    expect(isResourceNotFoundError(makeAxiosError(404, PLAN_NOT_FOUND_BODY))).toBe(true)
+    expect(isResourceNotFoundError({response: {status: 404, data: PLAN_NOT_FOUND_BODY}})).toBe(true)
+  })
+
+  it('recognises a resource 404 whichever string names the refusal, machine code or prose', () => {
+    expect(isResourceNotFoundError({response: {status: 404, data: {error: 'catalog_food_not_found'}}})).toBe(true)
+    expect(isResourceNotFoundError({response: {status: 404, data: {error: 'Meal entry not found'}}})).toBe(true)
+  })
+
+  it('refuses the routes-missing 404 of a resource-less GET, which carries no code', () => {
+    expect(isResourceNotFoundError(makeAxiosError(404, {}))).toBe(false)
+    expect(isResourceNotFoundError(makeAxiosError(404, undefined))).toBe(false)
+    expect(isResourceNotFoundError({response: {status: 404, data: '<html>not found</html>'}})).toBe(false)
+  })
+
+  it('refuses a RoutesMissingError, whose 404 lives on the error rather than on a response', () => {
+    expect(isResourceNotFoundError({routesMissing: 'meal_planning_routes_missing', status: 404})).toBe(false)
+  })
+
+  it('refuses every other status and every answer that never reached one', () => {
+    expect(isResourceNotFoundError(makeAxiosError(409, {error: API_ERROR_CODES.stalePlan}))).toBe(false)
+    expect(isResourceNotFoundError(makeAxiosError(500, {error: 'Failed to get the meal plan day'}))).toBe(false)
+    expect(isResourceNotFoundError(new Error('Network Error'))).toBe(false)
+    expect(isResourceNotFoundError(null)).toBe(false)
+    expect(isResourceNotFoundError(undefined)).toBe(false)
+  })
+})
+
+describe('isPlanReadInvalidatedError', () => {
+  it('recognises the resource 404 saying the plan a read named is not one this caller may read', () => {
+    expect(isPlanReadInvalidatedError(makeAxiosError(404, {error: 'Plan not found'}))).toBe(true)
+  })
+
+  it('recognises a confirmed plan-state answer', () => {
+    expect(isPlanReadInvalidatedError(makeAxiosError(409, {error: API_ERROR_CODES.stalePlan}))).toBe(true)
+    expect(isPlanReadInvalidatedError(makeAxiosError(409, {error: API_ERROR_CODES.planNotActive}))).toBe(true)
+  })
+
+  it('refuses a 5xx that merely echoed a plan-state code, which described no outcome', () => {
+    expect(isPlanReadInvalidatedError(makeAxiosError(502, {error: API_ERROR_CODES.stalePlan}))).toBe(false)
+  })
+
+  it('refuses the routes-missing 404, which the entitlement verdict owns', () => {
+    expect(isPlanReadInvalidatedError(makeAxiosError(404, {}))).toBe(false)
+    expect(isPlanReadInvalidatedError({routesMissing: 'meal_planning_routes_missing', status: 404})).toBe(false)
+  })
+
+  it('refuses a failure a second attempt could still resolve', () => {
+    expect(isPlanReadInvalidatedError(new Error('Network Error'))).toBe(false)
+    expect(isPlanReadInvalidatedError(makeAxiosError(500, {error: 'Failed to get the meal plan day'}))).toBe(false)
+    expect(isPlanReadInvalidatedError(makeAxiosError(undefined))).toBe(false)
+    expect(isPlanReadInvalidatedError(null)).toBe(false)
   })
 })
 

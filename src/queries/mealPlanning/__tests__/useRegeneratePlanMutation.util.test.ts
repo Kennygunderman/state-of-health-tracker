@@ -37,6 +37,7 @@ const REGENERATED_PLAN: MealPlan = {
   id: NEW_PLAN_ID,
   revision: 1,
   generationAttempt: 2,
+  generationKey: 'gen-key-2',
   startDate: DATE,
   endDate: '2026-07-12',
   status: 'active',

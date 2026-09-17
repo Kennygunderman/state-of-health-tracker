@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics'
 import Modal from 'react-native-modal'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
 
+import InfoBanner from '@components/InfoBanner'
 import PrimaryButton from '@components/PrimaryButton'
 import StatusBadgeCircle from '@components/StatusBadgeCircle'
 import SummaryRows, {SummaryRow} from '@components/SummaryRows'
@@ -16,6 +17,16 @@ import TertiaryTextButton from '@components/TertiaryTextButton'
 import Text from '@components/Text'
 
 import styles, {cardMaxHeight} from './index.styled'
+
+/**
+ * What a dialog says in place of a confirmation it cannot take, and the read it offers to retry. The copy is
+ * the caller's — this component states the reason it is handed and owns no wording of its own.
+ */
+export interface PlanConfirmNotice {
+  readonly body: string
+  readonly actionLabel: string
+  readonly onAction: () => void
+}
 
 interface Props {
   readonly isVisible: boolean
@@ -26,10 +37,31 @@ interface Props {
   readonly dismissLabel: string
   readonly onConfirm: () => void
   readonly onDismiss: () => void
+  /**
+   * The confirmation is already under way — dispatched by an earlier press, or waiting on something that has
+   * to answer before one can be taken. The button reads as busy and takes no press, which is what stops a
+   * second tap from looking like it was heard (0.7.2).
+   */
+  readonly isConfirmPending?: boolean
+  /** No confirmation may be taken at all. Distinct from pending: nothing resolves this by waiting. */
+  readonly isConfirmDisabled?: boolean
+  readonly notice?: PlanConfirmNotice
 }
 
 const PlanConfirmDialog = (props: Props): React.JSX.Element => {
-  const {isVisible, title, body, summaryRows, confirmLabel, dismissLabel, onConfirm, onDismiss} = props
+  const {
+    isVisible,
+    title,
+    body,
+    summaryRows,
+    confirmLabel,
+    dismissLabel,
+    onConfirm,
+    onDismiss,
+    isConfirmPending = false,
+    isConfirmDisabled = false,
+    notice
+  } = props
   const {height: windowHeight} = useWindowDimensions()
   const insets = useSafeAreaInsets()
   // The modal owns the whole window (margin: 0), so the ceiling is the window less the safe-area
@@ -79,8 +111,28 @@ const PlanConfirmDialog = (props: Props): React.JSX.Element => {
             </View>
           </ScrollView>
 
+          {notice !== undefined && (
+            // Outside the scroll region, beside the actions it explains, and announced where it appears: the
+            // reason a pinned confirm button is disabled has to reach a screen reader at the moment it
+            // arrives, since the button itself only reports that it is unavailable.
+            <View style={styles.notice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+              <InfoBanner
+                tone="error"
+                glyph="alert"
+                body={notice.body}
+                actionLabel={notice.actionLabel}
+                onAction={notice.onAction}
+              />
+            </View>
+          )}
+
           <View style={styles.primaryAction}>
-            <PrimaryButton label={confirmLabel} onPress={onConfirm} />
+            <PrimaryButton
+              label={confirmLabel}
+              isLoading={isConfirmPending}
+              disabled={isConfirmDisabled}
+              onPress={onConfirm}
+            />
           </View>
 
           <View style={styles.dismissAction}>

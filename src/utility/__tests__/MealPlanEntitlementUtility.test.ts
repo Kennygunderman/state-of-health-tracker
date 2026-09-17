@@ -1,11 +1,17 @@
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {
+  deriveMealPlanCapabilitySignals,
   httpStatusOf,
   isFeatureDisabledError,
   isRoutesMissingError,
+  MealPlanCapabilityErrors,
+  MealPlanCapabilityLatch,
+  MealPlanCapabilitySignals,
   MealPlanEntitlement,
   MealPlanEntitlementInputs,
   MealPlanningFlagInputs,
+  mergeMealPlanCapabilityLatch,
+  NO_MEAL_PLAN_CAPABILITY_LATCH,
   PACKAGED_MEAL_PLANNING_ENABLED,
   RemoteConfigFetchStatus,
   RemoteConfigValueSource,
@@ -316,31 +322,54 @@ describe('resolveMealPlanEntitlement', () => {
     })
 
     // Server-side planning being off keeps both the segmented control (so the Meal Plan segment can render its
-    // neutral card) and the catalog section, because the backend is mounted and `/catalog/*` is ungated.
-    it('keeps the segmented control and the catalog when only server-side planning is disabled', () => {
+    // neutral card) and the catalog section, because the backend is mounted and `/catalog/*` is ungated. Gated
+    // requests stop, because the routes that answered `feature_disabled` answer a repeat probe the same way.
+    it('keeps the segmented control and the catalog but stops gated requests when server-side planning is off', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: featureDisabledError})
       const expected: MealPlanEntitlement = {
         availability: 'unavailable',
         isSegmentedControlVisible: true,
         isCatalogVisible: true,
-        isGatedRequestAllowed: true,
+        isGatedRequestAllowed: false,
         hasPlan: false
       }
 
       expect(entitlement).toEqual(expected)
     })
 
-    it('keeps the segmented control but hides the catalog when the routes are missing', () => {
+    it('keeps the segmented control but hides the catalog and stops gated requests when the routes are missing', () => {
       const entitlement = resolveMealPlanEntitlement({...baseInputs, preferencesError: bareNotFoundError})
       const expected: MealPlanEntitlement = {
         availability: 'unavailable',
         isSegmentedControlVisible: true,
         isCatalogVisible: false,
-        isGatedRequestAllowed: true,
+        isGatedRequestAllowed: false,
         hasPlan: false
       }
 
       expect(entitlement).toEqual(expected)
+    })
+
+    // The permission and the verdict are one decision: every state that puts the Meal Plan segment on its
+    // unavailable card is a state in which no gated request may be issued (AAP 0.2.5, 0.7.5).
+    it('never allows a gated request in a state it calls unavailable', () => {
+      const unavailableStates: MealPlanEntitlementInputs[] = [
+        {...baseInputs, preferencesError: featureDisabledError},
+        {...baseInputs, currentPlanError: featureDisabledError},
+        {...baseInputs, preferencesError: bareNotFoundError},
+        {...baseInputs, currentPlanError: bareNotFoundError},
+        {...baseInputs, targetsError: bareNotFoundError},
+        {...baseInputs, targetsError: new RoutesMissingError(TARGETS_PATH)},
+        {...baseInputs, capabilityLatch: {isFeatureDisabled: true, areRoutesMissing: false}},
+        {...baseInputs, capabilityLatch: {isFeatureDisabled: false, areRoutesMissing: true}}
+      ]
+
+      unavailableStates.forEach(inputs => {
+        const entitlement = resolveMealPlanEntitlement(inputs)
+
+        expect(entitlement.availability).toBe('unavailable')
+        expect(entitlement.isGatedRequestAllowed).toBe(false)
+      })
     })
 
     it('passes hasPlan through unchanged in every availability state', () => {
@@ -351,6 +380,209 @@ describe('resolveMealPlanEntitlement', () => {
       expect(resolveMealPlanEntitlement({...withPlan, preferencesError: bareNotFoundError}).hasPlan).toBe(true)
       expect(resolveMealPlanEntitlement(baseInputs).hasPlan).toBe(false)
     })
+  })
+
+  // The retention half of AAP 0.2.5's "no gated request": the verdict has to survive the error object, because
+  // the reads that carried the signal are refetched, remounted and eventually discarded, and re-probing a route
+  // that is disabled or absent is exactly what the latch exists to prevent.
+  describe('the retained capability latch', () => {
+    const featureDisabledLatch: MealPlanCapabilityLatch = {isFeatureDisabled: true, areRoutesMissing: false}
+    const routesMissingLatch: MealPlanCapabilityLatch = {isFeatureDisabled: false, areRoutesMissing: true}
+
+    it('defaults to no retained signal, so a caller that retains nothing is answered from the live errors', () => {
+      expect(resolveMealPlanEntitlement(baseInputs)).toEqual(
+        resolveMealPlanEntitlement({...baseInputs, capabilityLatch: NO_MEAL_PLAN_CAPABILITY_LATCH})
+      )
+    })
+
+    it('is unavailable with gated requests stopped on a latched feature_disabled and no live error', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, capabilityLatch: featureDisabledLatch})
+
+      expect(entitlement.availability).toBe('unavailable')
+      expect(entitlement.isGatedRequestAllowed).toBe(false)
+    })
+
+    // Signal (a) leaves `/catalog/*` answering, latched or live: the backend is mounted and never gates it.
+    it('keeps the catalog section on a latched feature_disabled', () => {
+      expect(resolveMealPlanEntitlement({...baseInputs, capabilityLatch: featureDisabledLatch}).isCatalogVisible).toBe(
+        true
+      )
+    })
+
+    it('is unavailable with gated requests stopped on a latched routes-missing and no live error', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, capabilityLatch: routesMissingLatch})
+
+      expect(entitlement.availability).toBe('unavailable')
+      expect(entitlement.isGatedRequestAllowed).toBe(false)
+    })
+
+    it('hides the catalog section on a latched routes-missing, whose backend has no /catalog/* either', () => {
+      expect(resolveMealPlanEntitlement({...baseInputs, capabilityLatch: routesMissingLatch}).isCatalogVisible).toBe(
+        false
+      )
+    })
+
+    it('keeps the segmented control while latched, so the segment can render its neutral card', () => {
+      const entitlement = resolveMealPlanEntitlement({...baseInputs, capabilityLatch: routesMissingLatch})
+
+      expect(entitlement.isSegmentedControlVisible).toBe(true)
+    })
+
+    // The flag is the outer gate: a Remote Config disable is 'disabled', not a latched 'unavailable'.
+    it('is disabled rather than unavailable when the flag is off, whatever the latch holds', () => {
+      const entitlement = resolveMealPlanEntitlement({
+        ...baseInputs,
+        isFlagEnabled: false,
+        capabilityLatch: routesMissingLatch
+      })
+
+      expect(entitlement.availability).toBe('disabled')
+      expect(entitlement.isGatedRequestAllowed).toBe(false)
+    })
+
+    it('adds a live signal to a latched one rather than replacing it', () => {
+      const entitlement = resolveMealPlanEntitlement({
+        ...baseInputs,
+        capabilityLatch: featureDisabledLatch,
+        currentPlanError: bareNotFoundError
+      })
+
+      expect(entitlement.availability).toBe('unavailable')
+      expect(entitlement.isCatalogVisible).toBe(false)
+      expect(entitlement.isGatedRequestAllowed).toBe(false)
+    })
+  })
+})
+
+describe('deriveMealPlanCapabilitySignals', () => {
+  const noErrors: MealPlanCapabilityErrors = {
+    preferencesError: undefined,
+    currentPlanError: undefined,
+    targetsError: undefined
+  }
+
+  const featureDisabledError = makeApiError(503, API_ERROR_CODES.featureDisabled)
+  const bareNotFoundError = makeApiError(404)
+
+  it('reports neither signal when no read failed', () => {
+    expect(deriveMealPlanCapabilitySignals(noErrors)).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
+  })
+
+  it('reports feature_disabled from the preferences read', () => {
+    const signals = deriveMealPlanCapabilitySignals({...noErrors, preferencesError: featureDisabledError})
+
+    expect(signals).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+  })
+
+  it('reports feature_disabled from the current-plan read', () => {
+    const signals = deriveMealPlanCapabilitySignals({...noErrors, currentPlanError: featureDisabledError})
+
+    expect(signals).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+  })
+
+  // The exclusion the resolver has always applied, now stated where the classification lives: the targets route
+  // is ungated, so a `feature_disabled` from it is not a statement about the feature.
+  it('ignores a feature_disabled from the ungated targets read', () => {
+    const signals = deriveMealPlanCapabilitySignals({...noErrors, targetsError: featureDisabledError})
+
+    expect(signals).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
+  })
+
+  it('reports routes-missing from any of the three reads, the targets one included', () => {
+    expect(deriveMealPlanCapabilitySignals({...noErrors, preferencesError: bareNotFoundError}).areRoutesMissing).toBe(
+      true
+    )
+    expect(deriveMealPlanCapabilitySignals({...noErrors, currentPlanError: bareNotFoundError}).areRoutesMissing).toBe(
+      true
+    )
+    expect(deriveMealPlanCapabilitySignals({...noErrors, targetsError: bareNotFoundError}).areRoutesMissing).toBe(true)
+  })
+
+  it('reports routes-missing for the typed RoutesMissingError the targets read throws', () => {
+    const signals = deriveMealPlanCapabilitySignals({...noErrors, targetsError: new RoutesMissingError(TARGETS_PATH)})
+
+    expect(signals).toEqual({isFeatureDisabled: false, areRoutesMissing: true})
+  })
+
+  it('reports neither signal for a resource 404 that carries a decodable code', () => {
+    const signals = deriveMealPlanCapabilitySignals({
+      ...noErrors,
+      currentPlanError: makeApiError(404, API_ERROR_CODES.planNotActive)
+    })
+
+    expect(signals).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
+  })
+
+  it('reports both signals when the two arrive together', () => {
+    const signals = deriveMealPlanCapabilitySignals({
+      ...noErrors,
+      preferencesError: featureDisabledError,
+      currentPlanError: bareNotFoundError
+    })
+
+    expect(signals).toEqual({isFeatureDisabled: true, areRoutesMissing: true})
+  })
+})
+
+describe('mergeMealPlanCapabilityLatch', () => {
+  const noSignals: MealPlanCapabilitySignals = {isFeatureDisabled: false, areRoutesMissing: false}
+
+  it('adds a newly seen signal to the latch', () => {
+    const merged = mergeMealPlanCapabilityLatch(NO_MEAL_PLAN_CAPABILITY_LATCH, {
+      ...noSignals,
+      isFeatureDisabled: true
+    })
+
+    expect(merged).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+  })
+
+  it('accumulates the two signals across separate merges', () => {
+    const afterFirst = mergeMealPlanCapabilityLatch(NO_MEAL_PLAN_CAPABILITY_LATCH, {
+      ...noSignals,
+      isFeatureDisabled: true
+    })
+    const afterSecond = mergeMealPlanCapabilityLatch(afterFirst, {...noSignals, areRoutesMissing: true})
+
+    expect(afterSecond).toEqual({isFeatureDisabled: true, areRoutesMissing: true})
+  })
+
+  // A read that succeeds after a terminal signal does not unlatch it: the route was not probed again, and a
+  // probe is what the latch exists to stop.
+  it('never clears a latched signal that the new signals do not carry', () => {
+    const latched: MealPlanCapabilityLatch = {isFeatureDisabled: true, areRoutesMissing: true}
+
+    expect(mergeMealPlanCapabilityLatch(latched, noSignals)).toEqual(latched)
+  })
+
+  // Identity, not just value: the session store publishes through `useSyncExternalStore`, which re-renders every
+  // consumer when the snapshot reference changes.
+  it('returns the very same latch object when nothing changed', () => {
+    const latched: MealPlanCapabilityLatch = {isFeatureDisabled: true, areRoutesMissing: false}
+
+    expect(mergeMealPlanCapabilityLatch(latched, noSignals)).toBe(latched)
+    expect(mergeMealPlanCapabilityLatch(latched, {...noSignals, isFeatureDisabled: true})).toBe(latched)
+    expect(mergeMealPlanCapabilityLatch(NO_MEAL_PLAN_CAPABILITY_LATCH, noSignals)).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('returns a new latch object when a signal is added', () => {
+    const merged = mergeMealPlanCapabilityLatch(NO_MEAL_PLAN_CAPABILITY_LATCH, {
+      ...noSignals,
+      areRoutesMissing: true
+    })
+
+    expect(merged).not.toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('leaves the latch it was given unmutated', () => {
+    const latched: MealPlanCapabilityLatch = {isFeatureDisabled: false, areRoutesMissing: false}
+
+    mergeMealPlanCapabilityLatch(latched, {isFeatureDisabled: true, areRoutesMissing: true})
+
+    expect(latched).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
+  })
+
+  it('starts from a latch holding nothing, which is what NO_MEAL_PLAN_CAPABILITY_LATCH is', () => {
+    expect(NO_MEAL_PLAN_CAPABILITY_LATCH).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
   })
 })
 

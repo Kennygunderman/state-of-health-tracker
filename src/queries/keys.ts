@@ -1,6 +1,3 @@
-// Type-only, so it is erased at compile time: this registry keeps no runtime dependency on any other module.
-import type {CatalogSuggestionKind} from '@data/models/CatalogFood'
-
 export const queryKeys = {
   exercises: ['exercises'] as const,
   templates: ['templates'] as const,
@@ -50,10 +47,7 @@ export const queryKeys = {
   affectedMeals: (planId: string) => ['affectedMeals', planId] as const,
   recipeVersion: (recipeVersionId: string) => ['recipeVersion', recipeVersionId] as const,
   catalogSearch: (query: string) => ['catalogSearch', query] as const,
-  catalogSuggestionsAll: ['catalogSuggestions'] as const,
-  // Keyed on both request inputs because the server answers a different list for each: a key that omitted the
-  // limit would let one caller read the list another caller asked to be truncated, with nothing marking it stale.
-  catalogSuggestions: (kind: CatalogSuggestionKind, limit: number) => ['catalogSuggestions', kind, limit] as const
+  catalogSuggestions: ['catalogSuggestions'] as const
 }
 
 export const mutationKeys = {

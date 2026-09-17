@@ -39,8 +39,24 @@ export default StyleSheet.create({
   errorBannerWrapper: {
     marginTop: Spacing.MEDIUM
   },
+  // The replay's busy indicator, centred under the outcome banner it belongs to: the banner keeps the copy of
+  // the outcome being reconciled, so the spinner is the only thing on screen reporting that the same-key
+  // request is still in flight. It trails the banner inside the banner's own wrapper, so it opens at the tight
+  // inset that keeps the two read as one block rather than at a section's gutter.
+  outcomeRetryRow: {
+    marginTop: Spacing.SMALL,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   currentMealWrapper: {
     marginTop: Spacing.MEDIUM
+  },
+  // A read's failure replaces the alternatives area rather than heading the screen, so it opens at that
+  // area's own inset — the one 13c's spinner row and 13's overline both use — not at the banner inset above
+  // the title.
+  alternativesBannerWrapper: {
+    marginTop: Spacing.GUTTER
   },
   loadingRow: {
     marginTop: Spacing.GUTTER,

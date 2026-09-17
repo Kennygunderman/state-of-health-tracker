@@ -1,8 +1,24 @@
 module.exports = {
   root: true,
-  extends: ['@react-native', 'plugin:@typescript-eslint/recommended', 'plugin:prettier/recommended'],
-  ignorePatterns: ['node_modules/', 'coverage/', 'android/', 'ios/', 'jest-stare/'],
-  plugins: ['import', 'prettier', 'react-hooks', '@typescript-eslint', 'unused-imports'],
+  extends: [
+    '@react-native',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:prettier/recommended'
+  ],
+  ignorePatterns: [
+    'node_modules/',
+    'coverage/',
+    'android/',
+    'ios/',
+    'jest-stare/'
+  ],
+  plugins: [
+    'import',
+    'prettier',
+    'react-hooks',
+    '@typescript-eslint',
+    'unused-imports'
+  ],
   env: {
     jest: true,
     'jest/globals': true
@@ -118,17 +134,5 @@ module.exports = {
     ],
     'import/no-named-as-default': 'off',
     'import/no-unresolved': 'off'
-  },
-  overrides: [
-    {
-      // Expo's base TSConfig excludes the root configuration JavaScript from the program
-      // (node_modules/expo/tsconfig.base.json lists jest.config.js, babel.config.js and metro.config.js), so
-      // project-aware parsing cannot resolve these two files and reports the whole file as a parse error
-      // instead of linting it. No rule configured here is type-aware, so dropping the program for them costs
-      // no coverage. Scoped to the files this project actually lints and maintains rather than to every root
-      // config, so the lint result of a file nobody touches does not change.
-      files: ['.eslintrc.js', 'jest.config.js'],
-      parserOptions: {project: null}
-    }
-  ]
+  }
 }

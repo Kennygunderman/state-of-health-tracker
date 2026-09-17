@@ -2,9 +2,11 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight} from '@styles/fontSize'
-import {Opacity} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+import {darkCtaMinHeight} from './index.util'
 
 export default StyleSheet.create({
   inner: {
@@ -18,6 +20,7 @@ export default StyleSheet.create({
   innerDark: {
     alignSelf: 'stretch',
     justifyContent: 'center',
+    minHeight: darkCtaMinHeight(Sizes.CTA, Sizes.TOUCH_TARGET),
     paddingVertical: Spacing.MEDIUM,
     paddingHorizontal: 0,
     borderRadius: BorderRadius.BUTTON,

@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react'
 
-import {View} from 'react-native'
+import {TouchableOpacity, View} from 'react-native'
 
 import type {CookingTimeLimitMin, MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
@@ -8,19 +8,23 @@ import {MealPlanCookingBudgetRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import useUserData from '@store/userData/useUserData'
+import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {weightUnitPrefFor} from '@utility/UnitConversionUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CheckboxSquare from '@components/CheckboxSquare'
 import ChipCloud from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SelectableChip from '@components/SelectableChip'
 import SetupFooter from '@components/SetupFooter'
 import SummaryRows from '@components/SummaryRows'
@@ -83,24 +87,30 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanCookingBudgetRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, dirty, seeded, seedFromPreferences, setStepFields, setBudgetAmount, setNoBudgetPreference} =
     useMealPlanSetupDraft()
+  const weightUnit = useUserData(state => state.weightUnit)
+
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. A successful save marks them stored first, so leaving after one keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('cooking', params.mode === 'edit')
 
   const [enteredBudget, setEnteredBudget] = useState<string | null>(null)
   const [hasSubmitted, setHasSubmitted] = useState(false)
   // Live only while a refetched row genuinely differs from this draft.
   const [hasConflict, setHasConflict] = useState(false)
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
-      // The typed amount outranks the saved one on every render, so it is released by the same call that
-      // adopts the saved answers: an amount entered while the query was still in flight would otherwise stay
-      // on screen while the payload carried the value just seeded.
-      setEnteredBudget(null)
+      // The typed amount is kept: seeding preserves every step the user has already edited, and an amount
+      // being typed is one of those edits. Releasing it here would erase a value the query happened to
+      // overtake — including one that is not yet a valid amount, which the draft cannot hold and this field
+      // is therefore the only record of.
       seedFromPreferences(preferences)
     }
   }, [preferences, seedFromPreferences, seeded])
@@ -140,6 +150,8 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
   // proves already holds these answers leave by the identical route.
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     if (params.mode === 'edit') {
       returnFromTargets({kind: 'stack', route: params.returnTo})
@@ -148,7 +160,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
     }
 
     navigation.navigate(Screens.MEAL_PLAN_TARGETS, params)
-  }, [navigation, params, returnFromTargets])
+  }, [markSaved, navigation, params, returnFromTargets])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
@@ -164,15 +176,25 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
       return
     }
 
+    // The step is written against the saved row's exact revision, so a query that has not produced one — it
+    // errored, or has not resolved yet — is asked again rather than sending a write the server must refuse.
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
+
+    if (saved === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
+      return
+    }
+
     try {
-      await saveStepMutation.mutateAsync({
+      await saveSetupStep({
         step: 'cooking',
         payload: {
           cookingTimeLimitMin,
           budget,
           noBudgetPreference: draft.noBudgetPreference,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          expectedRevision: preferences?.revision
+          expectedRevision: saved.revision
         }
       })
     } catch (error) {
@@ -187,7 +209,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
       // A rejected revision is never retried blindly (0.7.2): refetch the authoritative row and compare this
       // step's own answers with it. Equal values mean the write whose response was lost, or the identical
       // edit from another device, already landed — so it resolves silently instead of writing twice.
-      const refetched = await preferencesQuery.refetch()
+      const refetched = await refetchPreferences()
       const fresh = refetched.data ?? null
 
       if (fresh === null) {
@@ -222,9 +244,9 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
     draft.budget,
     draft.cookingTimeLimitMin,
     draft.noBudgetPreference,
-    preferences?.revision,
-    preferencesQuery,
-    saveStepMutation,
+    preferences,
+    refetchPreferences,
+    saveSetupStep,
     validation.isValid
   ])
 
@@ -233,8 +255,12 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
     setEnteredBudget(null)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   const onSelectCookingTime = useCallback(
     (cookingTimeLimitMin: CookingTimeLimitMin) => {
@@ -243,7 +269,12 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
     [setStepFields]
   )
 
-  const summaryRows = buildPlanSummaryRows({draft, seeded, editedSteps: dirty}, preferences)
+  // The goal weight is shown in the unit it was answered in: the draft's, the saved row's, or — on the
+  // manual route, which skips the body step entirely — the one the rest of the app already uses.
+  const summaryRows = buildPlanSummaryRows(
+    {draft, seeded, editedSteps: dirty, fallbackWeightUnitPref: weightUnitPrefFor(weightUnit)},
+    preferences
+  )
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -264,11 +295,10 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
 
             {/* The four chips are one answer, so the group carries the radio semantics: a chip reports
                 itself as a selected button, which alone never says that choosing one releases the rest. */}
-            {/* BLITZY [A11Y]: the chips take SelectableChip's hit-slop path rather than its expanded
-                pressable, because 47:619 draws this row 40px tall around a 32px pill and the expanded host
-                would render it 52px. Each pill is well past 44px wide, so only its height falls short, and
-                the component's 6px slop covers that as far as this row's own bounds reach. Figma specifies
-                the smaller target, so it is implemented as drawn and flagged here for designer review. */}
+            {/* BLITZY [A11Y]: the chips take SelectableChip's expanded pressable, which keeps the pill at the
+                32px Figma draws (47:619) and reaches the 44px minimum through the host instead of hit slop a
+                row hugging the pill would clip. The row renders 44px rather than the drawn 40px — the same
+                deviation every other chip row in setup carries, flagged for designer review. */}
             <View style={styles.cookingChips} accessibilityRole="radiogroup">
               <ChipCloud>
                 {COOKING_TIME_OPTIONS.map(option => (
@@ -276,6 +306,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
                     key={option.value}
                     label={option.label}
                     selected={draft.cookingTimeLimitMin === option.value}
+                    expandTouchTarget
                     onPress={() => onSelectCookingTime(option.value)}
                   />
                 ))}
@@ -316,15 +347,26 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
               )}
             </View>
 
-            <View style={styles.preferenceRow}>
-              <CheckboxSquare
-                state={draft.noBudgetPreference ? 'checkedEmphasis' : 'unchecked'}
-                accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL}
-                onPress={onToggleNoBudgetPreference}
-              />
+            {/* The label answers the question as much as the box does, so the row is one checkbox: the mark
+                inside it takes no touches and publishes no element of its own, leaving a single node to
+                announce the state. */}
+            <TouchableOpacity
+              style={styles.preferenceRow}
+              activeOpacity={Opacity.PRESSED}
+              accessibilityRole="checkbox"
+              accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL}
+              accessibilityState={{checked: draft.noBudgetPreference}}
+              onPress={onToggleNoBudgetPreference}>
+              <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                <CheckboxSquare
+                  state={draft.noBudgetPreference ? 'checkedEmphasis' : 'unchecked'}
+                  accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL}
+                  onPress={onToggleNoBudgetPreference}
+                />
+              </View>
 
               <Text style={styles.preferenceLabel}>{MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.helperText}>{MEAL_PLAN_BUDGET_HELPER_TEXT}</Text>
@@ -342,19 +384,22 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
       <SetupFooter>
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-          isLoading={saveStepMutation.isPending}
+          isLoading={isSaving}
           onPress={onContinuePressed}
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

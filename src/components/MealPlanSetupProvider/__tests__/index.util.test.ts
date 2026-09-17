@@ -9,24 +9,36 @@ import {
   applyLifecycleEvent,
   applyMealSchedule,
   applyNoBudgetPreference,
+  beginDislikeStaging,
   clearsSetupDraft,
+  clearStagedDislikes,
+  commitDislikeStaging,
   completedSteps,
   createEmptyDraft,
   DEFAULT_MEAL_TIMES,
+  discardDislikeStaging,
+  discardStepEdits,
+  DRAFT_FIELDS_BY_STEP,
   isStepComplete,
+  markStepSaved,
   MealPlanSetupDirty,
   MealPlanSetupDraft,
   MealPlanSetupDraftState,
   MealPlanSetupLifecycleEvent,
   MealPlanSetupStep,
+  removeStagedDislike,
   seedDraftFromPreferences,
   setDislikedFoodIds,
   setMealTime,
   setStepFields,
   SETUP_STEPS_ESTIMATED,
   SETUP_STEPS_MANUAL,
+  stagedDislikes,
+  STEP_INDEPENDENT_DRAFT_KEYS,
   stepsForRoute,
-  toggleDislikedFoodId
+  toggleDislikedFood,
+  toggleDislikedFoodId,
+  toggleStagedDislike
 } from '../index.util'
 
 const makeDraft = (overrides: Partial<MealPlanSetupDraft> = {}): MealPlanSetupDraft => ({
@@ -45,6 +57,7 @@ const makeState = (
   seeded = false,
   bodyAnswered = false
 ): MealPlanSetupDraftState => ({
+  ...createEmptyDraft(),
   draft: makeDraft(draft),
   dirty: makeDirty(dirty),
   seeded,
@@ -1168,6 +1181,7 @@ describe('clearsSetupDraft', () => {
 
 describe('applyLifecycleEvent', () => {
   const fullyDirtyDraft = (): MealPlanSetupDraftState => ({
+    ...createEmptyDraft(),
     draft: makeCompleteDraft({budget: {amount: 120, currency: 'USD'}, noBudgetPreference: false}),
     dirty: {...ALL_DIRTY},
     seeded: true,
@@ -1252,6 +1266,7 @@ describe('applyLifecycleEvent', () => {
 // reset cannot reach state held in a mounted Context.
 describe('an account change, one uid replacing another', () => {
   const outgoingAccountState = (): MealPlanSetupDraftState => ({
+    ...createEmptyDraft(),
     draft: makeCompleteDraft({
       budget: {amount: 120, currency: 'USD'},
       noBudgetPreference: false,
@@ -1260,6 +1275,11 @@ describe('an account change, one uid replacing another', () => {
       dislikedFoodGroups: ['mushroom']
     }),
     dirty: {...ALL_DIRTY},
+    // The names those two selections were made with are part of what the outgoing account leaves behind.
+    dislikeLabels: {
+      'food-mushroom': {id: 'food-mushroom', name: 'Mushrooms, white', foodGroup: 'mushroom'},
+      'food-olive': {id: 'food-olive', name: 'Olives', foodGroup: 'olive'}
+    },
     seeded: true,
     bodyAnswered: true
   })
@@ -1411,5 +1431,392 @@ describe('determinism', () => {
 
     expect(completedSteps(state, 'estimated')).toEqual(completedSteps(state, 'estimated'))
     expect(seedDraftFromPreferences(makePreferences())).toEqual(seedDraftFromPreferences(makePreferences()))
+  })
+})
+
+// The draft is partitioned by step so that a preferences response arriving AFTER the user has started
+// answering can adopt the saved row for the steps they have not touched without erasing the ones they have.
+// A field owned by no step would be overwritten by every reseed, which is why the partition's completeness
+// is asserted here rather than trusted.
+describe('the step partition of the draft', () => {
+  it('assigns every editable draft field to exactly one step, or to the step-independent set', () => {
+    const partitioned = [
+      ...SETUP_STEPS_ESTIMATED.flatMap(step => [...DRAFT_FIELDS_BY_STEP[step]]),
+      ...STEP_INDEPENDENT_DRAFT_KEYS
+    ]
+
+    expect([...partitioned].sort()).toEqual(Object.keys(createEmptyDraft().draft).sort())
+    expect(new Set(partitioned).size).toBe(partitioned.length)
+  })
+
+  it('keeps timeZone out of every step, because each step payload carries it', () => {
+    const stepOwned = SETUP_STEPS_ESTIMATED.flatMap(step => [...DRAFT_FIELDS_BY_STEP[step]])
+
+    expect(stepOwned).not.toContain('timeZone')
+    expect(STEP_INDEPENDENT_DRAFT_KEYS).toEqual(['timeZone'])
+  })
+})
+
+// A step screen stays interactive while its preferences query is in flight, so the response can land after
+// the user has already answered. Seeding on top of their answer is data loss, and these cases are what stops
+// it: the seed is given the state it is replacing, and an edited step keeps what the user put in it.
+describe('a preferences response that arrives after the user has started answering', () => {
+  const editedState = (): MealPlanSetupDraftState =>
+    setStepFields(createEmptyDraft(), 'goal', {goal: 'gain', paceLbPerWeek: 1.5})
+
+  it('keeps an edited step exactly as the user left it', () => {
+    const {draft} = seedDraftFromPreferences(makePreferences(), editedState())
+
+    expect(draft.goal).toBe('gain')
+    expect(draft.paceLbPerWeek).toBe(1.5)
+  })
+
+  it('keeps an edited step marked edited, so a later reseed cannot take it either', () => {
+    const once = seedDraftFromPreferences(makePreferences(), editedState())
+    const twice = seedDraftFromPreferences(makePreferences(), once)
+
+    expect(once.dirty.goal).toBe(true)
+    expect(twice.draft.goal).toBe('gain')
+  })
+
+  it('adopts the saved answers of every step the user has not touched', () => {
+    const {draft} = seedDraftFromPreferences(makePreferences(), editedState())
+
+    expect(draft.activityLevel).toBe('lightly_active')
+    expect(draft.diet).toBe('vegetarian')
+    expect(draft.mealSchedule).toBe('three_plus_snack')
+    expect(draft.cookingTimeLimitMin).toBe(30)
+    expect(draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+  })
+
+  it('preserves a typed budget amount rather than replacing it with the saved one', () => {
+    const typed = applyBudgetAmount(createEmptyDraft(), 45)
+    const {draft} = seedDraftFromPreferences(makePreferences(), typed)
+
+    expect(draft.budget).toEqual({amount: 45, currency: 'USD'})
+    expect(draft.noBudgetPreference).toBe(false)
+  })
+
+  // An amount being typed reaches the draft only while it parses, so 10001 — outside the accepted range —
+  // leaves the draft holding null while the field still shows the digits. The step counts as edited all the
+  // same, so a response landing mid-typing must not put the saved amount back underneath what is on screen.
+  it('keeps an amount typed past the accepted range out of the draft rather than re-adopting the saved one', () => {
+    const halfTyped = applyBudgetAmount(createEmptyDraft(), null)
+    const seeded = seedDraftFromPreferences(makePreferences(), halfTyped)
+
+    expect(seeded.draft.budget).toBeNull()
+    expect(seeded.dirty.cooking).toBe(true)
+  })
+
+  it('preserves every field of an edited step, including the ones the user left empty', () => {
+    const partialBody = setStepFields(createEmptyDraft(), 'body', {age: 41})
+    const {draft} = seedDraftFromPreferences(makePreferences(), partialBody)
+
+    expect(draft.age).toBe(41)
+    expect(draft.heightCm).toBeNull()
+    expect(draft.weightKg).toBeNull()
+    expect(draft.sexForEstimate).toBeNull()
+  })
+
+  it('cannot un-answer the body step a Skip answered in this session', () => {
+    const skipped = answerBodySkipped(createEmptyDraft())
+    const seeded = seedDraftFromPreferences(makePreferences({targetRoute: null}), skipped)
+
+    expect(seeded.bodyAnswered).toBe(true)
+  })
+
+  it('seeds the whole saved row when there is no state to protect, exactly as a first seed does', () => {
+    expect(seedDraftFromPreferences(makePreferences(), createEmptyDraft())).toEqual(
+      seedDraftFromPreferences(makePreferences())
+    )
+  })
+
+  it('records the saved answers as the baseline whatever the draft kept', () => {
+    const seeded = seedDraftFromPreferences(makePreferences(), editedState())
+
+    expect(seeded.baseline.goal).toBe('lose')
+    expect(seeded.baseline.paceLbPerWeek).toBe(1)
+    expect(seeded.draft.goal).toBe('gain')
+  })
+})
+
+// Cancel on a step opened in edit mode. The seven step screens write into the shared draft as the user
+// edits, so leaving without saving has to put the step back — and leaving is the swipe and the system back
+// as much as the drawn button.
+describe('discarding the edits of one step', () => {
+  const savedThenEdited = (): MealPlanSetupDraftState =>
+    setStepFields(seedDraftFromPreferences(makePreferences()), 'diet', {diet: 'vegan', allergens: ['none']})
+
+  it('returns the step to the saved answers', () => {
+    const {draft} = discardStepEdits(savedThenEdited(), 'diet')
+
+    expect(draft.diet).toBe('vegetarian')
+    expect(draft.allergens).toEqual(['milk', 'peanuts'])
+  })
+
+  it('reports the step as no longer edited', () => {
+    expect(discardStepEdits(savedThenEdited(), 'diet').dirty.diet).toBe(false)
+  })
+
+  it('leaves every other step of the draft untouched', () => {
+    const edited = setStepFields(savedThenEdited(), 'schedule', {mealSchedule: 'three'})
+    const discarded = discardStepEdits(edited, 'diet')
+
+    expect(discarded.draft.mealSchedule).toBe('three')
+    expect(discarded.dirty.schedule).toBe(true)
+  })
+
+  it('empties the draft step of a user who never had saved answers to return to', () => {
+    const firstEntry = setStepFields(createEmptyDraft(), 'activity', {activityLevel: 'very_active'})
+
+    expect(discardStepEdits(firstEntry, 'activity').draft.activityLevel).toBeNull()
+  })
+
+  it('restores the body step answer marker along with its measurements', () => {
+    const skipped = answerBodySkipped(seedDraftFromPreferences(makePreferences({targetRoute: null})))
+
+    expect(discardStepEdits(skipped, 'body').bodyAnswered).toBe(false)
+  })
+
+  it('keeps a body answer that was already on the server before the edit', () => {
+    const edited = setStepFields(seedDraftFromPreferences(makePreferences()), 'body', {age: 41})
+    const discarded = discardStepEdits(edited, 'body')
+
+    expect(discarded.bodyAnswered).toBe(true)
+    expect(discarded.draft.age).toBe(34)
+  })
+
+  it('drops a food-search visit that belonged to the dislikes edit being abandoned', () => {
+    const staging = toggleStagedDislike(beginDislikeStaging(seedDraftFromPreferences(makePreferences())), {
+      id: 'food-anchovy',
+      name: 'Anchovies',
+      foodGroup: 'fish'
+    })
+
+    expect(discardStepEdits(staging, 'dislikes').dislikeStaging).toBeNull()
+  })
+
+  it('takes nothing back once the step has been marked saved', () => {
+    const edited = setStepFields(seedDraftFromPreferences(makePreferences()), 'diet', {diet: 'vegan'})
+    const saved = markStepSaved(edited, 'diet')
+
+    expect(discardStepEdits(saved, 'diet').draft.diet).toBe('vegan')
+    expect(saved.dirty.diet).toBe(false)
+  })
+
+  it('leaves the answers of a saved step alone when another step is discarded', () => {
+    const edited = setStepFields(seedDraftFromPreferences(makePreferences()), 'diet', {diet: 'vegan'})
+    const saved = markStepSaved(setStepFields(edited, 'activity', {activityLevel: 'active'}), 'activity')
+
+    expect(discardStepEdits(saved, 'diet').draft.activityLevel).toBe('active')
+  })
+})
+
+// A visit to the food-search screen (06b). It stages rather than answers: nothing it does reaches the step's
+// own selection until Done, which is what makes the iOS swipe and Android system back — neither of which
+// reaches a handler — discard the visit instead of committing it.
+describe('a food-search visit', () => {
+  const MUSHROOM = {id: 'food-mushroom', name: 'Mushrooms, white', foodGroup: 'mushroom'}
+
+  const ANCHOVY = {id: 'food-anchovy', name: 'Anchovies', foodGroup: 'fish'}
+
+  const savedState = (): MealPlanSetupDraftState => seedDraftFromPreferences(makePreferences())
+
+  it('opens on the selection the step currently holds', () => {
+    const opened = beginDislikeStaging(savedState())
+
+    expect(opened.dislikeStaging).toEqual({added: [], removed: [], labels: {}})
+    expect(stagedDislikes(opened)).toEqual({
+      selection: ['food-mushroom', 'food-olive'],
+      labels: {
+        'food-mushroom': MUSHROOM,
+        'food-olive': {id: 'food-olive', name: 'Olives', foodGroup: 'olive'}
+      }
+    })
+  })
+
+  // The search screen can be reached while the preferences query is still in flight, so the answer the
+  // visit sits on can arrive after the visit has started. Committing a copy of the pre-response selection
+  // would delete saved dislikes the user was never shown; the visit is stored as a difference so that a
+  // response landing mid-visit changes what Done writes.
+  it('reconciles an answer that arrives while the visit is open rather than replacing it', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(createEmptyDraft()), ANCHOVY)
+    const seededMidVisit = seedDraftFromPreferences(makePreferences(), staged)
+
+    expect(commitDislikeStaging(seededMidVisit).draft.dislikedFoodIds).toEqual([
+      'food-mushroom',
+      'food-olive',
+      'food-anchovy'
+    ])
+  })
+
+  it('does not let a visit opened before the answer loaded delete the answer it never showed', () => {
+    const clearedBeforeSeed = clearStagedDislikes(beginDislikeStaging(createEmptyDraft()))
+    const committed = commitDislikeStaging(seedDraftFromPreferences(makePreferences(), clearedBeforeSeed))
+
+    expect(committed.draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+    expect(committed.dirty.dislikes).toBe(false)
+  })
+
+  it('keeps a food taken out during the visit out when the answer is reseeded under it', () => {
+    const staged = removeStagedDislike(beginDislikeStaging(savedState()), 'food-mushroom')
+    const reseeded = seedDraftFromPreferences(makePreferences(), staged)
+
+    expect(commitDislikeStaging(reseeded).draft.dislikedFoodIds).toEqual(['food-olive'])
+  })
+
+  it('reads as the step selection before a visit has been opened, so the screen can render at once', () => {
+    expect(stagedDislikes(savedState()).selection).toEqual(['food-mushroom', 'food-olive'])
+  })
+
+  it('does not reopen over a visit already in flight', () => {
+    const open = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+
+    expect(beginDislikeStaging(open)).toBe(open)
+  })
+
+  it('leaves the step selection untouched while the visit is being made', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+
+    expect(staged.draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+    expect(staged.dirty.dislikes).toBe(false)
+  })
+
+  it('records the name of every food it stages, which is the only place a searched food is named', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+
+    expect(stagedDislikes(staged).labels['food-anchovy']).toEqual(ANCHOVY)
+  })
+
+  it('removes a staged food by id and keeps the name it learned', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+    const removed = removeStagedDislike(staged, 'food-anchovy')
+
+    expect(stagedDislikes(removed).selection).toEqual(['food-mushroom', 'food-olive'])
+    expect(stagedDislikes(removed).labels['food-anchovy']).toEqual(ANCHOVY)
+  })
+
+  it('empties the staged selection on Clear all while keeping every name already learned', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+    const cleared = clearStagedDislikes(staged)
+
+    expect(stagedDislikes(cleared).selection).toEqual([])
+    expect(Object.keys(stagedDislikes(cleared).labels).sort()).toEqual(['food-anchovy', 'food-mushroom', 'food-olive'])
+  })
+
+  it('writes the visit into the step on Done, with the names it was made with', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+    const committed = commitDislikeStaging(staged)
+
+    expect(committed.draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive', 'food-anchovy'])
+    expect(committed.dislikeLabels['food-anchovy']).toEqual(ANCHOVY)
+    expect(committed.dirty.dislikes).toBe(true)
+    expect(committed.dislikeStaging).toBeNull()
+  })
+
+  it('commits a cleared selection as the empty answer', () => {
+    const cleared = clearStagedDislikes(beginDislikeStaging(savedState()))
+    const committed = commitDislikeStaging(cleared)
+
+    expect(committed.draft.dislikedFoodIds).toEqual([])
+    expect(committed.dirty.dislikes).toBe(true)
+  })
+
+  it('does not report the step edited when the visit ends on the selection it started from', () => {
+    const untouched = commitDislikeStaging(beginDislikeStaging(savedState()))
+
+    expect(untouched.draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+    expect(untouched.dirty.dislikes).toBe(false)
+  })
+
+  it('commits a selection once however many times the same food was staged', () => {
+    const staged = toggleStagedDislike(
+      toggleStagedDislike(toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY), ANCHOVY),
+      ANCHOVY
+    )
+
+    expect(commitDislikeStaging(staged).draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive', 'food-anchovy'])
+  })
+
+  it('leaves the step selection alone when the visit is discarded', () => {
+    const staged = clearStagedDislikes(toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY))
+    const discarded = discardDislikeStaging(staged)
+
+    expect(discarded.draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+    expect(discarded.dirty.dislikes).toBe(false)
+    expect(discarded.dislikeStaging).toBeNull()
+  })
+
+  it('discards nothing when no visit is in flight', () => {
+    const state = savedState()
+
+    expect(discardDislikeStaging(state)).toBe(state)
+  })
+
+  it('commits nothing when no visit is in flight', () => {
+    const state = savedState()
+
+    expect(commitDislikeStaging(state)).toBe(state)
+  })
+
+  it('survives a background refetch that lands mid-visit', () => {
+    const staged = toggleStagedDislike(beginDislikeStaging(savedState()), ANCHOVY)
+    const reseeded = seedDraftFromPreferences(makePreferences(), staged)
+
+    expect(stagedDislikes(reseeded).selection).toEqual(['food-mushroom', 'food-olive', 'food-anchovy'])
+  })
+})
+
+// The name each selection was made under. It is not an answer — it never reaches a payload, and the server
+// answers 400 read_only_field for a name — so it lives beside the draft and is never rolled back by a step.
+describe('the names of selected foods', () => {
+  const ANCHOVY = {id: 'food-anchovy', name: 'Anchovies', foodGroup: 'fish'}
+
+  it('is recorded by the selection that made it', () => {
+    const toggled = toggleDislikedFood(createEmptyDraft(), ANCHOVY)
+
+    expect(toggled.draft.dislikedFoodIds).toEqual(['food-anchovy'])
+    expect(toggled.dislikeLabels['food-anchovy']).toEqual(ANCHOVY)
+    expect(toggled.dirty.dislikes).toBe(true)
+  })
+
+  it('is kept when the food is deselected, so re-adding it needs no lookup', () => {
+    const removed = toggleDislikedFood(toggleDislikedFood(createEmptyDraft(), ANCHOVY), ANCHOVY)
+
+    expect(removed.draft.dislikedFoodIds).toEqual([])
+    expect(removed.dislikeLabels['food-anchovy']).toEqual(ANCHOVY)
+  })
+
+  it('comes from the saved row for every food a seed reads', () => {
+    expect(seedDraftFromPreferences(makePreferences()).dislikeLabels).toEqual({
+      'food-mushroom': {id: 'food-mushroom', name: 'Mushrooms, white', foodGroup: 'mushroom'},
+      'food-olive': {id: 'food-olive', name: 'Olives', foodGroup: 'olive'}
+    })
+  })
+
+  it('outlives a reseed that cannot name the food yet', () => {
+    const staged = toggleDislikedFood(seedDraftFromPreferences(makePreferences()), ANCHOVY)
+    const reseeded = seedDraftFromPreferences(makePreferences(), staged)
+
+    expect(reseeded.dislikeLabels['food-anchovy']).toEqual(ANCHOVY)
+  })
+
+  it('adopts the catalog name from the saved row where both can name the food', () => {
+    const renamed = makePreferences({
+      dislikedFoods: [{id: 'food-mushroom', name: 'Mushrooms, portobello', foodGroup: 'mushroom'}]
+    })
+    const stale = toggleDislikedFood(createEmptyDraft(), {
+      id: 'food-mushroom',
+      name: 'Mushrooms, white',
+      foodGroup: 'mushroom'
+    })
+
+    expect(seedDraftFromPreferences(renamed, stale).dislikeLabels['food-mushroom'].name).toBe('Mushrooms, portobello')
+  })
+
+  it('is discarded with the draft when the flow ends', () => {
+    const toggled = toggleDislikedFood(createEmptyDraft(), ANCHOVY)
+
+    expect(applyLifecycleEvent(toggled, 'flow_exited')).toEqual(createEmptyDraft())
   })
 })

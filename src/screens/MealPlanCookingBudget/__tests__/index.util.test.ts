@@ -1,4 +1,4 @@
-import {CookingTimeLimitMin, Goal} from '@data/models/MealPlanPreferences'
+import {CookingTimeLimitMin, Goal, WeightUnitPref} from '@data/models/MealPlanPreferences'
 
 import {SummaryRow} from '@components/SummaryRows'
 
@@ -61,8 +61,9 @@ const makeSource = (overrides: Partial<PlanSummarySource> = {}): PlanSummarySour
 const makeDraft = (
   draft: Partial<PlanSummarySource> = {},
   seeded = false,
-  editedSteps?: Partial<Record<PlanSummaryStep, boolean>>
-): PlanSummaryDraft => ({draft: makeSource(draft), seeded, editedSteps})
+  editedSteps?: Partial<Record<PlanSummaryStep, boolean>>,
+  fallbackWeightUnitPref: WeightUnitPref = 'lb'
+): PlanSummaryDraft => ({draft: makeSource(draft), seeded, editedSteps, fallbackWeightUnitPref})
 
 const ANSWERED_DRAFT: Partial<PlanSummarySource> = {
   goal: 'lose',
@@ -530,13 +531,31 @@ describe('buildPlanSummaryRows', () => {
     })
 
     it('treats an absent edited-step map as nothing edited', () => {
-      const rows = buildPlanSummaryRows({draft: makeSource(), seeded: false}, saved)
+      const rows = buildPlanSummaryRows({draft: makeSource(), seeded: false, fallbackWeightUnitPref: 'lb'}, saved)
 
       expect(valuesOf(rows)).toEqual([
         goalWithWeight('gain', '90', MEAL_PLAN_KG_UNIT),
         MEAL_PLAN_DIET_LABELS.vegetarian,
         MEAL_PLAN_SCHEDULE_SUMMARY_LABELS.three_plus_snack
       ])
+    })
+
+    it('shows a manual-route goal weight in the unit the rest of the app uses, not in pounds', () => {
+      const state = makeDraft({goal: 'lose', goalWeightKg: GOAL_WEIGHT_KG}, true, undefined, 'kg')
+
+      expect(buildPlanSummaryRows(state, null)[0].value).toBe(goalWithWeight('lose', '77.1', MEAL_PLAN_KG_UNIT))
+    })
+
+    it('reads a manual-route goal weight in pounds for a pound user', () => {
+      const state = makeDraft({goal: 'lose', goalWeightKg: GOAL_WEIGHT_KG}, true, undefined, 'lb')
+
+      expect(buildPlanSummaryRows(state, null)[0].value).toBe(goalWithWeight('lose', '170', MEAL_PLAN_LB_UNIT))
+    })
+
+    it("prefers an answered unit over the caller's fallback", () => {
+      const state = makeDraft({goal: 'lose', goalWeightKg: GOAL_WEIGHT_KG, weightUnitPref: 'lb'}, true, undefined, 'kg')
+
+      expect(buildPlanSummaryRows(state, null)[0].value).toBe(goalWithWeight('lose', '170', MEAL_PLAN_LB_UNIT))
     })
 
     it('mutates neither the draft nor the saved preferences it reads', () => {

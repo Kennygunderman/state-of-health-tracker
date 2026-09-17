@@ -35,6 +35,10 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES
 
 export type ApiOutcome = 'confirmed' | 'unknown'
 
+// Declared here rather than imported from the entitlement utility, which reads its own copy: that module
+// depends on this one for `getApiErrorCode`, so the import could only run the other way.
+const NOT_FOUND_STATUS = 404
+
 const RECOGNIZED_SERVER_FAILURE_CODES: ReadonlySet<string> = new Set<string>([
   API_ERROR_CODES.planGenerationFailed,
   API_ERROR_CODES.swapFailed,
@@ -108,16 +112,45 @@ export function isPlanStateError(error: unknown): boolean {
   return code !== null && PLAN_STATE_CODES.has(code)
 }
 
+// The plan-state pair as an *answer* rather than as a string: the server described this attempt's outcome and
+// what it described is a plan the client may no longer read or write. Confirmed-ness is the whole difference
+// between a refusal and a retry — a 502 whose body happens to carry 'stale_plan' is an unknown outcome, and
+// redirecting a screen on it would abandon a week a second attempt would have loaded.
+export function isConfirmedPlanStateError(error: unknown): boolean {
+  return classifyOutcome(error) === 'confirmed' && isPlanStateError(error)
+}
+
+// A resource route's combined not-found/not-yours answer (0.5.2): the 404 it returns rather than distinguishing
+// "no such plan" from "not your plan", which would confirm the existence of another user's data.
+//
+// The decodable code is what separates it from the routes-missing 404 of the resource-less GETs, which means
+// the backend was rolled back to a build without the feature and belongs to the entitlement verdict. A
+// feature-bearing backend answers those with 200 and null members, so their 404 never carries a code; a
+// resource route always names its refusal — `GET /plans/:planId/days/:date` answers `{error: 'Plan not found'}`
+// for a plan that is absent or foreign AND for a date outside the plan's week. The status is read from the
+// response rather than from a marker property, so a `RoutesMissingError` (which carries no response) is
+// excluded by the status test before the code test is reached.
+export function isResourceNotFoundError(error: unknown): boolean {
+  return getApiErrorStatus(error) === NOT_FOUND_STATUS && getApiErrorCode(error) !== null
+}
+
+// The plan a read named is gone, whichever way the server said so: it replaced or ended the plan (the
+// plan-state codes), or the resource itself is no longer the caller's to read (the 404 above). Both mean the
+// plan the screen is holding is the wrong plan, so both earn the one recovery — the stale-plan toast and a
+// current-plan refetch — and neither is worth retrying, because re-requesting a resource the server has
+// already disowned returns the same answer forever.
+export function isPlanReadInvalidatedError(error: unknown): boolean {
+  return isConfirmedPlanStateError(error) || isResourceNotFoundError(error)
+}
+
 // The answer a READ may be redirected on: the server has either contradicted the plan the screen is holding or
 // reported the capability off, and both have an authoritative next move (0.2.5) — the stale-plan toast with a
 // plan refetch, or the unavailable card the entitlement router draws from this very signal.
 //
-// Confirmed-ness is load-bearing and deliberately not dropped. A 5xx that merely carried the string 'stale_plan'
-// is an *unknown* outcome under the classification above, and an outcome nothing described is a retry rather
-// than a redirection: sending the user somewhere else on a gateway body that happens to echo a code would
-// abandon a screen that a second attempt would have loaded.
+// Composed from `isConfirmedPlanStateError` rather than repeating its test, so the narrower predicate the plan
+// screens use and the wider one the entitlement router uses cannot disagree about what "confirmed" means.
 export function isPlanOrCapabilityRefusal(error: unknown): boolean {
-  return classifyOutcome(error) === 'confirmed' && (isPlanStateError(error) || isFeatureDisabledError(error))
+  return isConfirmedPlanStateError(error) || (classifyOutcome(error) === 'confirmed' && isFeatureDisabledError(error))
 }
 
 // The code of a confirmed refusal that a same-key retry can never resolve, or null when there is nothing to

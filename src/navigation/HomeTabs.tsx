@@ -2,7 +2,7 @@ import React from 'react'
 
 import {ProgressStackParamList} from '@navigation/ProgressStack'
 import {RootStackParamList} from '@navigation/types'
-import {createBottomTabNavigator} from '@react-navigation/bottom-tabs'
+import {BottomTabNavigationOptions, createBottomTabNavigator} from '@react-navigation/bottom-tabs'
 import {getFocusedRouteNameFromRoute, NavigatorScreenParams} from '@react-navigation/native'
 import FontSize from '@styles/fontSize'
 import {Theme} from '@styles/theme'
@@ -61,6 +61,24 @@ const FULL_SCREEN_MACROS_ROUTES: readonly string[] = [
   Screens.PLAN_SETTINGS
 ]
 
+// The tint the navigator hands its icon renderer; the renderers ignore the `focused` and `size` it also
+// passes, because the size is fixed above and the tint already encodes focus.
+interface TabBarIconProps {
+  color: string
+}
+
+// One renderer per tab, built once here rather than inside screenOptions: a function returning JSX that
+// is created during render is a new component type on every render, which React remounts along with the
+// subtree's state (react/no-unstable-nested-components). Keyed by route name because tabBarIcon receives
+// only {focused, color, size} and cannot see which tab it is drawing.
+const TAB_BAR_ICONS: Record<keyof HomeTabsParamList, NonNullable<BottomTabNavigationOptions['tabBarIcon']>> = {
+  MacrosStack: ({color}: TabBarIconProps) => <PieChartIcon color={color} size={TAB_ICON_SIZE} />,
+  WorkoutsStack: ({color}: TabBarIconProps) => <BarbellIcon color={color} size={TAB_ICON_SIZE} />,
+  ProgressStack: ({color}: TabBarIconProps) => <PulseIcon color={color} size={TAB_ICON_SIZE} />,
+  [Screens.RUNS]: ({color}: TabBarIconProps) => <RunIcon color={color} size={TAB_ICON_SIZE} />,
+  [Screens.ACCOUNT]: ({color}: TabBarIconProps) => <AccountIcon color={color} size={TAB_ICON_SIZE} />
+}
+
 const HomeTabs = (): React.JSX.Element => {
   return (
     <Tab.Navigator
@@ -71,13 +89,7 @@ const HomeTabs = (): React.JSX.Element => {
         return {
           freezeOnBlur: true,
           sceneStyle: {backgroundColor: Theme.colors.background},
-          tabBarIcon: ({color}) => {
-            if (route.name === 'MacrosStack') return <PieChartIcon color={color} size={TAB_ICON_SIZE} />
-            if (route.name === 'WorkoutsStack') return <BarbellIcon color={color} size={TAB_ICON_SIZE} />
-            if (route.name === 'ProgressStack') return <PulseIcon color={color} size={TAB_ICON_SIZE} />
-            if (route.name === Screens.RUNS) return <RunIcon color={color} size={TAB_ICON_SIZE} />
-            if (route.name === Screens.ACCOUNT) return <AccountIcon color={color} size={TAB_ICON_SIZE} />
-          },
+          tabBarIcon: TAB_BAR_ICONS[route.name],
           headerShown: false,
           tabBarActiveTintColor: Theme.colors.accentGreen,
           tabBarInactiveTintColor: Theme.colors.textFaint,

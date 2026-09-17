@@ -9,6 +9,7 @@ import {httpGet, httpPost, httpPut} from '@service/http/httpUtil'
 import CrashUtility from '@utility/CrashUtility'
 import {isRoutesMissingError, RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
 import {AxiosError, AxiosResponse} from 'axios'
+import {isLeft, isRight} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 
 import Endpoints from '@constants/endpoints'
@@ -246,6 +247,7 @@ const makePlan = (overrides: Partial<WirePlan> = {}): WirePlan => ({
   id: 'plan-1',
   revision: 1,
   generationAttempt: 1,
+  generationKey: 'gen-key-1',
   startDate: '2026-07-05',
   endDate: '2026-07-11',
   status: 'active',
@@ -2055,8 +2057,18 @@ const postCall = (): [string, unknown, unknown] => {
 // while validating something other than the contract this domain publishes.
 const envelopeProps = (decoder: unknown): io.Props => (decoder as io.TypeC<io.Props>).props
 
+// An envelope member that refines a shared codec is an intersection, so its members are read the same way
+// the props above are: by identity, to prove which published codec the refinement is built on.
+const intersectionMembers = (codec: unknown): io.Mixed[] => (codec as io.IntersectionC<[io.Mixed, io.Mixed]>).types
+
+const decodeEnvelope = (decoder: unknown, response: unknown) => (decoder as io.Mixed).decode(response)
+
 type WireMealEntry = io.TypeOf<typeof MealEntryResponse>
 
+// The diary row a planned log creates. Its provenance is not a choice of fixture: planning admits only
+// recipes whose every ingredient is source-backed, so the server stamps 'source_backed' on the entry it
+// writes and an estimated class here would be a contract violation rather than another shape this suite
+// should accept.
 const makeWireMealEntry = (overrides: Partial<WireMealEntry> = {}): WireMealEntry => ({
   id: 'entry-9',
   foodId: null,
@@ -2070,7 +2082,7 @@ const makeWireMealEntry = (overrides: Partial<WireMealEntry> = {}): WireMealEntr
   inputMethod: 'meal_plan',
   loggedAt: '2026-07-05T12:30:00.000Z',
   mealPlanMealId: MEAL_ID,
-  nutritionProvenance: 'ingredient_derived',
+  nutritionProvenance: 'source_backed',
   ...overrides
 })
 
@@ -2322,7 +2334,10 @@ describe('logPlannedMeal', () => {
 
       const [, decoder] = postCall()
 
-      expect(envelopeProps(decoder).entry).toBe(MealEntryResponse)
+      // The entry member is the shared diary codec with one field refined, so the identity asserted is the
+      // first member of that intersection: the row is still validated by the diary's own codec, and the
+      // refinement adds the provenance the planned-log contract fixes rather than replacing the shape.
+      expect(intersectionMembers(envelopeProps(decoder).entry)[0]).toBe(MealEntryResponse)
       expect(envelopeProps(decoder).mealPlanMeal).toBe(MealPlanMealResponse)
     })
 
@@ -2354,7 +2369,7 @@ describe('logPlannedMeal', () => {
       expect(result.entry.servings).toBe(1.5)
       expect(result.entry.inputMethod).toBe('meal_plan')
       expect(result.entry.mealPlanMealId).toBe(MEAL_ID)
-      expect(result.entry.nutritionProvenance).toBe('ingredient_derived')
+      expect(result.entry.nutritionProvenance).toBe('source_backed')
       expect(result.mealPlanMeal.id).toBe(MEAL_ID)
       expect(result.mealPlanMeal.recipe.name).toBe('Chicken burrito bowl')
       expect(result.planRevision).toBe(4)
@@ -2370,6 +2385,80 @@ describe('logPlannedMeal', () => {
 
       expect(result.entry).not.toBe(wire.entry)
       expect(result.mealPlanMeal).not.toBe(wire.mealPlanMeal)
+    })
+  })
+
+  // The plan-meal half of the envelope is MealPlanMealResponse itself — the identity the request test above
+  // pins — and httpRequest decodes every response with that envelope and throws on a Left, so a meal this
+  // codec refuses is a response logPlannedMeal refuses. Refusal is asserted on the codec for that reason,
+  // rather than by feeding the mocked transport a body it never validates.
+  describe('a provenance the planned-log contract forbids', () => {
+    const plannedMealClaiming = (nutritionProvenance: string): unknown => {
+      const meal = makeMeal()
+
+      return {...meal, recipe: {...meal.recipe, nutritionProvenance}}
+    }
+
+    it('refuses a planned meal whose recipe claims ingredient-derived nutrition', () => {
+      expect(isLeft(MealPlanMealResponse.decode(plannedMealClaiming('ingredient_derived')))).toBe(true)
+    })
+
+    it('refuses a planned meal whose recipe claims AI-estimated nutrition', () => {
+      expect(isLeft(MealPlanMealResponse.decode(plannedMealClaiming('ai_estimated')))).toBe(true)
+    })
+
+    it('refuses a planned meal whose recipe claims a provenance the contract does not name', () => {
+      expect(isLeft(MealPlanMealResponse.decode(plannedMealClaiming('lab_measured')))).toBe(true)
+    })
+
+    it('accepts the one class a planned meal is allowed to carry', () => {
+      expect(isRight(MealPlanMealResponse.decode(plannedMealClaiming('source_backed')))).toBe(true)
+    })
+
+    // The created diary row is refused the same way, at the envelope the request passes to the transport.
+    // The envelope is read back from the mocked call because it is module-private to the request file, and it
+    // is the same object httpRequest decodes with — so a body this codec rejects is a response logPlannedMeal
+    // rejects. The two halves have to be checked separately: they are independent fields, so a recipe
+    // claiming 'source_backed' beside an entry claiming an estimate would otherwise pass.
+    const envelopeVerdictFor = async (entryOverrides: Partial<WireMealEntry>) => {
+      resolvePostWith(201, makeLoggedResponse())
+
+      await logPlannedMeal(PLAN_ID, MEAL_ID, PAYLOAD)
+
+      const [, decoder] = postCall()
+
+      return decodeEnvelope(decoder, {...makeLoggedResponse(), entry: makeWireMealEntry(entryOverrides)})
+    }
+
+    it('refuses a created entry that claims ingredient-derived nutrition', async () => {
+      expect(isLeft(await envelopeVerdictFor({nutritionProvenance: 'ingredient_derived'}))).toBe(true)
+    })
+
+    it('refuses a created entry that claims AI-estimated nutrition', async () => {
+      expect(isLeft(await envelopeVerdictFor({nutritionProvenance: 'ai_estimated'}))).toBe(true)
+    })
+
+    it('refuses a created entry that claims client-entered numbers', async () => {
+      expect(isLeft(await envelopeVerdictFor({nutritionProvenance: 'user_entered'}))).toBe(true)
+    })
+
+    it('refuses a created entry that states no provenance at all', async () => {
+      expect(isLeft(await envelopeVerdictFor({nutritionProvenance: null}))).toBe(true)
+    })
+
+    it('accepts the one class a created entry is allowed to carry', async () => {
+      expect(isRight(await envelopeVerdictFor({nutritionProvenance: 'source_backed'}))).toBe(true)
+    })
+
+    // The refinement is local to this endpoint on purpose. The diary codec itself must keep admitting every
+    // class, because GET /macros/:date decodes rows the plan never wrote — AI-logged, user-entered and rows
+    // older than the column — so tightening it there would reject shipped diary history.
+    it('leaves the shared diary codec admitting the classes ordinary rows carry', () => {
+      const legacyClasses = ['ingredient_derived', 'ai_estimated', 'user_entered', null]
+
+      legacyClasses.forEach(nutritionProvenance => {
+        expect(isRight(MealEntryResponse.decode(makeWireMealEntry({nutritionProvenance})))).toBe(true)
+      })
     })
   })
 

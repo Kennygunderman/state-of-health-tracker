@@ -1,13 +1,52 @@
+import {StyleSheet, ViewStyle} from 'react-native'
+
 import {Sizes} from '@styles/sizes'
 
+import styles from '../index.styled'
 import {
-  envelopeFootprintFor,
   isFlexSegments,
   optionBoxHeightFor,
   segmentEnvelopeInsetFor,
   segmentWidthFor,
   visualTrackHeightFor
 } from '../index.util'
+
+// The composites the component actually renders: `index.tsx` styles the envelope, the drawn track,
+// each option and each pill as `[base, variant]` arrays, so they are resolved here the same way the
+// renderer resolves them. `StyleSheet.create` may hand back either the style objects or registered
+// ids depending on the React Native version, hence `flatten` rather than direct property access.
+const LARGE = {
+  envelope: StyleSheet.flatten<ViewStyle>([styles.envelope, styles.envelopeLarge]),
+  option: StyleSheet.flatten<ViewStyle>(styles.option),
+  pill: StyleSheet.flatten<ViewStyle>(styles.segment),
+  pillHeight: Sizes.SEGMENT_H,
+  trackSurface: StyleSheet.flatten<ViewStyle>([styles.trackSurface, styles.trackSurfaceLarge])
+}
+const COMPACT = {
+  envelope: StyleSheet.flatten<ViewStyle>([styles.envelope, styles.envelopeCompact]),
+  option: StyleSheet.flatten<ViewStyle>([styles.option, styles.optionCompact]),
+  pill: StyleSheet.flatten<ViewStyle>([styles.segment, styles.segmentCompact]),
+  pillHeight: Sizes.SEGMENT_COMPACT_H,
+  trackSurface: StyleSheet.flatten<ViewStyle>([styles.trackSurface, styles.trackSurfaceCompact])
+}
+const INDICATOR = StyleSheet.flatten<ViewStyle>(styles.indicator)
+const SCALED_PILL_HEIGHTS = [Sizes.SEGMENT_H, 36, 40, 48]
+
+// Guarded rather than cast: a style value that stops being a number — dropped, or authored as a
+// percentage string — has to fail the test loudly instead of being scored as `undefined`.
+const resolvedNumber = (value: unknown, description: string): number => {
+  if (typeof value !== 'number') {
+    throw new Error(`Expected ${description} to resolve to a number, received ${String(value)}`)
+  }
+
+  return value
+}
+
+const envelopeInsetOf = (variant: typeof LARGE, name: string): number =>
+  -resolvedNumber(variant.envelope.marginVertical, `the ${name} envelope's negative margin`)
+
+const pillInsetOf = (variant: typeof LARGE, name: string): number =>
+  resolvedNumber(variant.option.paddingVertical, `the ${name} option's vertical padding`)
 
 describe('segmentWidthFor', () => {
   describe('unusable track width', () => {
@@ -176,43 +215,102 @@ describe('optionBoxHeightFor (the box the user actually presses)', () => {
   })
 })
 
-describe('envelopeFootprintFor (what the control occupies in layout)', () => {
-  it('occupies the drawn 36 px track for the large variant, so nothing on the screen moves', () => {
-    const optionBox = optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
-
-    expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_ENVELOPE_INSET_V)).toBe(
-      visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)
+// The three derivations above are what `index.styled.ts` calls to build the envelope, so the cases
+// above pin the arithmetic. These cases pin the styles that arithmetic produces — read off the
+// exported composites the component renders — so a change made directly in the styled module, or a
+// composite the component stops assembling, cannot leave the rendered target, inset or footprint
+// wrong while the derivation tests stay green.
+describe('the rendered envelope', () => {
+  it('presses at exactly the minimum target on the large variant, with no hit slop involved', () => {
+    expect(resolvedNumber(LARGE.envelope.minHeight, "the large envelope's minimum height")).toBe(
+      optionBoxHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
     )
+    expect(resolvedNumber(LARGE.envelope.minHeight, "the large envelope's minimum height")).toBe(Sizes.TOUCH_TARGET)
   })
 
-  it('occupies the drawn 29 px track for the compact variants', () => {
-    const optionBox = optionBoxHeightFor(
-      Sizes.SEGMENT_COMPACT_H,
-      Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V,
-      Sizes.SEGMENT_TRACK_INSET
+  it('presses at exactly the minimum target on the compact variants too', () => {
+    expect(resolvedNumber(COMPACT.envelope.minHeight, "the compact envelope's minimum height")).toBe(
+      optionBoxHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
     )
-
-    expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V)).toBe(
-      visualTrackHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_TRACK_INSET)
-    )
+    expect(resolvedNumber(COMPACT.envelope.minHeight, "the compact envelope's minimum height")).toBe(Sizes.TOUCH_TARGET)
   })
 
-  it('keeps the footprint equal to the drawn track at every text size, not only the reference one', () => {
-    const pillHeights = [Sizes.SEGMENT_H, 36, 40, 48]
+  it('fills the envelope with the pressable option, so the parent bounds cannot cut the target short', () => {
+    ;[
+      {name: 'large', variant: LARGE},
+      {name: 'compact', variant: COMPACT}
+    ].forEach(({name, variant}) => {
+      const pillInset = pillInsetOf(variant, name)
+      const pillHeight = resolvedNumber(variant.pill.minHeight, `the ${name} pill's minimum height`)
 
-    pillHeights.forEach(pillHeight => {
-      const optionBox = optionBoxHeightFor(pillHeight, Sizes.SEGMENT_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+      expect(pillHeight).toBe(variant.pillHeight)
+      expect(pillHeight + pillInset + pillInset).toBe(
+        resolvedNumber(variant.envelope.minHeight, `the ${name} envelope's minimum height`)
+      )
+    })
+  })
 
-      expect(envelopeFootprintFor(optionBox, Sizes.SEGMENT_ENVELOPE_INSET_V)).toBe(
+  it('occupies the drawn track in layout, so gaining a press envelope moved nothing on screen', () => {
+    ;[
+      {name: 'large', variant: LARGE},
+      {name: 'compact', variant: COMPACT}
+    ].forEach(({name, variant}) => {
+      const envelopeInset = envelopeInsetOf(variant, name)
+      const optionBox = resolvedNumber(variant.envelope.minHeight, `the ${name} envelope's minimum height`)
+
+      expect(optionBox - envelopeInset - envelopeInset).toBe(
+        visualTrackHeightFor(variant.pillHeight, Sizes.SEGMENT_TRACK_INSET)
+      )
+    })
+  })
+
+  it('keeps that footprint equal to the drawn track at every text size, not only the reference one', () => {
+    const envelopeInset = envelopeInsetOf(LARGE, 'large')
+    const pillInset = pillInsetOf(LARGE, 'large')
+
+    // `minHeight` is a floor, so a label that scales the pill up grows the option box with it.
+    SCALED_PILL_HEIGHTS.forEach(pillHeight => {
+      const optionBox = pillHeight + pillInset + pillInset
+
+      expect(optionBox - envelopeInset - envelopeInset).toBe(
         visualTrackHeightFor(pillHeight, Sizes.SEGMENT_TRACK_INSET)
       )
     })
   })
 
-  it('gives both insets back, never one only', () => {
-    expect(envelopeFootprintFor(Sizes.TOUCH_TARGET, Sizes.SEGMENT_ENVELOPE_INSET_V)).not.toBe(
-      Sizes.TOUCH_TARGET - Sizes.SEGMENT_ENVELOPE_INSET_V
+  it('draws the track inside the envelope by that same inset, on both edges', () => {
+    ;[
+      {name: 'large', variant: LARGE},
+      {name: 'compact', variant: COMPACT}
+    ].forEach(({name, variant}) => {
+      const envelopeInset = envelopeInsetOf(variant, name)
+
+      expect(resolvedNumber(variant.trackSurface.top, `the ${name} track's top inset`)).toBe(envelopeInset)
+      expect(resolvedNumber(variant.trackSurface.bottom, `the ${name} track's bottom inset`)).toBe(envelopeInset)
+      expect(envelopeInset).toBe(
+        segmentEnvelopeInsetFor(visualTrackHeightFor(variant.pillHeight, Sizes.SEGMENT_TRACK_INSET), Sizes.TOUCH_TARGET)
+      )
+    })
+  })
+
+  it('insets the swipe indicator to the pill it tracks, across the envelope and then the track', () => {
+    const pillInset = pillInsetOf(LARGE, 'large')
+
+    expect(resolvedNumber(INDICATOR.top, "the indicator's top inset")).toBe(pillInset)
+    expect(resolvedNumber(INDICATOR.bottom, "the indicator's bottom inset")).toBe(pillInset)
+    expect(resolvedNumber(INDICATOR.left, "the indicator's leading inset")).toBe(Sizes.SEGMENT_TRACK_INSET)
+    expect(resolvedNumber(LARGE.envelope.paddingHorizontal, "the envelope's horizontal padding")).toBe(
+      Sizes.SEGMENT_TRACK_INSET
     )
+  })
+
+  it('flexes the large segments across the track and lets the compact ones hug their labels', () => {
+    expect(LARGE.option.flex).toBe(1)
+    expect(LARGE.option.flexGrow).toBeUndefined()
+    expect(LARGE.option.flexShrink).toBeUndefined()
+    expect(LARGE.envelope.alignSelf).toBe('stretch')
+    expect(COMPACT.option.flex).toBe(0)
+    expect(COMPACT.envelope.alignSelf).toBe('flex-start')
   })
 })
 

@@ -48,18 +48,6 @@ export default StyleSheet.create({
   containerDisc: {
     minHeight: Sizes.CONTROL
   },
-  /* BLITZY [A11Y]: the disc implements Figma `49:282` exactly and carries `49:283`'s white tick at 2.45:1,
-     below the 3:1 non-text minimum for a required glyph. Matched rather than adjusted because Figma
-     specifies the pair; the remedy is a darker disc or a near-black glyph (`background` on `accentGreen`
-     measures 7.67:1). See the accessible-colour register in `@styles/theme`. */
-  checkDisc: {
-    width: Sizes.ICON_MD,
-    height: Sizes.ICON_MD,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: BorderRadius.PILL,
-    backgroundColor: Theme.colors.accentGreen
-  },
   neutralBody: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
@@ -88,7 +76,7 @@ export default StyleSheet.create({
     color: Theme.colors.text
   },
   errorBodyWrapper: {
-    paddingTop: Spacing.MICRO
+    paddingTop: Sizes.BANNER_BODY_INSET_T
   },
   errorBody: {
     fontSize: FontSize.LABEL,

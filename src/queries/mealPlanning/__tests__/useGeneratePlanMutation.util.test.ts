@@ -38,6 +38,7 @@ const makeMealPlan = (): MealPlan => ({
   id: PLAN_A,
   revision: 1,
   generationAttempt: 1,
+  generationKey: 'gen-key-1',
   startDate: DATE,
   endDate: '2026-07-12',
   status: 'active',

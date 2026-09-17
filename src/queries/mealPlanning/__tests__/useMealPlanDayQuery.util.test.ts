@@ -1,8 +1,19 @@
 import {MacroTotals} from '@data/models/Macros'
-import {CurrentMealPlans, MealPlan, MealPlanDay} from '@data/models/MealPlan'
+import {CurrentMealPlans, MealPlan, MealPlanDay, MealPlanDayEnvelope} from '@data/models/MealPlan'
+import {fetchMealPlanDay} from '@queries/api/mealPlanning/fetchMealPlanDay'
+import {queryKeys} from '@queries/keys'
+import {DefaultError, QueryClient} from '@tanstack/react-query'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {isWriteAllowedByVerdict, resolveEnvelopeWriteability} from '@utility/MealPlanLifecycleUtility'
 
-import {selectSeededMealPlanDay} from '../useMealPlanDayQuery.util'
+import {buildMealPlanDayQueryOptions, selectSeededMealPlanDay} from '../useMealPlanDayQuery.util'
+
+// Replaced by a factory rather than jest's automock, which would still evaluate the real module and pull in
+// the native Firebase auth chain behind httpUtil; the mock only records the arguments the request is checked
+// against. Every QueryClient below is real, because the seed is read out of a real cache entry.
+jest.mock('@queries/api/mealPlanning/fetchMealPlanDay', () => ({
+  fetchMealPlanDay: jest.fn()
+}))
 
 const PLAN_ID = 'plan-1'
 const OTHER_PLAN_ID = 'plan-2'
@@ -29,6 +40,7 @@ const makePlan = (overrides: Partial<MealPlan> = {}): MealPlan => ({
   id: PLAN_ID,
   revision: 4,
   generationAttempt: 1,
+  generationKey: 'gen-key-1',
   startDate: DATE,
   endDate: PLAN_END_DATE,
   status: 'active',
@@ -48,6 +60,19 @@ const makePlans = (overrides: Partial<CurrentMealPlans> = {}): CurrentMealPlans 
   upcoming: null,
   ...overrides
 })
+
+type MealPlanDayOptions = ReturnType<typeof buildMealPlanDayQueryOptions>
+
+// Narrowed because each of the three is declared optional and may be a plain value or a skip token; the
+// factory always supplies a function, which the assertions below check before calling.
+const requestOf = (options: MealPlanDayOptions): (() => Promise<MealPlanDayEnvelope>) =>
+  options.queryFn as () => Promise<MealPlanDayEnvelope>
+
+const seedOf = (options: MealPlanDayOptions): (() => MealPlanDayEnvelope | undefined) =>
+  options.initialData as () => MealPlanDayEnvelope | undefined
+
+const seedStampOf = (options: MealPlanDayOptions): (() => number | undefined) =>
+  options.initialDataUpdatedAt as () => number | undefined
 
 describe('selectSeededMealPlanDay', () => {
   describe('when the cached current-plan entry cannot answer the request', () => {
@@ -233,6 +258,200 @@ describe('selectSeededMealPlanDay', () => {
         // And the same route on a week the saved zone still considers live is what opens them.
         expect(isWriteAllowedByVerdict(resolveEnvelopeWriteability('active', true).isWritable)).toBe(true)
       })
+    })
+  })
+})
+
+describe('buildMealPlanDayQueryOptions', () => {
+  let queryClient: QueryClient
+
+  const seedCurrentPlans = (plans: CurrentMealPlans): void => {
+    queryClient.setQueryData(queryKeys.mealPlanCurrent, plans)
+  }
+
+  const buildOptions = (planId = PLAN_ID, date = DATE, enabled = true): MealPlanDayOptions =>
+    buildMealPlanDayQueryOptions(queryClient, planId, date, enabled)
+
+  // Narrowed because `retry` is declared as a union of a count, a boolean and this predicate; the factory
+  // always supplies the predicate.
+  const retryOf = (options: MealPlanDayOptions): ((failureCount: number, error: DefaultError) => boolean) =>
+    options.retry as (failureCount: number, error: DefaultError) => boolean
+
+  const planReadInvalidated = (code: string): DefaultError =>
+    ({isAxiosError: true, response: {status: 409, data: {error: code}}}) as unknown as DefaultError
+
+  // A 404 the server explained: `isResourceNotFoundError` reads the body's code, so a bare 404 with nothing
+  // in it stays a retryable unknown rather than a disowned resource.
+  const notFound = (): DefaultError =>
+    ({isAxiosError: true, response: {status: 404, data: {error: 'Plan not found'}}}) as unknown as DefaultError
+
+  beforeEach(() => {
+    jest.mocked(fetchMealPlanDay).mockClear()
+    // gcTime Infinity keeps the seeded queries from scheduling garbage-collection timeouts, which would
+    // otherwise hold the Node event loop open long after the assertions are done.
+    queryClient = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: Infinity}}})
+  })
+
+  describe('the returned options', () => {
+    it('keys the day through queryKeys.mealPlanDay, never a literal of the same shape', () => {
+      expect(buildOptions().queryKey).toStrictEqual(queryKeys.mealPlanDay(PLAN_ID, DATE))
+    })
+
+    it('gives each plan and each date its own identity, so both inputs reach the key', () => {
+      expect(buildOptions().queryKey).not.toStrictEqual(queryKeys.mealPlanDay(OTHER_PLAN_ID, DATE))
+      expect(buildOptions().queryKey).not.toStrictEqual(queryKeys.mealPlanDay(PLAN_ID, OTHER_DATE))
+      expect(buildOptions(OTHER_PLAN_ID, OTHER_DATE).queryKey).toStrictEqual(
+        queryKeys.mealPlanDay(OTHER_PLAN_ID, OTHER_DATE)
+      )
+    })
+
+    it('passes enabled through as given, so the caller decides whether the gated request may run', () => {
+      expect(buildOptions(PLAN_ID, DATE, true).enabled).toBe(true)
+      expect(buildOptions(PLAN_ID, DATE, false).enabled).toBe(false)
+    })
+
+    it('requests the day through fetchMealPlanDay with the plan id and date, in that order and nothing else', async () => {
+      await requestOf(buildOptions())()
+
+      expect(fetchMealPlanDay).toHaveBeenCalledTimes(1)
+      expect(jest.mocked(fetchMealPlanDay).mock.calls[0]).toStrictEqual([PLAN_ID, DATE])
+    })
+
+    it('declares nothing beyond the key, the request, the gate, the seed pair and the retry rule', () => {
+      expect(Object.keys(buildOptions()).sort()).toStrictEqual([
+        'enabled',
+        'initialData',
+        'initialDataUpdatedAt',
+        'queryFn',
+        'queryKey',
+        'retry'
+      ])
+    })
+
+    /**
+     * The retry rule belongs to these options rather than to the hook, because the hook now declares nothing of
+     * its own: a read whose answer disowns the plan earns a current-plan refetch, not another read of this day.
+     */
+    it('retries a lost or unexplained answer exactly once', () => {
+      const retry = retryOf(buildOptions())
+
+      expect(retry(0, new Error('Network Error'))).toBe(true)
+      expect(retry(1, new Error('Network Error'))).toBe(false)
+    })
+
+    it('never retries an answer that disowns the plan, however few attempts have been made', () => {
+      const retry = retryOf(buildOptions())
+
+      // A replaced or ended plan and a resource 404 return the same refusal however many times they are asked.
+      expect(retry(0, planReadInvalidated(API_ERROR_CODES.stalePlan))).toBe(false)
+      expect(retry(0, planReadInvalidated(API_ERROR_CODES.planNotActive))).toBe(false)
+      expect(retry(0, notFound())).toBe(false)
+    })
+
+    it('still retries a 404 the server did not explain, which is an unknown outcome rather than a refusal', () => {
+      const bareNotFound = {isAxiosError: true, response: {status: 404, data: {}}} as unknown as DefaultError
+
+      expect(retryOf(buildOptions())(0, bareNotFound)).toBe(true)
+    })
+
+    it('keeps the seed and its timestamp as functions, so both re-read the live cache per render', () => {
+      const options = buildOptions()
+
+      expect(typeof options.initialData).toBe('function')
+      expect(typeof options.initialDataUpdatedAt).toBe('function')
+    })
+  })
+
+  describe('the seed read out of the cached current-plan entry', () => {
+    it('finds no seed when nothing is cached under mealPlanCurrent', () => {
+      expect(seedOf(buildOptions())()).toBeUndefined()
+    })
+
+    it('finds no seed when the cached entry holds a different plan', () => {
+      seedCurrentPlans(makePlans({current: makePlan({id: OTHER_PLAN_ID})}))
+
+      expect(seedOf(buildOptions())()).toBeUndefined()
+    })
+
+    it('finds no seed when the requested date falls outside the cached plan\u2019s days', () => {
+      seedCurrentPlans(makePlans())
+
+      expect(seedOf(buildOptions(PLAN_ID, OTHER_DATE))()).toBeUndefined()
+    })
+
+    it('seeds the day envelope with the cached plan\u2019s own revision and status', () => {
+      const day = makeDay({id: 'day-3', dayIndex: 2})
+
+      seedCurrentPlans(makePlans({current: makePlan({revision: 11, status: 'superseded', days: [day]})}))
+
+      expect(seedOf(buildOptions())()).toStrictEqual({
+        planId: PLAN_ID,
+        planRevision: 11,
+        planStatus: 'superseded',
+        planLifecycle: null,
+        isWritable: null,
+        day
+      })
+    })
+
+    it('seeds from the upcoming plan too, because next week is a legitimate target', () => {
+      const day = makeDay({id: 'upcoming-day-1'})
+
+      seedCurrentPlans(makePlans({current: null, upcoming: makePlan({revision: 2, days: [day]})}))
+
+      expect(seedOf(buildOptions())()).toStrictEqual({
+        planId: PLAN_ID,
+        planRevision: 2,
+        planStatus: 'active',
+        planLifecycle: null,
+        isWritable: null,
+        day
+      })
+    })
+
+    it('picks up a seed that arrives after the options were built, which is why it is a function', () => {
+      const seed = seedOf(buildOptions())
+
+      expect(seed()).toBeUndefined()
+
+      seedCurrentPlans(makePlans())
+
+      expect(seed()?.day).toStrictEqual(makeDay())
+    })
+  })
+
+  describe('the seed timestamp', () => {
+    it('reports the source entry\u2019s own dataUpdatedAt, so the normal staleTime still decides the refetch', () => {
+      seedCurrentPlans(makePlans())
+
+      const sourceUpdatedAt = queryClient.getQueryState(queryKeys.mealPlanCurrent)?.dataUpdatedAt
+
+      expect(typeof sourceUpdatedAt).toBe('number')
+      expect(seedStampOf(buildOptions())()).toBe(sourceUpdatedAt)
+    })
+
+    it('reports no timestamp when there is no source entry, matching the absent seed', () => {
+      const options = buildOptions()
+
+      expect(seedStampOf(options)()).toBeUndefined()
+      expect(seedOf(options)()).toBeUndefined()
+    })
+
+    it('follows the source entry when it is written again, rather than freezing at build time', () => {
+      seedCurrentPlans(makePlans())
+
+      const stamp = seedStampOf(buildOptions())
+      const firstUpdatedAt = stamp()
+
+      jest.spyOn(Date, 'now').mockReturnValue((firstUpdatedAt ?? 0) + 60_000)
+      seedCurrentPlans(makePlans({current: makePlan({revision: 12})}))
+
+      const secondUpdatedAt = queryClient.getQueryState(queryKeys.mealPlanCurrent)?.dataUpdatedAt
+
+      expect(secondUpdatedAt).toBe((firstUpdatedAt ?? 0) + 60_000)
+      expect(stamp()).toBe(secondUpdatedAt)
+
+      jest.restoreAllMocks()
     })
   })
 })

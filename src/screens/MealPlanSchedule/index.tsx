@@ -9,19 +9,20 @@ import {MealPlanScheduleRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {formatSlotTime} from '@utility/MealPlanDateUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import {closeGlobalBottomSheet, openGlobalBottomSheet} from '@components/GlobalBottomSheet'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
 import Picker from '@components/Picker'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SetupFooter from '@components/SetupFooter'
 import Text from '@components/Text'
 import {showToast} from '@components/toast/util/ShowToast'
@@ -71,15 +72,19 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanScheduleRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, selectMealSchedule, setMealTime, stepsForRoute} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. A successful save marks them stored first, so leaving after one keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('schedule', params.mode === 'edit')
 
   const [hasSubmitted, setHasSubmitted] = useState(false)
   // Live only while a refetched row genuinely differs from this draft.
   const [hasConflict, setHasConflict] = useState(false)
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
@@ -104,6 +109,8 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   // proves already holds this schedule leave by the identical route.
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     if (params.mode === 'edit') {
       returnFromTargets({kind: 'stack', route: params.returnTo})
@@ -112,7 +119,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
     }
 
     navigation.navigate(Screens.MEAL_PLAN_COOKING_BUDGET, params)
-  }, [navigation, params, returnFromTargets])
+  }, [markSaved, navigation, params, returnFromTargets])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
@@ -124,14 +131,24 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
     const mealSchedule = draft.mealSchedule
     const mealTimes = buildMealTimesPayload(mealSchedule, draft.mealTimes)
 
+    // The step is written against the saved row's exact revision, so a query that has not produced one — it
+    // errored, or has not resolved yet — is asked again rather than sending a write the server must refuse.
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
+
+    if (saved === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
+      return
+    }
+
     try {
-      await saveStepMutation.mutateAsync({
+      await saveSetupStep({
         step: 'schedule',
         payload: {
           mealSchedule,
           mealTimes,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          expectedRevision: preferences?.revision
+          expectedRevision: saved.revision
         }
       })
     } catch (error) {
@@ -146,7 +163,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
       // A rejected revision is never retried blindly (0.7.2): refetch the authoritative row and compare this
       // step's own answers with it. Equal values mean the write whose response was lost, or the identical
       // edit from another device, already landed — so it resolves silently instead of writing twice.
-      const refetched = await preferencesQuery.refetch()
+      const refetched = await refetchPreferences()
       const fresh = refetched.data ?? null
 
       if (fresh === null) {
@@ -173,14 +190,18 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
     }
 
     advance()
-  }, [advance, draft.mealSchedule, draft.mealTimes, preferences?.revision, preferencesQuery, saveStepMutation])
+  }, [advance, draft.mealSchedule, draft.mealTimes, preferences, refetchPreferences, saveSetupStep])
 
   // 'Use theirs' discards this step's draft answers in favour of the refetched row; every other step's edits
   // survive, because seeding reads the whole saved row.
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   const timeSheetContent = (slot: MealSlot): React.JSX.Element => (
     <View style={styles.sheetContent}>
@@ -260,19 +281,22 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
       <SetupFooter>
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-          isLoading={saveStepMutation.isPending}
+          isLoading={isSaving}
           onPress={onContinuePressed}
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

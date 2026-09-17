@@ -1,9 +1,22 @@
-import {StyleSheet} from 'react-native'
+import {Insets, StyleSheet} from 'react-native'
 
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+/* The recalculate link is a bare text link, as the equivalent action is drawn on the review card (34:40), so
+   the 44px target comes from hitSlop and never from padding or minHeight, either of which would move the field
+   ladder below it. recalculateLink pins its line box to LineHeight.LABEL, so the drawn height is exactly 16
+   rather than whatever the platform measures for 13px, and 16 + MEDIUM + MEDIUM is 48. Both of those edges sit
+   inside the row's own clearance — GUTTER above from this row's padding, GUTTER below from bannerWrapper — so
+   the target never extends past a sibling's. */
+export const RECALCULATE_HIT_SLOP: Insets = {
+  top: Spacing.MEDIUM,
+  right: Spacing.MEDIUM,
+  bottom: Spacing.MEDIUM,
+  left: Spacing.MEDIUM
+}
 
 export default StyleSheet.create({
   container: {
@@ -70,6 +83,26 @@ export default StyleSheet.create({
   },
   bannerWrapper: {
     paddingTop: Spacing.GUTTER
+  },
+  recalculateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: Spacing.SMALL,
+    paddingTop: Spacing.GUTTER
+  },
+  recalculateLabel: {
+    flex: 1,
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.textMuted
+  },
+  recalculateLink: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
+    color: Theme.colors.accentGreen
   },
   skeletonGroup: {
     paddingTop: Spacing.GUTTER,

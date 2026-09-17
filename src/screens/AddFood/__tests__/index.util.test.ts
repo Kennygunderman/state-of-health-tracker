@@ -1,6 +1,7 @@
 import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {FoodSourceEnum, formatServingText} from '@data/models/Food'
+import {resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
@@ -11,8 +12,10 @@ import {
   catalogSkeletonBarWidth,
   formatMacroSummary,
   isCatalogSearchResult,
+  isCatalogSectionVisible,
   mapBrandedFoodToFood,
-  mapCatalogFoodToFood
+  mapCatalogFoodToFood,
+  newFoodButtonOwner
 } from '../index.util'
 
 const makeBrandedFood = (overrides: Partial<BrandedFood> = {}): BrandedFood => ({
@@ -401,5 +404,135 @@ describe('catalogProvenanceBadge', () => {
       label: CATALOG_PROVENANCE_BADGE_LABELS.ai_estimated,
       tone: 'warning'
     })
+  })
+})
+
+describe('newFoodButtonOwner', () => {
+  it('gives the button to the library section when all three render', () => {
+    expect(newFoodButtonOwner({showLibrary: true, showCatalog: true, showBranded: true})).toBe('library')
+  })
+
+  it('gives it to the library section over the catalog', () => {
+    expect(newFoodButtonOwner({showLibrary: true, showCatalog: true, showBranded: false})).toBe('library')
+  })
+
+  it('gives it to the library section over branded results', () => {
+    expect(newFoodButtonOwner({showLibrary: true, showCatalog: false, showBranded: true})).toBe('library')
+  })
+
+  it('gives it to the library section when it renders alone', () => {
+    expect(newFoodButtonOwner({showLibrary: true, showCatalog: false, showBranded: false})).toBe('library')
+  })
+
+  it('gives it to the catalog section when the library is hidden', () => {
+    expect(newFoodButtonOwner({showLibrary: false, showCatalog: true, showBranded: true})).toBe('catalog')
+  })
+
+  it('gives it to the catalog section when it renders alone', () => {
+    expect(newFoodButtonOwner({showLibrary: false, showCatalog: true, showBranded: false})).toBe('catalog')
+  })
+
+  it('gives it to the branded section only when both sections above it are hidden', () => {
+    expect(newFoodButtonOwner({showLibrary: false, showCatalog: false, showBranded: true})).toBe('branded')
+  })
+
+  it('gives it to no section when the list renders none', () => {
+    expect(newFoodButtonOwner({showLibrary: false, showCatalog: false, showBranded: false})).toBeNull()
+  })
+})
+
+describe('isCatalogSectionVisible', () => {
+  it('renders the section for answered rows', () => {
+    expect(isCatalogSectionVisible('rows')).toBe(true)
+  })
+
+  it('renders the section for a first load', () => {
+    expect(isCatalogSectionVisible('loading')).toBe(true)
+  })
+
+  it('renders the section for a retryable failure', () => {
+    expect(isCatalogSectionVisible('error')).toBe(true)
+  })
+
+  it('renders the section for a decoded empty page', () => {
+    expect(isCatalogSectionVisible('empty')).toBe(true)
+  })
+
+  it('hides the section when the catalog is not entitled', () => {
+    expect(isCatalogSectionVisible('hidden')).toBe(false)
+  })
+
+  it('hides the section when there is nothing to report', () => {
+    expect(isCatalogSectionVisible('idle')).toBe(false)
+  })
+})
+
+// The screen's own composition: the inputs Add Food hands resolveCatalogSearchState, through to whether the
+// section and its three answers render. isLoading/isError/isSuccess are TanStack statuses, so at most one of
+// them is ever true.
+describe('the Add Food catalog section', () => {
+  const resolveSection = (
+    overrides: Partial<{
+      isCatalogVisible: boolean
+      isSearchable: boolean
+      rowCount: number
+      isCatalogLoading: boolean
+      hasCatalogError: boolean
+      isCatalogLoaded: boolean
+    }> = {}
+  ) => {
+    const {
+      isCatalogVisible = true,
+      isSearchable = true,
+      rowCount = 0,
+      isCatalogLoading = false,
+      hasCatalogError = false,
+      isCatalogLoaded = false
+    } = overrides
+    const state = resolveCatalogSearchState({
+      isVisible: isCatalogVisible,
+      isSearchable,
+      rowCount,
+      isLoading: isCatalogLoading,
+      isError: hasCatalogError,
+      isSuccess: isCatalogLoaded
+    })
+
+    return {state, isVisible: isCatalogSectionVisible(state)}
+  }
+
+  it('is hidden with the entitlement off, whatever the query hook holds', () => {
+    expect(resolveSection({isCatalogVisible: false, rowCount: 8, isCatalogLoaded: true})).toEqual({
+      state: 'hidden',
+      isVisible: false
+    })
+  })
+
+  it('is hidden below the two-character minimum, where the query hook is disabled', () => {
+    expect(resolveSection({isSearchable: false})).toEqual({state: 'idle', isVisible: false})
+  })
+
+  it('renders the skeleton rows while the first page loads', () => {
+    expect(resolveSection({isCatalogLoading: true})).toEqual({state: 'loading', isVisible: true})
+  })
+
+  it('renders the retry row when the search fails with no rows to show instead', () => {
+    expect(resolveSection({hasCatalogError: true})).toEqual({state: 'error', isVisible: true})
+  })
+
+  it('renders the no-results caption only for a decoded empty page', () => {
+    expect(resolveSection({isCatalogLoaded: true})).toEqual({state: 'empty', isVisible: true})
+  })
+
+  it('renders the rows for an answered page', () => {
+    expect(resolveSection({rowCount: 25, isCatalogLoaded: true})).toEqual({state: 'rows', isVisible: true})
+  })
+
+  it('keeps the rows on screen when paging or refetching them fails', () => {
+    expect(resolveSection({rowCount: 25, hasCatalogError: true})).toEqual({state: 'rows', isVisible: true})
+  })
+
+  it('is hidden while an offline-paused query has answered nothing', () => {
+    expect(resolveSection()).toEqual({state: 'idle', isVisible: false})
   })
 })

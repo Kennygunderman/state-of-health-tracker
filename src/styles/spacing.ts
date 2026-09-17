@@ -1,5 +1,4 @@
 export default {
-  MICRO: 2,
   XX_SMALL: 4,
   TIGHT: 6,
   X_SMALL: 8,

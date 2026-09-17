@@ -14,7 +14,6 @@ import {
   CATALOG_CATEGORY_LABELS,
   MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE,
-  MEAL_PLAN_SEARCH_ADD_GLYPH,
   stringWithNamedParameters
 } from '@constants/strings'
 
@@ -25,10 +24,12 @@ interface Props {
   isAdded: boolean
   isFirst: boolean
   isLast: boolean
-  onPress: () => void
+  onToggle: (id: string) => void
 }
 
-const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props): React.JSX.Element => {
+// The list re-renders on every keystroke, so a row that is handed the same food and the same reader does not
+// re-render with it; taking the id back through onToggle is what lets the reader stay the same one.
+const FoodSearchResultRow = React.memo(({food, isAdded, isFirst, isLast, onToggle}: Props): React.JSX.Element => {
   const rowStyle = [styles.row, isFirst && styles.rowFirst, isLast && styles.rowLast]
   const rowContentStyle = [styles.rowContent, !isFirst && styles.rowContentDivider]
   const nameStyle = [styles.name, isAdded && styles.nameAdded]
@@ -39,6 +40,8 @@ const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props): 
     isAdded ? MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE : MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE,
     {name: food.name}
   )
+
+  const onPress = (): void => onToggle(food.id)
 
   return (
     <TouchableOpacity
@@ -74,12 +77,24 @@ const FoodSearchResultRow = ({food, isAdded, isFirst, isLast, onPress}: Props): 
           </View>
         ) : (
           <View style={styles.addControl}>
-            <Text style={styles.addGlyph}>{MEAL_PLAN_SEARCH_ADD_GLYPH}</Text>
+            {/* Drawn rather than typeset: 47:399 sets the plus as 17px text, which at the larger
+                accessibility text sizes outgrows the 28px disc holding it, and a glyph cannot be clipped
+                into shape. The tick beside it is already vector, so this keeps the two states symmetric. */}
+            <Svg width={Sizes.ICON_SM} height={Sizes.ICON_SM} viewBox="0 0 17 17" fill="none">
+              <Path
+                d="M3.5 8.5H13.5M8.5 3.5V13.5"
+                stroke={Theme.colors.textSecondary}
+                strokeWidth={Stroke.DEFAULT}
+                strokeLinecap="butt"
+              />
+            </Svg>
           </View>
         )}
       </View>
     </TouchableOpacity>
   )
-}
+})
+
+FoodSearchResultRow.displayName = 'FoodSearchResultRow'
 
 export default FoodSearchResultRow

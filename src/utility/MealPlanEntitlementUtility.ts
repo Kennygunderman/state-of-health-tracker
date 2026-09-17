@@ -10,8 +10,9 @@ const NOT_FOUND_STATUS = 404
  * `@hooks/mealPlanning/useMealPlanEntitlement` pair turns them plus the read errors into the entitlement, and
  * the Macros plan-body resolver reads the availability signals. A helper shared across trees belongs here with
  * its tests, and a low-level service importing a hook-private util would reverse the dependency direction.
- * `@hooks/mealPlanning/useMealPlanEntitlement.util` re-exports this module unchanged, so consumers reading
- * either path get one policy rather than two that can drift.
+ * `@hooks/mealPlanning/useMealPlanEntitlement.util` re-exports every binding below unchanged — it adds the
+ * hook's own query and session wiring beside them but reimplements no rule — so consumers reading either path
+ * get one policy rather than two that can drift.
  */
 
 /**
@@ -44,6 +45,12 @@ export interface MealPlanEntitlementInputs {
   currentPlanError: unknown
   targetsError: unknown
   hasPlan: boolean
+  /**
+   * The capability signals already seen in this session, if the caller retains any. Optional because a caller
+   * with nothing to retain — a one-shot resolve in a test or a screen with no store — is answered from the live
+   * errors alone; the latch only ever adds signals, never removes them.
+   */
+  capabilityLatch?: MealPlanCapabilityLatch
 }
 
 export interface MealPlanEntitlement {
@@ -134,12 +141,89 @@ export const isRoutesMissingError = (error: unknown): boolean => {
   return httpStatusOf(error) === NOT_FOUND_STATUS && getApiErrorCode(error) === null
 }
 
+/**
+ * The two unavailability signals of AAP 0.2.5, separated because they do not have the same consequences: (a) a
+ * gated route answering `503 feature_disabled` means a mounted backend with server-side planning off, while (b)
+ * a bare 404 from one of the resource-less GETs means a backend that no longer has the routes at all.
+ */
+export interface MealPlanCapabilitySignals {
+  isFeatureDisabled: boolean
+  areRoutesMissing: boolean
+}
+
+/**
+ * The signals retained for the session. Same shape as the live ones, and deliberately a separate name: a latch
+ * is the accumulation of everything seen so far, which is why it can report a signal no current error carries.
+ *
+ * Retention is what stops a known-unavailable route being re-probed on every mount, focus and reconnect. It is
+ * session/process-scoped rather than persisted, so a cold start always probes once — the forward-recovery path
+ * an operator re-enable needs.
+ */
+export type MealPlanCapabilityLatch = MealPlanCapabilitySignals
+
+/** The starting latch: nothing seen yet, so the live errors alone decide. */
+export const NO_MEAL_PLAN_CAPABILITY_LATCH: MealPlanCapabilityLatch = {
+  isFeatureDisabled: false,
+  areRoutesMissing: false
+}
+
+export interface MealPlanCapabilityErrors {
+  preferencesError: unknown
+  currentPlanError: unknown
+  targetsError: unknown
+}
+
+/**
+ * Classifies the three reads' current errors into the two signals.
+ *
+ * `isFeatureDisabled` comes from the two gated reads only: `/meal-planning/targets*` is never gated by the
+ * server flag (Account, Progress and the Diary editor read targets while planning is off, AAP 0.2.5), so a
+ * `feature_disabled` from that route says nothing about the feature's availability. `areRoutesMissing` comes
+ * from all three, because a bare 404 from any of the resource-less GETs — the targets one included — can only
+ * mean a rolled-back backend (AAP 0.7.5).
+ */
+export const deriveMealPlanCapabilitySignals = ({
+  preferencesError,
+  currentPlanError,
+  targetsError
+}: MealPlanCapabilityErrors): MealPlanCapabilitySignals => ({
+  isFeatureDisabled: isFeatureDisabledError(preferencesError) || isFeatureDisabledError(currentPlanError),
+  areRoutesMissing:
+    isRoutesMissingError(preferencesError) ||
+    isRoutesMissingError(currentPlanError) ||
+    isRoutesMissingError(targetsError)
+})
+
+/**
+ * Adds the signals just seen to the latch, which is a bitwise OR: a signal is never unlatched by a later read
+ * that did not carry it, because a disabled or absent route answers a repeat probe the same way and the point of
+ * the latch is not to issue that probe.
+ *
+ * Returns the latch it was given, by reference, when nothing changed. That identity is load-bearing: the store
+ * holding the latch publishes through `useSyncExternalStore`, which compares snapshots by identity and would
+ * re-render every consumer on every settled read if a merge always allocated.
+ */
+export const mergeMealPlanCapabilityLatch = (
+  latch: MealPlanCapabilityLatch,
+  signals: MealPlanCapabilitySignals
+): MealPlanCapabilityLatch => {
+  const isFeatureDisabled = latch.isFeatureDisabled || signals.isFeatureDisabled
+  const areRoutesMissing = latch.areRoutesMissing || signals.areRoutesMissing
+
+  if (isFeatureDisabled === latch.isFeatureDisabled && areRoutesMissing === latch.areRoutesMissing) {
+    return latch
+  }
+
+  return {isFeatureDisabled, areRoutesMissing}
+}
+
 export const resolveMealPlanEntitlement = ({
   isFlagEnabled,
   preferencesError,
   currentPlanError,
   targetsError,
-  hasPlan
+  hasPlan,
+  capabilityLatch = NO_MEAL_PLAN_CAPABILITY_LATCH
 }: MealPlanEntitlementInputs): MealPlanEntitlement => {
   if (!isFlagEnabled) {
     return {
@@ -151,17 +235,19 @@ export const resolveMealPlanEntitlement = ({
     }
   }
 
-  const isGatedRouteDisabled = isFeatureDisabledError(preferencesError) || isFeatureDisabledError(currentPlanError)
-  const areRoutesMissing =
-    isRoutesMissingError(preferencesError) ||
-    isRoutesMissingError(currentPlanError) ||
-    isRoutesMissingError(targetsError)
+  // Live OR latched, so a signal already seen in this session still governs after the read that carried it has
+  // been discarded — which is the whole of the retention rule: the verdict outlives the error object.
+  const {isFeatureDisabled: isGatedRouteDisabled, areRoutesMissing} = mergeMealPlanCapabilityLatch(
+    capabilityLatch,
+    deriveMealPlanCapabilitySignals({preferencesError, currentPlanError, targetsError})
+  )
+  const isUnavailable = isGatedRouteDisabled || areRoutesMissing
 
   return {
     // Either unavailability signal of AAP 0.2.5 — (a) a gated route answering `503 feature_disabled`, (b) a
     // bare 404 from one of the resource-less GETs — puts the Meal Plan segment on its neutral unavailable
     // card, while the segmented control itself stays.
-    availability: isGatedRouteDisabled || areRoutesMissing ? 'unavailable' : 'enabled',
+    availability: isUnavailable ? 'unavailable' : 'enabled',
     isSegmentedControlVisible: true,
     // Add Food's Catalog section follows route absence alone, not the segment's verdict, because the two
     // signals mean different things for `/catalog/*`. Under signal (a) the backend is mounted and
@@ -172,7 +258,12 @@ export const resolveMealPlanEntitlement = ({
     // signal (a) as well would read AAP 0.2.5's shared-effect sentence over the operator scenario that
     // demonstrates the opposite, and would take away a working surface.
     isCatalogVisible: !areRoutesMissing,
-    isGatedRequestAllowed: true,
+    // False as soon as either signal has been seen, and it stays false because the latch keeps the signal: a
+    // route that answered `503 feature_disabled` or a bare 404 answers the next probe identically, so a remount,
+    // a focus or a reconnect must not issue one (AAP 0.2.5's "no gated request", 0.7.5's rollback path). The
+    // ungated `/meal-planning/targets*` read is not governed by this flag and keeps running in every state,
+    // which is what leaves Account, Progress and the Diary editor on their local target fallback.
+    isGatedRequestAllowed: !isUnavailable,
     hasPlan
   }
 }

@@ -8,12 +8,9 @@ export const CATALOG_SUGGESTION_KIND: CatalogSuggestionKind = 'dislike'
 
 export const CATALOG_SUGGESTION_LIMIT = 12
 
-// The default limit is resolved here rather than inside fetchCatalogSuggestions so that the same number
-// reaches the cache key and the request: a default at the request boundary would let an omitted limit and
-// the limit actually sent mint two identities for one list (AAP 0.5.2 default 12, maximum 30).
-export const buildCatalogSuggestionsQueryOptions = (
-  limit: number = CATALOG_SUGGESTION_LIMIT
-): UndefinedInitialDataOptions<CatalogFoodSuggestion[]> => ({
-  queryKey: queryKeys.catalogSuggestions(CATALOG_SUGGESTION_KIND, limit),
-  queryFn: () => fetchCatalogSuggestions(CATALOG_SUGGESTION_KIND, limit)
+// There is exactly one suggestions list, so its key is static and the kind and limit are fixed here rather
+// than caller-settable: a caller-settable limit would mint two cache identities for that one list.
+export const buildCatalogSuggestionsQueryOptions = (): UndefinedInitialDataOptions<CatalogFoodSuggestion[]> => ({
+  queryKey: queryKeys.catalogSuggestions,
+  queryFn: () => fetchCatalogSuggestions(CATALOG_SUGGESTION_KIND, CATALOG_SUGGESTION_LIMIT)
 })

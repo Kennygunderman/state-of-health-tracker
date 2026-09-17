@@ -21,6 +21,16 @@ export default StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Theme.colors.greenTint
   },
+  // The hero's own content layer, so a pressable hero can cover the glyph and the pill while the back button
+  // stays that pressable's sibling. It fills the band exactly (flex on the row axis, stretch across it), which
+  // is what keeps the centred glyph and the absolutely placed pill where they sat as direct band children.
+  content: {
+    flex: 1,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   glyph: {
     opacity: Opacity.HERO_ART
   },

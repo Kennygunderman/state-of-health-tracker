@@ -8,13 +8,18 @@ import type {
   SaveNutritionTargetsPayload
 } from '@data/models/NutritionTargets'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
-import {confirmedTargetValues, hasAnyTargetValue} from '@utility/NutritionFormatUtility'
+import {confirmedTargetValues, formatWholeNumber, hasAnyTargetValue} from '@utility/NutritionFormatUtility'
 import {
   buildSaveEstimatedNutritionTargetsPayload,
   buildSaveManualNutritionTargetsPayload
 } from '@utility/RevisionConflictUtility'
 
-import {MEAL_PLAN_TARGET_WARNING_LABELS} from '@constants/strings'
+import {
+  MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_FIELD_UNIT_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_TARGET_WARNING_LABELS,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 export interface EditTargetsFields {
   calories: string
@@ -100,10 +105,6 @@ const WARNING_SENTENCE_SEPARATOR = ' '
 
 const WHOLE_NUMBER_PATTERN = /^\d+$/
 
-// '1,940' and '10,000' are group separators inside a whole number; '1,94' and '19,4000' are not a number at
-// all, so the separator is only presentation where the grouping itself is well formed.
-const GROUPED_WHOLE_NUMBER_PATTERN = /^\d{1,3}(,\d{3})+$/
-
 const GROUP_SEPARATOR_PATTERN = /,/g
 
 const REDUNDANT_LEADING_ZERO_PATTERN = /^0+(?=\d)/
@@ -135,22 +136,191 @@ export const targetFieldText = (value: number | null | undefined): string =>
 /**
  * The target as the field stores it: a bare whole number, no separators.
  *
- * Only presentation is removed — surrounding space, well-formed group separators and a redundant leading
- * zero, so NutritionFormatUtility is the one place a stored value is re-grouped for display. An entry carrying
- * anything else (a decimal point, a sign, prose, a malformed group) is refused and `previous` is returned
- * unchanged, because deleting those characters would leave a perfectly valid target the user never typed:
- * '19.40' would be saved as 1940 and '-500' as 500, and neither `validateEditTargets` here nor the server's
- * integer bounds could tell that had happened. Callers pass the field's current value as `previous` so a
- * refused keystroke or paste keeps it.
+ * Separators are removed before the digits are checked rather than after, because the field displays a grouped
+ * figure (`targetFieldDisplayText`) and every edit of one arrives here mid-grouping: backspacing '1,940' gives
+ * '1,94', an ordinary keystroke that a well-formed-grouping test would refuse, leaving the field unable to
+ * delete its own last digit. What is still refused is an entry carrying anything but digits and separators — a
+ * decimal point, a sign, prose — because dropping those characters would leave a perfectly valid target the
+ * user never typed: '19.40' would be saved as 1940 and '-500' as 500, and neither `validateEditTargets` here
+ * nor the server's integer bounds could tell that had happened. Callers pass the field's current value as
+ * `previous` so a refused keystroke or paste keeps it.
  */
 export const sanitizeIntegerInput = (text: string, previous: string = ''): string => {
-  const entry = text.trim()
+  const entry = text.trim().replace(GROUP_SEPARATOR_PATTERN, '')
 
   if (entry === '') return ''
 
-  if (!WHOLE_NUMBER_PATTERN.test(entry) && !GROUPED_WHOLE_NUMBER_PATTERN.test(entry)) return previous
+  if (!WHOLE_NUMBER_PATTERN.test(entry)) return previous
 
-  return entry.replace(GROUP_SEPARATOR_PATTERN, '').replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
+  return entry.replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
+}
+
+/**
+ * The stored target as the field presents it: grouped, so a saved 1940 reads '1,940' as 34:214 draws it.
+ *
+ * Grouping belongs here, at the render boundary, and never to the stored value: `resolveTargetsSaveSource`
+ * recognises an untouched estimate by parsing the field, and a stored '1,940' parses to nothing, which would
+ * demote a confirmation of the server's own figures to a manual save of numbers it never recomputed. An entry
+ * holding no parseable figure is passed through unchanged, so a field mid-edit is never rewritten.
+ */
+export const targetFieldDisplayText = (value: string): string => {
+  const parsed = parseTargetValue(value)
+
+  return parsed === null ? value : formatWholeNumber(parsed)
+}
+
+/**
+ * How many characters a field accepts, measured in the grouped presentation it displays.
+ *
+ * The limit is the width of the field's own upper bound, so a figure the server would refuse outright cannot be
+ * typed. Measuring it on the bare number instead is a character short of every grouped bound — it stops the
+ * user four characters into '1,940' and puts the drawn calorie target out of reach entirely.
+ */
+export const targetFieldMaxLength = (key: EditTargetsFieldKey): number =>
+  targetFieldDisplayText(String(TARGET_FIELD_BOUNDS[key].max)).length
+
+export type EditTargetsReadinessStatus = 'loading' | 'read_failed' | 'unavailable' | 'estimate_unavailable' | 'ready'
+
+export interface EditTargetsReadinessInputs {
+  // Which figures this screen is editing, from resolveEditTargetsIntent.
+  intent: NutritionTargetsEditIntent
+  isTargetsLoading: boolean
+  // The targets route answered that it is not mounted: not a failure, and not something a retry can change.
+  isTargetsRouteMissing: boolean
+  hasTargetsReadFailure: boolean
+  isEstimateLoading: boolean
+  // The server answered that no estimate can be calculated for these inputs (409 estimate_unavailable).
+  isEstimateUnavailable: boolean
+  hasEstimateReadFailure: boolean
+  // Whether the user has entered figures the screen must not discard.
+  hasDraft: boolean
+}
+
+export interface EditTargetsReadiness {
+  status: EditTargetsReadinessStatus
+  // Whether the four fields are rendered at all.
+  showFields: boolean
+  // Whether "Save targets" may be pressed.
+  canSave: boolean
+  retryTargets: boolean
+  retryEstimate: boolean
+}
+
+/**
+ * Whether the editor is holding figures it can actually save, and what to render when it is not.
+ *
+ * Every state but 'ready' withholds the save, because this screen cannot write a target without the reads that
+ * make the write meaningful: the payload pins the revision the targets read reports, and a confirmation also
+ * pins the revision of the estimate it is confirming. A read that has not answered supplies neither, and an
+ * editor that renders four blank fields over an unanswered read invites the user to type a target that is then
+ * refused — or, worse, to save one against a revision that was never read.
+ *
+ * The four withholding states are distinct because the way out of each one differs:
+ *
+ * - 'unavailable' — the targets route is gone (a rolled-back backend). A retry answers identically until the
+ *   backend rolls forward, so no retry is offered and the local target the user already had still stands.
+ * - 'read_failed' — a genuine failure, which a retry can resolve, so one is offered for whichever read failed.
+ * - 'loading' — a first read still in flight; the form waits rather than rendering blanks a resolved read
+ *   would contradict.
+ * - 'estimate_unavailable' — the estimate this visit exists to confirm cannot be calculated, so manual entry
+ *   is the way out rather than a retry (0.2.5).
+ *
+ * `showFields` keeps a draft on screen through a failure. The editor refetches while recovering from a rejected
+ * revision, and a refetch that fails must not take the user's entered figures down with it: with a draft the
+ * fields stay, the banner explains, and only the save waits.
+ *
+ * The estimate is a requirement of one intent alone. A visit that opens on saved figures, or on the manual
+ * route, treats it as the enhancement it is — it gates the Recalculate offer and nothing else — so a slow or
+ * broken estimate never blocks an edit that does not depend on it.
+ */
+export const resolveEditTargetsReadiness = ({
+  intent,
+  isTargetsLoading,
+  isTargetsRouteMissing,
+  hasTargetsReadFailure,
+  isEstimateLoading,
+  isEstimateUnavailable,
+  hasEstimateReadFailure,
+  hasDraft
+}: EditTargetsReadinessInputs): EditTargetsReadiness => {
+  const requiresEstimate = intent === 'confirm_estimate'
+  const withheld = {showFields: false, canSave: false, retryTargets: false, retryEstimate: false}
+
+  if (isTargetsRouteMissing) {
+    return {status: 'unavailable', ...withheld}
+  }
+
+  const estimateFailed = requiresEstimate && hasEstimateReadFailure
+
+  if (hasTargetsReadFailure || estimateFailed) {
+    return {
+      status: 'read_failed',
+      showFields: hasDraft,
+      canSave: false,
+      retryTargets: hasTargetsReadFailure,
+      retryEstimate: estimateFailed
+    }
+  }
+
+  if (isTargetsLoading || (requiresEstimate && isEstimateLoading)) {
+    return {status: 'loading', ...withheld}
+  }
+
+  if (requiresEstimate && isEstimateUnavailable) {
+    return {status: 'estimate_unavailable', ...withheld}
+  }
+
+  return {status: 'ready', showFields: true, canSave: true, retryTargets: false, retryEstimate: false}
+}
+
+export interface RecalculateOfferInputs {
+  intent: NutritionTargetsEditIntent
+  targets: NutritionTargets | null
+  // Whether the estimate has actually loaded; it is an enhancement here, never a requirement.
+  hasEstimate: boolean
+}
+
+/**
+ * Whether to offer a recalculation of the saved figures this editor opened on.
+ *
+ * It is offered exactly where 0.5.2 calls the saved set one to review — its inputs have moved on since it was
+ * confirmed, it was written outside the planner, or it is only partly filled — because those are the states the
+ * planner either refuses or builds a plan from figures the user may no longer want. Without it a user who
+ * arrived from Account, the diary or Plan settings can only retype the estimate by hand, and typing the
+ * server's own figures saves them as a manual set, which is a different claim about where they came from.
+ *
+ * A visit already confirming the estimate needs no offer — its fields hold it — and the manual route has
+ * nothing to recalculate against by definition.
+ */
+export const shouldOfferRecalculate = ({intent, targets, hasEstimate}: RecalculateOfferInputs): boolean =>
+  hasEstimate &&
+  intent === 'edit_saved' &&
+  targets !== null &&
+  (targets.stale || targets.source === 'legacy' || !targets.complete)
+
+export interface TargetFieldLabelInputs {
+  label: string
+  // The spoken form of the unit, not the drawn suffix: a reader announces 'g' as a letter and 'kcal' as a
+  // fragment.
+  unitText: string
+  // The message the field is reporting, when it is reporting one.
+  errorMessage?: string
+}
+
+/**
+ * How a target field is announced: the measurement it holds, the unit it is held in, and — when the field is
+ * reporting one — the reason its value is refused.
+ *
+ * The unit belongs in the name because it is drawn inside the input rather than in the label, so 'Protein' on
+ * its own leaves the user to guess grams from a percentage. An error extends that name instead of replacing it,
+ * so a field reached after validation still announces both what it is and what is wrong with it.
+ */
+export const targetFieldAccessibilityLabel = ({label, unitText, errorMessage}: TargetFieldLabelInputs): string => {
+  const named = stringWithNamedParameters(MEAL_PLAN_FIELD_UNIT_ACCESSIBILITY_TEMPLATE, {label, unit: unitText})
+
+  return errorMessage === undefined
+    ? named
+    : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {label: named, message: errorMessage})
 }
 
 const validateTargetField = (value: string, bounds: TargetFieldBounds): TargetFieldErrorCode | null => {

@@ -36,7 +36,7 @@ export default StyleSheet.create({
     color: Theme.colors.greenOnTint
   },
   dayNumber: {
-    paddingTop: Spacing.MICRO,
+    paddingTop: Sizes.DAY_CHIP_NUMBER_INSET_T,
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.BOLD,
     textAlign: 'center',

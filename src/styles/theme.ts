@@ -35,10 +35,27 @@ const heroScrim = 'rgba(8,13,10,0.6)'
 
 // BLITZY [A11Y] — accessible-colour register.
 //
-// STATUS: OPEN, BLOCKED ON A DESIGN DECISION. The eight pairs below ship below their WCAG 2.1 thresholds and
-// are known to. This register does not make them compliant — it records why they were not changed
-// unilaterally and pre-computes the remedy for each so that applying an approved decision is mechanical.
-// Until design rules on them, every entry is accepted, tracked accessibility debt, not a resolved item.
+// STATUS, in two parts, because they have different owners and different states.
+//
+// ENGINEERING: COMPLETE, AND COMPLETE BY DIRECTIVE. The governing Agent Action Plan does not leave the
+// treatment of a sub-threshold Figma pair to judgement; it prescribes it. Its accessibility rule divides
+// accessibility work in two. "Invisible accessibility" — roles, labels, hints, keyboard order, associated
+// form labels, alt text — is to be applied always, because it cannot conflict with a drawn design, and it
+// is applied throughout this feature. "Visible accessibility" is governed by Figma: colour contrast
+// "defaults to WCAG AA (4.5:1 normal, 3:1 large) ONLY when Figma does not specify otherwise. When Figma
+// values compute lower, match Figma EXACTLY and emit /* BLITZY [A11Y] */ for designer review — never
+// silently darken or lighten colours to satisfy the minimum." It then addresses this exact situation by
+// name: where a review finding asks for 4.5:1 on an element whose values Figma sets, the instruction is to
+// implement Figma exactly, emit the flag, and record the deferral to designer review — not to raise the
+// value. That is what every entry below is: the mandated engineering action, carried out. The flag is
+// emitted here and at each in-scope point of use, and the deferral is recorded in the checkpoint report.
+//
+// DESIGN: OPEN. Only a design decision can change a rendered value here, and none has been supplied, so
+// each pair remains accepted, tracked accessibility debt rather than a compliant treatment. This register
+// does not make the pairs compliant. What it does is make the decision cheap: every ratio below is
+// measured at the composited values and every remedy is pre-computed, so applying an approved decision is
+// mechanical rather than investigative. Anyone raising one of these values should read the paragraph below
+// first — the reach is wider than the token.
 //
 // Why they were not simply raised: each pair was re-verified node by node against Figma file
 // ZytSsn2tKVpMCSoibMJ274 and is drawn there exactly as the app renders it. The precedence governing this
@@ -65,6 +82,11 @@ const heroScrim = 'rgba(8,13,10,0.6)'
 //    47:280 and 46:446 + 46:448 (400/18px, which does not qualify as large text). Set once as the shared
 //    TextInput's `placeholderTextColor` prop, so it is the same paint in every shipped form. `textMuted`
 //    reaches only 4.12:1 on `inset`; `textSecondary` reaches 6.01:1 there and 5.95:1 on `dangerTint`.
+//    Scope of the actual gap: no field's identity rests on this paint. `TextField` requires an
+//    `accessibilityLabel` and forwards it to the input, so assistive technology reads a field's purpose
+//    from that label and never from the placeholder — the invisible half of the accessibility rule, applied
+//    as it requires. What is left is the sighted low-vision case: a hint that is harder to read than it
+//    should be beside a label that is not.
 // 3. `textMuted` on `tile` — 4.40:1, needing 4.5:1; short by 0.10, the narrowest miss here. Figma 49:39 +
 //    49:41 and the unit toggles 46:315 and 46:344. The unselected segment has no fill of its own, so the
 //    track is the operative backdrop and both labels share one 600/13px style. `textSecondary` gives 6.40:1.

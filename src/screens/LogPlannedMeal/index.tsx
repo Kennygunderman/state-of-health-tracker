@@ -1,10 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import {LayoutChangeEvent, TouchableOpacity, View} from 'react-native'
+import {AccessibilityInfo, LayoutChangeEvent, Platform, TouchableOpacity, View} from 'react-native'
 
 import type {MealPlanMeal} from '@data/models/MealPlan'
 import {LogPlannedMealRouteProp, Navigation} from '@navigation/types'
 import type {LogPlannedMealResult} from '@queries/api/mealPlanning/logPlannedMeal'
+import {mutationKeys} from '@queries/keys'
 import {useDailyMacrosQuery} from '@queries/macros/useDailyMacrosQuery'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useLogPlannedMealMutation} from '@queries/mealPlanning/useLogPlannedMealMutation'
@@ -17,7 +18,9 @@ import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+import {useIsMutating} from '@tanstack/react-query'
 import {mintKey} from '@utility/IdempotencyUtility'
+import {isWriteAllowedByVerdict, isWriteRefusedByVerdict} from '@utility/MealPlanLifecycleUtility'
 import {applyFractionPart} from '@utility/ServingsUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -41,14 +44,21 @@ import {
   LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT,
   LOG_PLANNED_MEAL_ADD_TO_HEADER,
   LOG_PLANNED_MEAL_SLOT_FALLBACK_CAPTION,
+  LOG_PLANNED_MEAL_THIS_ADDS_ANNOUNCEMENT_TEMPLATE,
   LOG_PLANNED_MEAL_TITLE,
+  MEAL_PLAN_ANNOUNCEMENT_SEPARATOR,
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
   MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT,
   MEAL_PLAN_LOAD_ERROR_TITLE,
+  MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE,
+  MEAL_PLAN_STALE_PLAN_TOAST,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+  MEAL_PLAN_OTHER_MEAL_PENDING_BODY,
+  MEAL_PLAN_OTHER_MEAL_PENDING_TITLE,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY,
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
   SERVINGS_HEADER,
+  stringWithNamedParameters,
   THIS_ADDS_LABEL
 } from '@constants/strings'
 
@@ -56,28 +66,32 @@ import FractionChips from './components/FractionChips'
 import RecipeSummaryCard from './components/RecipeSummaryCard'
 import ServingsStepper from './components/ServingsStepper'
 import SlotPicker from './components/SlotPicker'
-import {
-  canChangeLogDate,
-  classifyLogFailure,
-  hasUnresolvedLogIntent,
-  isPlanStateReadFailure,
-  LogCommitTarget,
-  LogPlanDateRange,
-  nextLogDate,
-  planDayQueryRecovery,
-  planDayQueryScope,
-  planLogAttempt,
-  planUnconfirmedRefetch,
-  resolveLogCacheScope,
-  resolveLogDiaryDestination
-} from './index.orchestration'
 import styles from './index.styled'
 import {
   buildThisAddsItems,
+  canChangeLogDate,
+  classifyLogFailure,
   dateOverlineText,
+  isLogFormEditable,
+  isLogOutcomeUnconfirmed,
+  isPlanStateReadFailure,
+  LogCommitTarget,
   logDateStepperLabel,
+  LogPlanDateRange,
+  nextLogDate,
   nextPlannedServings,
   parsePlannedServingsInput,
+  planDayQueryRecovery,
+  planDayQueryScope,
+  planLogAttempt,
+  planStoredLogReplay,
+  planUnconfirmedRefetch,
+  resolveLogCacheScope,
+  resolveLogDiaryDestination,
+  resolveLogFormValues,
+  resolveLogLaunch,
+  resolveLogSubmitAffordance,
+  resolveUnresolvedLogIntent,
   resolveViewTarget,
   thisAddsTotals
 } from './index.util'
@@ -93,10 +107,14 @@ interface LogReadyState {
 /**
  * Frame 15: the portion of a planned meal that was actually eaten, and the diary bucket it lands in.
  *
- * The write is keyed. `planLogAttempt` rebuilds its request from the route, the chosen portion and the chosen
- * bucket: an unresolved intent describing the identical request answers with the key it was minted for, so a
- * lost response is replayed rather than writing a second diary entry (0.7.2). A failure never leaves this
- * screen — the portion, the date and the bucket all stay exactly as entered.
+ * The write is keyed, and this screen is the owner of its intent (0.7.2). The unresolved intent is resolved
+ * before anything else is derived: while one is on record it supplies the visible portion, day and bucket, it
+ * locks them, it is replayed silently once as the screen opens, and every attempt — the open replay, the
+ * banner's "Try again" and the footer CTA alike — sends its stored snapshot under its stored key. A fresh key
+ * is minted only when nothing is unresolved, because a key answered by a lost response may already have
+ * written the entry: re-sending it returns that same entry, while a new key writes a second one.
+ *
+ * A failure never leaves this screen — the portion, the date and the bucket all stay exactly as entered.
  */
 const LogPlannedMealScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -104,6 +122,13 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
   const userId = useAuthStore(state => state.userId)
   const pendingIntents = useMealPlanStore(state => state.pendingIntents)
+  // Read through the hook, not `getState()`: the persisted slice arrives from AsyncStorage after the first
+  // frame, and the replay below has to re-render and reconsider when it lands (0.7.2).
+  const hasHydratedIntents = useMealPlanStore(state => state.hasHydratedIntents)
+  // The same fact with its third case kept, which is the one the user can act on: a read that was refused
+  // leaves the slot unknown, so the screen says so and offers the read again rather than minting beside it.
+  const intentsHydration = useMealPlanStore(state => state.intentsHydration)
+  const retryIntentsHydration = useMealPlanStore(state => state.retryIntentsHydration)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const setPostLogResult = useMealPlanStore(state => state.setPostLogResult)
@@ -116,13 +141,78 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   const [logDate, setLogDate] = useState(params.date)
   const [servings, setServings] = useState(ONE_PORTION)
   const [chosenBucketId, setChosenBucketId] = useState<string | null>(null)
+  // The key this screen has had an unknown answer for, which is what the unconfirmed banner belongs to — not
+  // the presence of a stored intent, which is owed a silent replay first.
+  const [unconfirmedKey, setUnconfirmedKey] = useState<string | null>(null)
   const [skeletonWidth, setSkeletonWidth] = useState(0)
 
-  // The meal belongs to the planned day the route names; the entry is written to the day the user selected,
+  // One clock for this mount: the stepper's day labels and the stored intent's 7-day life are day-granular, so
+  // re-reading it per render could only let two readings of the same day disagree. The post-log destination is
+  // decided against the session's day key instead, because that is the one the Diary itself is showing.
+  const now = useMemo(() => new Date(), [])
+
+  // Counted across the app rather than read off this screen's own mutation: the Meal Plan tab is the AAP's
+  // cold-start owner for this action and sends the same mutation key, so an instance-local pending flag would
+  // let this screen's replay and the tab's put one key on the wire twice (0.7.2).
+  const logRequestsInFlight = useIsMutating({mutationKey: mutationKeys.logPlannedMeal})
+  const isLogRequestInFlight = logRequestsInFlight > 0
+
+  // What may be done about the planned-log action at all, decided from the state of the ACTION's one intent
+  // slot rather than from this route's scope: another meal's unresolved key is not an empty slot, and neither
+  // is a slice that has not been read back yet. Resolved before the form and before every query scope,
+  // because it decides whether anything on screen may be edited.
+  const launch = useMemo(
+    () =>
+      resolveLogLaunch({
+        pendingIntents,
+        userId,
+        planId: params.planId,
+        mealId: params.mealId,
+        now: now.getTime(),
+        hasHydratedIntents,
+        isRequestInFlight: isLogRequestInFlight
+      }),
+    [hasHydratedIntents, isLogRequestInFlight, now, params.mealId, params.planId, pendingIntents, userId]
+  )
+
+  // This screen's own unresolved intent, which is the authority on what is displayed while it exists: its
+  // stored snapshot is the request the next attempt must send byte for byte. Kept separate from the launch
+  // verdict because a verdict blocked by an in-flight request carries no intent, while the values on screen
+  // must still be the stored ones.
+  const storedIntent = useMemo(
+    () =>
+      resolveUnresolvedLogIntent({
+        pendingIntents,
+        userId,
+        planId: params.planId,
+        mealId: params.mealId,
+        now: now.getTime()
+      }),
+    [now, params.mealId, params.planId, pendingIntents, userId]
+  )
+
+  // The values on screen, and whether they may be edited. An unresolved key is re-sent unchanged, so the
+  // stepper, the chips, the bucket picker and the date stepper all show the stored request and hold still
+  // until that key is answered — editing them could only describe a request no attempt from here may send.
+  // They hold still for the same reason before hydration has succeeded and while any other holder has the
+  // slot: a value accepted then could never become the request that is sent.
+  const form = useMemo(
+    () =>
+      resolveLogFormValues({
+        intent: storedIntent,
+        isEditable: isLogFormEditable(launch),
+        servings,
+        selectedDate: logDate,
+        chosenBucketId
+      }),
+    [chosenBucketId, launch, logDate, servings, storedIntent]
+  )
+
+  // The meal belongs to the planned day the route names; the entry is written to the day the form resolves,
   // which is the day the diary is read for and the date the payload carries.
   const cacheScope = useMemo(
-    () => resolveLogCacheScope({planId: params.planId, plannedDate: params.date, selectedDate: logDate}),
-    [logDate, params.date, params.planId]
+    () => resolveLogCacheScope({planId: params.planId, plannedDate: params.date, selectedDate: form.selectedDate}),
+    [form.selectedDate, params.date, params.planId]
   )
 
   const dayQuery = useMealPlanDayQuery(...planDayQueryScope(cacheScope))
@@ -134,13 +224,16 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   const refetchDiary = macrosQuery.refetch
   const refetchCurrentPlan = currentPlanQuery.refetch
 
-  // One clock for this mount: the stepper's day labels and the stored intent's 7-day life are day-granular, so
-  // re-reading it per render could only let two readings of the same day disagree. The post-log destination is
-  // decided against the session's day key instead, because that is the one the Diary itself is showing.
-  const now = useMemo(() => new Date(), [])
-
   const hasRefetchedUnconfirmed = useRef(false)
   const hasAnnouncedPlanState = useRef(false)
+  // Every key this screen has sent in this lifetime, however it was sent — the open replay, the banner's
+  // "Try again" or the footer CTA. Latched before the request leaves so the replay decision below can never
+  // send the same key a second time while the first is still on the wire.
+  const sentKey = useRef<string | null>(null)
+  // Whether a dispatch is between its decision and its answer. The in-flight count it complements is a render
+  // value, so this is what closes the one-frame window in which two presses could both plan a fresh key.
+  const isAttemptDispatching = useRef(false)
+  const hasAnnouncedWriteRefused = useRef(false)
 
   const envelope = dayQuery.data
   const diaryMeals = macrosQuery.data?.meals
@@ -159,9 +252,9 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         slot: meal?.slot ?? null,
         planSlots: envelope?.day.meals.map(planned => planned.slot) ?? [],
         diaryMeals,
-        chosenBucketId
+        chosenBucketId: form.chosenBucketId
       }),
-    [cacheScope.diaryDate, chosenBucketId, diaryMeals, envelope, meal]
+    [cacheScope.diaryDate, diaryMeals, envelope, form.chosenBucketId, meal]
   )
 
   const planRange = useMemo<LogPlanDateRange | null>(() => {
@@ -186,22 +279,43 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       : {meal, planRevision: envelope.planRevision, target}
   }, [destination.target, envelope, meal])
 
-  const isLoading = dayQuery.isLoading || macrosQuery.isLoading
-
-  // An intent an earlier mount left unresolved, which this screen is the one that can still answer. Read only
-  // while the mutation is idle: a request in flight has its intent recorded too, so an unguarded read would
-  // state an unconfirmed outcome over a write that simply has not answered yet.
-  const hasStoredIntent = useMemo(
-    () => hasUnresolvedLogIntent({pendingIntents, userId, mealId: params.mealId, now: now.getTime()}),
-    [now, params.mealId, pendingIntents, userId]
+  // What the COMMIT is ready against, which is narrower than what the screen renders. The gate is the day
+  // envelope's own `isWritable` and nothing local (the contract on `MealPlanDayEnvelope`): endedness is judged
+  // in the user's saved zone, so an ended or superseded week reaches here looking perfectly loadable while
+  // every write against it is refused `409 plan_not_active`. Spelled through `isWriteAllowedByVerdict` so the
+  // unanswered verdict — `null` on the envelope seeded from the cached week — is never read as permission.
+  const commitReady = useMemo<LogReadyState | null>(
+    () => (ready !== null && isWriteAllowedByVerdict(envelope?.isWritable) ? ready : null),
+    [envelope?.isWritable, ready]
   )
 
-  // The one failure the plan draws on this frame: an outcome that may already have committed promises
-  // nothing and offers the same key again. Every confirmed refusal is reported by toast instead, because the
-  // key it answered is spent.
-  const isUnconfirmed = logMutation.isError
-    ? classifyLogFailure(logMutation.error).isUnconfirmed
-    : logMutation.isIdle && hasStoredIntent
+  const isLoading = dayQuery.isLoading || macrosQuery.isLoading
+
+  // What the footer CTA and the banner's retry may offer. Commit readiness is only half of it: a press taken
+  // before the persisted slice has been read, while another meal's key is unresolved, or while an attempt is
+  // on the wire would either duplicate a write or abandon a key, so those states offer a spinner, a retry of
+  // the READ, or nothing at all (0.7.2).
+  //
+  // A REPLAY is the one attempt a refused verdict still permits: a reserved key is answered from its stored
+  // response before the transaction reads the plan's status (0.5.1), and that answer is the only way this
+  // client learns whether a write whose response was lost committed. A fresh write against that plan stays
+  // barred, which is why the two readings of "ready" differ by exactly the verdict.
+  const affordance = useMemo(
+    () =>
+      resolveLogSubmitAffordance({
+        launch,
+        isCommitReady: launch.kind === 'replay' ? ready !== null : commitReady !== null,
+        intentsHydration
+      }),
+    [commitReady, intentsHydration, launch, ready]
+  )
+
+  // The one failure the plan draws on this frame: an outcome that may already have committed promises nothing
+  // and offers the same key again. It is stated only once that key has actually answered with an unknown
+  // outcome — a stored intent whose replay has not been tried yet is finished silently instead (0.7.2) — and
+  // it stays on screen, spinner and all, until that key is resolved. Every confirmed refusal is reported by
+  // toast instead, because the key it answered is spent.
+  const isUnconfirmed = isLogOutcomeUnconfirmed({intent: storedIntent, unconfirmedKey})
 
   const onLogged = useCallback(
     (result: LogPlannedMealResult, loaded: LogReadyState): void => {
@@ -231,7 +345,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   )
 
   const onLogFailed = useCallback(
-    (error: unknown): void => {
+    (error: unknown, idempotencyKey: string): void => {
       const decision = classifyLogFailure(error)
 
       if (decision.disposition === 'retire') {
@@ -239,7 +353,11 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       }
 
       // An unknown outcome is stated in place by the banner below and carries no toast, because its key is
-      // still the only safe way to ask again.
+      // still the only safe way to ask again. Held against the key that earned it, and dropped on a confirmed
+      // refusal: that answer is terminal for the key, so there is nothing left for the screen to be unsure
+      // about and the toast below reports it instead.
+      setUnconfirmedKey(decision.isUnconfirmed ? idempotencyKey : null)
+
       if (decision.toast !== null) {
         showToast('error', decision.toast)
       }
@@ -256,33 +374,58 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     [clearPendingIntent, refetchCurrentPlan, refetchDiary]
   )
 
-  const onAddToDiaryPressed = useCallback(async (): Promise<void> => {
-    // Nothing to log, or a request already in flight under a key of its own: a second press must not open a
-    // second write, and the banner's "Try again" reaches this handler as well as the footer's CTA does.
-    if (ready === null || logMutation.isPending) {
+  /**
+   * One attempt of the keyed write, whoever asks for it: the silent replay as the screen opens, the banner's
+   * "Try again" and the footer CTA all run this — because all three have to make the *same* request. While an
+   * intent is unresolved that request is its stored snapshot under its stored key; only when the action's slot
+   * is genuinely free is a key minted, at the press rather than at render, so an edited portion, a stepped
+   * date or a different bucket earns its own.
+   *
+   * Every refusal is the launch verdict's, not this handler's: an unread persisted slice, another meal's
+   * unresolved key and a request already on the wire all end here with no request sent, no key minted and the
+   * slot untouched.
+   */
+  const submitLogAttempt = useCallback(async (): Promise<void> => {
+    // The synchronous half of the in-flight guard. `useIsMutating` and the launch verdict it feeds are render
+    // values, so two presses queued in one frame would both read a free slot; this latch is what makes the
+    // second one a no-op before either has re-rendered.
+    if (ready === null || isAttemptDispatching.current) {
       return
     }
 
-    // The key is minted at the press, never at render: a key holds only for a byte-identical replay, so an
-    // edited portion, a stepped date or a different bucket earns its own.
-    const attempt = planLogAttempt({
+    const plan = planLogAttempt({
       planId: cacheScope.planId,
       mealId: params.mealId,
-      servings,
+      servings: form.servings,
       diaryDate: ready.target.diaryDate,
       diaryMealId: ready.target.diaryMealId,
       planRevision: ready.planRevision,
       userId,
-      pendingIntents,
+      launch,
       attemptedAt: Date.now(),
-      freshKey: mintKey(uuidv4)
+      mintFreshKey: () => mintKey(uuidv4)
     })
+
+    // Blocked: nothing was minted and nothing was filed, and the state that blocked it is what the CTA and
+    // the banners above are already rendering.
+    if (plan.kind === 'blocked') {
+      return
+    }
+
+    const attempt = plan.attempt
+
+    isAttemptDispatching.current = true
 
     if (attempt.intent !== null) {
       // Recorded before the request leaves, which is what makes a response lost in flight replayable at all.
+      // A replay has nothing to record: its record is already on disk, and re-filing it would extend the
+      // 7-day life of a key the user pressed once.
       recordPendingIntent(attempt.intent)
     }
 
+    // Latched before the request leaves, so the open replay cannot send this key again — including the key
+    // this very press just minted.
+    sentKey.current = attempt.payload.idempotencyKey
     hasRefetchedUnconfirmed.current = false
 
     // Awaited here rather than handed to per-call callbacks: the mutation's own options own the cache
@@ -294,20 +437,46 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
       onLogged(result, ready)
     } catch (error) {
-      onLogFailed(error)
+      onLogFailed(error, attempt.payload.idempotencyKey)
+    } finally {
+      isAttemptDispatching.current = false
     }
   }, [
     cacheScope.planId,
+    form.servings,
+    launch,
     logMutation,
     onLogFailed,
     onLogged,
     params.mealId,
-    pendingIntents,
     ready,
     recordPendingIntent,
-    servings,
     userId
   ])
+
+  useEffect(() => {
+    // AAP 0.7.2: the owning screen replays an unresolved intent silently on the next open or cold start,
+    // before leaving the user with a manual retry. Exactly one attempt per key — the latch is written before
+    // the request is dispatched, so a re-run of this effect while the first attempt is still being set up
+    // cannot double it — and nothing here resolves the intent: only the server's answer to that key does.
+    //
+    // The intent comes from the launch verdict, so a replay can only fire for a key this screen owns, once the
+    // persisted read has succeeded, and never while a log request is already on the wire anywhere in the app.
+    const replay = planStoredLogReplay({
+      launch,
+      isCommitReady: ready !== null,
+      isRequestInFlight: isLogRequestInFlight,
+      replayedKey: sentKey.current
+    })
+
+    sentKey.current = replay.replayedKey
+
+    if (replay.replays) {
+      // Not awaited and needs no rejection handler: every outcome is handled inside, by `onLogged` or
+      // `onLogFailed`.
+      submitLogAttempt()
+    }
+  }, [isLogRequestInFlight, launch, ready, submitLogAttempt])
 
   useEffect(() => {
     const refetch = planUnconfirmedRefetch({
@@ -350,19 +519,110 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     }
   }, [dayQueryError, refetchCurrentPlan])
 
-  const onServingsText = useCallback((text: string): void => {
-    const parsed = parsePlannedServingsInput(text)
+  // Only an answered `false` is a refusal, which is why it is asked with its own predicate: a screen stating
+  // "your plan changed" on an unanswered verdict would be blaming the plan for its own request still being in
+  // flight.
+  const isWriteRefused = isWriteRefusedByVerdict(envelope?.isWritable)
 
-    // An unparseable keystroke leaves the confirmed value alone; the stepper's own draft keeps it on screen.
-    if (parsed !== null) {
-      setServings(parsed)
+  useEffect(() => {
+    // A refused verdict earns the same recovery 0.2.5 gives the plan-state codes — the code's own copy and a
+    // re-read of the plan the tab holds — and the screen is left standing, because an ended week's portion and
+    // figures are still worth reading. Said once per mount by the ref, and not at all when the day read itself
+    // failed with one of those codes: the effect above has already raised this very copy for the same fact.
+    if (!isWriteRefused || isPlanStateReadFailure(dayQueryError) || hasAnnouncedWriteRefused.current) {
+      return
     }
-  }, [])
+
+    hasAnnouncedWriteRefused.current = true
+    showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
+    refetchCurrentPlan()
+  }, [dayQueryError, isWriteRefused, refetchCurrentPlan])
+
+  // The card's own four figures as one sentence, so what is spoken and what is drawn cannot disagree about the
+  // portion they describe.
+  const thisAddsAnnouncement = useMemo<string | null>(() => {
+    if (ready === null) {
+      return null
+    }
+
+    const metrics = buildThisAddsItems(thisAddsTotals(ready.meal.planned, servings))
+      .map(item =>
+        stringWithNamedParameters(MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE, {caption: item.caption, value: item.value})
+      )
+      .join(MEAL_PLAN_ANNOUNCEMENT_SEPARATOR)
+
+    return stringWithNamedParameters(LOG_PLANNED_MEAL_THIS_ADDS_ANNOUNCEMENT_TEMPLATE, {
+      label: THIS_ADDS_LABEL,
+      metrics
+    })
+  }, [ready, servings])
+
+  const announcedThisAdds = useRef<string | null>(null)
+
+  useEffect(() => {
+    // The card's `accessibilityLiveRegion` is Android-only in RN 0.86, so VoiceOver never hears the figures
+    // change: focus stays on the stepper or the field and nothing re-reads the card. iOS is therefore told
+    // explicitly, while Android is left to its live region rather than announced twice.
+    //
+    // The first composition is only recorded: on mount VoiceOver is reading the screen itself, and speaking
+    // then would interrupt it with figures the user has not reached yet.
+    if (thisAddsAnnouncement === null || thisAddsAnnouncement === announcedThisAdds.current) {
+      return
+    }
+
+    const isFirstComposition = announcedThisAdds.current === null
+
+    announcedThisAdds.current = thisAddsAnnouncement
+
+    if (!isFirstComposition && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(thisAddsAnnouncement)
+    }
+  }, [thisAddsAnnouncement])
+
+  // The three edit paths, each closed while a key is unresolved: the value on screen is that key's stored
+  // request, and a portion, chip or bucket accepted here would show the user something no attempt from this
+  // screen may send until the key is answered.
+  const onServingsText = useCallback(
+    (text: string): void => {
+      const parsed = parsePlannedServingsInput(text)
+
+      // An unparseable keystroke leaves the confirmed value alone; the stepper's own draft keeps it on screen.
+      if (parsed !== null && !form.isLocked) {
+        setServings(parsed)
+      }
+    },
+    [form.isLocked]
+  )
+
+  const onServingsStep = (direction: 1 | -1): void => {
+    if (!form.isLocked) {
+      setServings(current => nextPlannedServings(current, direction))
+    }
+  }
+
+  const onFractionSelected = (fractionValue: number): void => {
+    if (!form.isLocked) {
+      setServings(current => applyFractionPart(current, fractionValue))
+    }
+  }
+
+  const onBucketSelected = (mealId: string): void => {
+    if (!form.isLocked) {
+      setChosenBucketId(mealId)
+    }
+  }
 
   const canStepDate = (direction: 1 | -1): boolean =>
-    canChangeLogDate({selectedDate: logDate, direction, planRange, isCommitPending: logMutation.isPending})
+    canChangeLogDate({
+      selectedDate: form.selectedDate,
+      direction,
+      planRange,
+      isCommitPending: isLogRequestInFlight,
+      isIntentUnresolved: form.isLocked
+    })
 
-  const stepTargetDate = (direction: 1 | -1): string => nextLogDate({selectedDate: logDate, direction, planRange})
+  const stepTargetDate = (direction: 1 | -1): string =>
+    nextLogDate({selectedDate: form.selectedDate, direction, planRange})
 
   const onStepDate = (direction: 1 | -1): void => {
     if (!canStepDate(direction)) {
@@ -424,6 +684,37 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
   const logBody = (loaded: LogReadyState): React.JSX.Element => (
     <>
+      {/* The persisted read was refused, so what the log slot holds is unknown and nothing may be sent: the
+          form below is read-only and the only action offered is the read itself, which is the single way out
+          of that state (0.7.2). The copy is the failed-read pair — a read that changed nothing is plainly
+          safe to repeat. */}
+      {affordance.offersHydrationRetry && (
+        <View style={styles.bannerSection}>
+          <InfoBanner
+            tone="error"
+            glyph="alert"
+            body={MEAL_PLAN_LOAD_ERROR_TITLE}
+            actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
+            onAction={retryIntentsHydration}
+          />
+        </View>
+      )}
+
+      {/* A log on ANOTHER meal is still unconfirmed, and the action holds one idempotency-key slot, so this
+          meal may not be sent until that key is answered — overwriting it is what would write that other meal
+          twice (0.7.2). The form below stays readable but read-only, and no action is offered here: only the
+          meal holding the key may replay it, and the Meal Plan tab replays it on its own. */}
+      {affordance.isBlockedByOtherMeal && (
+        <View style={styles.bannerSection}>
+          <InfoBanner
+            tone="error"
+            glyph="alert"
+            title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
+            body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
+          />
+        </View>
+      )}
+
       {isUnconfirmed && (
         <View style={styles.bannerSection}>
           <InfoBanner
@@ -431,9 +722,11 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
             glyph="alert"
             title={MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE}
             body={MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY}
-            actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
-            onAction={onAddToDiaryPressed}
-            isActionPending={logMutation.isPending}
+            // Offered only while a send is actually permitted: a retry that the launch verdict would refuse
+            // would promise the user an attempt that never leaves.
+            actionLabel={affordance.canSubmit ? MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT : undefined}
+            onAction={affordance.canSubmit ? submitLogAttempt : undefined}
+            isActionPending={affordance.isPending}
           />
         </View>
       )}
@@ -444,18 +737,23 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
       <Text style={styles.controlLabel}>{SERVINGS_HEADER}</Text>
 
-      <ServingsStepper
-        value={servings}
-        onDecrement={() => setServings(current => nextPlannedServings(current, -1))}
-        onIncrement={() => setServings(current => nextPlannedServings(current, 1))}
-        onChangeText={onServingsText}
-      />
-
-      <View style={styles.chipsSection}>
-        <FractionChips
-          servings={servings}
-          onSelect={fractionValue => setServings(current => applyFractionPart(current, fractionValue))}
+      {/* Disabled rather than merely ignored while the form is locked: the handlers refuse the edit anyway, but
+          a control that only stops touches stays reachable — its accessibility actions are still offered, and
+          the servings field could still take focus and display a portion no attempt from here would send. The
+          `disabled` prop withdraws the actionability everywhere, and `pointerEvents` keeps a stray touch from
+          flashing as though it had been taken. The values themselves stay readable: they are the request. */}
+      <View pointerEvents={form.isLocked ? 'none' : 'auto'}>
+        <ServingsStepper
+          value={form.servings}
+          disabled={form.isLocked}
+          onDecrement={() => onServingsStep(-1)}
+          onIncrement={() => onServingsStep(1)}
+          onChangeText={onServingsText}
         />
+      </View>
+
+      <View style={styles.chipsSection} pointerEvents={form.isLocked ? 'none' : 'auto'}>
+        <FractionChips servings={form.servings} disabled={form.isLocked} onSelect={onFractionSelected} />
       </View>
 
       <View style={styles.thisAddsSection}>
@@ -463,20 +761,22 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
           <SectionOverline text={THIS_ADDS_LABEL} />
 
           {/* One element, so the four figures are read as caption-and-value pairs rather than four orphan
-              numbers, and polite so a changed portion is announced without interrupting the field. */}
+              numbers, and polite so a changed portion is announced without interrupting the field. The region
+              is Android's half of that; iOS has none, so VoiceOver is told by `thisAddsAnnouncement` above. */}
           <View accessible accessibilityLiveRegion="polite">
-            <MetricGrid4 items={buildThisAddsItems(thisAddsTotals(loaded.meal.planned, servings))} />
+            <MetricGrid4 items={buildThisAddsItems(thisAddsTotals(loaded.meal.planned, form.servings))} />
           </View>
         </View>
       </View>
 
       <Text style={styles.controlLabel}>{LOG_PLANNED_MEAL_ADD_TO_HEADER}</Text>
 
-      <View style={styles.slotSection}>
+      <View style={styles.slotSection} pointerEvents={form.isLocked ? 'none' : 'auto'}>
         <SlotPicker
           options={destination.options}
           selectedMealId={loaded.target.diaryMealId}
-          onSelect={setChosenBucketId}
+          disabled={form.isLocked}
+          onSelect={onBucketSelected}
         />
       </View>
 
@@ -504,7 +804,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
             <BackCircleButton onPress={navigation.goBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
           </View>
 
-          <Text style={styles.dateOverline}>{dateOverlineText(logDate)}</Text>
+          <Text style={styles.dateOverline}>{dateOverlineText(form.selectedDate)}</Text>
 
           <Text style={styles.title}>{LOG_PLANNED_MEAL_TITLE}</Text>
 
@@ -522,7 +822,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
               <ChevronLeftIcon color={Theme.colors.text} />
             </TouchableOpacity>
 
-            <Text style={styles.dateLabel}>{logDateStepperLabel(logDate, now)}</Text>
+            <Text style={styles.dateLabel}>{logDateStepperLabel(form.selectedDate, now)}</Text>
 
             <TouchableOpacity
               style={[styles.dateStepButton, !canStepDate(1) && styles.dateStepButtonDisabled]}
@@ -546,13 +846,16 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       </ContentColumn>
 
       {/* Node 38:9 draws the footer and its one CTA in every state, so a screen still loading — or holding an
-          error where there is nothing to log — shows the action disabled rather than dropping it. */}
+          error where there is nothing to log, or a plan whose verdict does not permit the write — shows the
+          action disabled rather than dropping it. The same applies to every state the launch verdict refuses:
+          the persisted read still out or refused, another meal's key unresolved, or an attempt already on the
+          wire. */}
       <SetupFooter hairline>
         <PrimaryButton
           label={LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT}
-          isLoading={logMutation.isPending}
-          disabled={ready === null}
-          onPress={onAddToDiaryPressed}
+          isLoading={affordance.isPending}
+          disabled={!affordance.canSubmit}
+          onPress={submitLogAttempt}
         />
       </SetupFooter>
     </SafeAreaView>

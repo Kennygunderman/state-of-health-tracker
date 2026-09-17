@@ -8,17 +8,18 @@ import {MealPlanDietRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ChipCloud from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SelectableChip from '@components/SelectableChip'
 import SetupFooter from '@components/SetupFooter'
 import Text from '@components/Text'
@@ -70,6 +71,10 @@ const MealPlanDietScreen = (): React.JSX.Element => {
   const preferencesQuery = useMealPlanPreferencesQuery()
   const saveStepMutation = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, selectAllergen} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. A successful save marks them stored first, so leaving after one keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('diet', params.mode === 'edit')
 
   const [hasSubmitted, setHasSubmitted] = useState(false)
   const [hasConflict, setHasConflict] = useState(false)
@@ -90,6 +95,8 @@ const MealPlanDietScreen = (): React.JSX.Element => {
 
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     if (params.mode === 'edit') {
       returnFromTargets({kind: 'stack', route: params.returnTo})
@@ -98,7 +105,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
     }
 
     navigation.navigate(Screens.MEAL_PLAN_FOOD_PREFERENCES, params)
-  }, [navigation, params, returnFromTargets])
+  }, [markSaved, navigation, params, returnFromTargets])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
@@ -186,8 +193,12 @@ const MealPlanDietScreen = (): React.JSX.Element => {
   // above holds every other step's edits, because seeding reads the whole saved row.
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   const onSelectDiet = useCallback(
     (diet: Diet) => {
@@ -253,14 +264,17 @@ const MealPlanDietScreen = (): React.JSX.Element => {
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={saveStepMutation.isPending}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

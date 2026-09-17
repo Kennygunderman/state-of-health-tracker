@@ -28,12 +28,12 @@ import {v4 as uuidv4} from 'uuid'
 
 import BackCircleButton from '@components/BackCircleButton'
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import {closeGlobalBottomSheet, openGlobalBottomSheet} from '@components/GlobalBottomSheet'
 import ChevronLeftIcon from '@components/icons/ChevronLeftIcon'
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
 import InfoBanner from '@components/InfoBanner'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SectionOverline from '@components/SectionOverline'
 import SetupFooter from '@components/SetupFooter'
 import SkeletonBlock from '@components/Skeleton'
@@ -50,6 +50,7 @@ import {
   MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE,
   MEAL_PLAN_GENERATE_BUTTON_TEXT,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
+  MEAL_PLAN_LOAD_ERROR_BODY,
   MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_PLAN_STARTS_LABEL,
   MEAL_PLAN_REVIEW_HEADER_LABEL,
@@ -64,21 +65,19 @@ import {
 
 import PlanStartsCard from './components/PlanStartsCard'
 import TargetsCard from './components/TargetsCard'
-import {
-  GenerateRevisionConflict,
-  GenerateSequenceCommitments,
-  NO_GENERATE_COMMITMENTS,
-  runGenerateSequence
-} from './index.orchestration'
 import styles from './index.styled'
 import {
   AnswerRowEditStep,
   buildAnswerRows,
+  GenerateRevisionConflict,
+  GenerateSequenceCommitments,
+  NO_GENERATE_COMMITMENTS,
   planGenerateSequence,
   resolveDisplayedTargets,
   resolveGenerateCtaState,
   resolveInitialStartDate,
-  resolveStartDateStepState
+  resolveStartDateStepState,
+  runGenerateSequence
 } from './index.util'
 
 // The rhythm 13c loads into: the calorie figure, the three legend rows and the plan-start row.
@@ -100,6 +99,14 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   const saveTargetsMutation = useSaveNutritionTargetsMutation()
   const saveStepMutation = useSaveSetupStepMutation()
 
+  // TanStack keeps refetch and mutateAsync stable while the observer object it hangs off is replaced on every
+  // status change, so the callbacks below close over and depend on these rather than on the observers.
+  const {refetch: refetchPreferences} = preferencesQuery
+  const {refetch: refetchTargets} = targetsQuery
+  const {refetch: refetchEstimate} = estimateQuery
+  const {mutateAsync: saveTargets} = saveTargetsMutation
+  const {mutateAsync: saveSetupStep} = saveStepMutation
+
   // One clock for the screen's life: the bounds are day-key granular, so re-reading it per render would
   // only risk the min and the selection disagreeing across a midnight rollover mid-session.
   const now = useMemo(() => new Date(), [])
@@ -110,6 +117,11 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
   const [chosenStartDate, setChosenStartDate] = useState<string | null>(null)
   const [conflict, setConflict] = useState<GenerateRevisionConflict | null>(null)
+
+  // The press, not the write. A refused save leaves `isPending` behind while the sequence is still refetching
+  // the authoritative row and deciding whether the refusal was a conflict — re-enabling the CTA there would
+  // let a second press start against revisions the first one is in the middle of replacing (0.7.2).
+  const [isSequenceRunning, setIsSequenceRunning] = useState(false)
 
   const preferences = preferencesQuery.data ?? null
   // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route
@@ -132,7 +144,9 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
       activePlanEndDate
     })
 
-  const isSubmitting = saveTargetsMutation.isPending || saveStepMutation.isPending
+  // The whole press: the writes and the recovery that follows a refusal, so every affordance the press owns
+  // stays closed until the sequence has actually settled.
+  const isSubmitting = saveTargetsMutation.isPending || saveStepMutation.isPending || isSequenceRunning
 
   const estimateErrorCode = getApiErrorCode(estimateQuery.error)
   const isEstimateUnavailable = estimateErrorCode === API_ERROR_CODES.estimateUnavailable
@@ -148,13 +162,13 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   // arguing with the server about a conflict the user never had.
   const onRetryReadsPressed = useCallback(() => {
     if (preferences === null) {
-      preferencesQuery.refetch()
+      refetchPreferences()
     }
 
     if (hasTargetsReadFailure) {
-      targetsQuery.refetch()
+      refetchTargets()
     }
-  }, [hasTargetsReadFailure, preferences, preferencesQuery, targetsQuery])
+  }, [hasTargetsReadFailure, preferences, refetchPreferences, refetchTargets])
 
   const openEditTargets = useCallback(
     (mode: 'edit' | 'manual', intent?: 'confirm_estimate' | 'edit_saved' | 'manual_entry') => {
@@ -196,58 +210,78 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
   /**
    * The generate sequence of AAP 0.7.4. Its ordering, selective retry and conflict recovery are decided in
-   * index.orchestration, where they are tested without a renderer; this screen supplies the collaborators and
-   * turns the outcome into copy.
+   * index.util, where they are tested without a renderer; this screen supplies the collaborators and turns the
+   * outcome into copy.
    */
   const runSequence = useCallback(
     async (
       confirmedPreferences: MealPlanPreferences,
       keepMineConflict: GenerateRevisionConflict | null
     ): Promise<void> => {
-      const outcome = await runGenerateSequence({
-        targets,
-        estimate,
-        preferences: confirmedPreferences,
-        startDate,
-        planStartDate: paramStartDate,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        commitments: commitments.current,
-        keepMineConflict,
-        collaborators: {
-          saveTargets: saveTargetsMutation.mutateAsync,
-          saveSetupStep: saveStepMutation.mutateAsync,
-          refetchTargets: async () => selectNutritionTargets(await targetsQuery.refetch()),
-          refetchPreferences: async () => (await preferencesQuery.refetch()).data ?? null,
-          refetchEstimate: async () => {
-            await estimateQuery.refetch()
-          },
-          mintIdempotencyKey: () => mintKey(uuidv4),
-          navigateToGenerating: generatingParams => navigation.navigate(Screens.MEAL_PLAN_GENERATING, generatingParams)
+      setIsSequenceRunning(true)
+
+      try {
+        const outcome = await runGenerateSequence({
+          targets,
+          estimate,
+          preferences: confirmedPreferences,
+          startDate,
+          planStartDate: paramStartDate,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          commitments: commitments.current,
+          keepMineConflict,
+          collaborators: {
+            saveTargets,
+            saveSetupStep,
+            // Each refetch reports whether it reached the server, never just the row it left in the cache: a
+            // failed refetch retains the pre-press data, which recovery would otherwise read as the server's
+            // own answer and accept as proof a refused write had landed.
+            refetchTargets: async () => {
+              const result = await refetchTargets()
+
+              return result.isSuccess ? {status: 'ok', data: selectNutritionTargets(result)} : {status: 'failed'}
+            },
+            refetchPreferences: async () => {
+              const result = await refetchPreferences()
+
+              return result.isSuccess ? {status: 'ok', data: result.data ?? null} : {status: 'failed'}
+            },
+            refetchEstimate: async () => {
+              const result = await refetchEstimate()
+
+              return result.isSuccess ? {status: 'ok', data: result.data ?? null} : {status: 'failed'}
+            },
+            mintIdempotencyKey: () => mintKey(uuidv4),
+            navigateToGenerating: generatingParams =>
+              navigation.navigate(Screens.MEAL_PLAN_GENERATING, generatingParams)
+          }
+        })
+
+        commitments.current = outcome.commitments
+        setConflict(outcome.status === 'conflict' ? outcome.conflict : null)
+
+        if (outcome.status === 'estimate_stale') {
+          showToast('error', MEAL_PLAN_GENERATION_TERMINAL_COPY.stale_revision.body)
         }
-      })
 
-      commitments.current = outcome.commitments
-      setConflict(outcome.status === 'conflict' ? outcome.conflict : null)
-
-      if (outcome.status === 'estimate_stale') {
-        showToast('error', MEAL_PLAN_GENERATION_TERMINAL_COPY.stale_revision.body)
-      }
-
-      if (outcome.status === 'failed') {
-        showToast('error', TOAST_GENERIC_ERROR)
+        if (outcome.status === 'failed') {
+          showToast('error', TOAST_GENERIC_ERROR)
+        }
+      } finally {
+        setIsSequenceRunning(false)
       }
     },
     [
       estimate,
-      estimateQuery,
       navigation,
       paramStartDate,
-      preferencesQuery,
-      saveStepMutation,
-      saveTargetsMutation,
+      refetchEstimate,
+      refetchPreferences,
+      refetchTargets,
+      saveSetupStep,
+      saveTargets,
       startDate,
-      targets,
-      targetsQuery
+      targets
     ]
   )
 
@@ -259,7 +293,8 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
       : resolveGenerateCtaState({
           plan: planGenerateSequence({targets, estimate, preferences, startDate}),
           isEstimateLoading: estimateQuery.isLoading,
-          isPending: isSubmitting
+          isPending: isSubmitting,
+          hasReadFailure
         })
 
   const onGeneratePressed = useCallback(() => {
@@ -269,6 +304,15 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
     if (ctaState.action === 'manual_targets') {
       openEditTargets('manual', 'manual_entry')
+
+      return
+    }
+
+    // A saved set the planner will not accept — legacy, or missing figures (0.5.2) — is the user's to settle,
+    // so the press opens the editor on their own numbers instead of generating against them or silently
+    // replacing them with the estimate.
+    if (ctaState.action === 'review_targets') {
+      openEditTargets('edit', 'edit_saved')
 
       return
     }
@@ -376,7 +420,8 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
       <InfoBanner
         tone="error"
         glyph="alert"
-        body={MEAL_PLAN_LOAD_ERROR_TITLE}
+        title={MEAL_PLAN_LOAD_ERROR_TITLE}
+        body={MEAL_PLAN_LOAD_ERROR_BODY}
         actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
         onAction={onRetry}
       />
@@ -398,6 +443,10 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
               unitLabel={displayed.unitLabel}
               macros={displayed.macros}
               editLabel={displayed.editLabel}
+              // The recalculated figure beside the saved one it would replace (0.7.3), so the Recalculate link
+              // states what adopting it changes rather than the estimate quietly taking the card over.
+              estimateFigure={displayed.freshEstimateText ?? undefined}
+              summaryAccessibilityLabel={displayed.summaryAccessibilityLabel}
               onEditPress={() =>
                 openEditTargets('edit', displayed.source === 'estimate' ? 'confirm_estimate' : 'edit_saved')
               }
@@ -432,7 +481,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
     }
 
     return errorBlock(() => {
-      estimateQuery.refetch()
+      refetchEstimate()
     })
   }
 
@@ -481,7 +530,11 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
           {hasReadFailure && errorBlock(onRetryReadsPressed)}
 
-          {preferences !== null && reviewBody(preferences)}
+          {/* The retry card replaces the review rather than sitting above it. Every revision the press pins
+              comes from these two reads, so a review rendered without one of them offers a Generate that
+              cannot name what it is generating against — and answer rows, a start date and a targets card
+              drawn from a partial read read as settled state the server never confirmed. */}
+          {!hasReadFailure && preferences !== null && reviewBody(preferences)}
         </KeyboardAwareScrollView>
       </ContentColumn>
 
@@ -494,14 +547,17 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={conflict !== null}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={isSubmitting}
-        onKeepMine={onKeepMinePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSubmitting}
+        avoidKeyboard
+        onConfirmPressed={onKeepMinePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

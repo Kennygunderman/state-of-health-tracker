@@ -3,39 +3,81 @@ import {
   LoggedPlannedEntry,
   MealPlan,
   MealPlanDay,
+  MealPlanDayEnvelope,
   MealPlanFlag,
   MealPlanMeal
 } from '@data/models/MealPlan'
 import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PENDING_INTENT_TTL_MS,
+  PendingIntent,
+  PendingIntentAction,
+  PostLogResult
+} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {
+  GenerateRequestSnapshot,
+  LogRequestSnapshot,
+  matchesFingerprint,
+  MealPlanRequestSnapshot,
+  RegenerateRequestSnapshot,
+  requestBody,
+  SwapRequestSnapshot
+} from '@utility/IdempotencyUtility'
 
 import Screens from '@constants/screens'
 import {
   MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
   MEAL_PLAN_CREATE_BUTTON_TEXT,
-  MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT
+  MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT,
+  MEAL_SLOT_LABELS
 } from '@constants/strings'
 
 import {
   arePlanActionsOffered,
+  buildMealCardModels,
+  isKeyedWriteHeldByAnotherMeal,
   flexItemWidth,
+  InPlaceWriteInputs,
   formatPostLogBannerBody,
-  isStalePlanCode,
+  isPostLogBannerVisible,
+  isStalePlanError,
   latestLoggedEntry,
   MealPlanBodyInputs,
+  MealPlanBodyOutcome,
+  MealPlanGeneratingParams,
+  PendingGenerationInputs,
   planDayWeekdayName,
+  PostLogBannerOrigin,
   resolveEmptyPlanCtaLabel,
+  resolveFrameOutcome,
+  resolveHandoffLatch,
   resolveLastDayAction,
+  resolveLogOwnership,
   resolveMealFlagReason,
   resolveMealLoggedState,
   resolveMealPlanBody,
+  resolveMealPlanDaySection,
+  resolvePendingGeneration,
   resolvePlanSwitchLink,
+  resolvePostLogBannerOrigin,
   resolveSelectedPlan,
   resolveSelectedPlanDate,
   resolveSetupResumeTarget,
   resolveStalePlanSelection,
-  resolveViewTarget
+  resolveSwapOwnership,
+  resolveTabFrame,
+  resolveViewTarget,
+  slotCopyFromBucketLabel
 } from '../index.util'
+
+// Mocking the persist adapter keeps the suite free of native modules: `index.util` imports the store module
+// for its pure replay API, and importing that module creates the persisted store.
+jest.mock('@store/zustandAsyncStorage', () => ({
+  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
 
 const PLAN_START_DATE = '2026-07-05'
 const PLAN_END_DATE = '2026-07-11'
@@ -101,6 +143,7 @@ const makePlan = (overrides: Partial<MealPlan> = {}): MealPlan => ({
   id: CURRENT_PLAN_ID,
   revision: 1,
   generationAttempt: 1,
+  generationKey: 'gen-key-1',
   startDate: PLAN_START_DATE,
   endDate: PLAN_END_DATE,
   status: 'active',
@@ -125,6 +168,17 @@ const makeUpcomingPlan = (overrides: Partial<MealPlan> = {}): MealPlan =>
   })
 
 const makePlans = (current: MealPlan | null, upcoming: MealPlan | null): CurrentMealPlans => ({current, upcoming})
+
+// Built as the logging screen builds it: `slotLabel` is the diary bucket's own name, which the server
+// backfills capitalised, and `viewTarget` is the value that was current when the entry was written.
+const makePostLogResult = (overrides: Partial<PostLogResult> = {}): PostLogResult => ({
+  entryId: 'entry-a',
+  dateIso: PLAN_START_DATE,
+  slotLabel: MEAL_SLOT_LABELS.breakfast,
+  recipeName: 'Greek yogurt bowl',
+  viewTarget: 'diary',
+  ...overrides
+})
 
 const makePreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlanPreferences => ({
   setupStatus: 'completed',
@@ -161,6 +215,94 @@ const makePreferences = (overrides: Partial<MealPlanPreferences> = {}): MealPlan
   ...overrides
 })
 
+const USER_ID = 'user-8f21'
+const OTHER_USER_ID = 'user-3c07'
+const GENERATE_KEY = 'idem-generate-1'
+const REGENERATE_KEY = 'idem-regenerate-1'
+const INTENT_CREATED_AT = Date.parse('2026-07-04T10:15:00.000Z')
+const NOW = INTENT_CREATED_AT + 60_000
+
+const GENERATE_SNAPSHOT: GenerateRequestSnapshot = {
+  action: 'generate',
+  startDate: UPCOMING_START_DATE,
+  expectedPreferencesRevision: 4,
+  expectedTargetsRevision: 2
+}
+
+const REGENERATE_SNAPSHOT: RegenerateRequestSnapshot = {
+  action: 'regenerate',
+  planId: CURRENT_PLAN_ID,
+  expectedPlanRevision: 1,
+  expectedPreferencesRevision: 4,
+  expectedTargetsRevision: 2
+}
+
+// The two in-place writes name a meal, and deliberately not the same one: a record is replayed for the meal
+// it was minted against, not for whatever the tab happens to be showing.
+const SWAP_KEY = 'idem-swap-1'
+const LOG_KEY = 'idem-log-1'
+const SWAP_MEAL_ID = 'meal-lunch'
+const LOG_MEAL_ID = 'meal-breakfast'
+
+const SWAP_SNAPSHOT: SwapRequestSnapshot = {
+  action: 'swap',
+  planId: CURRENT_PLAN_ID,
+  mealId: SWAP_MEAL_ID,
+  recipeVersionId: RECIPE_A_VERSION_ID,
+  portionMultiplier: 1,
+  expectedPlanRevision: 1
+}
+
+const LOG_SNAPSHOT: LogRequestSnapshot = {
+  action: 'log',
+  planId: CURRENT_PLAN_ID,
+  mealId: LOG_MEAL_ID,
+  servings: 1,
+  date: PLAN_START_DATE,
+  diaryMealId: 'diary-breakfast',
+  expectedPlanRevision: 1
+}
+
+// Built through the store's own factory, so every record carries the fingerprint and the derived plan pair a
+// restored one is validated against — a hand-written record would be refused as unreplayable.
+const generateIntent = (createdAt: number = INTENT_CREATED_AT): PendingIntent =>
+  buildPendingIntent(GENERATE_SNAPSHOT, GENERATE_KEY, USER_ID, createdAt)
+
+const regenerateIntent = (createdAt: number = INTENT_CREATED_AT): PendingIntent =>
+  buildPendingIntent(REGENERATE_SNAPSHOT, REGENERATE_KEY, USER_ID, createdAt)
+
+const makeIntents = (intents: PendingIntent[]): Pick<MealPlanStore, 'pendingIntents'> => {
+  const pendingIntents: Partial<Record<PendingIntentAction, PendingIntent>> = {}
+
+  intents.forEach(intent => {
+    pendingIntents[intent.request.action] = intent
+  })
+
+  return {pendingIntents}
+}
+
+// The request the Generating screen rebuilds from the params it is opened with, mirrored here because a
+// screen's own util may not be imported across folders. What it asserts is the contract that matters: a route
+// reconstructed from a stored snapshot asks for exactly what the stored key was minted for.
+const rebuildStoredRequest = (params: MealPlanGeneratingParams): MealPlanRequestSnapshot => {
+  if (params.context.kind === 'regenerate') {
+    return {
+      action: 'regenerate',
+      planId: params.context.planId,
+      expectedPlanRevision: params.context.planRevision,
+      expectedPreferencesRevision: params.expectedPreferencesRevision,
+      expectedTargetsRevision: params.expectedTargetsRevision
+    }
+  }
+
+  return {
+    action: 'generate',
+    startDate: params.context.kind === 'nextWeek' ? params.context.startDate : params.startDate,
+    expectedPreferencesRevision: params.expectedPreferencesRevision,
+    expectedTargetsRevision: params.expectedTargetsRevision
+  }
+}
+
 const makeBodyInputs = (overrides: Partial<MealPlanBodyInputs> = {}): MealPlanBodyInputs => ({
   availability: 'enabled',
   preferences: makePreferences(),
@@ -174,7 +316,11 @@ const makeBodyInputs = (overrides: Partial<MealPlanBodyInputs> = {}): MealPlanBo
 
 const featureDisabledError = {response: {status: 503, data: {error: 'feature_disabled'}}}
 const routesMissingError = {response: {status: 404, data: {}}}
-const resourceNotFoundError = {response: {status: 404, data: {error: 'plan_not_active'}}}
+// The literal answer of every meal-planning resource route: `PlanNotFoundError` becomes
+// `404 {error: 'Plan not found'}`, covering a plan that is absent or another user's AND a date outside the
+// plan's own week. Prose, not a machine code — which is exactly why classifying on the code string alone
+// missed it.
+const resourceNotFoundError = {response: {status: 404, data: {error: 'Plan not found'}}}
 const legacyNotFoundError = {response: {status: 404, data: {error: 'Meal plan not found'}}}
 const stalePlanError = {response: {status: 409, data: {error: 'stale_plan'}}}
 const planNotActiveError = {response: {status: 409, data: {error: 'plan_not_active'}}}
@@ -461,6 +607,640 @@ describe('resolveMealPlanBody', () => {
   })
 })
 
+// The cold-start owner of a generation whose response was lost (AAP 0.7.2). Navigation state is not
+// persisted, so these cases are the whole of what decides whether the Generating screen is ever reconstructed
+// and which request it is reconstructed for.
+describe('resolvePendingGeneration', () => {
+  const makeGenerationInputs = (overrides: Partial<PendingGenerationInputs> = {}): PendingGenerationInputs => ({
+    intents: {pendingIntents: {}},
+    userId: USER_ID,
+    now: NOW,
+    intentsHydration: 'succeeded',
+    isHandoffAllowed: true,
+    isGenerationInFlight: false,
+    navigatedKey: null,
+    plans: makePlans(null, null),
+    todayDayKey: PLAN_START_DATE,
+    ...overrides
+  })
+
+  describe('nothing to hand over', () => {
+    it('leaves the tab alone when no intent is stored', () => {
+      expect(resolvePendingGeneration(makeGenerationInputs())).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
+    })
+
+    // 'idle' would be a claim that nothing is pending, which is exactly what an unread slice cannot support:
+    // the tab has to withhold its normal state instead of exposing it over a key it has not seen yet.
+    it('answers hydrating, not idle, while the persisted slice is still on its way back', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), intentsHydration: 'pending'})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'hydrating'}, navigatedKey: null})
+    })
+
+    it('answers hydrating even with nothing stored, because an unread slice is unknown rather than empty', () => {
+      expect(resolvePendingGeneration(makeGenerationInputs({intentsHydration: 'pending'}))).toEqual({
+        outcome: {kind: 'hydrating'},
+        navigatedKey: null
+      })
+    })
+
+    // A refused read is its own answer: the contents are unknown and only a retry can change that, so it must
+    // not read as 'nothing pending' and must not be confused with waiting.
+    it('answers unreadable when the persisted read was refused', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), intentsHydration: 'failed'})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'unreadable'}, navigatedKey: null})
+    })
+
+    it('keeps the latch untouched while the slice is unread, so nothing is spent on an undecided frame', () => {
+      const hydrating = resolvePendingGeneration(
+        makeGenerationInputs({intentsHydration: 'pending', navigatedKey: GENERATE_KEY})
+      )
+      const unreadable = resolvePendingGeneration(
+        makeGenerationInputs({intentsHydration: 'failed', navigatedKey: GENERATE_KEY})
+      )
+
+      expect(hydrating.navigatedKey).toBe(GENERATE_KEY)
+      expect(unreadable.navigatedKey).toBe(GENERATE_KEY)
+    })
+
+    it('never reconstructs a route for a record another account minted', () => {
+      const foreign = buildPendingIntent(GENERATE_SNAPSHOT, GENERATE_KEY, OTHER_USER_ID, INTENT_CREATED_AT)
+
+      expect(resolvePendingGeneration(makeGenerationInputs({intents: makeIntents([foreign])}))).toEqual({
+        outcome: {kind: 'idle'},
+        navigatedKey: null
+      })
+    })
+
+    it('never reconstructs a route while no account is known', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), userId: null})
+      )
+
+      expect(decision.outcome).toEqual({kind: 'idle'})
+    })
+
+    it('lets an intent that has aged out stay unreplayed', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([generateIntent()]),
+          now: INTENT_CREATED_AT + PENDING_INTENT_TTL_MS
+        })
+      )
+
+      expect(decision.outcome).toEqual({kind: 'idle'})
+    })
+
+    it('opens no screen for a swap or log intent, which this tab replays in place', () => {
+      const logIntent = buildPendingIntent(LOG_SNAPSHOT, LOG_KEY, USER_ID, INTENT_CREATED_AT)
+
+      expect(resolvePendingGeneration(makeGenerationInputs({intents: makeIntents([logIntent])})).outcome).toEqual({
+        kind: 'idle'
+      })
+    })
+  })
+
+  describe('a generation nobody owns', () => {
+    it('reconstructs the setup generation from the stored snapshot and its stored key', () => {
+      const decision = resolvePendingGeneration(makeGenerationInputs({intents: makeIntents([generateIntent()])}))
+
+      expect(decision).toEqual({
+        outcome: {
+          kind: 'handoff',
+          params: {
+            context: {kind: 'setup'},
+            idempotencyKey: GENERATE_KEY,
+            expectedPreferencesRevision: 4,
+            expectedTargetsRevision: 2,
+            startDate: UPCOMING_START_DATE
+          }
+        },
+        navigatedKey: GENERATE_KEY
+      })
+    })
+
+    it('reads the generation as next week when the user already has a week', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), plans: makePlans(makePlan(), null)})
+      )
+
+      expect(decision.outcome).toEqual({
+        kind: 'handoff',
+        params: {
+          context: {kind: 'nextWeek', startDate: UPCOMING_START_DATE},
+          idempotencyKey: GENERATE_KEY,
+          expectedPreferencesRevision: 4,
+          expectedTargetsRevision: 2,
+          startDate: UPCOMING_START_DATE
+        }
+      })
+    })
+
+    it('reconstructs the regeneration naming the plan and the revision the record holds', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([regenerateIntent()]), plans: makePlans(makePlan(), null)})
+      )
+
+      expect(decision).toEqual({
+        outcome: {
+          kind: 'handoff',
+          params: {
+            context: {kind: 'regenerate', planId: CURRENT_PLAN_ID, planRevision: 1},
+            idempotencyKey: REGENERATE_KEY,
+            expectedPreferencesRevision: 4,
+            expectedTargetsRevision: 2,
+            startDate: PLAN_START_DATE
+          }
+        },
+        navigatedKey: REGENERATE_KEY
+      })
+    })
+
+    // The regeneration's start date is card copy only — the request keeps the dates the plan already has — so
+    // a plan the payload does not hold must not stop the replay.
+    it('falls back to today for the week of a regeneration whose plan is not in hand', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: undefined,
+          todayDayKey: UPCOMING_END_DATE
+        })
+      )
+
+      expect(decision.outcome).toEqual({
+        kind: 'handoff',
+        params: {
+          context: {kind: 'regenerate', planId: CURRENT_PLAN_ID, planRevision: 1},
+          idempotencyKey: REGENERATE_KEY,
+          expectedPreferencesRevision: 4,
+          expectedTargetsRevision: 2,
+          startDate: UPCOMING_END_DATE
+        }
+      })
+    })
+
+    /**
+     * The point of reconstructing from the snapshot rather than from current query data: the screen rebuilds
+     * its request from these params, so they have to rebuild the very request the stored key was minted for.
+     * `rebuildStoredRequest` mirrors the Generating screen's own rebuild, which cannot be imported across
+     * screen folders, and the fingerprint is the byte-identical-replay test the server enforces (0.5.1).
+     */
+    it('reconstructs params that rebuild the byte-identical generation the key was minted for', () => {
+      const intent = generateIntent()
+      const decision = resolvePendingGeneration(makeGenerationInputs({intents: makeIntents([intent])}))
+
+      expect(decision.outcome.kind).toBe('handoff')
+      expect(
+        decision.outcome.kind === 'handoff' &&
+          matchesFingerprint(rebuildStoredRequest(decision.outcome.params), intent.fingerprint)
+      ).toBe(true)
+    })
+
+    it('reconstructs params that rebuild the byte-identical regeneration the key was minted for', () => {
+      const intent = regenerateIntent()
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([intent]), plans: makePlans(makePlan(), null)})
+      )
+
+      expect(decision.outcome.kind).toBe('handoff')
+      expect(
+        decision.outcome.kind === 'handoff' &&
+          matchesFingerprint(rebuildStoredRequest(decision.outcome.params), intent.fingerprint)
+      ).toBe(true)
+    })
+  })
+
+  // The one resolution reachable from a read (AAP 0.2.5): the plan carries the key, so the key is answered.
+  // It has to be RETIRED rather than merely skipped — a record left on file keeps the action's single slot
+  // occupied, and the launch path would hand its superseded request back here for the rest of the week.
+  describe('a key the server has already answered', () => {
+    it('retires the generation and selects the plan a returned upcoming week carries the key for', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([generateIntent()]),
+          plans: makePlans(makePlan(), makeUpcomingPlan({generationKey: GENERATE_KEY}))
+        })
+      )
+
+      expect(decision).toEqual({
+        outcome: {kind: 'settled', action: 'generate', planId: UPCOMING_PLAN_ID},
+        navigatedKey: null
+      })
+    })
+
+    it('retires the regeneration and selects the plan that carries the pending key', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null)
+        })
+      )
+
+      expect(decision.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+    })
+
+    // The settlement retires the record and selects the plan; it never reopens the screen for a request the
+    // server has already finished.
+    it('opens no screen for the settled key', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null)
+        })
+      )
+
+      expect(decision.outcome.kind).not.toBe('handoff')
+    })
+
+    // Settling is a state write about a key the server demonstrably answered, so it does not wait for the
+    // navigation gate the handoff needs — otherwise an unfocused tab would leave the slot occupied.
+    it('settles even while the tab may not navigate', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null),
+          isHandoffAllowed: false
+        })
+      )
+
+      expect(decision.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+    })
+
+    it('settles the key even after this tab has already handed it over once', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null),
+          navigatedKey: REGENERATE_KEY
+        })
+      )
+
+      expect(decision).toEqual({
+        outcome: {kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID},
+        navigatedKey: REGENERATE_KEY
+      })
+    })
+
+    it('settles nothing while no record is stored, however the plans are keyed', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null)})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
+    })
+
+    // A plan carrying another key proves nothing about this one: after a lost response the week in hand may be
+    // the one the request was about to replace.
+    it('still reconstructs the owner when the plans in hand carry other generation keys', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([generateIntent()]),
+          plans: makePlans(makePlan({generationKey: 'gen-key-someone-else'}), null)
+        })
+      )
+
+      expect(decision.outcome.kind).toBe('handoff')
+    })
+  })
+
+  describe('one handoff per key', () => {
+    // The latch is held for the handoff the tab is currently holding, not for its lifetime: while it holds
+    // that key the screen is not reopened, and `resolveHandoffLatch` releases it when focus is lost so the
+    // same key can be reconstructed again on return. The pair below is that whole contract.
+    it('does not reopen the screen while it still holds the latch for that key', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), navigatedKey: GENERATE_KEY})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: GENERATE_KEY})
+    })
+
+    it('reconstructs the same key again once the latch has been released on losing focus', () => {
+      const released = resolveHandoffLatch(GENERATE_KEY, false)
+
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), navigatedKey: released})
+      )
+
+      expect(decision).toEqual({
+        outcome: {
+          kind: 'handoff',
+          params: {
+            context: {kind: 'setup'},
+            idempotencyKey: GENERATE_KEY,
+            expectedPreferencesRevision: 4,
+            expectedTargetsRevision: 2,
+            startDate: UPCOMING_START_DATE
+          }
+        },
+        navigatedKey: GENERATE_KEY
+      })
+    })
+
+    it('hands over a different key even after one has been handed over', () => {
+      const laterIntent = buildPendingIntent(
+        {...GENERATE_SNAPSHOT, expectedTargetsRevision: 3},
+        'idem-generate-2',
+        USER_ID,
+        INTENT_CREATED_AT
+      )
+
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([laterIntent]), navigatedKey: GENERATE_KEY})
+      )
+
+      expect(decision).toEqual({
+        outcome: {
+          kind: 'handoff',
+          params: {
+            context: {kind: 'setup'},
+            idempotencyKey: 'idem-generate-2',
+            expectedPreferencesRevision: 4,
+            expectedTargetsRevision: 3,
+            startDate: UPCOMING_START_DATE
+          }
+        },
+        navigatedKey: 'idem-generate-2'
+      })
+    })
+
+    it('waits while an attempt for the intent is already on the wire', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), isGenerationInFlight: true})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
+    })
+
+    it('waits while the tab may not navigate — unfocused, unavailable, or the plan read unsettled', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), isHandoffAllowed: false})
+      )
+
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
+    })
+  })
+
+  describe('two unresolved generations', () => {
+    it('reconstructs the request the user is waiting on, which is the newer one', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([generateIntent(), regenerateIntent(INTENT_CREATED_AT + 1000)]),
+          plans: makePlans(makePlan(), null)
+        })
+      )
+
+      expect(decision.navigatedKey).toBe(REGENERATE_KEY)
+    })
+
+    // An answered key must not shadow one nobody has answered, or the older request would never be finished:
+    // the answered one is settled first, and the render after its record is retired owns the older request.
+    it('settles the published newer request, then reconstructs the older one', () => {
+      const published = makePlans(makePlan({generationKey: REGENERATE_KEY}), null)
+
+      const settlement = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([generateIntent(), regenerateIntent(INTENT_CREATED_AT + 1000)]),
+          plans: published
+        })
+      )
+
+      expect(settlement.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+
+      const afterSettlement = resolvePendingGeneration(
+        makeGenerationInputs({intents: makeIntents([generateIntent()]), plans: published})
+      )
+
+      expect(afterSettlement.navigatedKey).toBe(GENERATE_KEY)
+      expect(afterSettlement.outcome.kind).toBe('handoff')
+    })
+  })
+})
+
+// The tab as the cold-start owner of the two keyed writes that have no screen to reconstruct (AAP 0.7.2 —
+// "the Meal Plan tab for swap/log"). Navigation state is not persisted, so a real cold start mounts this tab
+// and not the log or preview route that made the request: if the replay does not happen here it happens
+// nowhere, and the log screen's next attempt would rebuild a different request under a new key — a second
+// diary entry for a meal the user logged once.
+describe('resolveSwapOwnership and resolveLogOwnership', () => {
+  const swapIntent = (createdAt: number = INTENT_CREATED_AT): PendingIntent =>
+    buildPendingIntent(SWAP_SNAPSHOT, SWAP_KEY, USER_ID, createdAt)
+
+  const logIntent = (createdAt: number = INTENT_CREATED_AT): PendingIntent =>
+    buildPendingIntent(LOG_SNAPSHOT, LOG_KEY, USER_ID, createdAt)
+
+  const makeWriteInputs = (overrides: Partial<InPlaceWriteInputs> = {}): InPlaceWriteInputs => ({
+    intents: {pendingIntents: {}},
+    userId: USER_ID,
+    now: NOW,
+    intentsHydration: 'succeeded',
+    isReplayAllowed: true,
+    isRequestInFlight: false,
+    replayedKey: null,
+    ...overrides
+  })
+
+  describe('the stored request, under the stored key', () => {
+    it('replays the swap body the key was minted for, byte for byte', () => {
+      const ownership = resolveSwapOwnership(makeWriteInputs({intents: makeIntents([swapIntent()])}))
+
+      expect(ownership.intent).toEqual({planId: CURRENT_PLAN_ID, mealId: SWAP_MEAL_ID, key: SWAP_KEY})
+      expect(ownership.payload).toEqual(requestBody(SWAP_SNAPSHOT, SWAP_KEY))
+      expect(ownership.replayedKey).toBe(SWAP_KEY)
+    })
+
+    it('replays the log body the key was minted for, never one rebuilt from current data', () => {
+      const ownership = resolveLogOwnership(makeWriteInputs({intents: makeIntents([logIntent()])}))
+
+      expect(ownership.intent).toEqual({planId: CURRENT_PLAN_ID, mealId: LOG_MEAL_ID, key: LOG_KEY})
+      expect(ownership.payload).toEqual(requestBody(LOG_SNAPSHOT, LOG_KEY))
+      expect(ownership.replayedKey).toBe(LOG_KEY)
+    })
+
+    // Each resolver reads its own slot: the two writes are independent records and one must never be sent as
+    // the other, whose endpoint and body differ entirely.
+    it('reads only its own action', () => {
+      const intents = makeIntents([swapIntent(), logIntent()])
+
+      expect(resolveSwapOwnership(makeWriteInputs({intents})).payload).toEqual(requestBody(SWAP_SNAPSHOT, SWAP_KEY))
+      expect(resolveLogOwnership(makeWriteInputs({intents})).payload).toEqual(requestBody(LOG_SNAPSHOT, LOG_KEY))
+    })
+
+    it('finds nothing to replay when the slot is empty', () => {
+      expect(resolveSwapOwnership(makeWriteInputs())).toEqual({intent: null, payload: null, replayedKey: null})
+      expect(resolveLogOwnership(makeWriteInputs())).toEqual({intent: null, payload: null, replayedKey: null})
+    })
+  })
+
+  describe('nothing may be sent or concluded from an unread slice', () => {
+    it('sends nothing while the persisted read is still out', () => {
+      const ownership = resolveLogOwnership(
+        makeWriteInputs({intents: makeIntents([logIntent()]), intentsHydration: 'pending'})
+      )
+
+      expect(ownership).toEqual({intent: null, payload: null, replayedKey: null})
+    })
+
+    it('sends nothing when the persisted read was refused, whose contents are unknown rather than empty', () => {
+      const ownership = resolveSwapOwnership(
+        makeWriteInputs({intents: makeIntents([swapIntent()]), intentsHydration: 'failed'})
+      )
+
+      expect(ownership).toEqual({intent: null, payload: null, replayedKey: null})
+    })
+
+    it('sends nothing while no account is known, since ownership cannot be judged', () => {
+      const ownership = resolveLogOwnership(makeWriteInputs({intents: makeIntents([logIntent()]), userId: null}))
+
+      expect(ownership).toEqual({intent: null, payload: null, replayedKey: null})
+    })
+
+    it('never replays a record another account minted', () => {
+      const foreign = buildPendingIntent(LOG_SNAPSHOT, LOG_KEY, OTHER_USER_ID, INTENT_CREATED_AT)
+
+      expect(resolveLogOwnership(makeWriteInputs({intents: makeIntents([foreign])})).payload).toBeNull()
+    })
+
+    it('never replays a record that has aged out', () => {
+      const ownership = resolveSwapOwnership(
+        makeWriteInputs({intents: makeIntents([swapIntent()]), now: INTENT_CREATED_AT + PENDING_INTENT_TTL_MS})
+      )
+
+      expect(ownership).toEqual({intent: null, payload: null, replayedKey: null})
+    })
+  })
+
+  describe('one send per key', () => {
+    it('does not send a key it has already sent', () => {
+      const ownership = resolveSwapOwnership(
+        makeWriteInputs({intents: makeIntents([swapIntent()]), replayedKey: SWAP_KEY})
+      )
+
+      expect(ownership.payload).toBeNull()
+      expect(ownership.replayedKey).toBe(SWAP_KEY)
+    })
+
+    // The key still holds the slot, so the controls stay withheld until an answer retires the record — the
+    // latch only stops a second send.
+    it('keeps reporting the unresolved record after its one send', () => {
+      const ownership = resolveLogOwnership(
+        makeWriteInputs({intents: makeIntents([logIntent()]), replayedKey: LOG_KEY})
+      )
+
+      expect(ownership.intent).toEqual({planId: CURRENT_PLAN_ID, mealId: LOG_MEAL_ID, key: LOG_KEY})
+    })
+
+    it('waits while an attempt for that action is already on the wire, from here or from its own screen', () => {
+      const ownership = resolveLogOwnership(
+        makeWriteInputs({intents: makeIntents([logIntent()]), isRequestInFlight: true})
+      )
+
+      expect(ownership.payload).toBeNull()
+      expect(ownership.replayedKey).toBeNull()
+    })
+
+    it('waits while the tab is not the route on screen or the feature is unavailable', () => {
+      const ownership = resolveSwapOwnership(
+        makeWriteInputs({intents: makeIntents([swapIntent()]), isReplayAllowed: false})
+      )
+
+      expect(ownership.payload).toBeNull()
+      expect(ownership.intent).toEqual({planId: CURRENT_PLAN_ID, mealId: SWAP_MEAL_ID, key: SWAP_KEY})
+    })
+  })
+})
+
+// The gate that decides whether the tab may draw its ordinary surfaces at all. Those surfaces carry Swap, Log
+// and the routes that generate a plan, so exposing them while the existence of an unresolved keyed write is
+// unknown is what lets a press mint a second key over one the server may already have committed (0.7.2).
+describe('resolveTabFrame', () => {
+  const planBody: MealPlanBodyOutcome = {kind: 'plan', plan: makePlan(), isSavedCopy: false}
+  const emptyBody: MealPlanBodyOutcome = {kind: 'empty', cta: 'create'}
+  const unavailableBody: MealPlanBodyOutcome = {kind: 'unavailable'}
+
+  it('draws the plan only once the persisted slice has been read and nothing is pending', () => {
+    expect(resolveTabFrame(planBody, {kind: 'idle'})).toEqual({kind: 'body', outcome: planBody})
+  })
+
+  it('withholds the plan while the persisted read is still out', () => {
+    expect(resolveTabFrame(planBody, {kind: 'hydrating'})).toEqual({kind: 'withheld'})
+  })
+
+  it('withholds the setup call to action while the persisted read is still out', () => {
+    expect(resolveTabFrame(emptyBody, {kind: 'hydrating'})).toEqual({kind: 'withheld'})
+  })
+
+  it('offers the retry rather than the plan when the persisted read was refused', () => {
+    expect(resolveTabFrame(planBody, {kind: 'unreadable'})).toEqual({kind: 'intentsUnreadable'})
+  })
+
+  it('withholds the plan for the frame that hands a generation to its owner', () => {
+    expect(
+      resolveTabFrame(planBody, {
+        kind: 'handoff',
+        params: {
+          context: {kind: 'setup'},
+          idempotencyKey: GENERATE_KEY,
+          expectedPreferencesRevision: 4,
+          expectedTargetsRevision: 2,
+          startDate: UPCOMING_START_DATE
+        }
+      })
+    ).toEqual({kind: 'withheld'})
+  })
+
+  it('withholds the plan for the frame that retires an answered generation', () => {
+    expect(resolveTabFrame(planBody, {kind: 'settled', action: 'generate', planId: UPCOMING_PLAN_ID})).toEqual({
+      kind: 'withheld'
+    })
+  })
+
+  // The unavailable card offers nothing to press, and no keyed write can be owned while the feature is off, so
+  // replacing it with a placeholder that can never resolve would be strictly worse.
+  it('keeps the unavailable card whatever the persisted read is doing', () => {
+    expect(resolveTabFrame(unavailableBody, {kind: 'hydrating'})).toEqual({kind: 'body', outcome: unavailableBody})
+    expect(resolveTabFrame(unavailableBody, {kind: 'unreadable'})).toEqual({kind: 'body', outcome: unavailableBody})
+  })
+})
+
+describe('resolveFrameOutcome', () => {
+  it('passes an ordinary body through untouched', () => {
+    const outcome: MealPlanBodyOutcome = {kind: 'plan', plan: makePlan(), isSavedCopy: true}
+
+    expect(resolveFrameOutcome({kind: 'body', outcome})).toBe(outcome)
+  })
+
+  it('draws a withheld frame as the first-load placeholder, never as a plan or an empty state', () => {
+    expect(resolveFrameOutcome({kind: 'withheld'})).toEqual({kind: 'loading'})
+  })
+
+  it('draws a refused persisted read as the inline retry card', () => {
+    expect(resolveFrameOutcome({kind: 'intentsUnreadable'})).toEqual({kind: 'error'})
+  })
+})
+
+// The latch is scoped to the handoff the tab is holding. Holding it for the process is what let a popped
+// Generating screen leave an unresolved key with no owner and normal state on screen.
+describe('resolveHandoffLatch', () => {
+  it('keeps the latch while the tab is the route on screen', () => {
+    expect(resolveHandoffLatch(GENERATE_KEY, true)).toBe(GENERATE_KEY)
+  })
+
+  it('releases the latch when focus is lost, which is when the handoff has been taken', () => {
+    expect(resolveHandoffLatch(GENERATE_KEY, false)).toBeNull()
+  })
+
+  it('has nothing to release when no handoff is held', () => {
+    expect(resolveHandoffLatch(null, true)).toBeNull()
+    expect(resolveHandoffLatch(null, false)).toBeNull()
+  })
+})
+
 describe('resolveSetupResumeTarget', () => {
   it('opens the saved step itself, so a returning user never meets the introduction again', () => {
     expect(resolveSetupResumeTarget('goal')).toEqual({route: Screens.MEAL_PLAN_GOAL, params: {mode: 'setup'}})
@@ -542,11 +1322,23 @@ describe('arePlanActionsOffered', () => {
   const REFUSED = false
   // What the display-only seeded envelope carries, and what a pending day query has answered so far.
   const UNKNOWN = null
+  // Whether a swap or log key is still unanswered — the single slot per action that a new write would
+  // overwrite (0.7.2).
+  const NO_PENDING_WRITE = false
+  const PENDING_WRITE = true
 
   it('offers the actions when the day route says the plan accepts writes', () => {
     const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(makePlan(), null)}))
 
-    expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(true)
+    expect(arePlanActionsOffered(outcome, WRITABLE, NO_PENDING_WRITE)).toBe(true)
+  })
+
+  // The same reason the swap screen withholds its alternatives: one unresolved record per action, and a new
+  // swap or log would mint over the only key that can reconcile a write the server may already hold.
+  it('withholds them while a swap or log key is still unanswered, against a writable verdict', () => {
+    const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(makePlan(), null)}))
+
+    expect(arePlanActionsOffered(outcome, WRITABLE, PENDING_WRITE)).toBe(false)
   })
 
   it('withholds them when the day route refuses writes, though the plan is still stored active', () => {
@@ -554,14 +1346,14 @@ describe('arePlanActionsOffered', () => {
     const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(plan, null)}))
 
     expect(plan.status).toBe('active')
-    expect(arePlanActionsOffered(outcome, REFUSED)).toBe(false)
+    expect(arePlanActionsOffered(outcome, REFUSED, NO_PENDING_WRITE)).toBe(false)
   })
 
   it('withholds them while no verdict has arrived, so the seeded day renders read-only', () => {
     const outcome = resolveMealPlanBody(makeBodyInputs({plans: makePlans(makePlan(), null)}))
 
-    expect(arePlanActionsOffered(outcome, UNKNOWN)).toBe(false)
-    expect(arePlanActionsOffered(outcome, undefined)).toBe(false)
+    expect(arePlanActionsOffered(outcome, UNKNOWN, NO_PENDING_WRITE)).toBe(false)
+    expect(arePlanActionsOffered(outcome, undefined, NO_PENDING_WRITE)).toBe(false)
   })
 
   it('never derives a verdict from the plan on screen: a live-looking week alone offers nothing', () => {
@@ -571,7 +1363,7 @@ describe('arePlanActionsOffered', () => {
       makeBodyInputs({plans: makePlans(makePlan({status: 'active', endDate: '2099-12-31'}), null)})
     )
 
-    expect(arePlanActionsOffered(outcome, UNKNOWN)).toBe(false)
+    expect(arePlanActionsOffered(outcome, UNKNOWN, NO_PENDING_WRITE)).toBe(false)
   })
 
   it('withholds them while the week is a saved copy, even against a writable verdict', () => {
@@ -582,7 +1374,7 @@ describe('arePlanActionsOffered', () => {
     expect(outcome).toEqual({kind: 'plan', plan: expect.anything(), isSavedCopy: true})
     // The revision of a persisted copy cannot be trusted as expectedPlanRevision, so a stale 409 is traded
     // for a control that was never offered.
-    expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(false)
+    expect(arePlanActionsOffered(outcome, WRITABLE, NO_PENDING_WRITE)).toBe(false)
   })
 
   it('offers nothing for every body that is not a plan', () => {
@@ -593,7 +1385,7 @@ describe('arePlanActionsOffered', () => {
       resolveMealPlanBody(makeBodyInputs())
     ]
 
-    notPlans.forEach(outcome => expect(arePlanActionsOffered(outcome, WRITABLE)).toBe(false))
+    notPlans.forEach(outcome => expect(arePlanActionsOffered(outcome, WRITABLE, NO_PENDING_WRITE)).toBe(false))
   })
 })
 
@@ -916,23 +1708,352 @@ describe('flexItemWidth', () => {
   })
 })
 
-describe('isStalePlanCode', () => {
-  it('recognises a plan the server has replaced', () => {
-    expect(isStalePlanCode(API_ERROR_CODES.stalePlan)).toBe(true)
+describe('isStalePlanError', () => {
+  it('recognises a 4xx whose decoded body says the plan has been replaced or closed to writes', () => {
+    expect(isStalePlanError(stalePlanError)).toBe(true)
+    expect(isStalePlanError(planNotActiveError)).toBe(true)
   })
 
-  it('recognises a plan the server will no longer write', () => {
-    expect(isStalePlanCode(API_ERROR_CODES.planNotActive)).toBe(true)
+  // The resource route never returns a plan-state code: a plan that is gone, foreign, or asked for a date
+  // outside its week is one 404 carrying prose. It invalidates the plan the screen holds just as the codes
+  // do, so it earns the same recovery and must not be left to an inline retry of the dead resource.
+  it("recognises the resource route's 404 {error: 'Plan not found'}", () => {
+    expect(isStalePlanError(resourceNotFoundError)).toBe(true)
+    expect(isStalePlanError(legacyNotFoundError)).toBe(true)
+  })
+
+  // The bare 404 of a resource-less GET means the backend was rolled back; that is the entitlement's verdict
+  // to draw, not a plan to recover.
+  it('refuses the routes-missing 404, which says nothing about this plan', () => {
+    expect(isStalePlanError(routesMissingError)).toBe(false)
+  })
+
+  // The status is part of the answer: a gateway body that merely echoes the code described nothing about the
+  // request, so recovering on it would replace a live plan and abandon a read a retry would have completed.
+  it('refuses a 5xx carrying a plan-state code, whose outcome is unknown', () => {
+    expect(isStalePlanError({response: {status: 502, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(false)
+    expect(isStalePlanError({response: {status: 500, data: {error: API_ERROR_CODES.planNotActive}}})).toBe(false)
+    expect(isStalePlanError({response: {status: 504, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(false)
+  })
+
+  it('refuses an undecodable, bodiless or transport failure', () => {
+    expect(isStalePlanError(undecodableError)).toBe(false)
+    expect(isStalePlanError({response: {status: 409}})).toBe(false)
+    expect(isStalePlanError(networkError)).toBe(false)
+    expect(isStalePlanError(null)).toBe(false)
+    expect(isStalePlanError(undefined)).toBe(false)
   })
 
   it('leaves every other decoded code to its own handling', () => {
-    expect(isStalePlanCode(API_ERROR_CODES.featureDisabled)).toBe(false)
-    expect(isStalePlanCode(API_ERROR_CODES.noMatchingMeals)).toBe(false)
-    expect(isStalePlanCode(API_ERROR_CODES.staleRevision)).toBe(false)
+    expect(isStalePlanError(featureDisabledError)).toBe(false)
+    expect(isStalePlanError({response: {status: 422, data: {error: API_ERROR_CODES.noMatchingMeals}}})).toBe(false)
+    expect(isStalePlanError({response: {status: 409, data: {error: API_ERROR_CODES.staleRevision}}})).toBe(false)
+  })
+})
+
+describe('resolveMealPlanDaySection', () => {
+  const makeEnvelope = (overrides: Partial<MealPlanDayEnvelope> = {}): MealPlanDayEnvelope => ({
+    planId: CURRENT_PLAN_ID,
+    planRevision: 1,
+    planStatus: 'active',
+    planLifecycle: 'active',
+    isWritable: true,
+    day: makeDay({id: 'day-1-live'}),
+    ...overrides
   })
 
-  it('treats an undecodable failure as no code at all', () => {
-    expect(isStalePlanCode(null)).toBe(false)
+  const makeDayInputs = (overrides: Partial<Parameters<typeof resolveMealPlanDaySection>[0]> = {}) => ({
+    plan: makePlan(),
+    selectedDayKey: PLAN_START_DATE,
+    envelope: null,
+    dayError: null,
+    ...overrides
+  })
+
+  it('renders the day the route answered with', () => {
+    const envelope = makeEnvelope()
+
+    const section = resolveMealPlanDaySection(makeDayInputs({envelope}))
+
+    expect(section).toEqual({kind: 'day', day: envelope.day, hasFailedRead: false})
+  })
+
+  it("falls back to the week's own day until the route answers, so switching days never empties the screen", () => {
+    const plan = makePlan()
+
+    const section = resolveMealPlanDaySection(makeDayInputs({plan}))
+
+    expect(section).toEqual({kind: 'day', day: plan.days[0], hasFailedRead: false})
+  })
+
+  // The seed the day query starts from reads the very plan on screen, so a day the week does not carry is also
+  // a day nothing has cached: there is genuinely nothing to render.
+  it('reports loading when neither the route nor the week holds the selected day', () => {
+    expect(resolveMealPlanDaySection(makeDayInputs({selectedDayKey: '2026-07-09'}))).toEqual({kind: 'loading'})
+  })
+
+  it('discloses a failed read over the day the week still holds', () => {
+    const plan = makePlan()
+
+    expect(resolveMealPlanDaySection(makeDayInputs({plan, dayError: networkError}))).toEqual({
+      kind: 'day',
+      day: plan.days[0],
+      hasFailedRead: true
+    })
+    expect(resolveMealPlanDaySection(makeDayInputs({plan, dayError: undecodableError}))).toEqual({
+      kind: 'day',
+      day: plan.days[0],
+      hasFailedRead: true
+    })
+  })
+
+  it('reports the failure itself when there is no day to show', () => {
+    expect(resolveMealPlanDaySection(makeDayInputs({selectedDayKey: '2026-07-09', dayError: networkError}))).toEqual({
+      kind: 'error'
+    })
+  })
+
+  // The day route's own 404 is the case classifying on the code string missed: `{error: 'Plan not found'}` is
+  // prose, so it fell through to a retry pill that could only ask the dead resource again. Both shapes of the
+  // finding are pinned — seeded content present, and nothing cached at all.
+  it("leaves the day route's 404 to the plan-level recovery, with the week's day still shown", () => {
+    const plan = makePlan()
+
+    expect(resolveMealPlanDaySection(makeDayInputs({plan, dayError: resourceNotFoundError}))).toEqual({
+      kind: 'day',
+      day: plan.days[0],
+      hasFailedRead: false
+    })
+  })
+
+  it('reports loading rather than a retry when the day route 404s and nothing is cached', () => {
+    expect(
+      resolveMealPlanDaySection(makeDayInputs({selectedDayKey: '2026-07-09', dayError: resourceNotFoundError}))
+    ).toEqual({kind: 'loading'})
+  })
+
+  // The bare 404 of a rolled-back backend is not a plan answer, so it stays an ordinary failed read and keeps
+  // its retry.
+  it('still discloses a routes-missing 404 as a failed read', () => {
+    const plan = makePlan()
+
+    expect(resolveMealPlanDaySection(makeDayInputs({plan, dayError: routesMissingError}))).toEqual({
+      kind: 'day',
+      day: plan.days[0],
+      hasFailedRead: true
+    })
+  })
+
+  // A replaced plan is recovered by the stale-plan toast and a current-plan refetch, so an inline retry would
+  // re-request a day of a plan the server no longer holds.
+  it('leaves a confirmed stale-plan answer to the plan-level recovery', () => {
+    const plan = makePlan()
+
+    expect(resolveMealPlanDaySection(makeDayInputs({plan, dayError: stalePlanError}))).toEqual({
+      kind: 'day',
+      day: plan.days[0],
+      hasFailedRead: false
+    })
+    expect(
+      resolveMealPlanDaySection(makeDayInputs({selectedDayKey: '2026-07-09', dayError: planNotActiveError}))
+    ).toEqual({kind: 'loading'})
+  })
+
+  it('prefers the answered day over the week copy for the same date', () => {
+    const envelope = makeEnvelope({day: makeDay({id: 'day-1-live', meals: []})})
+
+    const section = resolveMealPlanDaySection(makeDayInputs({envelope}))
+
+    expect(section.kind === 'day' && section.day.id).toBe('day-1-live')
+  })
+})
+
+describe('buildMealCardModels', () => {
+  it('resolves every meal of the day once, in order', () => {
+    const logged = makeMeal({id: 'meal-logged', loggedEntries: [makeLoggedEntry()]})
+    const unlogged = makeMeal({id: 'meal-unlogged'})
+
+    const models = buildMealCardModels(makeDay({meals: [logged, unlogged]}))
+
+    expect(models).toEqual([
+      {meal: logged, loggedState: {kind: 'logged', entry: logged.loggedEntries[0]}},
+      {meal: unlogged, loggedState: {kind: 'unlogged'}}
+    ])
+  })
+
+  it('returns an empty list for a day with no meals', () => {
+    expect(buildMealCardModels(makeDay({meals: []}))).toEqual([])
+  })
+})
+
+describe('slotCopyFromBucketLabel', () => {
+  // The producer is the diary bucket's own name, which the server backfills capitalised.
+  it('lower-cases a canonical diary bucket name for the banner sentence', () => {
+    expect(slotCopyFromBucketLabel(MEAL_SLOT_LABELS.breakfast)).toBe('breakfast')
+    expect(slotCopyFromBucketLabel(MEAL_SLOT_LABELS.lunch)).toBe('lunch')
+    expect(slotCopyFromBucketLabel(MEAL_SLOT_LABELS.dinner)).toBe('dinner')
+    expect(slotCopyFromBucketLabel(MEAL_SLOT_LABELS.snack)).toBe('snack')
+  })
+
+  it('accepts a bucket name however it was cased or padded', () => {
+    expect(slotCopyFromBucketLabel('  BREAKFAST ')).toBe('breakfast')
+    expect(slotCopyFromBucketLabel('lunch')).toBe('lunch')
+  })
+
+  it('leaves a name the app did not choose exactly as it is', () => {
+    expect(slotCopyFromBucketLabel('Pre-workout')).toBe('Pre-workout')
+    expect(slotCopyFromBucketLabel('')).toBe('')
+  })
+})
+
+describe('resolvePostLogBannerOrigin', () => {
+  const result = makePostLogResult()
+  // The swap watermark at the moment of logging: a fixed, non-zero submittedAt, so a later swap is a larger
+  // number and the cache dropping this one is a smaller number.
+  const SWAPPED_AT = 1_700_000_000_000
+
+  const makeOrigin = (overrides: Partial<PostLogBannerOrigin> = {}): PostLogBannerOrigin => ({
+    entryId: result.entryId,
+    planId: CURRENT_PLAN_ID,
+    lastSwapSucceededAt: SWAPPED_AT,
+    ...overrides
+  })
+
+  it('captures the entry, the plan it was logged into, and the swap history behind it', () => {
+    expect(resolvePostLogBannerOrigin(null, result, CURRENT_PLAN_ID, SWAPPED_AT)).toEqual({
+      entryId: result.entryId,
+      planId: CURRENT_PLAN_ID,
+      lastSwapSucceededAt: SWAPPED_AT
+    })
+  })
+
+  it('forgets the origin once the banner is gone', () => {
+    expect(resolvePostLogBannerOrigin(makeOrigin(), null, CURRENT_PLAN_ID, SWAPPED_AT)).toBe(null)
+  })
+
+  it('re-captures for a different entry, which is a second log', () => {
+    const second = makePostLogResult({entryId: 'entry-b'})
+
+    expect(resolvePostLogBannerOrigin(makeOrigin(), second, UPCOMING_PLAN_ID, SWAPPED_AT + 1)).toEqual({
+      entryId: 'entry-b',
+      planId: UPCOMING_PLAN_ID,
+      lastSwapSucceededAt: SWAPPED_AT + 1
+    })
+  })
+
+  // Identity is the signal a caller adjusting state during render uses to stop, so an unchanged origin must be
+  // the very same object.
+  it('returns the same origin when nothing has changed', () => {
+    const origin = makeOrigin()
+
+    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, SWAPPED_AT)).toBe(origin)
+  })
+
+  // A swap that lands after the banner must not be absorbed into its origin, or the comparison that retires
+  // the banner would never see it.
+  it('returns the same origin when a swap has since succeeded, leaving the watermark behind it', () => {
+    const origin = makeOrigin()
+
+    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, SWAPPED_AT + 5_000)).toBe(origin)
+  })
+
+  it('takes the plan as soon as one exists, rather than freezing the absence of one', () => {
+    const unbound = makeOrigin({planId: null})
+
+    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, SWAPPED_AT)).toEqual({
+      entryId: result.entryId,
+      planId: CURRENT_PLAN_ID,
+      lastSwapSucceededAt: SWAPPED_AT
+    })
+    expect(resolvePostLogBannerOrigin(unbound, result, null, SWAPPED_AT)).toBe(unbound)
+  })
+
+  it('carries the original watermark when it adopts a plan id, rather than restamping it', () => {
+    const unbound = makeOrigin({planId: null})
+
+    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, SWAPPED_AT + 9_000)).toEqual({
+      entryId: result.entryId,
+      planId: CURRENT_PLAN_ID,
+      lastSwapSucceededAt: SWAPPED_AT
+    })
+  })
+
+  it('keeps the plan it captured rather than following the plan on screen', () => {
+    const origin = makeOrigin()
+
+    expect(resolvePostLogBannerOrigin(origin, result, UPCOMING_PLAN_ID, SWAPPED_AT)).toBe(origin)
+  })
+})
+
+describe('isPostLogBannerVisible', () => {
+  const SWAPPED_AT = 1_700_000_000_000
+
+  const makeBannerInputs = (overrides: Partial<Parameters<typeof isPostLogBannerVisible>[0]> = {}) => ({
+    result: makePostLogResult(),
+    origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: SWAPPED_AT},
+    dismissedEntryId: null,
+    planId: CURRENT_PLAN_ID,
+    selectedDayKey: PLAN_START_DATE,
+    lastSwapSucceededAt: SWAPPED_AT,
+    ...overrides
+  })
+
+  it('shows the banner on the day and plan the entry was logged into', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs())).toBe(true)
+  })
+
+  it('hides it when there is nothing logged, or the user has read it', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({result: null}))).toBe(false)
+    expect(isPostLogBannerVisible(makeBannerInputs({dismissedEntryId: 'entry-a'}))).toBe(false)
+  })
+
+  // Decided at render rather than after it: the banner stands where the totals card does, so one frame of it
+  // on another day would misreport what was logged.
+  it('hides it on another day of the same week', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({selectedDayKey: PLAN_END_DATE}))).toBe(false)
+  })
+
+  it('hides it on another plan, including a replacement covering the same dates', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({planId: UPCOMING_PLAN_ID}))).toBe(false)
+    expect(isPostLogBannerVisible(makeBannerInputs({planId: 'plan-regenerated'}))).toBe(false)
+  })
+
+  it('hides it while no origin has been captured, and for an origin from an earlier log', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({origin: null}))).toBe(false)
+    expect(
+      isPostLogBannerVisible(
+        makeBannerInputs({origin: {entryId: 'entry-z', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: SWAPPED_AT}})
+      )
+    ).toBe(false)
+  })
+
+  // The lifecycle retires the confirmation when another swap COMPLETES: the day it described has changed.
+  it('hides it once a swap has succeeded since the meal was logged', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({lastSwapSucceededAt: SWAPPED_AT + 1}))).toBe(false)
+  })
+
+  // A pending or failed swap is not a completed one. Both leave the observed watermark where it was, so the
+  // confirmation the user is still reading survives an attempt that changed nothing.
+  it('keeps it through a swap that is pending, failed, or lost its answer', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({lastSwapSucceededAt: SWAPPED_AT}))).toBe(true)
+  })
+
+  // Mutations are garbage-collected, so the newest success can disappear from the cache. A smaller observed
+  // value must read as "no further swap", never as one.
+  it('keeps it when the cache has dropped the swap it was stamped against', () => {
+    expect(isPostLogBannerVisible(makeBannerInputs({lastSwapSucceededAt: 0}))).toBe(true)
+    expect(isPostLogBannerVisible(makeBannerInputs({lastSwapSucceededAt: SWAPPED_AT - 5_000}))).toBe(true)
+  })
+
+  it('shows a banner logged before any swap had ever succeeded', () => {
+    expect(
+      isPostLogBannerVisible(
+        makeBannerInputs({
+          origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: 0},
+          lastSwapSucceededAt: 0
+        })
+      )
+    ).toBe(true)
   })
 })
 
@@ -962,11 +2083,58 @@ describe('resolveEmptyPlanCtaLabel', () => {
 })
 
 describe('formatPostLogBannerBody', () => {
+  // The label is taken from the real producer — the diary bucket name the logging screen captured — rather
+  // than a lowercase string the sentence would already fit.
+  const breakfastBucket = makePostLogResult().slotLabel
+  const lunchBucket = MEAL_SLOT_LABELS.lunch
+
   it('names only the slot for a meal logged on today', () => {
-    expect(formatPostLogBannerBody(PLAN_START_DATE, 'breakfast', PLAN_START_DATE)).toBe('Added to breakfast')
+    expect(formatPostLogBannerBody(PLAN_START_DATE, breakfastBucket, PLAN_START_DATE)).toBe('Added to breakfast')
   })
 
   it('names the weekday as well when the entry sits on another day', () => {
-    expect(formatPostLogBannerBody(PLAN_END_DATE, 'lunch', PLAN_START_DATE)).toBe("Added to Saturday's lunch")
+    expect(formatPostLogBannerBody(PLAN_END_DATE, lunchBucket, PLAN_START_DATE)).toBe("Added to Saturday's lunch")
+  })
+
+  it('reads the capitalised bucket name as the lowercase slot copy the sentence uses', () => {
+    expect(breakfastBucket).toBe('Breakfast')
+    expect(formatPostLogBannerBody(PLAN_START_DATE, breakfastBucket, PLAN_START_DATE)).not.toContain('Breakfast')
+  })
+
+  it('leaves a bucket name the app did not choose exactly as it is', () => {
+    expect(formatPostLogBannerBody(PLAN_START_DATE, 'Pre-workout', PLAN_START_DATE)).toBe('Added to Pre-workout')
+  })
+})
+
+describe('isKeyedWriteHeldByAnotherMeal', () => {
+  const held = (planId: string, mealId: string) => ({planId, mealId, key: `key-${planId}-${mealId}`})
+
+  it('holds nothing back when no record is unresolved', () => {
+    expect(isKeyedWriteHeldByAnotherMeal([null, null], 'plan-1', 'meal-1')).toBe(false)
+  })
+
+  // The exemption the AAP requires: the unconfirmed outcome of a swap or a log is drawn on that meal's own
+  // screen, and "Try again" there replays the very key (0.2.5). Closing that screen would leave the write
+  // unresolvable until a new process.
+  it('lets the meal a record names keep its own controls', () => {
+    expect(isKeyedWriteHeldByAnotherMeal([held('plan-1', 'meal-1'), null], 'plan-1', 'meal-1')).toBe(false)
+    expect(isKeyedWriteHeldByAnotherMeal([null, held('plan-1', 'meal-1')], 'plan-1', 'meal-1')).toBe(false)
+  })
+
+  it('withholds the controls of every other meal in the week', () => {
+    expect(isKeyedWriteHeldByAnotherMeal([held('plan-1', 'meal-other'), null], 'plan-1', 'meal-1')).toBe(true)
+  })
+
+  // The key names a plan as well as a meal, so a record from another week is another meal's record.
+  it('withholds them when the record belongs to another plan, even at the same meal id', () => {
+    expect(isKeyedWriteHeldByAnotherMeal([held('plan-other', 'meal-1'), null], 'plan-1', 'meal-1')).toBe(true)
+  })
+
+  // One unresolved record is enough, whichever action holds it: a swap on this meal does not license a log on
+  // a different one.
+  it('withholds them when either action holds a record for a different meal', () => {
+    expect(
+      isKeyedWriteHeldByAnotherMeal([held('plan-1', 'meal-1'), held('plan-1', 'meal-other')], 'plan-1', 'meal-1')
+    ).toBe(true)
   })
 })

@@ -1,11 +1,21 @@
-import type {MealPlanPreferences, WeightUnitPref} from '@data/models/MealPlanPreferences'
+import type {MacroTargets} from '@data/models/Macros'
+import type {
+  MealPlanPreferences,
+  MealPlanPreferencesSaveResult,
+  SetupStepRequest,
+  WeightUnitPref
+} from '@data/models/MealPlanPreferences'
 import {MEAL_SLOTS_IN_WIRE_ORDER} from '@data/models/MealPlanPreferences'
 import type {
   NutritionTargetEstimate,
   NutritionTargets,
-  SaveEstimatedNutritionTargetsPayload
+  SaveEstimatedNutritionTargetsPayload,
+  SaveNutritionTargetsPayload,
+  SaveNutritionTargetsResult
 } from '@data/models/NutritionTargets'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
+import type {GenerationContext, RootStackParamList} from '@navigation/types'
+import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {
   addDaysToDayKey,
   clampDayKeyToPlan,
@@ -21,7 +31,7 @@ import {
   formatMacroGrams,
   hasAnyTargetValue
 } from '@utility/NutritionFormatUtility'
-import {buildSaveEstimatedNutritionTargetsPayload} from '@utility/RevisionConflictUtility'
+import {buildSaveEstimatedNutritionTargetsPayload, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {lookupLabel} from '@utility/TextUtility'
 import {formatMeasurementValue, kilogramsToPounds} from '@utility/UnitConversionUtility'
 
@@ -37,6 +47,7 @@ import {
   MEAL_PLAN_DIET_LABELS,
   MEAL_PLAN_DISLIKED_INGREDIENTS_ROW_LABEL,
   MEAL_PLAN_EDIT_LINK_TEXT,
+  MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE,
   MEAL_PLAN_GENERATE_BUTTON_TEXT,
   MEAL_PLAN_GOAL_LABELS,
   MEAL_PLAN_GOAL_ROW_LABEL,
@@ -47,11 +58,17 @@ import {
   MEAL_PLAN_MACRO_LABELS,
   MEAL_PLAN_MAX_COOKING_TIME_ROW_LABEL,
   MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL,
+  MEAL_PLAN_NO_TARGET_FIGURE_ACCESSIBILITY_TEXT,
+  MEAL_PLAN_NO_TARGET_FIGURE_TEXT,
   MEAL_PLAN_PACE_RATE_TEMPLATE,
   MEAL_PLAN_RECALCULATE_LINK_TEXT,
   MEAL_PLAN_START_DATE_TODAY_LABEL,
   MEAL_PLAN_START_DATE_TOMORROW_LABEL,
   MEAL_PLAN_TARGETS_CAPTION,
+  MEAL_PLAN_TARGETS_SUMMARY_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_TARGETS_SUMMARY_ESTIMATE_TEMPLATE,
+  MEAL_PLAN_TARGETS_SUMMARY_MACRO_TEMPLATE,
+  MEAL_PLAN_TARGETS_SUMMARY_MACROS_TEMPLATE,
   MEAL_PLAN_VALUE_NONE,
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_PLAN_WEEKLY_BUDGET_ROW_LABEL,
@@ -63,27 +80,33 @@ export type DisplayedMacroKey = 'protein' | 'carbs' | 'fat'
 
 export type DisplayedTargetKey = 'calories' | DisplayedMacroKey
 
-// What the review card leads with, which is also what a Generate press acts on. 'confirmed' is the user's own
-// saved set in the one state generation takes as it stands — complete, a source other than 'legacy', and not
-// stale (0.7.4). Every other target state reviews the calculated set instead ('estimate'): an account that has
-// confirmed nothing, one whose confirmed estimate has been overtaken by a change of goal, body, activity or
-// pace, and a legacy or partly filled record the planner would refuse. 'unavailable' is the state with no
-// figures at all, where the screen shows the estimate-unavailable card in place of the targets card (0.2.5).
+// Whose figures the review card is leading with. 'confirmed' is the user's own saved set, in every state where
+// the server holds one — settled, superseded by a change of goal, body, activity or pace, or in a legacy or
+// partly filled record generation would refuse — because those figures are the only ones the user chose, and
+// what differs between those states is the label and the recalculated figure shown beside them, not which set
+// leads. 'estimate' is the calculated set, which leads only where nothing is saved to lead with, and is
+// therefore the one set a Generate press may confirm. 'unavailable' is the state with no figures at all, where
+// the screen shows the estimate-unavailable card in place of the targets card (0.2.5).
 export type DisplayedTargetsSource = 'confirmed' | 'estimate' | 'unavailable'
 
-// Why a Generate press cannot generate. One reason only: there is nothing to work from — no set generation
-// accepts and no estimate to confirm — and its recovery is manual entry (0.2.5). Saved figures generation
-// would refuse are deliberately not a blocked state: the card reviews the estimate and the press confirms it,
-// which is the flow the AAP prescribes for every unconfirmed state (0.7.4).
-export type GenerateBlockedReason = 'estimate_unavailable'
+// Why a Generate press cannot generate.
+//
+//  - 'estimate_unavailable' — nothing to work from at all: no set generation accepts and no estimate to
+//    confirm. Its recovery is manual entry (0.2.5).
+//  - 'targets_unconfirmed'  — the user's own saved figures lead the card but generation refuses them (legacy,
+//    or partly filled: 422 targets_missing / 409 targets_unconfirmed, 0.5.2). The press cannot answer this on
+//    the user's behalf, because the only way past it is to decide between the saved figures and the
+//    recalculated ones — so it opens the editor, where both are shown and either can be saved.
+export type GenerateBlockedReason = 'estimate_unavailable' | 'targets_unconfirmed'
 
 export type AnswerRowEditStep = 'goal' | 'diet' | 'dislikes' | 'schedule' | 'cooking'
 
 // What the live Generate press does. 'manual_targets' is the recovery the estimate-unavailable state offers
 // (09b manual entry, 0.2.5), and it is offered only once that state has settled — while the estimate is still
-// loading the press keeps its drawn meaning and is simply unavailable. The card copy for the figureless state
-// belongs to resolveDisplayedTargets' 'unavailable'.
-export type GenerateCtaAction = 'generate' | 'manual_targets'
+// loading the press keeps its drawn meaning and is simply unavailable. 'review_targets' opens the same editor
+// on the saved figures generation refuses, where the recalculated set sits beside them. The card copy for the
+// figureless state belongs to resolveDisplayedTargets' 'unavailable'.
+export type GenerateCtaAction = 'generate' | 'manual_targets' | 'review_targets'
 
 export interface GenerateSequenceInputs {
   targets: NutritionTargets | null
@@ -106,46 +129,6 @@ export interface GenerateSequencePlan {
   blockedReason: GenerateBlockedReason | null
 }
 
-// The three things a Generate press does, in the order the AAP fixes them (0.7.4): confirm the displayed
-// estimate, save a changed review date, then open Generating. Each step carries exactly what its request needs,
-// so the caller executes them in order and has nothing left to decide — the identity of the generation (the
-// freshly minted idempotency key) and the route context are the caller's to add at the navigation step.
-export interface ConfirmTargetsStep {
-  kind: 'confirm_targets'
-  payload: SaveEstimatedNutritionTargetsPayload
-}
-
-export interface SaveReviewDateStep {
-  kind: 'save_review_date'
-  startDate: string
-  expectedRevision: number
-}
-
-export interface NavigateToGeneratingStep {
-  kind: 'navigate'
-  startDate: string
-  expectedTargetsRevision: number
-  expectedPreferencesRevision: number
-}
-
-export type GenerateSequenceStep = ConfirmTargetsStep | SaveReviewDateStep | NavigateToGeneratingStep
-
-export type GenerateSequenceStepKind = GenerateSequenceStep['kind']
-
-// What a save that already succeeded returned. A press that fails partway leaves the steps it completed
-// recorded here, so the retry re-runs only what is still unsaved and generation is pinned to the revision the
-// completed save produced rather than the one the screen read before it (0.7.4).
-export type GenerateStepOutcome =
-  | {kind: 'confirm_targets'; targetsRevision: number}
-  | {kind: 'save_review_date'; preferencesRevision: number}
-
-export interface GenerateSequenceProgress {
-  // The targets revision the confirmation returned, or null while the displayed estimate is unconfirmed.
-  confirmedTargetsRevision: number | null
-  // The preferences revision the review-date save returned, or null while that date is unsaved.
-  savedReviewDateRevision: number | null
-}
-
 export interface DisplayedTargetsInputs {
   targets: NutritionTargets | null
   estimate: NutritionTargetEstimate | null
@@ -166,6 +149,12 @@ export interface DisplayedTargets {
   macros: DisplayedMacro[]
   caption: string
   editLabel: string
+  // The recalculated figure, labelled, shown beside the saved set it would replace — and null wherever there is
+  // nothing to compare: a settled set, no estimate, or an estimate that is already the figure on the card.
+  freshEstimateText: string | null
+  // The whole card as one announcement. The calorie figure, its unit and the three macro rows are separate text
+  // nodes on screen and read individually they arrive as four unrelated numbers.
+  summaryAccessibilityLabel: string
   missingTargetKeys: DisplayedTargetKey[]
 }
 
@@ -201,6 +190,9 @@ export interface GenerateCtaInputs {
   plan: GenerateSequencePlan
   isEstimateLoading: boolean
   isPending: boolean
+  // Whether a read this screen is built on genuinely failed. The revisions in the plan come from those reads,
+  // so a press made without them would argue with the server about a conflict the user never had.
+  hasReadFailure: boolean
 }
 
 export interface GenerateCtaState {
@@ -214,15 +206,30 @@ export interface GenerateCtaState {
 // set carries all four values and an estimate is always complete — so a gap is never rendered as a zero.
 type PartialMacroFigures = {[K in DisplayedMacroKey]: number | null}
 
+// `calories` is nullable for the same reason the wire fields are: a saved record may hold macro targets and no
+// calorie target, and that record is still the user's own set. It leads the card with its figure slot marked
+// unset rather than being replaced by a calculated figure the user never chose.
 interface DisplayFigures {
-  calories: number
+  calories: number | null
   macros: DisplayedMacro[]
 }
 
-// What the card leads with: the user's own confirmed figures, the calculated estimate, or nothing at all
-// ('none' — no set generation accepts and no estimate to review in its place).
+// What the card leads with. The user's own figures lead in every state where the server holds any, because
+// discarding them for a calculated set shows the user numbers they never chose and hides the ones they did
+// (0.5.2: show the calorie value whenever it is set, and treat 'legacy' or stale as a set to review):
+//
+//  - 'confirmed'         — complete, non-legacy, fresh: generation takes it as it stands.
+//  - 'superseded'        — the same set with its inputs since changed. Generation still uses it until the user
+//                          reconfirms (0.7.3), so it still leads, with the recalculated figure beside it.
+//  - 'unconfirmed_saved' — the user's figures in a state generation refuses (legacy, or partly filled). They
+//                          lead, with the estimate beside them, and the press routes to the editor to settle
+//                          which set applies rather than silently confirming one.
+//  - 'estimate'          — nothing saved to lead with, so the calculated set does and the press confirms it.
+//  - 'none'              — no figures at all; the estimate-unavailable card replaces the targets card (0.2.5).
 type PrimaryFigures =
   | {kind: 'confirmed'; figures: DisplayFigures}
+  | {kind: 'superseded'; figures: DisplayFigures}
+  | {kind: 'unconfirmed_saved'; figures: DisplayFigures}
   | {kind: 'estimate'; figures: DisplayFigures}
   | {kind: 'none'}
 
@@ -234,7 +241,8 @@ const MACRO_KEYS: DisplayedMacroKey[] = ['protein', 'carbs', 'fat']
 
 // One recovery per blocked reason, so a reason can never reach the CTA without one.
 const CTA_ACTION_BY_BLOCKED_REASON: Record<GenerateBlockedReason, GenerateCtaAction> = {
-  estimate_unavailable: 'manual_targets'
+  estimate_unavailable: 'manual_targets',
+  targets_unconfirmed: 'review_targets'
 }
 
 const ALL_TARGET_KEYS: DisplayedTargetKey[] = ['calories', ...MACRO_KEYS]
@@ -258,22 +266,36 @@ const macroRows = (figures: PartialMacroFigures): DisplayedMacro[] =>
     return value === null ? [] : [{key, label: MEAL_PLAN_MACRO_LABELS[key], valueText: formatMacroGrams(value)}]
   })
 
-// The user's own figures in the one state Review treats as settled: generation accepts them as they stand
-// (all four values present, a source other than 'legacy' — `confirmedTargetValues`) and the inputs behind them
-// have not moved since they were confirmed (`stale`, 0.5.2). Staleness is checked here rather than in the
-// shared planner predicate because it is a rule about this screen: generation itself keeps using a confirmed
-// estimate until the user reconfirms (0.7.3), and Review is the surface where that reconfirmation happens.
+// The user's own figures in the state generation accepts as they stand: all four values present and a source
+// other than 'legacy' (`confirmedTargetValues`). Staleness is deliberately not part of this — generation keeps
+// using a confirmed set until the user reconfirms it (0.7.3), so a stale set is still the one a plan would be
+// built from and still the one the card must lead with. What staleness changes is the label and the figure
+// shown beside it, not which figures lead.
 //
 // A response that claims `complete` while holding a null value resolves to null here, so an inconsistent
-// payload sends the user to the estimate to confirm rather than to a plan built on figures the planner refuses.
-const reviewConfirmedFigures = (targets: NutritionTargets | null): DisplayFigures | null => {
-  if (targets === null || targets.stale) {
-    return null
-  }
-
+// payload is treated as the partly filled record it is rather than as a set a plan can be built from.
+const savedDisplayFigures = (targets: NutritionTargets | null): DisplayFigures | null => {
   const values = confirmedTargetValues(targets)
 
   return values === null ? null : {calories: values.calories, macros: macroRows(values)}
+}
+
+// The user's own figures when generation refuses them but they are still theirs to review (0.5.2): a legacy
+// record, or a partly filled one. Any saved value at all qualifies, including a record holding macros and no
+// calorie target — `hasAnyTargetValue` is the same test that makes a single saved macro the user's own figure
+// everywhere else in the app.
+//
+// A calorie heading is deliberately not required. Requiring one would send exactly that record to the estimate
+// instead, which both hides the macro the user saved and, because the card would then be led by the calculated
+// set, would let a Generate press confirm figures they never selected and overwrite the saved one.
+const unconfirmedSavedFigures = (targets: NutritionTargets | null): DisplayFigures | null => {
+  const values = targets?.targets ?? null
+
+  if (values === null || !hasAnyTargetValue(targets)) {
+    return null
+  }
+
+  return {calories: values.calories, macros: macroRows(values)}
 }
 
 const estimateDisplayFigures = (estimate: NutritionTargetEstimate): DisplayFigures => ({
@@ -282,22 +304,29 @@ const estimateDisplayFigures = (estimate: NutritionTargetEstimate): DisplayFigur
 })
 
 // The one rule for what the targets card leads with, read by the display and by the Generate sequence alike.
-// Two rules here is how the screen came to show one set of figures and save another: the card led with the
-// user's saved numbers while the press confirmed the estimate beside them, replacing what was on screen with
-// figures the user had not agreed to. Both answers come from this function, so they cannot disagree.
+// Two rules here is how a screen comes to show one set of figures and save another, so both answers are taken
+// from this function and cannot disagree.
 //
-// A confirmed set leads; every other target state — nothing confirmed yet, a stale confirmed set, a legacy or
-// partly filled record — reviews the calculated estimate, which is the set the press then confirms (0.7.4).
-// The saved figures of a superseded set are not shown beside it: what the card states is what generation will
-// use, and the Recalculate link is how the user reaches the editor to change or replace it.
+// The user's own figures lead wherever the server holds any. Replacing them with the calculated set would
+// discard the only numbers the user actually chose and, worse, would let a press confirm figures they never
+// selected: the estimate is a recalculation of inputs that have since changed, and adopting it is a decision
+// only the user can make. So a saved set leads, the recalculated figure is shown beside it for comparison, and
+// the link beside them is how it gets adopted (0.5.2, 0.7.3). The calculated set leads only where there is
+// nothing saved to lead with — and there, and only there, the press confirms it (0.7.4).
 const resolvePrimaryFigures = (
   targets: NutritionTargets | null,
   estimate: NutritionTargetEstimate | null
 ): PrimaryFigures => {
-  const confirmed = reviewConfirmedFigures(targets)
+  const saved = savedDisplayFigures(targets)
 
-  if (confirmed !== null) {
-    return {kind: 'confirmed', figures: confirmed}
+  if (saved !== null) {
+    return targets?.stale === true ? {kind: 'superseded', figures: saved} : {kind: 'confirmed', figures: saved}
+  }
+
+  const unconfirmed = unconfirmedSavedFigures(targets)
+
+  if (unconfirmed !== null) {
+    return {kind: 'unconfirmed_saved', figures: unconfirmed}
   }
 
   return estimate === null ? {kind: 'none'} : {kind: 'estimate', figures: estimateDisplayFigures(estimate)}
@@ -394,22 +423,39 @@ const budgetValue = ({budget, noBudgetPreference}: MealPlanPreferences): string 
   return stringWithNamedParameters(MEAL_PLAN_BUDGET_VALUE_TEMPLATE, {amount: Math.round(budget.amount)})
 }
 
+// Whose figures the card is showing. The three kinds that lead with the user's own set all report 'confirmed',
+// because that is what this answers for the screen: whether the figures on the card are the user's or a
+// calculation standing in for them. Whether generation accepts them is a separate question, answered by
+// `blockedReason`, and whether they need reviewing is answered by the edit label.
 const DISPLAYED_SOURCE_BY_PRIMARY_KIND: Record<PrimaryFigures['kind'], DisplayedTargetsSource> = {
   confirmed: 'confirmed',
+  superseded: 'confirmed',
+  unconfirmed_saved: 'confirmed',
   estimate: 'estimate',
   none: 'unavailable'
 }
 
-// The edit link reads as a recalculation exactly when the card is showing the calculated set in place of saved
-// figures it supersedes — a stale confirmed set, a legacy record, a partly filled one. That is 0.5.2's "review
-// your targets" affordance: the link opens the full editor (09b) on the figures the press would otherwise
-// confirm, so the user can change or replace them rather than accept them. With nothing saved, or with a
-// confirmed set on screen, the link is the drawn 'Edit'.
-const supersedesSavedFigures = (primary: PrimaryFigures, targets: NutritionTargets | null): boolean =>
-  primary.kind === 'estimate' && hasAnyTargetValue(targets)
+// The set of kinds whose figures the user should look over before a plan is built from them.
+const REVIEWABLE_KINDS: PrimaryFigures['kind'][] = ['superseded', 'unconfirmed_saved']
+
+// The edit link reads as a recalculation exactly where 0.5.2 calls the saved set one to review: its inputs
+// have moved on since it was confirmed, it was written outside the planner, or it is only partly filled. That
+// is the "review your targets" affordance — the link opens the full editor (09b) on those figures with the
+// recalculated set beside them, so the user can adopt, change or replace them. With nothing saved, or with a
+// settled set on screen, the link is the drawn 'Edit'.
+//
+// The two reviewable kinds are the whole of it: any saved value at all resolves to one of the three saved
+// kinds, so the estimate leads the card only for an account that has saved nothing to review.
+const needsTargetReview = (primary: PrimaryFigures): boolean => REVIEWABLE_KINDS.includes(primary.kind)
+
+// One reason per kind that cannot generate, so a state can never reach the CTA as generable when it is not.
+const BLOCKED_REASON_BY_PRIMARY_KIND: Partial<Record<PrimaryFigures['kind'], GenerateBlockedReason>> = {
+  none: 'estimate_unavailable',
+  unconfirmed_saved: 'targets_unconfirmed'
+}
 
 const resolveBlockedReason = (primaryKind: PrimaryFigures['kind']): GenerateBlockedReason | null =>
-  primaryKind === 'none' ? 'estimate_unavailable' : null
+  BLOCKED_REASON_BY_PRIMARY_KIND[primaryKind] ?? null
 
 const startDateDayLabel = (startDate: string, bounds: PlanStartDateBounds): string => {
   if (startDate === bounds.min) {
@@ -428,21 +474,25 @@ const startDateDayLabel = (startDate: string, bounds: PlanStartDateBounds): stri
  *
  * `requiresTargetConfirmation` is true exactly when the card leads with the estimate, because confirming the
  * estimate saves it, and a save the user did not ask for may only happen to the numbers they were looking at.
- * Per 0.7.4 that covers every state except a set generation already accepts:
+ * A press therefore confirms the calculated set only where that set is what the user was reviewing:
  *
- *  - a confirmed, fresh set (all four values, source not 'legacy', not stale): generate against it and save
- *    nothing. This is the only state that skips confirmation, and a manual set reaching it skips too.
- *  - a stale confirmed set: the inputs behind it have changed, so the card reviews the recalculated estimate
- *    and the press confirms it — which is what makes the reviewed figures the ones generation uses, and what
- *    returns the new targets revision the generation request has to carry.
+ *  - a confirmed, fresh set: generate against it and save nothing. A manual set reaching this state skips too.
+ *  - a superseded set (stale): generation keeps using it until the user reconfirms (0.7.3), so the press
+ *    generates against it and saves nothing. The recalculated figure beside it and the Recalculate link are how
+ *    the user adopts the new numbers, and adopting them is what records the new targets revision.
  *  - a legacy or partly filled record: generation would answer 422 targets_missing / 409 targets_unconfirmed
- *    (0.5.2), so the same confirmation replaces it with the calculated set the user reviewed. The user who
- *    wants different numbers takes the Recalculate link to the editor instead of pressing Generate.
+ *    (0.5.2), and neither the saved figures nor the estimate can be chosen on the user's behalf — so the press
+ *    is blocked as `targets_unconfirmed` and opens the editor, where both sets are shown.
  *  - no figures at all: blocked as `estimate_unavailable`, whose press goes to manual entry (0.2.5).
  *
+ * `dependsOnEstimate` marks the two states the estimate alone decides — it leads the card, or there is nothing
+ * at all — so the CTA waits for the query there and nowhere else. A press acting on the user's own figures is
+ * decided already, and holding it back for an estimate it will not send would make a slow query look like a
+ * broken screen.
+ *
  * Both revisions are the values as this screen currently reads them, and each save the sequence performs
- * returns a new one; `nextGenerateStep` derives each later step from the revisions already returned, so the
- * generation request can only ever carry the ones its own saves produced.
+ * returns a new one; the caller threads the returned revisions into the steps that follow, so the generation
+ * request can only ever carry the ones its own saves produced.
  */
 export const planGenerateSequence = ({
   targets,
@@ -455,7 +505,7 @@ export const planGenerateSequence = ({
   return {
     requiresTargetConfirmation: primary.kind === 'estimate',
     requiresStartDateSave: startDate !== preferences.reviewStartDate,
-    dependsOnEstimate: primary.kind !== 'confirmed',
+    dependsOnEstimate: primary.kind === 'estimate' || primary.kind === 'none',
     startDate,
     estimateRevision: estimate === null ? null : estimate.estimateRevision,
     expectedTargetsRevision: targets === null ? NO_TARGETS_REVISION : targets.revision,
@@ -479,112 +529,73 @@ export const buildTargetConfirmationPayload = (
       })
     : null
 
-/**
- * A press that has completed no step yet. Every attempt starts here, and a failed attempt leaves behind the
- * progress it did reach so the retry resumes from it.
- */
-export const NO_GENERATE_PROGRESS: GenerateSequenceProgress = {
-  confirmedTargetsRevision: null,
-  savedReviewDateRevision: null
+// Every field the card has no figure for: all four where there are none at all, and otherwise each field the
+// leading set left unset — a calories-only record names three macros, a macros-only record names the calorie
+// target. This is what the editor opens on, so a field absent from the card has to be named here.
+const missingFigureKeys = (figures: DisplayFigures | null): DisplayedTargetKey[] => {
+  if (figures === null) {
+    return ALL_TARGET_KEYS
+  }
+
+  const present = figures.macros.map(macro => macro.key)
+  const missingMacros = MACRO_KEYS.filter(key => !present.includes(key))
+
+  return figures.calories === null ? ['calories', ...missingMacros] : missingMacros
+}
+
+// The card as one sentence, in the order it is drawn, with the recalculated figure appended only when the card
+// is showing one. Composed here rather than in the card because it is copy, and every string this module emits
+// comes from @constants/strings.
+const summaryAccessibilityLabel = (
+  cardLabel: string,
+  // Spoken rather than drawn: the drawn figure is a dash where no calorie target is saved, which a screen
+  // reader reads as punctuation or skips, so the announcement carries the word instead.
+  spokenCalories: string,
+  macros: DisplayedMacro[],
+  freshEstimateText: string | null
+): string => {
+  const macroList = macros
+    .map(macro =>
+      stringWithNamedParameters(MEAL_PLAN_TARGETS_SUMMARY_MACRO_TEMPLATE, {
+        label: macro.label,
+        value: macro.valueText
+      })
+    )
+    .join(MEAL_PLAN_LIST_SEPARATOR)
+
+  return stringWithNamedParameters(MEAL_PLAN_TARGETS_SUMMARY_ACCESSIBILITY_TEMPLATE, {
+    label: cardLabel,
+    calories: spokenCalories,
+    unit: MEAL_PLAN_KCAL_UNIT,
+    // Each fragment carries its own sentence break, so a record with no macro rows announces its calorie
+    // target and the recalculated figure as two sentences rather than leaving a gap between two full stops.
+    macros:
+      macroList === NO_FIGURE_TEXT
+        ? NO_FIGURE_TEXT
+        : stringWithNamedParameters(MEAL_PLAN_TARGETS_SUMMARY_MACROS_TEMPLATE, {macros: macroList}),
+    estimate:
+      freshEstimateText === null
+        ? NO_FIGURE_TEXT
+        : stringWithNamedParameters(MEAL_PLAN_TARGETS_SUMMARY_ESTIMATE_TEMPLATE, {estimate: freshEstimateText})
+  })
 }
 
 /**
- * The one thing a Generate press can do next, given what it has already completed. The press is a short state
- * machine rather than a list, and that is deliberate: the AAP requires generation to carry "the revisions
- * returned by (1)/(2)" (0.7.4), and a revision a save has not performed yet does not exist. Handing the caller
- * a `navigate` step while a confirmation or a date save is still outstanding would hand it the revisions from
- * before those writes, which generation then rejects — so the navigation is not constructed until every save
- * ahead of it has returned and been recorded through `advanceGenerateProgress`.
+ * The figures the card states: the user's own set wherever the server holds one, and the calculated estimate
+ * only where it holds none. What the Generate press does with them is `planGenerateSequence`, reading the same
+ * primary figures — the press confirms a set only where that set is the calculated one, so the card can never
+ * show one set of numbers and hand the user a plan built on another, and can never quietly replace figures the
+ * user chose with figures they did not.
  *
- * The order is the one 0.7.4 fixes — confirm the displayed estimate, save a changed review date, open
- * Generating — and the caller drives it:
+ * `freshEstimateText` is the comparison that makes the Recalculate link meaningful: a saved set the server
+ * calls stale, legacy or incomplete is shown with the recalculated figure beside it (0.7.3), so the user can
+ * see what adopting it would change before the link takes them to the editor. It is null where there is
+ * nothing to compare — a settled set, no estimate at all, or a card already headed by the estimate.
  *
- *     let progress = NO_GENERATE_PROGRESS
- *     for (;;) {
- *       const step = nextGenerateStep(plan, progress)
- *       if (step === null) return                       // nothing this press can do; the CTA action recovers
- *       if (step.kind === 'confirm_targets') {
- *         const saved = await saveTargets(step.payload)  // a failure here leaves `progress` as it was
- *         progress = advanceGenerateProgress(progress, {kind: step.kind, targetsRevision: saved.revision})
- *         continue
- *       }
- *       if (step.kind === 'save_review_date') {
- *         const saved = await saveReviewDate(step)
- *         progress = advanceGenerateProgress(progress, {kind: step.kind, preferencesRevision: saved.revision})
- *         continue
- *       }
- *       navigateToGenerating(step)                      // both revisions are the ones the saves returned
- *       return
- *     }
- *
- * Because a step is derived from the progress recorded so far, the partial-retry rule falls out of the same
- * function: a press that failed at the date save re-derives the date save and never the confirmation, does not
- * bump the target revision a second time, and pins generation to the revision the confirmation returned. The
- * plan is recomputed from fresh inputs on each attempt too, so a refetch that already reports the confirmed
- * targets drops the confirmation the same way — both mechanisms ask only whether the save still has to happen.
- *
- * `null` means this press has nothing it can do, never "finished": a blocked press has no figures to generate
- * from, and a required confirmation with no estimate revision to pin cannot be stated, so generating would
- * build a plan on targets the user never confirmed. The caller stops at the navigation step, which is the
- * sequence's only terminal step.
- *
- * The navigation step carries the two revisions and the start date; the idempotency key and the generation
- * context belong to the caller, which mints a fresh key per intent (0.7.2) and knows which route it is on.
- */
-export const nextGenerateStep = (
-  plan: GenerateSequencePlan,
-  progress: GenerateSequenceProgress = NO_GENERATE_PROGRESS
-): GenerateSequenceStep | null => {
-  if (plan.blockedReason !== null) {
-    return null
-  }
-
-  if (plan.requiresTargetConfirmation && progress.confirmedTargetsRevision === null) {
-    const payload = buildTargetConfirmationPayload(plan)
-
-    return payload === null ? null : {kind: 'confirm_targets', payload}
-  }
-
-  if (plan.requiresStartDateSave && progress.savedReviewDateRevision === null) {
-    return {
-      kind: 'save_review_date',
-      startDate: plan.startDate,
-      expectedRevision: plan.expectedPreferencesRevision
-    }
-  }
-
-  return {
-    kind: 'navigate',
-    startDate: plan.startDate,
-    expectedTargetsRevision: progress.confirmedTargetsRevision ?? plan.expectedTargetsRevision,
-    expectedPreferencesRevision: progress.savedReviewDateRevision ?? plan.expectedPreferencesRevision
-  }
-}
-
-/**
- * The progress a completed save leaves behind, recorded from the revision it returned. Called once per
- * successful step, so that a failure later in the sequence — or a user who leaves and presses Generate again —
- * resumes without repeating a write that already landed.
- */
-export const advanceGenerateProgress = (
-  progress: GenerateSequenceProgress,
-  outcome: GenerateStepOutcome
-): GenerateSequenceProgress =>
-  outcome.kind === 'confirm_targets'
-    ? {...progress, confirmedTargetsRevision: outcome.targetsRevision}
-    : {...progress, savedReviewDateRevision: outcome.preferencesRevision}
-
-/**
- * The figures the card states, which are always the figures the Generate press acts on: the user's confirmed
- * set when generation accepts it as it stands, and otherwise the calculated estimate that the press confirms —
- * for an account that has confirmed nothing, for a confirmed set its inputs have moved past, and for a legacy
- * or partly filled record the planner would refuse (0.7.4). The card never mixes the two, so the user is never
- * shown one set of numbers and given a plan built on another.
- *
- * `editLabel` reads as a recalculation exactly in the states where the estimate stands in for saved figures,
- * which is 0.5.2's "review your targets" affordance; it opens the same editor either way. `missingTargetKeys`
- * names every field with no figure, which is all four in the 'unavailable' state — there the screen shows the
- * estimate-unavailable card in place of the targets card (0.2.5), so the numeric fields read empty, not nil.
+ * `editLabel` reads as a recalculation in exactly those states, which is 0.5.2's "review your targets"
+ * affordance; it opens the same editor either way. `missingTargetKeys` names every field with no figure, which
+ * is all four in the 'unavailable' state — there the screen shows the estimate-unavailable card in place of
+ * the targets card (0.2.5), so the numeric fields read empty, not nil.
  *
  * The caption follows the same answer as the card label: a card headed "Your chosen targets" — a saved manual
  * set, or the manual route the user was sent down — cannot also call its figures starting estimates, so it
@@ -594,16 +605,39 @@ export const resolveDisplayedTargets = ({targets, estimate, preferences}: Displa
   const primary = resolvePrimaryFigures(targets, estimate)
   const figures = primary.kind === 'none' ? null : primary.figures
   const isManualDisplay = targets?.source === 'manual' || preferences.targetRoute === 'manual'
+  const isUnderReview = needsTargetReview(primary)
+
+  const cardLabel = isManualDisplay ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_DAILY_TARGETS_OVERLINE
+  const savedCalories = figures?.calories ?? null
+
+  // Three cases, and the middle one is the record that holds macros and no calorie target: its figure slot is
+  // marked unset rather than filled with the calculated figure, which would read as a target the user chose.
+  const calories =
+    figures === null
+      ? NO_FIGURE_TEXT
+      : savedCalories === null
+        ? MEAL_PLAN_NO_TARGET_FIGURE_TEXT
+        : formatCalories(savedCalories)
+  const spokenCalories =
+    savedCalories === null ? MEAL_PLAN_NO_TARGET_FIGURE_ACCESSIBILITY_TEXT : formatCalories(savedCalories)
+  const macros = figures === null ? [] : figures.macros
+
+  const freshEstimateText =
+    isUnderReview && estimate !== null && primary.kind !== 'estimate'
+      ? stringWithNamedParameters(MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE, {calories: formatCalories(estimate.calories)})
+      : null
 
   return {
     source: DISPLAYED_SOURCE_BY_PRIMARY_KIND[primary.kind],
-    cardLabel: isManualDisplay ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_DAILY_TARGETS_OVERLINE,
-    calories: figures === null ? NO_FIGURE_TEXT : formatCalories(figures.calories),
+    cardLabel,
+    calories,
     unitLabel: MEAL_PLAN_KCAL_UNIT,
-    macros: figures === null ? [] : figures.macros,
+    macros,
     caption: isManualDisplay ? MEAL_PLAN_CHOSEN_TARGETS_CAPTION : MEAL_PLAN_TARGETS_CAPTION,
-    editLabel: supersedesSavedFigures(primary, targets) ? MEAL_PLAN_RECALCULATE_LINK_TEXT : MEAL_PLAN_EDIT_LINK_TEXT,
-    missingTargetKeys: figures === null ? ALL_TARGET_KEYS : []
+    editLabel: isUnderReview ? MEAL_PLAN_RECALCULATE_LINK_TEXT : MEAL_PLAN_EDIT_LINK_TEXT,
+    freshEstimateText,
+    summaryAccessibilityLabel: summaryAccessibilityLabel(cardLabel, spokenCalories, macros, freshEstimateText),
+    missingTargetKeys: missingFigureKeys(figures)
   }
 }
 
@@ -657,7 +691,13 @@ export const resolveStartDateStepState = ({
 }
 
 /**
- * The only disabled Generate states are a pending press and an estimate decision that has not settled (0.7.4).
+ * The disabled Generate states are a pending press, an estimate decision that has not settled (0.7.4), and a
+ * read that failed.
+ *
+ * The last one is what a retry card is for: this press sends `expectedTargetsRevision` and
+ * `expectedPreferencesRevision`, both read from the two queries, and a failed read supplies neither. Leaving
+ * the CTA live there offers the user a plan built on revisions nothing reported — which the server refuses as a
+ * conflict the user never caused, after the wizard has already been left behind.
  *
  * The second one is any press whose outcome the estimate still decides — `dependsOnEstimate` — while the
  * estimate query is loading. A first visit is exactly that case and was the one this missed: with no saved
@@ -670,13 +710,376 @@ export const resolveStartDateStepState = ({
  * wait for, so the press carries the user to manual entry, which is the recovery for an estimate that genuinely
  * cannot be calculated (0.2.5). A press whose targets are confirmed never waits for the estimate at all.
  */
-export const resolveGenerateCtaState = ({plan, isEstimateLoading, isPending}: GenerateCtaInputs): GenerateCtaState => {
+export const resolveGenerateCtaState = ({
+  plan,
+  isEstimateLoading,
+  isPending,
+  hasReadFailure
+}: GenerateCtaInputs): GenerateCtaState => {
   const awaitsEstimateDecision = plan.dependsOnEstimate && isEstimateLoading
   const settledBlockedReason = awaitsEstimateDecision ? null : plan.blockedReason
 
   return {
     label: MEAL_PLAN_GENERATE_BUTTON_TEXT,
-    isEnabled: !isPending && !awaitsEstimateDecision,
+    isEnabled: !isPending && !awaitsEstimateDecision && !hasReadFailure,
     action: settledBlockedReason === null ? 'generate' : CTA_ACTION_BY_BLOCKED_REASON[settledBlockedReason]
   }
+}
+
+// The Generate press the derivations above decide, run over the collaborators the screen injects. It lives
+// beside them rather than in the component so its ordering, selective retry and conflict recovery are decided
+// in one place and exercised without a renderer: every server call it makes arrives as a collaborator, so the
+// screen supplies those and turns the outcome into copy.
+
+export type GeneratingRouteParams = RootStackParamList['Meal Plan Generating']
+
+/**
+ * What a press has already written and the revision the server answered with. A commitment lets the next
+ * press resume the sequence rather than restart it (AAP 0.7.4), and it is only ever honoured while the live
+ * revision still equals the one recorded here — see `runGenerateSequence`.
+ */
+export interface GenerateSequenceCommitments {
+  confirmedTargetsRevision: number | null
+  savedStartDate: {date: string; revision: number} | null
+}
+
+export const NO_GENERATE_COMMITMENTS: GenerateSequenceCommitments = Object.freeze({
+  confirmedTargetsRevision: null,
+  savedStartDate: null
+})
+
+/**
+ * A refused write whose refetched values genuinely differ from the ones the press asserted, carrying
+ * everything either answer needs: `payload` re-confirms the same estimate against the revision the refetch
+ * reported, and `theirStartDate` is the value "Use theirs" adopts.
+ */
+export interface TargetsRevisionConflict {
+  step: 'targets'
+  payload: SaveEstimatedNutritionTargetsPayload
+}
+
+export interface StartDateRevisionConflict {
+  step: 'startDate'
+  startDate: string
+  expectedRevision: number
+  theirStartDate: string | null
+}
+
+export type GenerateRevisionConflict = TargetsRevisionConflict | StartDateRevisionConflict
+
+/**
+ * How far the sequence got. The screen turns this into copy: 'estimate_stale' and 'failed' report themselves
+ * with a toast, 'conflict' raises the persistent prompt (0.7.2), and 'generating' has already navigated.
+ * `commitments` is what the caller must hold for the next press, whichever branch was taken.
+ */
+export type GenerateSequenceOutcome =
+  | {status: 'generating'; commitments: GenerateSequenceCommitments}
+  | {status: 'estimate_stale'; commitments: GenerateSequenceCommitments}
+  | {status: 'failed'; commitments: GenerateSequenceCommitments}
+  | {status: 'conflict'; commitments: GenerateSequenceCommitments; conflict: GenerateRevisionConflict}
+
+/**
+ * What an authoritative refetch answered. Recovery from a refused write compares the user's values with the
+ * server's, so it needs the server's values — and a refetch that failed has none of them.
+ *
+ * The distinction has to be carried explicitly because the cache hides it: a failed refetch leaves the
+ * previous data in place, so a collaborator that returned data alone could not tell "the server holds this"
+ * from "the request never arrived and this is what we already had". Read as the former, the pre-save cache
+ * matches the figures the press asserted and a rejected save is reported as one that already landed — the
+ * blind retry 0.7.2 forbids, wearing the shape of a resolution.
+ */
+export type RefetchResult<T> = {status: 'ok'; data: T} | {status: 'failed'}
+
+export interface GenerateSequenceCollaborators {
+  saveTargets: (payload: SaveNutritionTargetsPayload) => Promise<SaveNutritionTargetsResult>
+  saveSetupStep: (variables: SetupStepRequest) => Promise<MealPlanPreferencesSaveResult>
+  refetchTargets: () => Promise<RefetchResult<NutritionTargets | null>>
+  refetchPreferences: () => Promise<RefetchResult<MealPlanPreferences | null>>
+  // The estimate's figures are read off the re-rendered card rather than from here, but whether the refresh
+  // happened decides what the press reports: 'estimate_stale' tells the user to read recalculated numbers.
+  refetchEstimate: () => Promise<RefetchResult<NutritionTargetEstimate | null>>
+  mintIdempotencyKey: () => string
+  navigateToGenerating: (params: GeneratingRouteParams) => void
+}
+
+export interface GenerateSequenceRun {
+  targets: NutritionTargets | null
+  estimate: NutritionTargetEstimate | null
+  preferences: MealPlanPreferences
+  startDate: string
+  // The nextWeek route param, which is what tells a successor week from a first-time setup; null in setup mode.
+  planStartDate: string | null
+  timeZone: string
+  commitments: GenerateSequenceCommitments
+  // The conflict the user answered with "Keep mine". It forces the refused write to be re-sent against the
+  // revision the refetch reported, which a re-derived plan could not do: the refetched row now leads the card,
+  // so deciding afresh would silently adopt the server's values instead.
+  keepMineConflict: GenerateRevisionConflict | null
+  collaborators: GenerateSequenceCollaborators
+}
+
+type TargetsStepResult =
+  | {status: 'committed'; revision: number}
+  | {status: 'estimate_stale'}
+  | {status: 'failed'}
+  | {status: 'conflict'; conflict: TargetsRevisionConflict}
+
+type StartDateStepResult =
+  | {status: 'committed'; revision: number}
+  | {status: 'failed'}
+  | {status: 'conflict'; conflict: StartDateRevisionConflict}
+
+// A rejected targets revision is compared on the figures alone: everything else TargetsResponse carries is the
+// server's own derivation from them, so comparing it would report bookkeeping as the user's change.
+const TARGETS_CONFLICT_FIELDS: readonly (keyof NutritionTargets & string)[] = Object.freeze(['targets'])
+
+// The one answer the review step writes to preferences, so a diet or a meal time edited elsewhere is never
+// reported as a conflict with the plan's start date.
+const REVIEW_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze(['reviewStartDate'])
+
+// The literal type, not `SetupStep`: the wider annotation would not narrow against `SetupStepRequest` at the
+// call site below, which is the pairing this step's save has to satisfy.
+const REVIEW_STEP = 'review' as const
+
+/**
+ * Whether a recorded confirmation is still the revision the server holds. A commitment records "this press
+ * wrote revision N", which only means "N is current" while nothing has written since — and Review stays
+ * mounted while the target editor is pushed and popped, so an edit between two presses moves the live
+ * revision past N. Reading the two as the same fact is what would carry a superseded revision into
+ * generation, so anything other than equality makes the commitment obsolete.
+ */
+const isConfirmationCurrent = (commitments: GenerateSequenceCommitments, targets: NutritionTargets | null): boolean =>
+  commitments.confirmedTargetsRevision !== null &&
+  targets !== null &&
+  targets.revision === commitments.confirmedTargetsRevision
+
+/**
+ * Whether a recorded start-date save is still the row the server holds: the same date, saved at the revision
+ * preferences currently reports. The date alone is not enough — an answer edited on another step bumps the
+ * revision without touching the start date, and the pin the next save sends has to be that newer one.
+ */
+const isStartDateSaveCurrent = (
+  commitments: GenerateSequenceCommitments,
+  startDate: string,
+  preferences: MealPlanPreferences
+): boolean =>
+  commitments.savedStartDate !== null &&
+  commitments.savedStartDate.date === startDate &&
+  commitments.savedStartDate.revision === preferences.revision
+
+/**
+ * The figures a confirmation asserted. The payload sends a revision rather than numbers, so what it claimed is
+ * the estimate's — the set the card was showing when the press happened.
+ */
+const assertedEstimateFigures = (estimate: NutritionTargetEstimate | null): MacroTargets | null =>
+  estimate === null
+    ? null
+    : {calories: estimate.calories, protein: estimate.protein, carbs: estimate.carbs, fat: estimate.fat}
+
+/**
+ * Step one: confirm the displayed estimate.
+ *
+ * A rejected targets revision is never retried blindly (0.7.2). The authoritative figures are refetched and
+ * compared with the ones this press asserted, so a confirmation whose response was lost, or the same
+ * confirmation made from another device, is recognised as already written and the sequence continues instead
+ * of writing twice. Figures that genuinely differ are the user's to settle, so they raise a conflict carrying
+ * the payload a "Keep mine" answer re-sends against the revision just refetched.
+ */
+const confirmTargets = async (
+  payload: SaveEstimatedNutritionTargetsPayload,
+  estimate: NutritionTargetEstimate | null,
+  collaborators: GenerateSequenceCollaborators
+): Promise<TargetsStepResult> => {
+  try {
+    const saved = await collaborators.saveTargets(payload)
+
+    return {status: 'committed', revision: saved.targets.revision}
+  } catch (error) {
+    const code = getApiErrorCode(error)
+
+    // An estimate computed from inputs that have since moved is refused rather than saved: refetch the figures
+    // and leave the user on Review to read them, which is the one recovery that cannot generate a plan against
+    // numbers they were never shown. A refresh that itself failed leaves the old figures on the card, so
+    // saying "read the recalculated numbers" would name numbers that are not there — that is an ordinary
+    // failure the user can retry.
+    if (code === API_ERROR_CODES.estimateStale) {
+      const refreshed = await collaborators.refetchEstimate()
+
+      return refreshed.status === 'ok' ? {status: 'estimate_stale'} : {status: 'failed'}
+    }
+
+    if (code !== API_ERROR_CODES.staleTargets) {
+      return {status: 'failed'}
+    }
+
+    const refetched = await collaborators.refetchTargets()
+
+    // No authoritative answer, so nothing to compare against: the save stands rejected and the press fails.
+    // Treating a failed refetch as an answer is what would let the retained pre-save figures match the ones
+    // this press asserted and report a rejected confirmation as already written.
+    if (refetched.status !== 'ok' || refetched.data === null) {
+      return {status: 'failed'}
+    }
+
+    const fresh = refetched.data
+    const asserted = assertedEstimateFigures(estimate)
+    const isAlreadyWritten =
+      asserted !== null &&
+      resolveStaleRevision<NutritionTargets>({targets: asserted}, fresh, TARGETS_CONFLICT_FIELDS).status === 'resolved'
+
+    if (isAlreadyWritten) {
+      return {status: 'committed', revision: fresh.revision}
+    }
+
+    // Absent figures to compare are treated as a difference rather than a match: with no estimate in hand the
+    // press cannot be shown to have landed, and a prompt the user can answer is safer than assuming it did.
+    return {
+      status: 'conflict',
+      conflict: {
+        step: 'targets',
+        payload: buildSaveEstimatedNutritionTargetsPayload({
+          estimateRevision: payload.estimateRevision,
+          targetsRevision: fresh.revision
+        })
+      }
+    }
+  }
+}
+
+/**
+ * Step two: persist the reviewed start date, and only once step one has settled — a plan generated against an
+ * unconfirmed target is the outcome the ordering exists to prevent.
+ *
+ * The same recovery applies: a refused revision whose refetched row already carries this date means the lost
+ * write landed, so its revision is carried forward rather than the date being sent again.
+ */
+const saveStartDate = async (
+  input: {startDate: string; timeZone: string; expectedRevision: number},
+  collaborators: GenerateSequenceCollaborators
+): Promise<StartDateStepResult> => {
+  try {
+    const saved = await collaborators.saveSetupStep({
+      step: REVIEW_STEP,
+      payload: {startDate: input.startDate, timeZone: input.timeZone, expectedRevision: input.expectedRevision}
+    })
+
+    return {status: 'committed', revision: saved.preferences.revision}
+  } catch (error) {
+    if (getApiErrorCode(error) !== API_ERROR_CODES.staleRevision) {
+      return {status: 'failed'}
+    }
+
+    const refetched = await collaborators.refetchPreferences()
+
+    // The same rule as the targets step: without a fresh row there is nothing the refused date can be
+    // compared with, and the retained row is the one that made the pin stale in the first place.
+    if (refetched.status !== 'ok' || refetched.data === null) {
+      return {status: 'failed'}
+    }
+
+    const fresh = refetched.data
+
+    if (
+      resolveStaleRevision<MealPlanPreferences>({reviewStartDate: input.startDate}, fresh, REVIEW_CONFLICT_FIELDS)
+        .status === 'resolved'
+    ) {
+      return {status: 'committed', revision: fresh.revision}
+    }
+
+    return {
+      status: 'conflict',
+      conflict: {
+        step: 'startDate',
+        startDate: input.startDate,
+        expectedRevision: fresh.revision,
+        theirStartDate: fresh.reviewStartDate
+      }
+    }
+  }
+}
+
+/**
+ * The ordered sequence AAP 0.7.4 specifies: confirm the displayed estimate, persist a changed start date, then
+ * navigate to generation with the revisions those steps returned. Nothing runs after a failure and nothing
+ * navigates unless both steps have settled, so a plan is never generated against a value the server refused.
+ *
+ * The idempotency key is minted at the navigation itself, never earlier: a key survives only a byte-identical
+ * replay, so a press that follows an edited answer or a re-saved target needs its own (0.7.2).
+ */
+export const runGenerateSequence = async (run: GenerateSequenceRun): Promise<GenerateSequenceOutcome> => {
+  const {targets, estimate, preferences, startDate, keepMineConflict, collaborators} = run
+  const plan = planGenerateSequence({targets, estimate, preferences, startDate})
+
+  const isTargetsStepDone = isConfirmationCurrent(run.commitments, targets)
+  const isStartDateStepDone = isStartDateSaveCurrent(run.commitments, startDate, preferences)
+
+  let commitments: GenerateSequenceCommitments = {
+    confirmedTargetsRevision: isTargetsStepDone ? run.commitments.confirmedTargetsRevision : null,
+    savedStartDate: isStartDateStepDone ? run.commitments.savedStartDate : null
+  }
+
+  // The revisions the press carries are always the ones the queries currently report. A commitment decides
+  // only whether its step may be skipped, and it can only be honoured while it equals the live value, so the
+  // two can never disagree about what is being pinned.
+  let targetsRevision = plan.expectedTargetsRevision
+  let preferencesRevision = plan.expectedPreferencesRevision
+
+  const keepMineTargets = keepMineConflict?.step === 'targets' ? keepMineConflict.payload : null
+  const confirmation = keepMineTargets ?? (isTargetsStepDone ? null : buildTargetConfirmationPayload(plan))
+
+  if (confirmation !== null) {
+    const step = await confirmTargets(confirmation, estimate, collaborators)
+
+    if (step.status === 'estimate_stale') {
+      return {status: 'estimate_stale', commitments}
+    }
+
+    if (step.status === 'failed') {
+      return {status: 'failed', commitments}
+    }
+
+    if (step.status === 'conflict') {
+      return {status: 'conflict', commitments, conflict: step.conflict}
+    }
+
+    targetsRevision = step.revision
+    commitments = {...commitments, confirmedTargetsRevision: step.revision}
+  }
+
+  const keepMineStartDate = keepMineConflict?.step === 'startDate' ? keepMineConflict : null
+  const needsStartDateSave = keepMineStartDate !== null || (plan.requiresStartDateSave && !isStartDateStepDone)
+
+  if (needsStartDateSave) {
+    const step = await saveStartDate(
+      {
+        startDate,
+        timeZone: run.timeZone,
+        expectedRevision: keepMineStartDate?.expectedRevision ?? preferencesRevision
+      },
+      collaborators
+    )
+
+    if (step.status === 'failed') {
+      return {status: 'failed', commitments}
+    }
+
+    if (step.status === 'conflict') {
+      return {status: 'conflict', commitments, conflict: step.conflict}
+    }
+
+    preferencesRevision = step.revision
+    commitments = {...commitments, savedStartDate: {date: startDate, revision: step.revision}}
+  }
+
+  const context: GenerationContext = run.planStartDate === null ? {kind: 'setup'} : {kind: 'nextWeek', startDate}
+
+  collaborators.navigateToGenerating({
+    context,
+    idempotencyKey: collaborators.mintIdempotencyKey(),
+    expectedPreferencesRevision: preferencesRevision,
+    expectedTargetsRevision: targetsRevision,
+    startDate
+  })
+
+  return {status: 'generating', commitments}
 }

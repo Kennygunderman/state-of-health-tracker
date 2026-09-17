@@ -11,6 +11,7 @@ import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMu
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
 import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {kilogramsToPounds, weightUnitPrefFor} from '@utility/UnitConversionUtility'
@@ -18,11 +19,11 @@ import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SetupFooter from '@components/SetupFooter'
 import Text from '@components/Text'
 import TextField from '@components/TextField'
@@ -61,7 +62,6 @@ import {
   validateMealPlanGoal
 } from './index.util'
 
-// The order 46:170 draws the three goals in. Frozen because it is module-global render input.
 const GOAL_ORDER: readonly Goal[] = Object.freeze(['lose', 'maintain', 'gain'] as const)
 
 const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.freeze({
@@ -69,15 +69,12 @@ const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.free
   kg: MEAL_PLAN_KG_UNIT
 })
 
-// The cap the shipped weight input already uses, so the two weight fields in the app accept the same width
-// of number. Five characters is also exactly enough for the widest goal weight the 30-300 kg envelope admits
-// at one decimal: 300 kg, or 661.3 lb — 661.4 converts to 300.006 kg and is rejected.
+// Matches the shipped weight input, and is exactly the widest value the 30-300 kg envelope admits at one
+// decimal: 661.3 lb, since 661.4 converts to 300.006 kg and is rejected.
 const MAX_GOAL_WEIGHT_INPUT_LENGTH = 5
 
-// One message per code the validator can return, so each failure states the remedy that actually clears it.
-// The two option groups share a message because they fail for the same reason; the three goal-weight codes do
-// not — an out-of-range weight and one on the wrong side of the current weight are answered by different
-// edits, and a shared sentence would send the user to the wrong one.
+// The three goal-weight codes deliberately differ: an out-of-range weight and one on the wrong side of the
+// current weight are cleared by different edits.
 const GOAL_ERROR_COPY: Readonly<Record<MealPlanGoalErrorCode, string>> = Object.freeze({
   goal_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   pace_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
@@ -86,8 +83,7 @@ const GOAL_ERROR_COPY: Readonly<Record<MealPlanGoalErrorCode, string>> = Object.
   goal_weight_wrong_side: MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT
 })
 
-// The answers this step owns. A rejected revision compares only these, so a goal saved here is never
-// reported as conflicting with a body measurement or a meal time someone edited on another device.
+// The answers this step owns: a body measurement or meal time edited elsewhere is not a conflict here.
 const GOAL_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze([
   'goal',
   'goalWeightKg',
@@ -98,23 +94,23 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<MealPlanGoalRouteProp>()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, stepsForRoute} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. A successful save marks them stored first, so leaving after one keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('goal', params.mode === 'edit')
   const {returnFromTargets} = useHomeTabsNavigation()
   const weightUnit = useUserData(state => state.weightUnit)
 
-  // The field's own text, null until the user types: the draft holds kilograms, so a keystroke has to survive
-  // in the unit it was entered in rather than round-tripping through a conversion on every render.
+  // The draft holds kilograms, so a keystroke survives in the unit it was entered in rather than
+  // round-tripping through a conversion on every render.
   const [enteredGoalWeight, setEnteredGoalWeight] = useState<string | null>(null)
-  // Validate-on-press (0.7.4): before the first press nothing is wrong yet, afterwards every control shows its
-  // own message until it becomes valid again.
   const [hasSubmitted, setHasSubmitted] = useState(false)
-  // Live only while a refetched row genuinely differs from this draft: it raises the two answers 0.7.2
-  // requires and is cleared the moment either one is taken.
   const [hasConflict, setHasConflict] = useState(false)
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
@@ -151,8 +147,7 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
 
   const onSelectGoal = useCallback(
     (goal: Goal) => {
-      // The pace is dropped with the direction it described: Maintain has no pace, and a pace chosen for a
-      // deficit is not the same answer as the same number over maintenance.
+      // A pace under maintenance is not the same answer as the same number over it.
       setStepFields('goal', {goal, paceLbPerWeek: isPaceVisible(goal) ? draft.paceLbPerWeek : null})
     },
     [draft.paceLbPerWeek, setStepFields]
@@ -165,10 +160,10 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
     [setStepFields]
   )
 
-  // The step's committed hand-off, in one place so a save that completes and a rejected revision that turns
-  // out to already hold this answer take the identical route out.
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     if (params.mode !== 'edit') {
       navigation.navigate(Screens.MEAL_PLAN_ABOUT_YOU, params)
@@ -177,8 +172,7 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
     }
 
     // "Goal and body" is one settings row over two screens, so this one pushes the second rather than
-    // returning: each step is its own request and commits independently (0.7.4). The pace scope is the second
-    // screen of the activity pair, and every other edit opened this step alone.
+    // returning; each step is its own request and commits independently (0.7.4).
     if (params.returnTo === 'settings' && params.scope !== 'pace') {
       const bodyParams: StepMode = {mode: 'edit', returnTo: 'settings', origin: params.origin}
 
@@ -187,10 +181,8 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
       return
     }
 
-    // The one owner of a return to a named stack route: it pops rather than pushing a duplicate, and keeps
-    // the target screen's own params, which this step has no honest source for.
     returnFromTargets({kind: 'stack', route: params.returnTo})
-  }, [navigation, params, returnFromTargets])
+  }, [markSaved, navigation, params, returnFromTargets])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
@@ -203,35 +195,39 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
     const goalWeightKg = validation.goalWeightKg
     const paceLbPerWeek = isPaceVisible(goal) ? draft.paceLbPerWeek : null
 
-    // The draft carries the committed value forward to the later steps' summary, and a cleared optional field
-    // has to reach it as the null it now is.
+    // A cleared optional field has to reach the later steps' summary as the null it now is.
     setStepFields('goal', {goalWeightKg, paceLbPerWeek})
 
+    // The server requires this step's exact revision, so a query that never produced one is asked again.
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
+
+    if (saved === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
+      return
+    }
+
     try {
-      await saveStepMutation.mutateAsync({
+      await saveSetupStep({
         step: 'goal',
         payload: {
           goal,
           goalWeightKg,
           paceLbPerWeek,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          expectedRevision: preferences?.revision
+          expectedRevision: saved.revision
         }
       })
     } catch (error) {
-      // Never navigate out of a failure: every entered value stays on screen, the CTA leaves its pending
-      // state, and the next press re-sends the step that is still unsaved.
       if (getApiErrorCode(error) !== API_ERROR_CODES.staleRevision) {
         showToast('error', TOAST_GENERIC_ERROR)
 
         return
       }
 
-      // A rejected revision is never retried blindly (0.7.2): the authoritative row is refetched and this
-      // step's own answers are compared with it field by field. Equal values mean the write this client lost
-      // the response to, or the identical edit from another device, already landed — so it resolves silently
-      // rather than reporting a conflict or writing the same answer a second time.
-      const refetched = await preferencesQuery.refetch()
+      // A rejected revision is never retried blindly (0.7.2): equal values mean this client's own lost write, or
+      // the identical edit from another device, already landed, so it resolves silently rather than writing again.
+      const refetched = await refetchPreferences()
       const fresh = refetched.data ?? null
 
       if (fresh === null) {
@@ -249,9 +245,6 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
         return
       }
 
-      // A real difference is the user's to settle, so it raises the persistent dialog 0.7.2 requires rather
-      // than a toast that fades: 'Keep mine' re-presses this save against the revision just refetched, and a
-      // second rejection repeats the cycle.
       setHasConflict(true)
 
       return
@@ -262,21 +255,24 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
     advance,
     draft.goal,
     draft.paceLbPerWeek,
-    preferences?.revision,
-    preferencesQuery,
-    saveStepMutation,
+    preferences,
+    refetchPreferences,
+    saveSetupStep,
     setStepFields,
     validation
   ])
 
-  // 'Use theirs' discards this step's draft answers in favour of the refetched row. The typed field text goes
-  // with them: the keystrokes it holds outrank the saved value on every render, so leaving them would keep
-  // overriding the answer the user just accepted.
+  // The typed field text is cleared with the draft: it outranks the saved value on every render, so leaving
+  // it would keep overriding the answer 'Use theirs' just accepted.
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
     setEnteredGoalWeight(null)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -353,19 +349,22 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
       <SetupFooter>
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-          isLoading={saveStepMutation.isPending}
+          isLoading={isSaving}
           onPress={onContinuePressed}
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

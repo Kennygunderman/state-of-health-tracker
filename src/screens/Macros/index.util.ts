@@ -54,3 +54,13 @@ export function calorieBalance(consumed: number, target: number): CalorieBalance
 
   return {amount: Math.abs(diff), isOver: diff < 0}
 }
+
+export type MacrosBodyKey = 'diary' | 'mealPlan'
+
+// The Diary and Meal Plan bodies occupy the same position in the same ScrollView element, so React
+// reuses one native scroll view for both and the incoming segment inherits the outgoing segment's
+// scroll offset. Keying the container by this value is what remounts it on a segment change, so each
+// segment opens at its own header; the two keys must therefore never collide.
+export function resolveMacrosBodyKey(isDiarySegment: boolean): MacrosBodyKey {
+  return isDiarySegment ? 'diary' : 'mealPlan'
+}

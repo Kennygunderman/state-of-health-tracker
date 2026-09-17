@@ -1,6 +1,20 @@
 import {RecipeIngredient} from '@data/models/Recipe'
-import {SwapPreview, SwapPreviewAlternative} from '@data/models/SwapAlternative'
+import {SwapMealPayload, SwapPreview, SwapPreviewAlternative} from '@data/models/SwapAlternative'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PendingIntent,
+  resolveKeyedRequest,
+  resolveSlotOwnership
+} from '@store/mealPlan/useMealPlanStore'
+import {API_ERROR_CODES, getApiErrorCode, isUnknownOutcome} from '@utility/ApiErrorUtility'
+import {KeyedLaunchDecision, resolveKeyedLaunch, SlotOwnership, SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {dayStripLabel, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
+import {
+  isWriteAllowedByVerdict,
+  isWriteRefusedByVerdict,
+  isWriteVerdictUnknown
+} from '@utility/MealPlanLifecycleUtility'
 import {formatCalories, formatMacroGrams, formatMacroPair, formatSignedCalories} from '@utility/NutritionFormatUtility'
 import {DisplayedIngredient, plannedPortionFactor, scaleIngredientsForDisplay} from '@utility/ServingsUtility'
 
@@ -24,14 +38,116 @@ export interface SwapCalorieDelta {
   tone: 'negative' | 'positive'
 }
 
+/**
+ * Which assurance a failed commit is allowed to make. A server that answered `swap_failed` has told us nothing
+ * was written, so the drawn copy naming the meal unchanged is truthful; an outcome nothing described may have
+ * committed before its response was lost, so that variant states only that it could not be confirmed.
+ */
+export type CommitFailure = 'confirmed' | 'unconfirmed'
+
+export interface SwapCommitDisposition {
+  /**
+   * The failure to draw in place, or null when the code carries its own recovery — a toast and a way out of
+   * this screen — and there is nothing here for the user to retry.
+   */
+  failure: CommitFailure | null
+  /** Whether the persisted swap intent survives this answer. */
+  retainsPendingIntent: boolean
+}
+
+/**
+ * Everything that has to be true before this screen may commit a swap — ONE input and ONE answer, because the
+ * commit is the only irreversible thing frame 13b does and separate inline conditions are how one of them goes
+ * missing. Two families of condition meet here: whether the PLAN still accepts this write (0.5.2) and whether
+ * the single keyed slot is free for it (0.7.2).
+ */
+export interface SwapCommitGateInput {
+  /** Who holds the one `swap` intent slot, from this plan and meal's point of view. */
+  ownership: SlotOwnership
+  /** Whether the persisted slice was READ SUCCESSFULLY — a pending and a refused read are both false. */
+  isHydrated: boolean
+  /** Counted across the app, not per hook instance: any swap on the wire is an answer this slot is awaiting. */
+  isCommitInFlight: boolean
+  /** `MealPlanDayEnvelope.isWritable` — the sole authority on whether this plan still accepts writes (0.5.2). */
+  isPlanWritable: boolean | null | undefined
+  /** The revision the day envelope reports, or nothing when no envelope has answered. */
+  dayPlanRevision: number | null | undefined
+  /** The revision the preview bound its portion and totals to, or nothing while none is in hand. */
+  previewPlanRevision: number | null | undefined
+  /** A preview read in flight — including the refetch a revision mismatch starts to re-bind the portion. */
+  isPreviewFetching: boolean
+}
+
+export interface SwapCommitGateDecision {
+  /** Whether 'Use this meal' is closed — for any of the reasons below, or for a slot that is not free. */
+  isCommitDisabled: boolean
+  /** Whether the CTA reads as pending: an attempt on the wire, or a persisted slice not yet read. */
+  isCommitPending: boolean
+  /**
+   * Whether the screen must say that another meal's swap is still unresolved. Without it the CTA would sit
+   * disabled with nothing on screen explaining it, for as long as that key stays unanswered.
+   */
+  showsForeignHoldNotice: boolean
+  /** An answered `false` verdict, and the only state the stale-plan refusal may be explained for. */
+  isWriteRefused: boolean
+  /** No verdict answered yet — neither permission nor refusal, so only the day route can move this. */
+  isAwaitingWriteVerdict: boolean
+}
+
 export interface SwapMacroLegendItem {
   key: 'protein' | 'carbs' | 'fat'
   valueText: string
 }
 
+export interface SwapSlotOwnershipInput {
+  state: Pick<MealPlanStore, 'pendingIntents'>
+  userId: string | null
+  planId: string
+  mealId: string
+  now: number
+}
+
+/** Why no swap request may leave right now, taken from the launch decision so the two cannot drift apart. */
+export type SwapCommitBlockedReason = Extract<KeyedLaunchDecision, {kind: 'blocked'}>['reason']
+
+export interface SwapCommitLaunchInput {
+  state: Pick<MealPlanStore, 'pendingIntents'>
+  /** The 0.5.2 swap request this press would send, built from the route and the preview envelope. */
+  request: SwapRequestSnapshot
+  userId: string | null
+  isHydrated: boolean
+  isCommitInFlight: boolean
+  attemptedAt: number
+  freshKey: string
+}
+
+export type SwapCommitLaunch =
+  /**
+   * Record `intent` — when there is an account to scope it to — and send `payload`, which is the stored
+   * request's body under the stored key on a replay and the fresh request's under the minted key otherwise.
+   */
+  | {kind: 'send'; isReplay: boolean; payload: SwapMealPayload; intent: PendingIntent | null}
+  /** Record NOTHING and send nothing. The reason is what the screen tells the user. */
+  | {kind: 'blocked'; reason: SwapCommitBlockedReason}
+
 // Declared by @utility/ServingsUtility, which owns the scaling and formatting this screen shares with recipe
 // detail, and re-exported so the screen takes its row shape from its own util
 export type {DisplayedIngredient}
+
+export interface SwapPreviewIngredient extends DisplayedIngredient {
+  /**
+   * This row's React key. See {@link resolvePreviewIngredients} for how it is derived and why the display
+   * name it replaces was never an identity.
+   */
+  key: string
+}
+
+// The key separator: a character no catalog id contains, so 'a' at position 11 and 'a1' at position 1 cannot
+// collide into one key.
+const INGREDIENT_KEY_SEPARATOR = '#'
+
+const previewIngredientKey = (ingredient: RecipeIngredient | undefined, position: number): string =>
+  `${ingredient?.catalogFoodId ?? ''}${INGREDIENT_KEY_SEPARATOR}${position}`
 
 type PreviewNutrition = SwapPreviewAlternative['nutrition']
 
@@ -53,6 +169,201 @@ const isUsableTarget = (target: number | null | undefined): target is number =>
 // alone rather than pairing it with an invented zero
 const macroValueText = (actual: number, target: number | null | undefined): string =>
   isUsableTarget(target) ? formatMacroPair(actual, target) : formatMacroGrams(actual)
+
+/**
+ * What a failed commit does to the key it was sent under, and what the screen draws instead (AAP 0.7.2).
+ *
+ * Only an unknown outcome retains the intent. Nothing described that request's fate — it may have committed
+ * before its response was lost — so its key is the one way to ask again without risking a second swap, and it
+ * stays on record for this screen's retry and for the silent replay the swap screen owes it on next open.
+ *
+ * Every CONFIRMED answer retires it, `swap_failed` included. A confirmed `502 swap_failed` is a server
+ * resolution of that action: the transaction persisted nothing (0.5.2), so the key has answered, and holding
+ * it would leave an intent no read can clear while the screen already knows the meal is unchanged. The retry
+ * this screen still offers therefore goes out under a freshly minted key — which is exactly what the server
+ * requires for the confirmed refusals whose fix changes the payload (`preview_stale`, `stale_plan`,
+ * `idempotency_conflict`), since reusing a spent key under a different body earns `409 idempotency_conflict`
+ * (0.5.1). The confirmed-failure copy survives in the screen's own state, not in the persisted record.
+ */
+export function resolveCommitFailureDisposition(error: unknown): SwapCommitDisposition {
+  if (isUnknownOutcome(error)) {
+    return {failure: 'unconfirmed', retainsPendingIntent: true}
+  }
+
+  return {
+    failure: getApiErrorCode(error) === API_ERROR_CODES.swapFailed ? 'confirmed' : null,
+    retainsPendingIntent: false
+  }
+}
+
+/**
+ * Who holds the single `swap` intent slot, seen from the plan and meal this preview commits against.
+ *
+ * The three cases are not interchangeable and this screen is where that matters most: it is the one screen
+ * that RECORDS a swap intent, so it is the last place a second key can be minted over an unresolved one.
+ * 'free' may be minted into, 'mine' is this very request's own unresolved key and is replayed, and 'foreign'
+ * is another plan or meal's unresolved key — which is handed back to its own owner, never overwritten,
+ * because `pendingIntents.swap` holds exactly one record (0.7.2).
+ */
+export function resolveSwapSlotOwnership(input: SwapSlotOwnershipInput): SlotOwnership {
+  return resolveSlotOwnership(input.state, 'swap', input.userId, input.now, {
+    planId: input.planId,
+    mealId: input.mealId
+  }).kind
+}
+
+/**
+ * What the commit CTA may do right now, before any press: whether it is offered, whether it reads as pending,
+ * and whether the screen owes the user the reason it is closed.
+ *
+ * THE WRITEABILITY VERDICT HAS THREE STATES AND ONLY ONE OF THEM PERMITS A WRITE. `isWritable` is the day
+ * envelope's own answer and the sole authority on it (AAP 0.5.2): the stored `planStatus` still reads 'active'
+ * for a week that finished last month, and endedness is judged against the calendar day of the user's saved
+ * IANA zone, which this app does not hold. So permission is `=== true` and nothing else. An answered `false`
+ * is a refusal, which earns the stale-plan explanation; `null` (the display-only envelope seeded from the
+ * cached week) and `undefined` (no envelope at all) are neither, and take the app's ordinary disabled
+ * treatment, because telling a user their plan is gone while the read is still in flight would be the worse
+ * lie.
+ *
+ * THE TWO REVISIONS MUST BE KNOWN AND EQUAL. The preview bound its portion, its day totals and its
+ * `expectedPlanRevision` to the revision it answered for, and the commit sends that revision back — so a day
+ * that has moved on leaves the figures on screen describing a plan the server no longer holds, and the commit
+ * would earn `409 preview_stale` at best. A mismatch starts a refetch that re-binds the preview, and the
+ * commit stays barred for that whole window rather than being offered against the stale portion. A preview
+ * read in flight is therefore also a bar.
+ *
+ * AND THE ONE KEYED SLOT MUST BE FREE FOR IT. Every verdict `resolveKeyedLaunch` blocks on closes the button,
+ * so the same precedence decides the drawn state and the send. Two of its three reasons are self-explaining
+ * and need no copy — 'hydrating' is a moment before the persisted slice is known, and 'inFlight' is an attempt
+ * already on the wire, both of which the pending CTA states — while 'otherResource' can last until another
+ * meal's key is answered, so it is said in words rather than left as a button that does nothing.
+ */
+export function resolveSwapCommitGate(input: SwapCommitGateInput): SwapCommitGateDecision {
+  const launch = resolveKeyedLaunch({
+    ownership: input.ownership,
+    isHydrated: input.isHydrated,
+    isRequestInFlight: input.isCommitInFlight
+  })
+
+  // Strict equality over two numbers answers both halves at once: nothing equals `null` or `undefined` under
+  // `===`, and a revision that arrived as NaN does not equal itself, so an unknown revision on either side
+  // reads as "not bound" rather than as a match.
+  const areRevisionsBound =
+    typeof input.dayPlanRevision === 'number' &&
+    typeof input.previewPlanRevision === 'number' &&
+    input.dayPlanRevision === input.previewPlanRevision
+
+  return {
+    isCommitDisabled:
+      launch.kind === 'blocked' ||
+      !isWriteAllowedByVerdict(input.isPlanWritable) ||
+      !areRevisionsBound ||
+      input.isPreviewFetching,
+    isCommitPending: input.isCommitInFlight || !input.isHydrated,
+    showsForeignHoldNotice: launch.kind === 'blocked' && launch.reason === 'otherResource',
+    isWriteRefused: isWriteRefusedByVerdict(input.isPlanWritable),
+    isAwaitingWriteVerdict: isWriteVerdictUnknown(input.isPlanWritable)
+  }
+}
+
+/**
+ * What the press may send, and what it must record before it does (AAP 0.7.2).
+ *
+ * This is the whole keyed launch in one answer, so the screen cannot reach `mutateAsync` without it. Ownership
+ * of the single slot is read from the persisted slice — never from this screen's own scope alone, which is
+ * what let a preview on meal B record a fresh key over meal A's unresolved one — and `resolveKeyedLaunch`
+ * applies the precedence: nothing leaves while the slice is unread, while an attempt is on the wire, or while
+ * another plan or meal holds the slot. A BLOCKED verdict records nothing and sends nothing; there is no branch
+ * here that mints beside an unresolved key.
+ *
+ * A 'replay' sends the STORED snapshot under the STORED key, which `resolveKeyedRequest` hands back whenever
+ * the request still fingerprints to the record — the byte-identical replay a lost response requires, answered
+ * with the stored result rather than a second commit. Any difference in the payload or the expected revision
+ * spends the key, so the freshly minted one is used instead (0.5.1).
+ *
+ * `intent` is null only when no account is signed in: `pendingIntents` is keyed by user, so there is nothing to
+ * scope a record to, and the attempt still goes out under a fresh key exactly as it did before.
+ */
+export function resolveSwapCommitLaunch(input: SwapCommitLaunchInput): SwapCommitLaunch {
+  const ownership = resolveSwapSlotOwnership({
+    state: input.state,
+    userId: input.userId,
+    planId: input.request.planId,
+    mealId: input.request.mealId,
+    now: input.attemptedAt
+  })
+
+  const launch = resolveKeyedLaunch({
+    ownership,
+    isHydrated: input.isHydrated,
+    isRequestInFlight: input.isCommitInFlight
+  })
+
+  if (launch.kind === 'blocked') {
+    return {kind: 'blocked', reason: launch.reason}
+  }
+
+  const plan =
+    input.userId === null
+      ? {idempotencyKey: input.freshKey, isReplay: false, request: input.request}
+      : resolveKeyedRequest(input.state, input.request, input.userId, input.attemptedAt, input.freshKey)
+
+  // `resolveKeyedRequest` consults the record filed under the request's own action, so a swap request can only
+  // come back with a swap snapshot; the check narrows the union rather than guarding a reachable case.
+  const sent = plan.request.action === 'swap' ? plan.request : input.request
+
+  return {
+    kind: 'send',
+    isReplay: plan.isReplay,
+    payload: {
+      recipeVersionId: sent.recipeVersionId,
+      portionMultiplier: sent.portionMultiplier,
+      expectedPlanRevision: sent.expectedPlanRevision,
+      idempotencyKey: plan.idempotencyKey
+    },
+    intent:
+      input.userId === null ? null : buildPendingIntent(sent, plan.idempotencyKey, input.userId, input.attemptedAt)
+  }
+}
+
+// The confirmed commit refusals this screen fires but does not own. `swap_failed` is the drawn 13e retry, and
+// the other two each contradict the plan revision the alternatives behind this screen were computed for — so
+// the rows over there have to go, and stay gone until that list has answered again (0.2.5). Every code absent
+// from this set still has a next move of its own here: the two plan-state codes and the capability code leave
+// the flow entirely, and `idempotency_conflict` retires the key it rejected so the retry mints a fresh one.
+const SWAP_MEAL_OWNED_CODES: ReadonlySet<string> = new Set<string>([
+  API_ERROR_CODES.swapFailed,
+  API_ERROR_CODES.previewStale,
+  API_ERROR_CODES.recipeIneligible
+])
+
+/**
+ * Whether a failed commit's outcome belongs to `SwapMeal` — the screen that draws the swap failure states and
+ * holds the alternatives a refusal contradicts — rather than to this one.
+ *
+ * An outcome nothing described is always its own: the commit may have landed before the response was lost, so
+ * nothing here may promise the meal is unchanged and the key stays the only safe way to ask again (0.7.2).
+ * Confirmed-ness is therefore not re-checked against the code set: a 5xx that merely echoed one of those
+ * strings is an unknown outcome under the one classification, and it is handed back for that reason instead.
+ *
+ * NULL AND UNDEFINED ARE NOT OUTCOMES, even though the classification reads a missing status as unknown. A
+ * rejection carrying no value at all gives `SwapMeal` nothing to attribute — an absent error is no error to
+ * its view resolver — so handing one back would land the user on interactive rows with nothing said. It is
+ * reported by the caller instead.
+ */
+export function isOutcomeOwnedBySwapMeal(error: unknown): boolean {
+  if (error === null || error === undefined) {
+    return false
+  }
+
+  if (isUnknownOutcome(error)) {
+    return true
+  }
+
+  const code = getApiErrorCode(error)
+
+  return code !== null && SWAP_MEAL_OWNED_CODES.has(code)
+}
 
 export function deriveCalorieDelta(calorieDelta: number): SwapCalorieDelta | null {
   if (!Number.isFinite(calorieDelta)) {
@@ -144,11 +455,25 @@ export function formatPreviewSubtitle(portionText: string, totalMinutes: number)
  * detail's 'Your portion' column uses. No second, pre-scaled ingredient collection is requested from the
  * server: both factors are already in this envelope, and a scaled copy would give one number two sources of
  * truth and put a display-rounding rule in a second place.
+ *
+ * EACH ROW CARRIES A KEY, because the display name is not an identity contract: names come from the frozen
+ * `recipe_ingredients` snapshot and a recipe may legitimately list the same food twice — a marinade and a
+ * sauce — which under a name key produces duplicate keys and a reconciliation React cannot resolve. The key
+ * is the source row's own `catalogFoodId` plus its position, and both halves are load-bearing: the id alone
+ * repeats for exactly that legitimate case, and the position alone would re-key every row below an insertion.
+ * `DisplayedIngredient` carries no id of its own — @utility/ServingsUtility answers for the display amounts
+ * of two screens and neither of those is a list identity — so the identity is resolved here, beside the
+ * ingredients it is read from.
  */
 export function resolvePreviewIngredients(
   ingredients: readonly RecipeIngredient[],
   portionMultiplier: number,
   yieldServings: number
-): DisplayedIngredient[] {
-  return scaleIngredientsForDisplay(ingredients, plannedPortionFactor(portionMultiplier, yieldServings))
+): SwapPreviewIngredient[] {
+  const rows = scaleIngredientsForDisplay(ingredients, plannedPortionFactor(portionMultiplier, yieldServings))
+
+  // Zipped by index rather than looked up by name, which is the very identity this row is being given a key
+  // to stop relying on: `scaleIngredientsForDisplay` maps one row per ingredient in order, so position is the
+  // correspondence between the two lists.
+  return rows.map((row, position) => ({...row, key: previewIngredientKey(ingredients[position], position)}))
 }

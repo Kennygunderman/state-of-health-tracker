@@ -62,5 +62,11 @@ export default StyleSheet.create({
   },
   fieldFocused: {
     borderColor: Theme.colors.accentGreen
+  },
+  // The stroke goes to the field's own fill, so a locked field reads as the value it is rather than as an input
+  // waiting for one. The number itself keeps its colour: it is what the pending write will log, and it has to
+  // stay legible — only the affordance is withdrawn, which the dimmed buttons beside it carry.
+  fieldDisabled: {
+    borderColor: Theme.colors.inset
   }
 })

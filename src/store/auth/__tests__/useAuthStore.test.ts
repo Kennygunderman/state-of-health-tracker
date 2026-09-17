@@ -1,47 +1,37 @@
-import {
-  activateQueryCachePartition,
-  discardPersistedQueryCache,
-  queryClient,
-  sealQueryCachePartition
-} from '@queries/queryClient'
+import {asyncStoragePersister, queryClient} from '@queries/queryClient'
 import {FirebaseAuthTypes} from '@react-native-firebase/auth'
 import authService from '@service/auth/AuthService'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
+import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
+import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
+import useProgressStore from '@store/progress/useProgressStore'
 
 import useAuthStore from '../useAuthStore'
 
-// What these tests are about is the session boundary, so the collaborators are mocked down to the
-// calls that enforce it and the order they run in. The partition's own semantics — which key a write
-// lands under, what a read hands back after the account has changed — belong to
-// queries/__tests__/queryClient.test.ts.
-const mockSessionCleanupOrder: string[] = []
-const mockResetDailyWorkoutEntry = jest.fn()
-const mockResetProgress = jest.fn()
-const mockResetMealPlanState = jest.fn()
+// Every collaborator the session boundary touches records the order it was reached in, because the
+// order is the contract this suite exists to pin: the in-memory clear has to happen before either
+// device call, so that a rejection from the device can never leave the previous account readable.
+const cleanupOrder: string[] = []
+
+const record = (step: string) => async (): Promise<void> => {
+  cleanupOrder.push(step)
+}
 
 jest.mock('@queries/queryClient', () => ({
   queryClient: {
     clear: jest.fn(() => {
-      mockSessionCleanupOrder.push('clear-in-memory-cache')
+      cleanupOrder.push('queryCache')
     })
   },
-  sealQueryCachePartition: jest.fn(() => {
-    mockSessionCleanupOrder.push('seal-partition')
-  }),
-  activateQueryCachePartition: jest.fn((userId: string | null) => {
-    mockSessionCleanupOrder.push(`activate-partition:${userId ?? 'nobody'}`)
-  }),
-  discardPersistedQueryCache: jest.fn(async () => {
-    mockSessionCleanupOrder.push('discard-persisted-cache')
-  })
+  asyncStoragePersister: {removeClient: jest.fn(async () => undefined)}
 }))
 
 jest.mock('@service/auth/AuthService', () => ({
   __esModule: true,
   default: {
-    getCurrentUser: jest.fn(() => null),
     logOutUser: jest.fn(async () => undefined),
-    deleteCurrentUser: jest.fn(async () => undefined)
+    deleteCurrentUser: jest.fn(async () => undefined),
+    getCurrentUser: jest.fn(() => null)
   }
 }))
 
@@ -52,112 +42,139 @@ jest.mock('@service/workouts/OfflineWorkoutStorageService', () => ({
 
 jest.mock('@store/dailyWorkoutEntry/useDailyWorkoutEntryStore', () => ({
   __esModule: true,
-  default: {getState: () => ({reset: mockResetDailyWorkoutEntry})}
+  default: {getState: jest.fn(() => ({reset: jest.fn()}))}
 }))
 
 jest.mock('@store/progress/useProgressStore', () => ({
   __esModule: true,
-  default: {getState: () => ({reset: mockResetProgress})}
+  default: {getState: jest.fn(() => ({reset: jest.fn()}))}
 }))
 
 jest.mock('@store/mealPlan/useMealPlanStore', () => ({
   __esModule: true,
-  default: {getState: () => ({reset: mockResetMealPlanState})},
-  prunePendingIntentsForUser: jest.fn()
+  default: {getState: jest.fn(() => ({reset: jest.fn()}))}
 }))
 
-const USER_A = 'uid-aaaa'
-const USER_B = 'uid-bbbb'
+const USER_A = {uid: 'uid-aaaa', email: 'a@example.com'} as FirebaseAuthTypes.User
+const USER_B = {uid: 'uid-bbbb', email: 'b@example.com'} as FirebaseAuthTypes.User
 
-const sealPartition = jest.mocked(sealQueryCachePartition)
-const activatePartition = jest.mocked(activateQueryCachePartition)
-const discardPersistedCache = jest.mocked(discardPersistedQueryCache)
-const clearInMemoryCache = jest.mocked(queryClient.clear)
-const logOutUser = jest.mocked(authService.logOutUser)
-const deleteCurrentUser = jest.mocked(authService.deleteCurrentUser)
-const clearOfflineWorkouts = jest.mocked(offlineWorkoutStorageService.clear)
+const cacheClear = jest.mocked(queryClient.clear)
+const removePersistedCache = jest.mocked(asyncStoragePersister.removeClient)
+const offlineWorkoutClear = jest.mocked(offlineWorkoutStorageService.clear)
+const workoutEntryState = jest.mocked(useDailyWorkoutEntryStore.getState)
+const progressState = jest.mocked(useProgressStore.getState)
+const mealPlanState = jest.mocked(useMealPlanStore.getState)
 
-const makeUser = (uid: string): FirebaseAuthTypes.User =>
-  ({uid, email: `${uid}@example.com`}) as unknown as FirebaseAuthTypes.User
+const resetSpies = () => {
+  const spies = {workoutEntry: jest.fn(), progress: jest.fn(), mealPlan: jest.fn()}
 
-// Seeding a signed-in account publishes an identity, which the store's own subscription answers, so
-// the recorders are reset afterwards: every assertion below is about the transition under test.
-const signedInAs = (uid: string) => {
-  useAuthStore.setState({userId: uid, userEmail: `${uid}@example.com`, isAuthed: true, isAttemptingAuth: false})
-  jest.clearAllMocks()
-  mockSessionCleanupOrder.length = 0
+  workoutEntryState.mockReturnValue({reset: spies.workoutEntry} as unknown as ReturnType<
+    typeof useDailyWorkoutEntryStore.getState
+  >)
+  progressState.mockReturnValue({reset: spies.progress} as unknown as ReturnType<typeof useProgressStore.getState>)
+  mealPlanState.mockReturnValue({reset: spies.mealPlan} as unknown as ReturnType<typeof useMealPlanStore.getState>)
+
+  return spies
+}
+
+let stores: ReturnType<typeof resetSpies>
+
+// A signed-in session, published the way an explicit login publishes one.
+const signedInAs = (user: FirebaseAuthTypes.User) => {
+  useAuthStore.setState({userId: user.uid, userEmail: user.email, isAuthed: true, isAttemptingAuth: false})
 }
 
 beforeEach(() => {
-  useAuthStore.setState({userId: null, userEmail: null, isAuthed: false, isAttemptingAuth: false})
   jest.clearAllMocks()
-  mockSessionCleanupOrder.length = 0
-  logOutUser.mockImplementation(async () => undefined)
-  deleteCurrentUser.mockImplementation(async () => undefined)
+  cleanupOrder.length = 0
+  stores = resetSpies()
+  cacheClear.mockImplementation(() => {
+    cleanupOrder.push('queryCache')
+  })
+  removePersistedCache.mockImplementation(record('persistedCache'))
+  offlineWorkoutClear.mockImplementation(record('offlineWorkouts'))
+  useAuthStore.setState({userId: null, userEmail: null, isAuthed: false, isAttemptingAuth: false})
 })
 
-describe('syncAuthState — a different account signs in with no signed-out render in between', () => {
-  it('enforces the whole boundary before the incoming account is published', () => {
+const expectSessionCleared = () => {
+  expect(cacheClear).toHaveBeenCalledTimes(1)
+  expect(stores.workoutEntry).toHaveBeenCalledTimes(1)
+  expect(stores.progress).toHaveBeenCalledTimes(1)
+  expect(stores.mealPlan).toHaveBeenCalledTimes(1)
+  expect(removePersistedCache).toHaveBeenCalledTimes(1)
+  expect(offlineWorkoutClear).toHaveBeenCalledTimes(1)
+}
+
+const expectNothingCleared = () => {
+  expect(cacheClear).not.toHaveBeenCalled()
+  expect(stores.workoutEntry).not.toHaveBeenCalled()
+  expect(stores.progress).not.toHaveBeenCalled()
+  expect(stores.mealPlan).not.toHaveBeenCalled()
+  expect(removePersistedCache).not.toHaveBeenCalled()
+  expect(offlineWorkoutClear).not.toHaveBeenCalled()
+}
+
+// Firebase delivers remote sign-outs, revoked tokens and account changes through this action alone, and
+// the cache and the user-scoped stores are singletons that survive the navigator swapping Home for Auth.
+// Without the boundary here, the next account reads the previous one's diary, plan and avatar.
+describe('syncAuthState — transitions away from a signed-in account', () => {
+  it('clears the session when the account is signed out remotely', async () => {
     signedInAs(USER_A)
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
+    useAuthStore.getState().syncAuthState(null)
+    await Promise.resolve()
 
-    expect(sealPartition).toHaveBeenCalledTimes(1)
-    expect(clearInMemoryCache).toHaveBeenCalledTimes(1)
-    expect(discardPersistedCache).toHaveBeenCalledWith(USER_A)
-    expect(clearOfflineWorkouts).toHaveBeenCalledTimes(1)
-    expect(mockResetDailyWorkoutEntry).toHaveBeenCalledTimes(1)
-    expect(mockResetProgress).toHaveBeenCalledTimes(1)
-    expect(mockResetMealPlanState).toHaveBeenCalledTimes(1)
-    expect(useAuthStore.getState().userId).toBe(USER_B)
-    expect(useAuthStore.getState().isAuthed).toBe(true)
+    expectSessionCleared()
+    expect(useAuthStore.getState()).toMatchObject({userId: null, userEmail: null, isAuthed: false})
   })
 
-  it('seals the outgoing partition before clearing the cache, because clearing makes every query refetch', () => {
+  it('clears the session when one account replaces another with no signed-out state in between', async () => {
     signedInAs(USER_A)
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
+    useAuthStore.getState().syncAuthState(USER_B)
+    await Promise.resolve()
 
-    expect(mockSessionCleanupOrder.indexOf('seal-partition')).toBeLessThan(
-      mockSessionCleanupOrder.indexOf('clear-in-memory-cache')
-    )
+    expectSessionCleared()
+    expect(useAuthStore.getState()).toMatchObject({userId: USER_B.uid, userEmail: USER_B.email, isAuthed: true})
   })
 
-  it("opens the incoming account's partition only once that account has been published", () => {
+  it('clears the previous account before publishing the incoming one', async () => {
     signedInAs(USER_A)
+    let userIdWhenCacheCleared: string | null = 'unset'
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
+    cacheClear.mockImplementation(() => {
+      cleanupOrder.push('queryCache')
+      userIdWhenCacheCleared = useAuthStore.getState().userId
+    })
 
-    expect(activatePartition).toHaveBeenCalledTimes(1)
-    expect(activatePartition).toHaveBeenCalledWith(USER_B)
-    expect(mockSessionCleanupOrder).toEqual([
-      'seal-partition',
-      'clear-in-memory-cache',
-      'discard-persisted-cache',
-      `activate-partition:${USER_B}`
-    ])
+    useAuthStore.getState().syncAuthState(USER_B)
+    await Promise.resolve()
+
+    expect(userIdWhenCacheCleared).toBe(USER_A.uid)
   })
 
-  it('removes the cache of the account being replaced, never the incoming one', () => {
+  it('clears memory before it touches the device, so a storage failure cannot reopen the boundary', async () => {
     signedInAs(USER_A)
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
+    useAuthStore.getState().syncAuthState(USER_B)
+    await Promise.resolve()
 
-    expect(discardPersistedCache).toHaveBeenCalledTimes(1)
-    expect(discardPersistedCache).not.toHaveBeenCalledWith(USER_B)
+    expect(cleanupOrder.indexOf('queryCache')).toBe(0)
+    expect(cleanupOrder).toEqual(['queryCache', 'persistedCache', 'offlineWorkouts'])
   })
 
-  it('enforces the boundary again when the account changes a second time', () => {
+  it('publishes the incoming account even when both device cleanups reject', async () => {
     signedInAs(USER_A)
+    removePersistedCache.mockRejectedValueOnce(new Error('storage unavailable'))
+    offlineWorkoutClear.mockRejectedValueOnce(new Error('filesystem unavailable'))
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
-    useAuthStore.getState().syncAuthState(makeUser(USER_A))
+    useAuthStore.getState().syncAuthState(USER_B)
+    await Promise.resolve()
+    await Promise.resolve()
 
-    expect(discardPersistedCache).toHaveBeenNthCalledWith(1, USER_A)
-    expect(discardPersistedCache).toHaveBeenNthCalledWith(2, USER_B)
-    expect(sealPartition).toHaveBeenCalledTimes(2)
-    expect(activatePartition).toHaveBeenNthCalledWith(1, USER_B)
-    expect(activatePartition).toHaveBeenNthCalledWith(2, USER_A)
+    expect(cacheClear).toHaveBeenCalledTimes(1)
+    expect(stores.mealPlan).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState()).toMatchObject({userId: USER_B.uid, isAuthed: true})
   })
 })
 
@@ -165,104 +182,77 @@ describe('syncAuthState — the cases that must not clear anything', () => {
   it('leaves the session alone on a token or profile refresh of the same account', () => {
     signedInAs(USER_A)
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_A))
+    useAuthStore.getState().syncAuthState(USER_A)
 
-    expect(sealPartition).not.toHaveBeenCalled()
-    expect(clearInMemoryCache).not.toHaveBeenCalled()
-    expect(discardPersistedCache).not.toHaveBeenCalled()
-    expect(mockResetMealPlanState).not.toHaveBeenCalled()
-    expect(activatePartition).not.toHaveBeenCalled()
+    expectNothingCleared()
+    expect(useAuthStore.getState()).toMatchObject({userId: USER_A.uid, isAuthed: true})
   })
 
-  it("opens the restored account's partition on cold start without clearing anything", () => {
-    useAuthStore.getState().syncAuthState(makeUser(USER_A))
+  it('leaves the session alone when Firebase restores a session on cold start', () => {
+    useAuthStore.getState().syncAuthState(USER_A)
 
-    expect(sealPartition).not.toHaveBeenCalled()
-    expect(discardPersistedCache).not.toHaveBeenCalled()
-    expect(activatePartition).toHaveBeenCalledWith(USER_A)
-    expect(useAuthStore.getState().userId).toBe(USER_A)
+    expectNothingCleared()
+    expect(useAuthStore.getState()).toMatchObject({userId: USER_A.uid, isAuthed: true})
   })
 
   it('defers to an explicit login or registration flow that owns its own transition', () => {
     signedInAs(USER_A)
     useAuthStore.setState({isAttemptingAuth: true})
 
-    useAuthStore.getState().syncAuthState(makeUser(USER_B))
-
-    expect(sealPartition).not.toHaveBeenCalled()
-    expect(discardPersistedCache).not.toHaveBeenCalled()
-    expect(activatePartition).not.toHaveBeenCalled()
-    expect(useAuthStore.getState().userId).toBe(USER_A)
-  })
-})
-
-describe('syncAuthState — a remote sign-out', () => {
-  it('clears the session, takes the signed-out account off the device and leaves no partition open', () => {
-    signedInAs(USER_A)
-
     useAuthStore.getState().syncAuthState(null)
 
-    expect(sealPartition).toHaveBeenCalledTimes(1)
-    expect(discardPersistedCache).toHaveBeenCalledWith(USER_A)
-    expect(activatePartition).toHaveBeenCalledWith(null)
-    expect(useAuthStore.getState().isAuthed).toBe(false)
+    expectNothingCleared()
+    expect(useAuthStore.getState()).toMatchObject({userId: USER_A.uid, isAuthed: true})
   })
 })
 
 describe('logoutUser', () => {
-  it("removes the signed-out account's persisted cache", async () => {
+  it('clears the whole session and signs out', async () => {
     signedInAs(USER_A)
 
     await useAuthStore.getState().logoutUser()
 
-    expect(sealPartition).toHaveBeenCalled()
-    expect(clearInMemoryCache).toHaveBeenCalled()
-    expect(discardPersistedCache).toHaveBeenCalledWith(USER_A)
-    expect(activatePartition).toHaveBeenCalledWith(null)
-    expect(useAuthStore.getState().userId).toBeNull()
+    expect(authService.logOutUser).toHaveBeenCalledTimes(1)
+    expectSessionCleared()
+    expect(cleanupOrder).toEqual(['queryCache', 'persistedCache', 'offlineWorkouts'])
+    expect(useAuthStore.getState()).toMatchObject({userId: null, userEmail: null, isAuthed: false})
   })
 
-  it("still knows whose cache to remove when the auth provider's listener has already nulled the id", async () => {
+  it('still completes when the persisted cache cannot be removed from the device', async () => {
     signedInAs(USER_A)
-
-    // Firebase delivers the sign-out to subscribeToAuthChanges, which reaches syncAuthState before
-    // logoutUser resumes — so the id has to have been read before the provider was called.
-    logOutUser.mockImplementation(async () => {
-      useAuthStore.getState().syncAuthState(null)
-    })
-
-    await useAuthStore.getState().logoutUser()
-
-    expect(discardPersistedCache).toHaveBeenCalledWith(USER_A)
-    expect(discardPersistedCache).not.toHaveBeenCalledWith(null)
-  })
-
-  it('reports rather than throws when the cache cannot be removed from the device', async () => {
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    signedInAs(USER_A)
-    discardPersistedCache.mockRejectedValueOnce(new Error('storage unavailable'))
+    removePersistedCache.mockRejectedValueOnce(new Error('storage unavailable'))
 
     await expect(useAuthStore.getState().logoutUser()).resolves.toBeUndefined()
 
-    expect(clearInMemoryCache).toHaveBeenCalled()
-    expect(useAuthStore.getState().isAuthed).toBe(false)
-    expect(consoleError).toHaveBeenCalled()
+    expect(cacheClear).toHaveBeenCalledTimes(1)
+    expect(offlineWorkoutClear).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState()).toMatchObject({userId: null, isAuthed: false})
+  })
 
-    consoleError.mockRestore()
+  // The fail-open shape this replaced awaited the workout file first, so a rejection there skipped every
+  // reset that followed and left the previous account's cache and stores in place.
+  it('has already cleared memory and the device cache when the workout file cannot be cleared', async () => {
+    signedInAs(USER_A)
+    offlineWorkoutClear.mockRejectedValueOnce(new Error('filesystem unavailable'))
+
+    await expect(useAuthStore.getState().logoutUser()).resolves.toBeUndefined()
+
+    expect(cacheClear).toHaveBeenCalledTimes(1)
+    expect(stores.mealPlan).toHaveBeenCalledTimes(1)
+    expect(removePersistedCache).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState()).toMatchObject({userId: null, isAuthed: false})
   })
 })
 
 describe('deleteUser', () => {
-  it("removes the deleted account's persisted cache", async () => {
+  it('clears the whole session in the same order', async () => {
     signedInAs(USER_A)
 
     await useAuthStore.getState().deleteUser()
 
-    expect(deleteCurrentUser).toHaveBeenCalledTimes(1)
-    expect(sealPartition).toHaveBeenCalled()
-    expect(discardPersistedCache).toHaveBeenCalledWith(USER_A)
-    expect(activatePartition).toHaveBeenCalledWith(null)
-    expect(useAuthStore.getState().userId).toBeNull()
+    expect(authService.deleteCurrentUser).toHaveBeenCalledTimes(1)
+    expectSessionCleared()
+    expect(cleanupOrder).toEqual(['queryCache', 'persistedCache', 'offlineWorkouts'])
+    expect(useAuthStore.getState()).toMatchObject({userId: null, isAuthed: false})
   })
 })

@@ -91,6 +91,16 @@ export interface MealPlan {
   id: string
   revision: number
   generationAttempt: number
+  /**
+   * The idempotency key of the keyed write that published this plan — the one field that can prove a plan
+   * belongs to a request this client still holds unresolved.
+   *
+   * After a generation whose response was lost, a refetched plan may be the one that request committed, one
+   * another device made, or the plan it was about to replace; dates and revisions cannot tell them apart.
+   * Comparing this against the pending key is the exact test, so the intent is retired on a match and kept on
+   * anything else (0.2.5, 0.7.2).
+   */
+  generationKey: string
   // 'YYYY-MM-DD' day keys, endDate six days after startDate. Validated by the decoder, because every date
   // bound in the plan — the day strip, the next week's start, the log screen's range — is derived from them.
   startDate: string

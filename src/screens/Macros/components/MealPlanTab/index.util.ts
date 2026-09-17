@@ -1,8 +1,31 @@
-import {CurrentMealPlans, MealPlan, MealPlanFlag, MealPlanMeal} from '@data/models/MealPlan'
-import {MealPlanPreferences, SetupStatus, SetupStep} from '@data/models/MealPlanPreferences'
-import {httpStatusOf, isRoutesMissingError, MealPlanAvailability} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
+import {
+  CurrentMealPlans,
+  MealPlan,
+  MealPlanDay,
+  MealPlanDayEnvelope,
+  MealPlanFlag,
+  MealPlanMeal
+} from '@data/models/MealPlan'
+import {MealPlanPreferences, SetupStatus} from '@data/models/MealPlanPreferences'
+import {SwapMealPayload} from '@data/models/SwapAlternative'
+import {MealPlanAvailability} from '@hooks/mealPlanning/useMealPlanEntitlement.util'
 import {RootStackParamList} from '@navigation/types'
-import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
+import {LogPlannedMealPayload} from '@queries/api/mealPlanning/logPlannedMeal'
+import {
+  IntentsHydration,
+  MealPlanStore,
+  PendingIntent,
+  PendingIntentAction,
+  resolveReplayableIntent
+} from '@store/mealPlan/useMealPlanStore'
+import type {PostLogResult} from '@store/mealPlan/useMealPlanStore'
+import {isPlanReadInvalidatedError} from '@utility/ApiErrorUtility'
+import {
+  LogRequestSnapshot,
+  MealPlanRequestSnapshot,
+  resolveMountReplay,
+  SwapRequestSnapshot
+} from '@utility/IdempotencyUtility'
 import {
   clampDayKeyToPlan,
   defaultSelectedPlanDate,
@@ -11,6 +34,7 @@ import {
   resolvePostLogViewTarget
 } from '@utility/MealPlanDateUtility'
 import {isWriteAllowedByVerdict} from '@utility/MealPlanLifecycleUtility'
+import {resolveSetupResumeTarget, SetupResumeTarget} from '@utility/MealPlanSetupResumeUtility'
 import {format} from 'date-fns'
 
 import Screens from '@constants/screens'
@@ -20,56 +44,16 @@ import {
   MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
   MEAL_PLAN_CREATE_BUTTON_TEXT,
   MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT,
+  MEAL_SLOT_LABELS,
   PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON,
   stringWithNamedParameters
 } from '@constants/strings'
 
-const NOT_FOUND_STATUS = 404
-
 // The plan surfaces that name a weekday in prose spell it out, unlike the day strip's abbreviation.
 const WEEKDAY_FORMAT = 'EEEE'
 
-const STALE_PLAN_CODES: readonly string[] = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
-
-type SetupResumeRoute =
-  | typeof Screens.MEAL_PLAN_GOAL
-  | typeof Screens.MEAL_PLAN_ABOUT_YOU
-  | typeof Screens.MEAL_PLAN_ACTIVITY
-  | typeof Screens.MEAL_PLAN_DIET
-  | typeof Screens.MEAL_PLAN_FOOD_PREFERENCES
-  | typeof Screens.MEAL_PLAN_SCHEDULE
-  | typeof Screens.MEAL_PLAN_COOKING_BUDGET
-  | typeof Screens.MEAL_PLAN_TARGETS
-  | typeof Screens.MEAL_PLAN_EDIT_TARGETS
-
-/**
- * Route and params in one value, correlated by construction: the mapped type pairs each resume route with
- * that route's own entry in `RootStackParamList`, so a payload cannot be attached to the wrong screen and
- * the caller navigates without inventing params of its own. Every resume target requires params — the eight
- * wizard screens take a `StepMode`, and the manual-target editor takes its own mode-and-return pair.
- */
-export type SetupResumeTarget = {
-  [Route in SetupResumeRoute]: {route: Route; params: RootStackParamList[Route]}
-}[SetupResumeRoute]
-
-// Factories rather than stored values: each call hands the caller its own params object, so a screen that
-// adjusts what it received cannot rewrite the resume target of every later session.
-const SETUP_RESUME_TARGETS: Record<SetupStep, () => SetupResumeTarget> = {
-  goal: () => ({route: Screens.MEAL_PLAN_GOAL, params: {mode: 'setup'}}),
-  body: () => ({route: Screens.MEAL_PLAN_ABOUT_YOU, params: {mode: 'setup'}}),
-  activity: () => ({route: Screens.MEAL_PLAN_ACTIVITY, params: {mode: 'setup'}}),
-  diet: () => ({route: Screens.MEAL_PLAN_DIET, params: {mode: 'setup'}}),
-  dislikes: () => ({route: Screens.MEAL_PLAN_FOOD_PREFERENCES, params: {mode: 'setup'}}),
-  schedule: () => ({route: Screens.MEAL_PLAN_SCHEDULE, params: {mode: 'setup'}}),
-  cooking: () => ({route: Screens.MEAL_PLAN_COOKING_BUDGET, params: {mode: 'setup'}}),
-  review: () => ({route: Screens.MEAL_PLAN_TARGETS, params: {mode: 'setup'}}),
-  // The manual-target route carries on forward through the wizard into Diet, so the editor resumes in its
-  // blank manual mode and returns by navigating there rather than popping back to a screen behind it.
-  targets_manual: () => ({
-    route: Screens.MEAL_PLAN_EDIT_TARGETS,
-    params: {mode: 'manual', returnTo: {kind: 'stack', route: 'diet'}}
-  })
-}
+// The four names the diary backfills its buckets with, which is what a logged entry's bucket label can be.
+const CANONICAL_BUCKET_LABELS: readonly string[] = Object.values(MEAL_SLOT_LABELS)
 
 const EMPTY_PLAN_CTAS: Record<SetupStatus, EmptyPlanCta> = {
   not_started: 'create',
@@ -114,26 +98,76 @@ export type MealLoggedState =
   | {kind: 'logged'; entry: LoggedEntryRef}
   | {kind: 'loggedThenSwapped'; entry: LoggedEntryRef}
 
-const hasError = (error: unknown): boolean => error !== null && error !== undefined
-
-// A 404 carrying a decodable code is the server's combined not-found/not-yours answer for a resource route; a
-// 404 without one is the routes-missing signal that the entitlement verdict already owns.
-const isResourceNotFoundError = (error: unknown): boolean =>
-  httpStatusOf(error) === NOT_FOUND_STATUS && !isRoutesMissingError(error)
-
 /**
- * A plan the server will no longer read or write, whichever request surfaced it. Both codes earn the same
- * recovery, so the tab treats them as one condition and reads it from the code it already decoded rather
- * than re-deriving it from the error.
+ * What the selected day has to show, and whether what it shows is complete.
+ *
+ * `hasFailedRead` is the disclosure the day content cannot carry itself: the content came from the week the
+ * plan response already held, while the day route — the only source of the logged entries and of the write
+ * verdict — failed. Without it the plan reads as usable and its write controls do nothing.
  */
-export function isStalePlanCode(code: string | null): boolean {
-  return code !== null && STALE_PLAN_CODES.includes(code)
+export type MealPlanDaySection =
+  | {kind: 'loading'}
+  | {kind: 'error'}
+  | {kind: 'day'; day: MealPlanDay; hasFailedRead: boolean}
+
+export interface MealPlanDayInputs {
+  plan: MealPlan
+  selectedDayKey: string
+  envelope: MealPlanDayEnvelope | null
+  dayError: unknown
 }
 
-const isStalePlanError = (error: unknown): boolean => isStalePlanCode(getApiErrorCode(error))
+// What a meal card renders, derived once per day rather than per card per render.
+export interface MealCardModel {
+  meal: MealPlanMeal
+  loggedState: MealLoggedState
+}
 
-const isResourceOrStalePlanError = (error: unknown): boolean =>
-  isStalePlanError(error) || isResourceNotFoundError(error)
+/**
+ * The plan and day a post-log banner was raised against. It is captured because `postLogResult` records
+ * neither, and a banner that cannot name its own plan survives a replacement plan covering the same dates.
+ */
+export interface PostLogBannerOrigin {
+  entryId: string
+  planId: string | null
+  /**
+   * The newest successful swap at the moment this banner was raised, as that mutation's `submittedAt`.
+   *
+   * A watermark rather than a pending flag, because the lifecycle retires the confirmation when another swap
+   * COMPLETES: a swap that failed, or whose answer was lost, changed nothing the confirmation was describing
+   * and must leave it standing. `submittedAt` only ever increases for a later mutation, so a greater value
+   * than this one can only mean a further swap has since succeeded — and the cache dropping an older entry
+   * lowers the observed value instead of raising it, which the comparison reads as no new swap rather than as
+   * one.
+   */
+  lastSwapSucceededAt: number
+}
+
+export interface PostLogBannerInputs {
+  result: PostLogResult | null
+  origin: PostLogBannerOrigin | null
+  dismissedEntryId: string | null
+  planId: string | null
+  selectedDayKey: string
+  lastSwapSucceededAt: number
+}
+
+const hasError = (error: unknown): boolean => error !== null && error !== undefined
+
+/**
+ * A plan this screen may no longer read, whichever request surfaced it and whichever way the server said so:
+ * it replaced or ended the plan, or the resource is not this caller's. All of them earn the one recovery —
+ * the stale-plan toast and a current-plan refetch — because the plan the screen holds is the wrong plan, and
+ * none of them is worth a retry that would ask the same disowned resource again.
+ *
+ * It takes the error rather than a decoded code because the code alone is not an answer: the shared
+ * classification confirms an outcome from the status as well as the body, so a 5xx that merely echoed
+ * `stale_plan` is excluded. Recovering on one would tell a user whose plan is live that it had been replaced,
+ * and would abandon a read a second attempt would have completed.
+ */
+export function isStalePlanError(error: unknown): boolean {
+  return isPlanReadInvalidatedError(error)
+}
 
 const resolveEmptyPlanCta = (preferences: MealPlanPreferences | undefined): EmptyPlanCta =>
   preferences ? EMPTY_PLAN_CTAS[preferences.setupStatus] : 'create'
@@ -166,7 +200,7 @@ export function resolveMealPlanBody(inputs: MealPlanBodyInputs): MealPlanBodyOut
     return {kind: 'unavailable'}
   }
 
-  if (isResourceOrStalePlanError(preferencesError) || isResourceOrStalePlanError(currentPlanError)) {
+  if (isStalePlanError(preferencesError) || isStalePlanError(currentPlanError)) {
     return {kind: 'error'}
   }
 
@@ -189,13 +223,522 @@ export function resolveMealPlanBody(inputs: MealPlanBodyInputs): MealPlanBodyOut
 }
 
 /**
- * Resuming setup opens the saved step itself, so a returning user never meets the introduction again. A step
- * a newer server introduced resolves to the first step rather than to a screen this build cannot render.
+ * The Generating route's own params, which is all a reconstructed route needs: the screen rebuilds its request
+ * from them (`buildGenerationRequest`), so a route rebuilt from a stored snapshot sends the very request the
+ * stored key was minted for.
  */
-export function resolveSetupResumeTarget(step: SetupStep | null): SetupResumeTarget {
-  const target = step === null ? undefined : SETUP_RESUME_TARGETS[step]
+export type MealPlanGeneratingParams = RootStackParamList[typeof Screens.MEAL_PLAN_GENERATING]
 
-  return (target ?? SETUP_RESUME_TARGETS.goal)()
+/**
+ * `idle` leaves the tab rendering its normal state; `handoff` is the one frame in which the tab opens the
+ * Generating screen for an unresolved generation, carrying the STORED key so the attempt there is a replay
+ * rather than a second plan under a new key (0.7.2).
+ *
+ * `settled` is the one resolution that can be reached from a READ: a returned plan carrying the pending
+ * `generationKey` is the server's own answer to that key, which is the only thing allowed to retire it
+ * (0.2.5). It is stated rather than filtered away because a record nobody retires keeps the action's single
+ * slot occupied — the launch path then sees a stored request for a superseded plan and hands back to this tab,
+ * which filters it again, and the user cannot regenerate until the 7-day expiry. `action` names the slot to
+ * clear and `planId` the plan that key produced, which is also the plan the user should be looking at.
+ *
+ * `hydrating` and `unreadable` are the two answers that precede every other: until the persisted slice has
+ * been read, whether a keyed write is pending is UNKNOWN, and a refused read leaves it unknown rather than
+ * empty. They are separate because they are acted on differently — waiting is waiting, while a refusal is a
+ * state only `retryIntentsHydration` leaves.
+ */
+export type PendingGenerationOutcome =
+  | {kind: 'idle'}
+  | {kind: 'hydrating'}
+  | {kind: 'unreadable'}
+  | {kind: 'settled'; action: PendingIntentAction; planId: string}
+  | {kind: 'handoff'; params: MealPlanGeneratingParams}
+
+/**
+ * `navigatedKey` is the latch the caller keeps: the key this tab has already handed over for the handoff it is
+ * currently holding. One handoff per key is what keeps the tab from re-opening Generating on every render
+ * while that screen is on top; the latch is released when the tab loses focus (`resolveHandoffLatch`), so
+ * returning to a still-unresolved intent reconstructs its owner again rather than exposing normal state over a
+ * key nobody owns.
+ */
+export interface PendingGenerationDecision {
+  outcome: PendingGenerationOutcome
+  navigatedKey: string | null
+}
+
+export interface PendingGenerationInputs {
+  intents: Pick<MealPlanStore, 'pendingIntents'>
+  userId: string | null
+  now: number
+  /**
+   * How the persisted slice came back. The three states are kept apart here rather than collapsed to a
+   * boolean because the tab has to SAY which it is: 'pending' waits, 'failed' offers the retry that is the
+   * only way out of it, and only 'succeeded' permits any conclusion about what is stored.
+   */
+  intentsHydration: IntentsHydration
+  /**
+   * Whether this tab may navigate at all: it is the focused route, meal planning is available, and the plan
+   * read has settled. Handing off while the plan read is still in flight would reconstruct the owner for a
+   * generation the very next answer proves has already been published.
+   */
+  isHandoffAllowed: boolean
+  isGenerationInFlight: boolean
+  navigatedKey: string | null
+  plans: CurrentMealPlans | undefined
+  /** The day key a reconstructed regeneration shows as its week when that plan is not in hand. */
+  todayDayKey: string
+}
+
+// The two keyed writes that own a screen of their own. Swap and log are replayed silently in place, so they
+// never reconstruct a route. Declared in precedence order, which decides ties below.
+const GENERATION_ACTIONS: readonly PendingIntentAction[] = ['generate', 'regenerate']
+
+type GenerationRequestSnapshot = Extract<MealPlanRequestSnapshot, {action: 'generate' | 'regenerate'}>
+
+// The three members of a stored record a reconstructed route is built from, narrowed to the two generation
+// snapshots so the route can be built without re-testing the action at every use.
+interface GenerationIntent {
+  key: string
+  createdAt: number
+  request: GenerationRequestSnapshot
+}
+
+const isGenerationSnapshot = (snapshot: MealPlanRequestSnapshot): snapshot is GenerationRequestSnapshot =>
+  snapshot.action === 'generate' || snapshot.action === 'regenerate'
+
+const asGenerationIntent = (intent: PendingIntent | null): GenerationIntent | null =>
+  intent !== null && isGenerationSnapshot(intent.request)
+    ? {key: intent.key, createdAt: intent.createdAt, request: intent.request}
+    : null
+
+const planById = (plans: CurrentMealPlans | undefined, planId: string): MealPlan | null => {
+  const current = plans?.current ?? null
+
+  if (current !== null && current.id === planId) {
+    return current
+  }
+
+  const upcoming = plans?.upcoming ?? null
+
+  return upcoming !== null && upcoming.id === planId ? upcoming : null
+}
+
+/**
+ * The plan a pending key already produced, if the payload in hand holds it. `generationKey` is the only field
+ * that can answer this: after a lost response a refetched plan may be the one that request committed, one
+ * another device made, or the week it was about to replace, and dates and revisions cannot tell them apart
+ * (0.2.5, 0.7.2).
+ */
+const planByGenerationKey = (plans: CurrentMealPlans | undefined, key: string): MealPlan | null => {
+  const current = plans?.current ?? null
+
+  if (current !== null && current.generationKey === key) {
+    return current
+  }
+
+  const upcoming = plans?.upcoming ?? null
+
+  return upcoming !== null && upcoming.generationKey === key ? upcoming : null
+}
+
+/**
+ * Every generation record this tab still owns, newest first, answered or not.
+ *
+ * Newest first because that is the request the user is waiting on. `sort` is stable, so two intents recorded
+ * in the same millisecond keep `GENERATION_ACTIONS` order rather than an arbitrary one.
+ */
+const liveGenerationIntents = (inputs: PendingGenerationInputs): GenerationIntent[] =>
+  GENERATION_ACTIONS.map(action =>
+    asGenerationIntent(resolveReplayableIntent(inputs.intents, action, inputs.userId, inputs.now))
+  )
+    .filter((intent): intent is GenerationIntent => intent !== null)
+    .sort((left, right) => right.createdAt - left.createdAt)
+
+/**
+ * The first record the payload in hand has already answered, paired with the plan that answers it — the
+ * exact-match settlement. Only `generationKey` can establish this (`planByGenerationKey`), which is why the
+ * pairing is returned rather than a boolean: the caller has to retire that action AND select the plan the key
+ * produced, and neither is derivable from the intent alone.
+ *
+ * An answered record must not shadow an older one nobody has answered, so the scan returns the settlement and
+ * leaves the remaining records to the handoff path on the next render, once the settled one is gone.
+ */
+const answeredGenerationIntent = (
+  intents: GenerationIntent[],
+  plans: CurrentMealPlans | undefined
+): {intent: GenerationIntent; plan: MealPlan} | null =>
+  intents.reduce<{intent: GenerationIntent; plan: MealPlan} | null>((answered, intent) => {
+    if (answered !== null) {
+      return answered
+    }
+
+    const plan = planByGenerationKey(plans, intent.key)
+
+    return plan === null ? null : {intent, plan}
+  }, null)
+
+/**
+ * The route params that reconstruct the Generating screen for a stored request.
+ *
+ * Every value comes from the snapshot, never from current query data: the screen rebuilds its request from
+ * these params, and a rebuilt request that differs in any member is a different request — which the server
+ * answers with `409 idempotency_conflict` for a reused key (0.5.1, 0.7.2).
+ *
+ * The two exceptions are display copy the request does not contain. A regeneration keeps the dates the plan
+ * already has, so its `startDate` param only names the week on the card and is read from that plan when the
+ * payload holds it. A generation's context is `nextWeek` when the user already has a week — the only state in
+ * which a second plan can be asked for — and `setup` otherwise; both spell the same `startDate` into the
+ * rebuilt request, so the choice changes where "Edit preferences" leads and nothing about the replay.
+ */
+const buildGeneratingParams = (
+  intent: GenerationIntent,
+  plans: CurrentMealPlans | undefined,
+  todayDayKey: string
+): MealPlanGeneratingParams => {
+  const request = intent.request
+
+  if (request.action === 'regenerate') {
+    return {
+      context: {kind: 'regenerate', planId: request.planId, planRevision: request.expectedPlanRevision},
+      idempotencyKey: intent.key,
+      expectedPreferencesRevision: request.expectedPreferencesRevision,
+      expectedTargetsRevision: request.expectedTargetsRevision,
+      startDate: planById(plans, request.planId)?.startDate ?? todayDayKey
+    }
+  }
+
+  const hasPlan = (plans?.current ?? null) !== null || (plans?.upcoming ?? null) !== null
+
+  return {
+    context: hasPlan ? {kind: 'nextWeek', startDate: request.startDate} : {kind: 'setup'},
+    idempotencyKey: intent.key,
+    expectedPreferencesRevision: request.expectedPreferencesRevision,
+    expectedTargetsRevision: request.expectedTargetsRevision,
+    startDate: request.startDate
+  }
+}
+
+/**
+ * Who owns a generation whose response was lost, once the route that made it is gone.
+ *
+ * Navigation state is not persisted, so after a cold start — or after the user simply walked away — nothing
+ * is left holding the Generating screen, and the plan the request may already have committed would never be
+ * asked for again. This tab is the state router for the whole feature, so it is where that ownership lands:
+ * it opens Generating for the stored intent and the screen replays the stored snapshot under the stored key
+ * (AAP 0.7.2 — "the state router opens Generating when a generate intent exists and no plan carries that
+ * generationKey").
+ *
+ * Branch order is load-bearing. Hydration comes first because "no intent" and "not read yet" are different
+ * answers, and deciding before the persisted slice has come back would conclude that nothing is pending. A
+ * plan already carrying the key is the server's answer, and it is SETTLED rather than ignored — retiring it is
+ * what frees the action's one slot for the user's next request. What is left is handed over once per key, and
+ * never while an attempt for it is already on the wire — two answers to one key is the race the latch and the
+ * in-flight gate exist to prevent.
+ *
+ * The settlement is deliberately not gated on `isHandoffAllowed`: that gate exists for navigation, and
+ * retiring a key the server has demonstrably answered is a state write that is correct whether or not this tab
+ * is the route on screen.
+ */
+export function resolvePendingGeneration(inputs: PendingGenerationInputs): PendingGenerationDecision {
+  if (inputs.intentsHydration !== 'succeeded') {
+    return {
+      outcome: {kind: inputs.intentsHydration === 'failed' ? 'unreadable' : 'hydrating'},
+      navigatedKey: inputs.navigatedKey
+    }
+  }
+
+  const intents = liveGenerationIntents(inputs)
+  const answered = answeredGenerationIntent(intents, inputs.plans)
+
+  if (answered !== null) {
+    return {
+      outcome: {kind: 'settled', action: answered.intent.request.action, planId: answered.plan.id},
+      navigatedKey: inputs.navigatedKey
+    }
+  }
+
+  const [intent] = intents
+  const replay = resolveMountReplay({
+    intent: intent ?? null,
+    isReady: inputs.isHandoffAllowed,
+    isRequestInFlight: inputs.isGenerationInFlight,
+    replayedKey: inputs.navigatedKey
+  })
+
+  if (!replay.replays || intent === undefined) {
+    return {outcome: {kind: 'idle'}, navigatedKey: replay.replayedKey}
+  }
+
+  return {
+    outcome: {kind: 'handoff', params: buildGeneratingParams(intent, inputs.plans, inputs.todayDayKey)},
+    navigatedKey: replay.replayedKey
+  }
+}
+
+/**
+ * The two keyed writes this tab owns in place rather than by reconstructing a route (AAP 0.7.2 — "the Meal
+ * Plan tab for swap/log"). A generation needs its own screen because it has nothing to show meanwhile; a swap
+ * or a log is a single request whose answer lands in the week already on screen.
+ */
+export type InPlaceWriteAction = Extract<PendingIntentAction, 'swap' | 'log'>
+
+/**
+ * The unresolved in-place write on record: the ids the mutation instance is built from, and the key the replay
+ * is latched by. Read from the stored snapshot, never from the day on screen — the record may name a meal on
+ * another day or in another week, and it is that meal's write that has to be finished.
+ */
+export interface InPlaceWriteIntent {
+  planId: string
+  mealId: string
+  key: string
+}
+
+export interface InPlaceWriteInputs {
+  intents: Pick<MealPlanStore, 'pendingIntents'>
+  userId: string | null
+  now: number
+  intentsHydration: IntentsHydration
+  /**
+   * Whether the tab may act as the silent owner at all: it is the route on screen and meal planning is
+   * available. Focus is what keeps this tab and the write's own screen from ever sending one key at the same
+   * time — the screen is the focused route while it is open — and availability is the gate no gated request
+   * may cross (0.2.5).
+   */
+  isReplayAllowed: boolean
+  /** Whether an attempt for this action is already on the wire, from this tab or from the owning screen. */
+  isRequestInFlight: boolean
+  replayedKey: string | null
+}
+
+/**
+ * What the tab does about one in-place write this frame.
+ *
+ * `intent` is reported whether or not the replay fires, because it is what the tab's own Swap and Log controls
+ * are withheld on (`arePlanActionsOffered`) and what the mutation instance is addressed with — an unresolved
+ * record must not be replaceable while its key is unanswered (0.7.2).
+ *
+ * `payload` is the STORED body under the STORED key, and non-null only on the frame that owes the silent
+ * replay. A replay is answered with the stored result only while it reproduces the request the key was minted
+ * for, so nothing here is rebuilt from query data: a rebuilt body earns `409 idempotency_conflict` or commits
+ * the write a second time (0.5.1, 0.7.2).
+ */
+export interface InPlaceWriteOwnership<TPayload> {
+  intent: InPlaceWriteIntent | null
+  payload: TPayload | null
+  replayedKey: string | null
+}
+
+/**
+ * The record for one in-place action, or null when there is nothing this tab owns.
+ *
+ * No `RequestScope` is passed, and that is the whole difference between this tab and the swap and log screens:
+ * they are showing one meal and may only replay that meal's key, whereas this tab is the GLOBAL owner of the
+ * action's single slot, so every live record for it is its own to finish. Hydration is checked first because
+ * an unread slice is unknown rather than empty, and nothing — least of all a request — may be decided from it
+ * (0.7.2).
+ */
+const ownedInPlaceIntent = (inputs: InPlaceWriteInputs, action: InPlaceWriteAction): PendingIntent | null =>
+  inputs.intentsHydration === 'succeeded'
+    ? resolveReplayableIntent(inputs.intents, action, inputs.userId, inputs.now)
+    : null
+
+const ownedSwapWrite = (
+  inputs: InPlaceWriteInputs
+): {intent: InPlaceWriteIntent; request: SwapRequestSnapshot} | null => {
+  const intent = ownedInPlaceIntent(inputs, 'swap')
+
+  if (intent === null || intent.request.action !== 'swap') {
+    return null
+  }
+
+  return {
+    intent: {planId: intent.request.planId, mealId: intent.request.mealId, key: intent.key},
+    request: intent.request
+  }
+}
+
+const ownedLogWrite = (
+  inputs: InPlaceWriteInputs
+): {intent: InPlaceWriteIntent; request: LogRequestSnapshot} | null => {
+  const intent = ownedInPlaceIntent(inputs, 'log')
+
+  if (intent === null || intent.request.action !== 'log') {
+    return null
+  }
+
+  return {
+    intent: {planId: intent.request.planId, mealId: intent.request.mealId, key: intent.key},
+    request: intent.request
+  }
+}
+
+// The 0.5.2 swap body, assembled from the stored snapshot under the stored key — the same four members
+// `IdempotencyUtility.requestBody` produces for a swap, which the util test pins by comparison.
+const swapReplayBody = (request: SwapRequestSnapshot, key: string): SwapMealPayload => ({
+  recipeVersionId: request.recipeVersionId,
+  portionMultiplier: request.portionMultiplier,
+  expectedPlanRevision: request.expectedPlanRevision,
+  idempotencyKey: key
+})
+
+// The 0.5.2 planned-log body, on the same terms: the servings, date and diary bucket the user chose when the
+// key was minted, not the ones the screen would rebuild from today's data.
+const logReplayBody = (request: LogRequestSnapshot, key: string): LogPlannedMealPayload => ({
+  servings: request.servings,
+  date: request.date,
+  diaryMealId: request.diaryMealId,
+  expectedPlanRevision: request.expectedPlanRevision,
+  idempotencyKey: key
+})
+
+/**
+ * Whether this tab owes the unresolved swap its one silent same-key attempt, and the body that attempt carries.
+ *
+ * This is the cold-start owner AAP 0.7.2 asks for. The commit is fired from the preview screen, so after a
+ * process death the mutation cache holds nothing and navigation state is gone — the persisted record is the
+ * only trace of what the user asked for, and no route reopens on its own. Without this the write would sit
+ * unfinished while the tab drew a week that may already have changed.
+ *
+ * One replay per key and never while an attempt is on the wire (`resolveMountReplay`, shared with the other
+ * three keyed writes). Nothing here resolves the intent: only a server answer to that key may (0.2.5).
+ */
+export function resolveSwapOwnership(inputs: InPlaceWriteInputs): InPlaceWriteOwnership<SwapMealPayload> {
+  const owned = ownedSwapWrite(inputs)
+  const replay = resolveMountReplay({
+    intent: owned?.intent ?? null,
+    isReady: inputs.isReplayAllowed && inputs.userId !== null,
+    isRequestInFlight: inputs.isRequestInFlight,
+    replayedKey: inputs.replayedKey
+  })
+
+  return {
+    intent: owned?.intent ?? null,
+    payload: replay.replays && owned !== null ? swapReplayBody(owned.request, owned.intent.key) : null,
+    replayedKey: replay.replayedKey
+  }
+}
+
+/**
+ * The same ownership for the planned log, and the one that most needs it: the log screen rebuilds its request
+ * from the servings, date and bucket currently on screen, so an intent nobody replays is an intent whose next
+ * attempt is a DIFFERENT request under a new key — a second diary entry for the meal the user logged once
+ * (0.7.2). The stored snapshot is sent instead, unchanged.
+ */
+export function resolveLogOwnership(inputs: InPlaceWriteInputs): InPlaceWriteOwnership<LogPlannedMealPayload> {
+  const owned = ownedLogWrite(inputs)
+  const replay = resolveMountReplay({
+    intent: owned?.intent ?? null,
+    isReady: inputs.isReplayAllowed && inputs.userId !== null,
+    isRequestInFlight: inputs.isRequestInFlight,
+    replayedKey: inputs.replayedKey
+  })
+
+  return {
+    intent: owned?.intent ?? null,
+    payload: replay.replays && owned !== null ? logReplayBody(owned.request, owned.intent.key) : null,
+    replayedKey: replay.replayedKey
+  }
+}
+
+/**
+ * What the tab draws, once the persisted intent slice has had its say.
+ *
+ * `body` is the tab's ordinary rendering. `withheld` is the non-interactive frame: the slice has not been read
+ * yet, or a generation is unsettled and being handed to its owner. `intentsUnreadable` is the refused read,
+ * which needs an action rather than a placeholder.
+ */
+export type MealPlanTabFrame =
+  | {kind: 'body'; outcome: MealPlanBodyOutcome}
+  | {kind: 'withheld'}
+  | {kind: 'intentsUnreadable'}
+
+/**
+ * Whether the tab may show its ordinary surfaces yet.
+ *
+ * The plan and setup surfaces carry the writes — Swap, Log, and the routes that generate a plan — so they may
+ * not be drawn while the existence of an unresolved keyed write is unknown: a press then mints a second key
+ * beside one the server may already have committed (0.7.2). A read that is still out and a read that was
+ * refused are both "unknown", so both withhold; they differ only in what is drawn, because a refusal is a
+ * state nothing but `retryIntentsHydration` leaves.
+ *
+ * `unavailable` stays ahead of the gate. The feature is switched off or its routes are gone, so there is no
+ * keyed write to own and nothing on that card to press — withholding it would replace a truthful answer with
+ * a placeholder that can never resolve.
+ */
+export function resolveTabFrame(
+  planOutcome: MealPlanBodyOutcome,
+  generation: PendingGenerationOutcome
+): MealPlanTabFrame {
+  if (planOutcome.kind === 'unavailable') {
+    return {kind: 'body', outcome: planOutcome}
+  }
+
+  if (generation.kind === 'unreadable') {
+    return {kind: 'intentsUnreadable'}
+  }
+
+  return generation.kind === 'idle' ? {kind: 'body', outcome: planOutcome} : {kind: 'withheld'}
+}
+
+/**
+ * The handoff latch the tab keeps, scoped to the handoff it is holding rather than to its own lifetime.
+ *
+ * One handoff per key is what stops the tab re-opening Generating on every render while that screen sits on
+ * top of it. Holding the same latch for the whole process is a refusal, though: if Generating is popped or
+ * backed out of while its intent is still unresolved, the tab would draw its normal plan surfaces over a key
+ * nobody owns. Losing focus is exactly the moment the handoff has been taken, so the latch is released there
+ * and a return to a still-unresolved intent reconstructs the owner again. Nothing about duplicate sends rests
+ * on the latch — the in-flight gate is what prevents those.
+ */
+export function resolveHandoffLatch(navigatedKey: string | null, isFocused: boolean): string | null {
+  return isFocused ? navigatedKey : null
+}
+
+// What a withheld frame shows: the same placeholder the first load shows, because a week a pending request
+// may already have replaced is not an answer while that request is unsettled (0.7.2).
+const WITHHELD_FRAME_OUTCOME: MealPlanBodyOutcome = {kind: 'loading'}
+
+// A refused persisted read is drawn as the inline retry card, which is the 0.2.5 treatment for "couldn't load
+// this right now" — the one thing that can move this state along is asking again.
+const UNREADABLE_INTENTS_FRAME_OUTCOME: MealPlanBodyOutcome = {kind: 'error'}
+
+/**
+ * The body outcome a frame is drawn from, so the header, the body and every value derived from a plan are read
+ * from one decision rather than from two that could disagree about whether a plan is on screen.
+ */
+export function resolveFrameOutcome(frame: MealPlanTabFrame): MealPlanBodyOutcome {
+  if (frame.kind === 'body') {
+    return frame.outcome
+  }
+
+  return frame.kind === 'withheld' ? WITHHELD_FRAME_OUTCOME : UNREADABLE_INTENTS_FRAME_OUTCOME
+}
+
+/**
+ * What the selected day renders, and what it must disclose about itself.
+ *
+ * The day route is the fresher read — its meals carry the logged entries and its envelope the write verdict —
+ * and the plan's own day stands in for it until it answers, so switching days never empties the screen. That
+ * substitute is also the seed the day query starts from, so it is present or absent as one: `null` here is
+ * both "no seed" and "nothing cached for this day", which is why the loading and error branches below are the
+ * only states with nothing to show.
+ *
+ * An answer that invalidates the plan itself is deliberately not disclosed as a failed read — neither the
+ * confirmed plan-state codes nor the resource route's `404 {error: 'Plan not found'}`, which covers a plan
+ * that is absent or foreign and a date outside the plan's week. Those are owned by the stale-plan toast and
+ * the current-plan refetch, which can discover the replacement; an inline retry would only ask the same
+ * disowned resource again. Seeded content still renders behind that recovery, and the write verdict stays
+ * unanswered, so the day is readable but not writable while it runs.
+ */
+export function resolveMealPlanDaySection(inputs: MealPlanDayInputs): MealPlanDaySection {
+  const {plan, selectedDayKey, envelope, dayError} = inputs
+  const day = envelope?.day ?? plan.days.find(candidate => candidate.date === selectedDayKey) ?? null
+  const hasFailedRead = hasError(dayError) && !isStalePlanError(dayError)
+
+  if (day === null) {
+    return hasFailedRead ? {kind: 'error'} : {kind: 'loading'}
+  }
+
+  return {kind: 'day', day, hasFailedRead}
 }
 
 /**
@@ -208,16 +751,47 @@ export function resolveSetupResumeTarget(step: SetupStep | null): SetupResumeTar
  * one draws two controls the server refuses `409 plan_not_active {reason: 'ended'}`. An unanswered verdict
  * (`null` from the display-only seed, `undefined` before any envelope) offers nothing.
  *
+ * `hasUnresolvedKeyedWrite` withholds both controls while a swap or log key is still unanswered, for the same
+ * reason the swap screen withholds its alternatives: `pendingIntents[action]` holds exactly ONE record, so a
+ * second swap or log started now would overwrite the only record that can reconcile a write the server may
+ * already have committed (0.7.2). The controls come back with the answer that retires that record.
+ *
  * The body outcome is taken whole rather than a plan, because the saved-copy case is part of the same
  * question: a plan restored from the persisted cache while its request fails cannot have its revision trusted
  * as the `expectedPlanRevision` of a write, and a write refused for a stale revision is a worse answer than a
  * control that was never offered.
  */
+/**
+ * Whether an unresolved keyed write belongs to some OTHER meal than the one whose control was pressed.
+ *
+ * The single slot per action must not be replaceable while its key is unanswered, which is why an unresolved
+ * record withholds these controls at all. But withholding them on the meal the record NAMES would close the
+ * only door the AAP leaves open: a swap or log whose outcome is unknown is answered on its own screen, which
+ * draws the unconfirmed state and offers the "Try again" that replays that very key (0.2.5). Blocking that
+ * screen would leave the user with no way to resolve the write until a new process.
+ *
+ * So the rule is per meal: the owning meal keeps its controls, every other meal loses them until the record is
+ * retired. A record carrying a different plan counts as another meal's, because the key names a plan too.
+ */
+export function isKeyedWriteHeldByAnotherMeal(
+  unresolved: readonly (InPlaceWriteIntent | null)[],
+  planId: string,
+  mealId: string
+): boolean {
+  return unresolved.some(intent => intent !== null && (intent.planId !== planId || intent.mealId !== mealId))
+}
+
 export function arePlanActionsOffered(
   outcome: MealPlanBodyOutcome,
-  dayWriteability: boolean | null | undefined
+  dayWriteability: boolean | null | undefined,
+  hasUnresolvedKeyedWrite: boolean
 ): boolean {
-  return outcome.kind === 'plan' && !outcome.isSavedCopy && isWriteAllowedByVerdict(dayWriteability)
+  return (
+    outcome.kind === 'plan' &&
+    !outcome.isSavedCopy &&
+    !hasUnresolvedKeyedWrite &&
+    isWriteAllowedByVerdict(dayWriteability)
+  )
 }
 
 export function resolveSelectedPlan(
@@ -330,19 +904,89 @@ export function resolveEmptyPlanCtaLabel(cta: EmptyPlanCta): string {
 }
 
 /**
+ * The slot as the banner sentence says it, from the label the logging screen captured.
+ *
+ * That label is a diary bucket's own name, which the server backfills capitalised ('Breakfast'), while the
+ * sentence reads "Added to breakfast" — so a canonical bucket name is lower-cased and anything else is left
+ * exactly as it is rather than having a name the app did not choose rewritten mid-sentence.
+ */
+export function slotCopyFromBucketLabel(bucketLabel: string): string {
+  const trimmed = bucketLabel.trim()
+  const canonical = CANONICAL_BUCKET_LABELS.find(label => label.toLowerCase() === trimmed.toLowerCase())
+
+  return canonical === undefined ? trimmed : canonical.toLowerCase()
+}
+
+/**
  * The post-log banner names the slot the entry went to, and the weekday as well when that entry is not on
  * today's date — where "View diary" leads to Macros History rather than the Diary segment, so the day has to
  * be said out loud for the banner to describe where the meal actually landed.
  */
 export function formatPostLogBannerBody(dateIso: string, slotLabel: string, todayDayKey: string): string {
+  const slot = slotCopyFromBucketLabel(slotLabel)
+
   if (resolvePostLogViewTarget(dateIso, todayDayKey) === 'diary') {
-    return stringWithNamedParameters(MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE, {slot: slotLabel})
+    return stringWithNamedParameters(MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE, {slot})
   }
 
   return stringWithNamedParameters(MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE, {
     weekday: planDayWeekdayName(dateIso),
-    slot: slotLabel
+    slot
   })
+}
+
+/**
+ * The origin to hold for the banner currently in the store, or `null` when there is no banner.
+ *
+ * The same object is returned whenever nothing has to change, so a caller adjusting state during render
+ * settles after one pass. The plan id is bound lazily: a log resolves while the plan is on screen, but if the
+ * store is written a render before the plan resolves, the origin takes the plan as soon as one exists rather
+ * than freezing a `null` the comparison below could never match.
+ */
+export function resolvePostLogBannerOrigin(
+  current: PostLogBannerOrigin | null,
+  result: PostLogResult | null,
+  planId: string | null,
+  lastSwapSucceededAt: number
+): PostLogBannerOrigin | null {
+  if (result === null) {
+    return null
+  }
+
+  if (current === null || current.entryId !== result.entryId) {
+    return {entryId: result.entryId, planId, lastSwapSucceededAt}
+  }
+
+  // The plan id can arrive after the entry did, when the log resolved before the week's read: adopting it
+  // then is what lets the banner be shown against the plan it belongs to instead of staying unattributable.
+  // The watermark is carried through unchanged, because this is the same banner, not a newer one.
+  if (current.planId === null && planId !== null) {
+    return {entryId: current.entryId, planId, lastSwapSucceededAt: current.lastSwapSucceededAt}
+  }
+
+  return current
+}
+
+/**
+ * Whether the success banner belongs on the screen as it is right now.
+ *
+ * Every term is compared at render time, because the banner stands where the totals card does and a frame of
+ * it on the wrong day or the wrong plan misreports what was logged. The plan is compared by the id actually
+ * on screen rather than by the stored selection, which is `null` for a default-selected plan and therefore
+ * equal across a replacement plan covering the same dates.
+ */
+export function isPostLogBannerVisible(inputs: PostLogBannerInputs): boolean {
+  const {result, origin, dismissedEntryId, planId, selectedDayKey, lastSwapSucceededAt} = inputs
+
+  if (result === null || origin === null || result.entryId === dismissedEntryId) {
+    return false
+  }
+
+  if (lastSwapSucceededAt > origin.lastSwapSucceededAt) {
+    return false
+  }
+
+  return origin.entryId === result.entryId && origin.planId === planId && result.dateIso === selectedDayKey
 }
 
 export function latestLoggedEntry(entries: LoggedEntryRef[]): LoggedEntryRef | null {
@@ -355,17 +999,33 @@ export function latestLoggedEntry(entries: LoggedEntryRef[]): LoggedEntryRef | n
 /**
  * Read from the logged entries alone. `previousRecipe` records only the most recent swap, so consulting it
  * would lose the meal the user actually ate once a slot has been swapped more than once.
+ *
+ * One pass: the latest entry and whether the current recipe is among them are decided together, because this
+ * runs for every meal of the day and both answers come from the same list.
  */
 export function resolveMealLoggedState(meal: MealPlanMeal): MealLoggedState {
-  const entry = latestLoggedEntry(meal.loggedEntries)
+  let latest: LoggedEntryRef | null = null
+  let isCurrentRecipeLogged = false
 
-  if (entry === null) {
+  for (const entry of meal.loggedEntries) {
+    if (latest === null || isLaterEntry(entry, latest)) {
+      latest = entry
+    }
+
+    isCurrentRecipeLogged = isCurrentRecipeLogged || entry.recipeVersionId === meal.recipe.versionId
+  }
+
+  if (latest === null) {
     return {kind: 'unlogged'}
   }
 
-  const isCurrentRecipeLogged = meal.loggedEntries.some(logged => logged.recipeVersionId === meal.recipe.versionId)
+  return isCurrentRecipeLogged ? {kind: 'logged', entry: latest} : {kind: 'loggedThenSwapped', entry: latest}
+}
 
-  return isCurrentRecipeLogged ? {kind: 'logged', entry} : {kind: 'loggedThenSwapped', entry}
+// The day's meals with their logged state already resolved, so a card re-render costs no derivation and an
+// unchanged card can be skipped by identity.
+export function buildMealCardModels(day: MealPlanDay): MealCardModel[] {
+  return day.meals.map(meal => ({meal, loggedState: resolveMealLoggedState(meal)}))
 }
 
 /**
@@ -389,6 +1049,12 @@ export function resolveMealFlagReason(flags: MealPlanFlag[]): string | null {
 // The Diary-versus-History rule is shared with the post-log banner on the logging screen, so it lives in
 // @utility/MealPlanDateUtility and this tab only re-exports it under the name its callers use.
 export {resolvePostLogViewTarget as resolveViewTarget}
+
+// Resuming setup is offered here and by the introduction's returning-user CTA, so the resolver lives in
+// @utility/MealPlanSetupResumeUtility; this tab re-exports it for the same reason it re-exports the rule above.
+export {resolveSetupResumeTarget}
+
+export type {SetupResumeTarget}
 
 // The width one of `itemCount` equally flexed siblings takes inside `availableWidth`, once the gaps between
 // them are removed.

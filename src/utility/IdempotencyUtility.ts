@@ -366,3 +366,153 @@ export const fingerprintSnapshot = (snapshot: MealPlanRequestSnapshot): string =
  */
 export const matchesFingerprint = (snapshot: MealPlanRequestSnapshot, storedFingerprint: string): boolean =>
   fingerprintSnapshot(snapshot) === storedFingerprint
+
+/**
+ * The plan a snapshot names, or null where the action precedes every plan. A `generate` request has no plan
+ * yet — that is the whole point of generating one — so it answers null rather than an invented id.
+ */
+export const requestPlanId = (snapshot: MealPlanRequestSnapshot): string | null =>
+  snapshot.action === 'generate' ? null : snapshot.planId
+
+/**
+ * The planned meal a snapshot names, or null for the two whole-plan writes. Swap and log address one slot;
+ * generate and regenerate address the week.
+ */
+export const requestMealId = (snapshot: MealPlanRequestSnapshot): string | null =>
+  snapshot.action === 'swap' || snapshot.action === 'log' ? snapshot.mealId : null
+
+/**
+ * Which resource a screen is asking about, as the subset of path ids it knows. A member left out is not
+ * constrained — the Meal Plan tab looking for any unresolved generation passes `{}`, while a swap screen
+ * passes the plan and meal it is showing.
+ */
+export interface RequestScope {
+  planId?: string
+  mealId?: string
+}
+
+/**
+ * Whether a stored request is the one this scope may replay.
+ *
+ * Fail-closed in both directions: a scope member the snapshot does not carry (a plan id asked of a
+ * `generate` request) never matches, because the ids are what tie a key to the resource it would commit
+ * against. Replaying a swap key from the wrong meal's screen would commit that other meal's swap, so the
+ * comparison is exact and absence is a mismatch rather than a wildcard.
+ */
+export const snapshotMatchesScope = (snapshot: MealPlanRequestSnapshot, scope: RequestScope): boolean => {
+  if (scope.planId !== undefined && requestPlanId(snapshot) !== scope.planId) {
+    return false
+  }
+
+  return scope.mealId === undefined || requestMealId(snapshot) === scope.mealId
+}
+
+/**
+ * What an owning screen needs to decide whether to replay an unresolved intent as it opens.
+ *
+ * `isReady` is the caller's prerequisite gate, and it exists because "no intent" and "not yet known" are
+ * different answers: the persisted slice arrives from AsyncStorage asynchronously and the signed-in account
+ * has to be known before ownership can be judged, so a screen that decided on the first frame would decide
+ * that nothing was pending and then mint a second key.
+ *
+ * `replayedKey` is the key this screen has already sent in this lifetime — from a mount replay or from the
+ * user's own press, which is why the caller must latch every key it sends however it sent it. Holding the key
+ * rather than a boolean is deliberate: a later attempt under a NEW key is a new intent and earns its own
+ * replay, while the same key is never sent twice by the mount path.
+ */
+export interface MountReplayInput {
+  /**
+   * The unresolved intent this screen may replay, already scoped to the user and resource by
+   * `resolveReplayableIntent`. Declared structurally, so the decision is testable without building a whole
+   * persisted record.
+   */
+  intent: {key: string} | null
+  isReady: boolean
+  isRequestInFlight: boolean
+  replayedKey: string | null
+}
+
+export interface MountReplayDecision {
+  /**
+   * Send the intent's stored request under its stored key, exactly once, before exposing normal interaction
+   * (0.7.2). A committed write answers with its stored response, so the user's original request completes
+   * rather than being abandoned or duplicated.
+   */
+  replays: boolean
+  /** The latch the screen must hold afterwards — the key now considered sent. */
+  replayedKey: string | null
+}
+
+/**
+ * Whether the unresolved intent on record still owes its silent same-key replay, and the latch value to keep.
+ *
+ * One replay per key, and never while a request is in flight: an attempt already on the wire is the same ask,
+ * and firing a second one would race two answers for one key. Nothing here resolves or clears the intent —
+ * only a server answer to that key may (0.2.5).
+ */
+export const resolveMountReplay = (input: MountReplayInput): MountReplayDecision => {
+  const replays =
+    input.isReady && !input.isRequestInFlight && input.intent !== null && input.intent.key !== input.replayedKey
+
+  return {
+    replays,
+    replayedKey: replays && input.intent !== null ? input.intent.key : input.replayedKey
+  }
+}
+
+/**
+ * What a screen is allowed to do about a keyed action right now, given who holds the action's one intent slot.
+ *
+ * `ownership` is `resolveSlotOwnership`'s verdict from this screen's point of view, and it is the reason this
+ * decision exists at all: `pendingIntents[action]` holds exactly ONE record, so a screen that reads only its
+ * own scope sees an empty slot where another plan or meal in fact has an unresolved key, mints over it, and
+ * abandons the only request that could have been reconciled (0.7.2).
+ *
+ * `isHydrated` means the persisted slice was READ SUCCESSFULLY. A pending read and a refused one are both
+ * `false`, so both fail closed — an unread slice may already hold a key, and minting beside it is the
+ * duplicate write this contract exists to prevent.
+ */
+export interface KeyedLaunchInput {
+  ownership: SlotOwnership
+  isHydrated: boolean
+  isRequestInFlight: boolean
+}
+
+/** The slot's holder relative to the caller, as the three cases a launch has to tell apart. */
+export type SlotOwnership = 'free' | 'mine' | 'foreign'
+
+export type KeyedLaunchDecision =
+  /** Nothing is on record for this action, so this request is new and mints its own key. */
+  | {kind: 'mint'}
+  /** This screen's own request is unresolved: resend the STORED body under the STORED key. */
+  | {kind: 'replay'}
+  /**
+   * No request may leave yet. `hydrating` is waiting on (or recovering from) the persisted read, `inFlight` is
+   * an attempt already on the wire, and `otherResource` is another plan or meal holding the slot — which the
+   * caller hands off to that owner rather than overwriting.
+   */
+  | {kind: 'blocked'; reason: 'hydrating' | 'inFlight' | 'otherResource'}
+
+/**
+ * Precedence is load-bearing, and it runs from least to most knowledge.
+ *
+ * Hydration first: until the slice has been read there is no fact about the slot to reason from, so nothing
+ * else in the input can be trusted. An in-flight request next, because a second send for the same action would
+ * race two answers. Then a foreign holder, which blocks rather than mints. Only then may this screen's own
+ * unresolved request be replayed, and only a genuinely empty slot mints.
+ */
+export const resolveKeyedLaunch = (input: KeyedLaunchInput): KeyedLaunchDecision => {
+  if (!input.isHydrated) {
+    return {kind: 'blocked', reason: 'hydrating'}
+  }
+
+  if (input.isRequestInFlight) {
+    return {kind: 'blocked', reason: 'inFlight'}
+  }
+
+  if (input.ownership === 'foreign') {
+    return {kind: 'blocked', reason: 'otherResource'}
+  }
+
+  return input.ownership === 'mine' ? {kind: 'replay'} : {kind: 'mint'}
+}

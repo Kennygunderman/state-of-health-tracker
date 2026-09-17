@@ -1,15 +1,19 @@
-import React from 'react'
+import React, {useCallback} from 'react'
 
-import {ScrollView} from 'react-native'
+import {FlatList, ListRenderItemInfo} from 'react-native'
+
+import type {SelectedFoodChip} from '../../index.util'
 
 import SelectableChip from '@components/SelectableChip'
 
 import styles from './index.styled'
 
 interface Props {
-  foods: {id: string; name: string}[]
+  foods: readonly SelectedFoodChip[]
   onRemove: (id: string) => void
 }
+
+const keyExtractor = (food: SelectedFoodChip): string => food.id
 
 /* BLITZY [A11Y]: these chips are the only affordance for removing a selection, so they take the 44px pressable
    rather than relying on hit slop the hugging scroll band would clip. The pill each one draws is unchanged —
@@ -17,27 +21,29 @@ interface Props {
    chip), which lowers the helper text beneath it; the rationale is recorded once at @components/SelectableChip
    and flagged there for designer review. */
 const SelectedChipsRow = ({foods, onRemove}: Props): React.JSX.Element => {
+  // A selection can reach the dislike cap of a hundred while the band shows a handful, so the chips are
+  // mounted as they are scrolled to and one press handler exists per mounted chip rather than per selection.
+  const renderChip = useCallback(
+    ({item}: ListRenderItemInfo<SelectedFoodChip>): React.JSX.Element => (
+      <SelectableChip label={item.name} selected removable expandTouchTarget onPress={() => onRemove(item.id)} />
+    ),
+    [onRemove]
+  )
+
   return (
-    // ChipCloud takes no style pass-through (`{children, variant}` only), so this row's scroll geometry lives
-    // in the colocated stylesheet here rather than in it. Its keyboard handling is preserved: 06b keeps the
-    // search field focused with a query typed (`47:463`), so the first tap has to reach the chip.
-    <ScrollView
+    // ChipCloud takes no style pass-through, so this row's scroll geometry lives in the colocated stylesheet
+    // here. Its keyboard handling is preserved: 06b keeps the search field focused with a query typed
+    // (`47:463`), so the first tap has to reach the chip.
+    <FlatList
       horizontal
+      data={foods}
+      renderItem={renderChip}
+      keyExtractor={keyExtractor}
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       style={styles.row}
-      contentContainerStyle={styles.rowContent}>
-      {foods.map(food => (
-        <SelectableChip
-          key={food.id}
-          label={food.name}
-          selected
-          removable
-          expandTouchTarget
-          onPress={() => onRemove(food.id)}
-        />
-      ))}
-    </ScrollView>
+      contentContainerStyle={styles.rowContent}
+    />
   )
 }
 

@@ -14,8 +14,21 @@ import Endpoints from '@constants/endpoints'
 // decoded by the diary's own codec and mapped by the diary's own converter instead of a second copy here.
 // One row shape, one mapper: the 'From meal plan' caption MealEntryRow derives from inputMethod,
 // mealPlanMealId and nutritionProvenance cannot drift between this response and the diary's.
+//
+// Refined by one field at this boundary, and only here: a planned meal is built from recipes whose every
+// ingredient is source-backed, so the server stamps 'source_backed' on the row it writes. The shared diary
+// codec cannot state that — it also decodes legacy and AI-logged rows, where the other classes and null are
+// legitimate — so the claim is made where it holds, and a response disagreeing with it is refused rather
+// than mapped. That is the choice MealPlanMealResponse already makes for the planned recipe: labelling an
+// estimate as sourced nutrition is the one thing this response may not do, and the diary caption a planned
+// row renders ('From meal plan') asserts exactly that sourcing.
+const PlannedMealEntryResponse = io.intersection([
+  MealEntryResponse,
+  io.type({nutritionProvenance: io.literal('source_backed')})
+])
+
 const LogPlannedMealResponse = io.type({
-  entry: MealEntryResponse,
+  entry: PlannedMealEntryResponse,
   mealPlanMeal: MealPlanMealResponse,
   planRevision: io.number
 })

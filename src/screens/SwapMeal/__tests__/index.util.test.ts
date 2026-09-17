@@ -1,7 +1,16 @@
 import {MealPlanMeal} from '@data/models/MealPlan'
 import {MealSlot} from '@data/models/Recipe'
 import {SwapAlternative} from '@data/models/SwapAlternative'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PENDING_INTENT_TTL_MS,
+  PendingIntent,
+  PendingIntentAction,
+  resolvePendingIntent
+} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {matchesFingerprint, requestBody, SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {AxiosError, AxiosResponse} from 'axios'
 
 import {stringWithNamedParameters, SWAP_TITLE_TEMPLATE} from '@constants/strings'
@@ -13,19 +22,51 @@ import {
   buildSwapRequest,
   buildSwapTitle,
   currentMealEyebrow,
+  guardsForNewAttempt,
   isPlanInactive,
   isPlanRevisionStale,
+  KeyedMutationState,
+  OutcomeMemoryInput,
+  rememberedOutcomeForAttempt,
   rendersAlternatives,
   rendersAlternativesGuidance,
+  rendersOutcomeRetrySpinner,
+  resolveAlternativesRevision,
+  resolveAlternativesTrust,
+  resolveBannerSlot,
+  resolveOutcomeMemory,
+  resolveReplayableSwap,
+  resolveSwapCommitPayload,
+  resolveSwapInteraction,
+  resolveSwapMountReplay,
+  resolveSwapRetryPlan,
+  resolveSwapSlotOwnership,
   resolveSwapView,
+  resolveUnconfirmedRefetch,
   retiresPendingIntent,
+  selectSwapAttemptState,
   SKELETON_ALTERNATIVE_ROWS,
   SkeletonAlternativeRow,
   skeletonBarWidth,
+  SwapAttempt,
+  SwapAttemptGuards,
   SwapBannerContent,
+  SwapInteractionInput,
+  SwapMountReplayInput,
+  SwapOutcomeMemoryRecord,
+  SwapTerminalOutcome,
   SwapView,
-  SwapViewInput
+  SwapViewInput,
+  terminalRecoveryKey,
+  UnconfirmedRefetchDecision,
+  unconfirmedRefetchKey
 } from '../index.util'
+
+// Mocking the persist adapter keeps the suite free of native modules: `index.util` imports the store module for
+// its pure replay API, and importing that module creates the persisted store.
+jest.mock('@store/zustandAsyncStorage', () => ({
+  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
 
 // The text column the bars fill: 321px card interior less the 40px tile and the 12px gap at the 393px
 // reference, and the same subtraction on a 375px device
@@ -82,12 +123,19 @@ const plannedMeal = (slot: MealSlot = 'lunch'): MealPlanMeal => ({
   loggedEntries: []
 })
 
+// The view the screen is actually holding when a swap commit came back without an answer, derived rather than
+// asserted so the classification stays the util's.
+
 const swapInput = (overrides: Partial<SwapViewInput> = {}): SwapViewInput => ({
   currentMeal: plannedMeal(),
   alternatives: [alternative()],
   isAlternativesPending: false,
+  isAlternativesFetching: false,
+  isAlternativesTrusted: true,
   alternativesError: null,
   swapError: null,
+  rememberedOutcome: null,
+  isAttemptPending: false,
   isDayPending: false,
   dayError: null,
   ...overrides
@@ -441,10 +489,14 @@ describe('resolveSwapView', () => {
       expect(inactiveEcho.kind).toBe('error')
     })
 
-    it('keeps the list on screen so the recovery step never lands on a blank screen', () => {
+    // The rows were computed for the revision the refusal has just contradicted, so they are candidates the
+    // server would refuse: the recovery re-reads the list, and the trust clock keeps the screen off the
+    // contradicted array until that answer lands.
+    it('withholds the list it was holding, because those rows belong to the contradicted revision', () => {
       const view = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.stalePlan)}))
 
-      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
+      expect(rendersAlternatives(view)).toBe(false)
+      expect(rendersAlternativesGuidance(view)).toBe(false)
     })
   })
 
@@ -603,8 +655,106 @@ describe('resolveSwapView', () => {
     })
   })
 
+  // A same-key replay is in flight: TanStack has already reset the entry to pending with no error, so the
+  // outcome being retried survives only as the remembered one, and it is what the screen must keep drawing.
+  describe('with a same-key retry in flight', () => {
+    const retryingFailure = (overrides: Partial<SwapViewInput> = {}): SwapView =>
+      resolveSwapView(swapInput({swapError: null, rememberedOutcome: 'failed', isAttemptPending: true, ...overrides}))
+
+    const retryingUnknown = (overrides: Partial<SwapViewInput> = {}): SwapView =>
+      resolveSwapView(
+        swapInput({swapError: null, rememberedOutcome: 'unconfirmed', isAttemptPending: true, ...overrides})
+      )
+
+    it('keeps the confirmed failure on screen, banner and outlined card included', () => {
+      const view = retryingFailure()
+
+      expect(view.kind).toBe('retrying')
+      expect(view.currentMealVariant).toBe('stillYours')
+      expect(bannerOf(view)).toEqual(bannerOf(resolveSwapView(swapInput({swapError: apiError(502, 'swap_failed')}))))
+    })
+
+    it('keeps the unknown outcome neutral, so no assurance is drawn for a commit that may have landed', () => {
+      const view = retryingUnknown()
+
+      expect(view.kind).toBe('retrying')
+      expect(view.currentMealVariant).toBe('default')
+      expect(bannerOf(view)).toEqual(bannerOf(resolveSwapView(swapInput({swapError: transportError()}))))
+      expect(bannerOf(view)?.body).not.toContain('unchanged')
+    })
+
+    it('names the slot being retried, and promises nothing when the meal is not known', () => {
+      expect(bannerOf(retryingFailure({currentMeal: plannedMeal('dinner')}))?.body).toBe(
+        'Your dinner is unchanged and your grocery list was not updated.'
+      )
+
+      const unknownMeal = bannerOf(retryingFailure({currentMeal: null}))
+
+      expect(unknownMeal?.title).toBeUndefined()
+      expect(unknownMeal?.body).not.toContain('unchanged')
+    })
+
+    // The rows are the danger: opening one commits a second swap under a key the first commit may already have
+    // spent, so the replay carries no list at all rather than a disabled one.
+    it('carries no alternatives and no guidance, however many were decoded', () => {
+      const views = [retryingFailure(), retryingUnknown(), retryingFailure({alternatives: alternatives(8)})]
+
+      views.forEach(view => {
+        expect(rendersAlternatives(view)).toBe(false)
+        expect(rendersAlternativesGuidance(view)).toBe(false)
+      })
+    })
+
+    // Only an answer to the key can settle whether the commit landed, so a read's refusal may not interrupt it.
+    it('outranks every read: a terminal day answer, an alternatives refusal and a failed day request', () => {
+      const refusals: Partial<SwapViewInput>[] = [
+        {dayError: apiError(409, API_ERROR_CODES.stalePlan)},
+        {dayError: apiError(503, API_ERROR_CODES.featureDisabled)},
+        {alternativesError: apiError(409, API_ERROR_CODES.planNotActive)},
+        {currentMeal: null, dayError: transportError()},
+        {isAlternativesPending: true, alternatives: undefined},
+        {alternatives: []}
+      ]
+
+      refusals.forEach(overrides => {
+        expect(retryingFailure(overrides).kind).toBe('retrying')
+        expect(retryingUnknown(overrides).kind).toBe('retrying')
+      })
+    })
+
+    it('never retires the pending intent, because no answer to the key has arrived yet', () => {
+      expect(retiresPendingIntent(retryingFailure())).toBe(false)
+      expect(retiresPendingIntent(retryingUnknown())).toBe(false)
+    })
+
+    it('draws the rows again once the retry settles into an outcome of its own', () => {
+      const settled = resolveSwapView(
+        swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed), rememberedOutcome: 'failed'})
+      )
+
+      expect(settled.kind).toBe('failed')
+      expect(rendersAlternatives(settled) ? settled.alternatives : null).toEqual([alternative()])
+    })
+
+    // A silent cold-start replay has no earlier outcome to redraw, and 13/13c/13d are what it must not disturb.
+    it('is never entered by a pending attempt with no remembered outcome', () => {
+      expect(resolveSwapView(swapInput({isAttemptPending: true})).kind).toBe('list')
+      expect(resolveSwapView(swapInput({isAttemptPending: true, alternatives: []})).kind).toBe('empty')
+      expect(
+        resolveSwapView(swapInput({isAttemptPending: true, isAlternativesPending: true, alternatives: undefined})).kind
+      ).toBe('loading')
+    })
+
+    it('is never entered by a remembered outcome once nothing is in flight', () => {
+      expect(resolveSwapView(swapInput({rememberedOutcome: 'failed'})).kind).toBe('list')
+      expect(resolveSwapView(swapInput({rememberedOutcome: 'unconfirmed', swapError: transportError()})).kind).toBe(
+        'unconfirmed'
+      )
+    })
+  })
+
   describe('with a terminal swap refusal', () => {
-    it('names a stale plan as terminal and keeps the alternatives on screen', () => {
+    it('names a stale plan as terminal and withholds the alternatives it was holding', () => {
       const view = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}))
 
       expect(view.kind).toBe('terminal')
@@ -614,7 +764,7 @@ describe('resolveSwapView', () => {
         toastText: 'Your plan changed. Try that again.',
         recovery: 'refetchPlan'
       })
-      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
+      expect(rendersAlternatives(view)).toBe(false)
     })
 
     it('sends the user back to refetch the plan when it is no longer active', () => {
@@ -672,13 +822,15 @@ describe('resolveSwapView', () => {
       })
     })
 
-    it('renders an empty list when the alternatives were never decoded', () => {
-      const view = resolveSwapView(
+    it('carries no rows whether or not any were decoded, so no candidate can be opened', () => {
+      const decoded = resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}))
+      const neverDecoded = resolveSwapView(
         swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan), alternatives: undefined})
       )
 
-      expect(rendersAlternatives(view)).toBe(true)
-      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
+      expect(rendersAlternatives(decoded)).toBe(false)
+      expect(rendersAlternatives(neverDecoded)).toBe(false)
+      expect(Object.keys(decoded)).toEqual(Object.keys(neverDecoded))
     })
 
     it('takes the default current-meal card, never the drawn 13e assurance', () => {
@@ -757,10 +909,10 @@ describe('resolveSwapView', () => {
       })
     })
 
-    it('still keeps the alternatives on screen, as every other terminal refusal does', () => {
+    it('still withholds the alternatives, as every other terminal refusal does', () => {
       const view = resolveSwapView(swapInput({swapError: apiError(409, 'toString')}))
 
-      expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([alternative()])
+      expect(rendersAlternatives(view)).toBe(false)
       expect(retiresPendingIntent(view)).toBe(true)
     })
   })
@@ -809,6 +961,74 @@ describe('resolveSwapView', () => {
     })
   })
 
+  // The window after a refusal has been recovered from: the error is gone, but TanStack still serves the array
+  // it contradicted, so the rows may not come back until the list has answered again.
+  describe('with a list a refusal has contradicted', () => {
+    const untrusted = (overrides: Partial<SwapViewInput> = {}): SwapView =>
+      resolveSwapView(swapInput({isAlternativesTrusted: false, ...overrides}))
+
+    it('is 13c while the re-read is in flight, never the rows the cache still holds', () => {
+      const view = untrusted({isAlternativesFetching: true})
+
+      expect(view).toEqual({kind: 'loading', currentMealVariant: 'default'})
+      expect(rendersAlternatives(view)).toBe(false)
+    })
+
+    it('is 13c before the re-read has even started, so no render can slip the rows back', () => {
+      expect(untrusted().kind).toBe('loading')
+    })
+
+    it('is the alternatives retry card once the re-read has settled with an error', () => {
+      const view = untrusted({alternativesError: transportError()})
+
+      expect(view.kind).toBe('error')
+      expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
+      expect(bannerOf(view)?.body).toBe("Couldn't find alternatives right now.")
+    })
+
+    it('is 13c again while that retry is in flight', () => {
+      expect(untrusted({alternativesError: transportError(), isAlternativesFetching: true}).kind).toBe('loading')
+    })
+
+    // 13d states that nothing matches the slot. A decoded empty array from the contradicted revision says
+    // nothing about the revision the plan now carries.
+    it('is never the 13d empty state, however the empty array was decoded', () => {
+      expect(untrusted({alternatives: []}).kind).toBe('loading')
+      expect(untrusted({alternatives: [], isAlternativesFetching: true}).kind).toBe('loading')
+      expect(untrusted({alternatives: [], alternativesError: transportError()}).kind).toBe('error')
+    })
+
+    it('still resolves a dead plan to its terminal view rather than to a spinner', () => {
+      const refusals = [
+        swapInput({isAlternativesTrusted: false, swapError: apiError(409, API_ERROR_CODES.stalePlan)}),
+        swapInput({isAlternativesTrusted: false, dayError: apiError(409, API_ERROR_CODES.planNotActive)}),
+        swapInput({isAlternativesTrusted: false, alternativesError: apiError(503, API_ERROR_CODES.featureDisabled)})
+      ]
+
+      refusals.forEach(input => expect(resolveSwapView(input).kind).toBe('terminal'))
+    })
+
+    // The day's own failure keeps its own retry: retrying the alternatives would leave the header and the
+    // current-meal card empty forever.
+    it('still answers the day first when the meal being replaced is unknown', () => {
+      const failedDay = untrusted({currentMeal: null, dayError: transportError()})
+
+      expect(untrusted({currentMeal: null, isDayPending: true}).kind).toBe('loading')
+      expect(failedDay.kind).toBe('error')
+      expect(failedDay.kind === 'error' ? failedDay.retry : null).toBe('day')
+    })
+
+    it('still keeps a same-key replay on screen, which outranks every read', () => {
+      expect(untrusted({rememberedOutcome: 'unconfirmed', isAttemptPending: true}).kind).toBe('retrying')
+    })
+
+    it('draws the rows again the moment the list answers, with no other input changing', () => {
+      const answered = resolveSwapView(swapInput({isAlternativesTrusted: true}))
+
+      expect(answered).toEqual({kind: 'list', currentMealVariant: 'default', alternatives: [alternative()]})
+    })
+  })
+
   describe('as a pure derivation', () => {
     it('leaves the alternatives it was given in the order it was given them', () => {
       const rows = [alternative({recipeVersionId: 'rv-a'}), alternative({recipeVersionId: 'rv-b'})]
@@ -841,7 +1061,9 @@ describe('resolveSwapView', () => {
         swapInput({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}),
         swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}),
         swapInput({swapError: apiError(503, API_ERROR_CODES.featureDisabled)}),
-        swapInput({swapError: transportError()})
+        swapInput({swapError: transportError()}),
+        swapInput({rememberedOutcome: 'failed', isAttemptPending: true}),
+        swapInput({rememberedOutcome: 'unconfirmed', isAttemptPending: true})
       ]
 
       inputs.forEach(input => expect(resolveSwapView(input)).toEqual(resolveSwapView(input)))
@@ -850,42 +1072,47 @@ describe('resolveSwapView', () => {
 })
 
 describe('rendersAlternatives', () => {
-  it('renders the list for the alternatives state, for a confirmed failure and for a terminal refusal', () => {
+  it('renders the list for the alternatives state and for a confirmed failure', () => {
     expect(rendersAlternatives(resolveSwapView(swapInput()))).toBe(true)
     expect(
       rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
     ).toBe(true)
-    expect(rendersAlternatives(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})))).toBe(
-      true
-    )
   })
 
-  it('renders an empty terminal list rather than nothing when the alternatives were never decoded', () => {
+  it('renders an empty 13e list rather than nothing when the alternatives were never decoded', () => {
     const view = resolveSwapView(
-      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan), alternatives: undefined})
+      swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed), alternatives: undefined})
     )
 
     expect(rendersAlternatives(view)).toBe(true)
     expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
   })
 
-  it('renders the list for a refusal the alternatives query itself answered', () => {
-    const decoded = resolveSwapView(swapInput({alternativesError: apiError(409, API_ERROR_CODES.planNotActive)}))
-    const neverDecoded = resolveSwapView(
+  // The 13e failure is the one refusal that leaves the plan provably untouched, so its rows are still the
+  // user's next move. Every other refusal contradicts the revision the rows were computed for.
+  it('renders no list for a terminal refusal, whichever request answered it', () => {
+    const sources = [
+      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}),
+      swapInput({dayError: apiError(409, API_ERROR_CODES.planNotActive)}),
+      swapInput({alternativesError: apiError(409, API_ERROR_CODES.planNotActive)}),
       swapInput({alternativesError: apiError(503, API_ERROR_CODES.featureDisabled), alternatives: undefined})
-    )
+    ]
 
-    expect(rendersAlternatives(decoded) ? decoded.alternatives : null).toEqual([alternative()])
-    expect(rendersAlternatives(neverDecoded)).toBe(true)
-    expect(rendersAlternatives(neverDecoded) ? neverDecoded.alternatives : null).toEqual([])
+    sources.forEach(input => {
+      const view = resolveSwapView(input)
+
+      expect(view.kind).toBe('terminal')
+      expect(rendersAlternatives(view)).toBe(false)
+    })
   })
 
-  it('renders no list while loading, when empty, on a failed request or on an unconfirmed outcome', () => {
+  it('renders no list while loading, when empty, on a failed request, an unconfirmed outcome or a replay', () => {
     const withoutList = [
       resolveSwapView(swapInput({isAlternativesPending: true, alternatives: undefined})),
       resolveSwapView(swapInput({alternatives: []})),
       resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined})),
-      resolveSwapView(swapInput({swapError: transportError()}))
+      resolveSwapView(swapInput({swapError: transportError()})),
+      resolveSwapView(swapInput({rememberedOutcome: 'failed', isAttemptPending: true}))
     ]
 
     withoutList.forEach(view => expect(rendersAlternatives(view)).toBe(false))
@@ -897,10 +1124,16 @@ describe('rendersAlternativesGuidance', () => {
     expect(rendersAlternativesGuidance(resolveSwapView(swapInput()))).toBe(true)
   })
 
-  it('carries them on a terminal refusal, which is the same layout under a toast', () => {
-    expect(
-      rendersAlternativesGuidance(resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})))
-    ).toBe(true)
+  // 13's footnote promises that opening an alternative replaces nothing. A refusal draws no alternatives to
+  // promise anything about, and the hint would caption a list the plan has moved past.
+  it('drops both on a terminal refusal, which draws no list to caption', () => {
+    const sources = [
+      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}),
+      swapInput({dayError: apiError(409, API_ERROR_CODES.stalePlan)}),
+      swapInput({alternativesError: apiError(409, API_ERROR_CODES.stalePlan)})
+    ]
+
+    sources.forEach(input => expect(rendersAlternativesGuidance(resolveSwapView(input))).toBe(false))
   })
 
   it('drops both on a confirmed failure, which draws the list without either', () => {
@@ -918,10 +1151,66 @@ describe('rendersAlternativesGuidance', () => {
       resolveSwapView(swapInput({isAlternativesPending: true, alternatives: undefined})),
       resolveSwapView(swapInput({alternatives: []})),
       resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined})),
-      resolveSwapView(swapInput({swapError: transportError()}))
+      resolveSwapView(swapInput({swapError: transportError()})),
+      resolveSwapView(swapInput({rememberedOutcome: 'unconfirmed', isAttemptPending: true}))
     ]
 
     withoutList.forEach(view => expect(rendersAlternativesGuidance(view)).toBe(false))
+  })
+})
+
+describe('rendersOutcomeRetrySpinner', () => {
+  // The retry-pending view redraws the outcome it is reconciling unchanged, so the spinner is the only thing
+  // that distinguishes a same-key replay in flight from the settled failure the user just pressed retry on —
+  // and the reason every alternative is withheld while it runs.
+  it('draws the indicator for a same-key replay of either commit outcome', () => {
+    const replayingFailure = resolveSwapView(swapInput({rememberedOutcome: 'failed', isAttemptPending: true}))
+    const replayingUnknown = resolveSwapView(swapInput({rememberedOutcome: 'unconfirmed', isAttemptPending: true}))
+
+    expect(replayingFailure.kind).toBe('retrying')
+    expect(replayingUnknown.kind).toBe('retrying')
+    expect(rendersOutcomeRetrySpinner(replayingFailure)).toBe(true)
+    expect(rendersOutcomeRetrySpinner(replayingUnknown)).toBe(true)
+  })
+
+  // A settled outcome is acted on, not waited for: drawing a spinner beside it would report a request that is
+  // not running.
+  it('draws no indicator for a settled commit outcome', () => {
+    const failed = resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
+    const unconfirmed = resolveSwapView(swapInput({swapError: transportError()}))
+
+    expect(failed.kind).toBe('failed')
+    expect(unconfirmed.kind).toBe('unconfirmed')
+    expect(rendersOutcomeRetrySpinner(failed)).toBe(false)
+    expect(rendersOutcomeRetrySpinner(unconfirmed)).toBe(false)
+  })
+
+  // 13c's own spinner row is the loading state's, and a read's retry spins inside its banner's button: neither
+  // is this indicator, which belongs to the commit being reconciled.
+  it('draws no indicator for any other view', () => {
+    const otherViews: [SwapView['kind'], SwapView][] = [
+      ['list', resolveSwapView(swapInput())],
+      ['empty', resolveSwapView(swapInput({alternatives: []}))],
+      ['loading', resolveSwapView(swapInput({isAlternativesPending: true, alternatives: undefined}))],
+      ['error', resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined}))],
+      ['error', resolveSwapView(swapInput({currentMeal: null, dayError: transportError()}))],
+      ['terminal', resolveSwapView(swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}))],
+      ['terminal', resolveSwapView(swapInput({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}))]
+    ]
+
+    otherViews.forEach(([kind, view]) => {
+      expect(view.kind).toBe(kind)
+      expect(rendersOutcomeRetrySpinner(view)).toBe(false)
+    })
+  })
+
+  // The indicator tracks the replay and not the suppression: a pending attempt with no earlier outcome is a
+  // silent cold-start replay, which must leave 13/13c/13d exactly as they are.
+  it('draws no indicator for a silent replay that has no outcome to redraw', () => {
+    const silent = resolveSwapView(swapInput({isAttemptPending: true}))
+
+    expect(silent.kind).toBe('list')
+    expect(rendersOutcomeRetrySpinner(silent)).toBe(false)
   })
 })
 
@@ -959,11 +1248,22 @@ describe('retiresPendingIntent', () => {
     expect(retiresPendingIntent(view)).toBe(false)
   })
 
-  it('keeps the intent for a confirmed failure and an unconfirmed outcome, so Try again replays the same key', () => {
-    expect(
-      retiresPendingIntent(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
-    ).toBe(false)
-    expect(retiresPendingIntent(resolveSwapView(swapInput({swapError: transportError()})))).toBe(false)
+  // A confirmed `502 swap_failed` persisted nothing (0.5.2), so it resolves the action like any other confirmed
+  // refusal and its key may never be replayed — `SwapPreview` retires the identical answer identically.
+  it('retires the intent for a confirmed swap_failed, so 13e Try again mints a fresh key', () => {
+    const view = resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
+
+    expect(view.kind).toBe('failed')
+    expect(retiresPendingIntent(view)).toBe(true)
+  })
+
+  // The one outcome that keeps its key: the request may have committed before its response was lost, so the key
+  // is the only way to ask again without risking a second swap.
+  it('keeps the intent for an unconfirmed outcome, so Try again replays the same key', () => {
+    const view = resolveSwapView(swapInput({swapError: transportError()}))
+
+    expect(view.kind).toBe('unconfirmed')
+    expect(retiresPendingIntent(view)).toBe(false)
   })
 
   it('keeps the intent for every state that reports no server refusal', () => {
@@ -976,6 +1276,266 @@ describe('retiresPendingIntent', () => {
     ]
 
     withoutRefusal.forEach(view => expect(retiresPendingIntent(view)).toBe(false))
+  })
+})
+
+describe('resolveBannerSlot', () => {
+  // 13e draws the error above the title because the commit is what the screen is about. A read's failure is
+  // not: the title and the current-meal card stay, and the alternatives area is what it replaces (0.2.5).
+  it('puts every commit outcome above the title', () => {
+    const outcomes = [
+      swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}),
+      swapInput({swapError: transportError()}),
+      swapInput({rememberedOutcome: 'failed', isAttemptPending: true}),
+      swapInput({rememberedOutcome: 'unconfirmed', isAttemptPending: true})
+    ]
+
+    outcomes.forEach(input => expect(resolveBannerSlot(resolveSwapView(input))).toBe('aboveTitle'))
+  })
+
+  it('puts the alternatives-read failure in the alternatives area', () => {
+    const view = resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined}))
+
+    expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
+    expect(resolveBannerSlot(view)).toBe('alternatives')
+  })
+
+  // With no meal decoded there is no title and no card to sit under, so the body is the whole screen.
+  it('puts the day-read failure there too', () => {
+    const view = resolveSwapView(swapInput({currentMeal: null, dayError: transportError()}))
+
+    expect(view.kind === 'error' ? view.retry : null).toBe('day')
+    expect(resolveBannerSlot(view)).toBe('alternatives')
+  })
+
+  it('answers null for every view that draws no banner', () => {
+    const withoutBanner = [
+      swapInput(),
+      swapInput({alternatives: []}),
+      swapInput({isAlternativesPending: true, alternatives: undefined}),
+      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)})
+    ]
+
+    withoutBanner.forEach(input => {
+      const view = resolveSwapView(input)
+
+      expect(bannerOf(view)).toBeNull()
+      expect(resolveBannerSlot(view)).toBeNull()
+    })
+  })
+
+  it('names a slot for exactly the views that carry a banner', () => {
+    const everyView = [
+      swapInput(),
+      swapInput({alternatives: []}),
+      swapInput({isAlternativesPending: true, alternatives: undefined}),
+      swapInput({alternativesError: transportError(), alternatives: undefined}),
+      swapInput({currentMeal: null, dayError: transportError()}),
+      swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)}),
+      swapInput({swapError: transportError()}),
+      swapInput({swapError: apiError(409, API_ERROR_CODES.stalePlan)}),
+      swapInput({rememberedOutcome: 'failed', isAttemptPending: true})
+    ]
+
+    everyView.forEach(input => {
+      const view = resolveSwapView(input)
+
+      expect(resolveBannerSlot(view) === null).toBe(bannerOf(view) === null)
+    })
+  })
+})
+
+describe('resolveAlternativesTrust', () => {
+  const ANSWERED_AT = 1_760_000_000_000
+
+  it('trusts the list while nothing has contradicted it', () => {
+    expect(resolveAlternativesTrust({contradictedAt: null, alternativesUpdatedAt: ANSWERED_AT})).toBe(true)
+    expect(resolveAlternativesTrust({contradictedAt: null, alternativesUpdatedAt: 0})).toBe(true)
+  })
+
+  it('withdraws trust from a list that answered before the refusal', () => {
+    expect(resolveAlternativesTrust({contradictedAt: ANSWERED_AT + 1, alternativesUpdatedAt: ANSWERED_AT})).toBe(false)
+  })
+
+  it('restores trust once the list has answered after the refusal', () => {
+    expect(resolveAlternativesTrust({contradictedAt: ANSWERED_AT, alternativesUpdatedAt: ANSWERED_AT + 1})).toBe(true)
+  })
+
+  // Which of the two came first cannot be told apart at equal timestamps, and a spinner costs less than a
+  // commit against a revision the server has already refused.
+  it('treats a list that answered in the same millisecond as the older of the two', () => {
+    expect(resolveAlternativesTrust({contradictedAt: ANSWERED_AT, alternativesUpdatedAt: ANSWERED_AT})).toBe(false)
+  })
+
+  it('withdraws trust from a key that has never answered', () => {
+    expect(resolveAlternativesTrust({contradictedAt: ANSWERED_AT, alternativesUpdatedAt: 0})).toBe(false)
+  })
+})
+
+describe('terminalRecoveryKey', () => {
+  const terminalOf = (view: SwapView): SwapTerminalOutcome | null => (view.kind === 'terminal' ? view.terminal : null)
+
+  const swapRefusal = (code: string): SwapTerminalOutcome => {
+    const terminal = terminalOf(resolveSwapView(swapInput({swapError: apiError(409, code)})))
+
+    if (terminal === null) {
+      throw new Error(`expected ${code} to resolve to a terminal refusal`)
+    }
+
+    return terminal
+  }
+
+  const readRefusal = (code: string): SwapTerminalOutcome => {
+    const terminal = terminalOf(resolveSwapView(swapInput({dayError: apiError(409, code)})))
+
+    if (terminal === null) {
+      throw new Error(`expected ${code} to resolve to a terminal refusal`)
+    }
+
+    return terminal
+  }
+
+  // The defect this closes: two commits refused the same way are two outcomes, and the second still owes its
+  // toast, its re-read and its intent retirement. Keyed by the code alone, the second is silently skipped.
+  it('separates two attempts refused with the same code', () => {
+    const refusal = swapRefusal(API_ERROR_CODES.stalePlan)
+
+    expect(terminalRecoveryKey(refusal, 10)).not.toBe(terminalRecoveryKey(refusal, 20))
+  })
+
+  it('answers the same key for the same attempt, so one outcome earns one recovery', () => {
+    const refusal = swapRefusal(API_ERROR_CODES.stalePlan)
+
+    expect(terminalRecoveryKey(refusal, 10)).toBe(terminalRecoveryKey(refusal, 10))
+  })
+
+  it('separates two codes within one attempt', () => {
+    expect(terminalRecoveryKey(swapRefusal(API_ERROR_CODES.stalePlan), 10)).not.toBe(
+      terminalRecoveryKey(swapRefusal(API_ERROR_CODES.previewStale), 10)
+    )
+  })
+
+  // A read has no attempt behind it, so its code is its identity: answering the same refusal again earns no
+  // second toast and no second re-read.
+  it('identifies a read refusal by its code alone, whatever attempt is on record', () => {
+    const refusal = readRefusal(API_ERROR_CODES.planNotActive)
+
+    expect(terminalRecoveryKey(refusal, 10)).toBe(API_ERROR_CODES.planNotActive)
+    expect(terminalRecoveryKey(refusal, 20)).toBe(API_ERROR_CODES.planNotActive)
+    expect(terminalRecoveryKey(refusal, null)).toBe(API_ERROR_CODES.planNotActive)
+  })
+
+  it('falls back to the code when a swap refusal has no attempt submission to key on', () => {
+    expect(terminalRecoveryKey(swapRefusal(API_ERROR_CODES.stalePlan), null)).toBe(API_ERROR_CODES.stalePlan)
+  })
+})
+
+describe('resolveOutcomeMemory', () => {
+  const ATTEMPT_KEY = 'idem-1'
+
+  const OTHER_KEY = 'idem-2'
+
+  const memoryInput = (overrides: Partial<OutcomeMemoryInput> = {}): OutcomeMemoryInput => ({
+    attemptKey: ATTEMPT_KEY,
+    viewKind: 'failed',
+    isAttemptPending: false,
+    memory: null,
+    ...overrides
+  })
+
+  it('remembers a confirmed failure and an unknown outcome against the key that earned it', () => {
+    expect(resolveOutcomeMemory(memoryInput())).toEqual({attemptKey: ATTEMPT_KEY, outcome: 'failed'})
+    expect(resolveOutcomeMemory(memoryInput({viewKind: 'unconfirmed'}))).toEqual({
+      attemptKey: ATTEMPT_KEY,
+      outcome: 'unconfirmed'
+    })
+  })
+
+  it('returns the record it already holds rather than an equal copy', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'failed'}
+
+    expect(resolveOutcomeMemory(memoryInput({memory}))).toBe(memory)
+  })
+
+  it('replaces the record when the same key answers with the other outcome', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'failed'}
+
+    expect(resolveOutcomeMemory(memoryInput({viewKind: 'unconfirmed', memory}))).toEqual({
+      attemptKey: ATTEMPT_KEY,
+      outcome: 'unconfirmed'
+    })
+  })
+
+  // The window the whole helper exists for: the retry is in flight, the mutation cache reports no error, and
+  // the outcome has to survive until the server answers that key.
+  it('keeps the record while the same key is in flight, whatever the view is', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'unconfirmed'}
+    const inFlightKinds: SwapView['kind'][] = ['retrying', 'loading', 'list', 'empty', 'error', 'terminal']
+
+    inFlightKinds.forEach(viewKind =>
+      expect(resolveOutcomeMemory(memoryInput({viewKind, isAttemptPending: true, memory}))).toBe(memory)
+    )
+  })
+
+  it('drops the record once the view has resolved to anything but an outcome of its own', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'failed'}
+    const settledKinds: SwapView['kind'][] = ['loading', 'list', 'empty', 'error', 'terminal']
+
+    settledKinds.forEach(viewKind => expect(resolveOutcomeMemory(memoryInput({viewKind, memory}))).toBeNull())
+  })
+
+  // A different key is a different request: inheriting this outcome would report a failure the new commit
+  // never earned, and would let its banner replay the wrong key.
+  it('drops the record when the attempt key changes, even while a request is in flight', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: OTHER_KEY, outcome: 'failed'}
+
+    expect(resolveOutcomeMemory(memoryInput({viewKind: 'retrying', isAttemptPending: true, memory}))).toBeNull()
+    expect(resolveOutcomeMemory(memoryInput({viewKind: 'unconfirmed', memory}))).toEqual({
+      attemptKey: ATTEMPT_KEY,
+      outcome: 'unconfirmed'
+    })
+  })
+
+  it('remembers nothing once the intent has been retired and no key is on record', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'failed'}
+
+    expect(resolveOutcomeMemory(memoryInput({attemptKey: null, memory}))).toBeNull()
+    expect(resolveOutcomeMemory(memoryInput({attemptKey: null, viewKind: 'failed', memory}))).toBeNull()
+  })
+
+  it('leaves the record it was given untouched', () => {
+    const memory: SwapOutcomeMemoryRecord = {attemptKey: ATTEMPT_KEY, outcome: 'failed'}
+
+    resolveOutcomeMemory(memoryInput({viewKind: 'unconfirmed', memory}))
+
+    expect(memory).toEqual({attemptKey: ATTEMPT_KEY, outcome: 'failed'})
+  })
+
+  // The screen's ref holds the value this returned on the previous render, so a chain of passes is what it
+  // really sees: a failure drawn, its retry fired, and the next failure drawn under the same key.
+  it('carries one attempt through failure, replay and the next answer', () => {
+    const drawn = resolveOutcomeMemory(memoryInput())
+    const replaying = resolveOutcomeMemory(memoryInput({viewKind: 'retrying', isAttemptPending: true, memory: drawn}))
+    const answered = resolveOutcomeMemory(memoryInput({viewKind: 'unconfirmed', memory: replaying}))
+    const resolved = resolveOutcomeMemory(memoryInput({viewKind: 'list', memory: answered}))
+
+    expect(replaying).toBe(drawn)
+    expect(answered).toEqual({attemptKey: ATTEMPT_KEY, outcome: 'unconfirmed'})
+    expect(resolved).toBeNull()
+  })
+})
+
+describe('rememberedOutcomeForAttempt', () => {
+  it('answers with the outcome held for the key now on record', () => {
+    expect(rememberedOutcomeForAttempt({attemptKey: 'idem-1', outcome: 'failed'}, 'idem-1')).toBe('failed')
+    expect(rememberedOutcomeForAttempt({attemptKey: 'idem-1', outcome: 'unconfirmed'}, 'idem-1')).toBe('unconfirmed')
+  })
+
+  it('answers null for another key, for no key and for no record', () => {
+    expect(rememberedOutcomeForAttempt({attemptKey: 'idem-1', outcome: 'failed'}, 'idem-2')).toBeNull()
+    expect(rememberedOutcomeForAttempt({attemptKey: 'idem-1', outcome: 'failed'}, null)).toBeNull()
+    expect(rememberedOutcomeForAttempt(null, 'idem-1')).toBeNull()
+    expect(rememberedOutcomeForAttempt(null, null)).toBeNull()
   })
 })
 
@@ -1256,5 +1816,968 @@ describe('buildSwapRequest', () => {
 
   it('carries the plan revision the screen opened on as the revision the write expects', () => {
     expect(buildSwapRequest({...INPUTS, planRevision: 9}).expectedPlanRevision).toBe(9)
+  })
+})
+
+const USER_ID = 'user-1'
+
+const OTHER_USER_ID = 'user-2'
+
+const PLAN_ID = 'plan-1'
+
+const MEAL_ID = 'meal-1'
+
+const NOW = 1_760_000_000_000
+
+const STORED_KEY = 'idem-stored'
+
+const FRESH_KEY = 'idem-fresh'
+
+const OPENED_REVISION = 4
+
+const swapSnapshot = (overrides: Partial<Omit<SwapRequestSnapshot, 'action'>> = {}): SwapRequestSnapshot => ({
+  action: 'swap',
+  planId: PLAN_ID,
+  mealId: MEAL_ID,
+  recipeVersionId: 'recipe-version-wrap',
+  portionMultiplier: 1,
+  expectedPlanRevision: OPENED_REVISION,
+  ...overrides
+})
+
+const storedIntent = (snapshot: SwapRequestSnapshot = swapSnapshot(), userId: string = USER_ID): PendingIntent =>
+  buildPendingIntent(snapshot, STORED_KEY, userId, NOW)
+
+const stateWith = (intent: PendingIntent | null): Pick<MealPlanStore, 'pendingIntents'> => ({
+  pendingIntents: intent === null ? {} : {swap: intent}
+})
+
+// The view the screen is actually holding when a swap commit came back without an answer, derived rather than
+// asserted so the classification stays the util's.
+const unconfirmedView = (dayError: unknown = null): SwapView =>
+  resolveSwapView({
+    currentMeal: plannedMeal(),
+    alternatives: undefined,
+    isAlternativesPending: false,
+    isAlternativesFetching: false,
+    isAlternativesTrusted: true,
+    alternativesError: null,
+    swapError: axiosError(),
+    rememberedOutcome: null,
+    isAttemptPending: false,
+    isDayPending: false,
+    dayError
+  })
+
+interface ScreenPass {
+  guards: SwapAttemptGuards
+  currentPlanRefetches: number
+  planDayRefetches: number
+  retiredIntents: PendingIntentAction[]
+}
+
+const freshPass = (): ScreenPass => ({
+  guards: guardsForNewAttempt(),
+  currentPlanRefetches: 0,
+  planDayRefetches: 0,
+  retiredIntents: []
+})
+
+// The outcome of the first commit fired from the preview screen, and of a second one fired from it later while
+// this screen stayed mounted. Same idempotency key, because the preview re-records the key it replays; different
+// submission, because they are different attempts.
+
+/**
+ * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
+ * back, refetch the plan day. The retire branch is here on purpose — the screen has none — so that "the intent
+ * survives" is an assertion about the decision rather than about this simulator: it would retire the intent the
+ * moment the decision allowed it.
+ */
+
+// The outcome of the first commit fired from the preview screen, and of a second one fired from it later while
+// this screen stayed mounted. Same idempotency key, because the preview re-records the key it replays; different
+// submission, because they are different attempts.
+const FIRST_ATTEMPT_KEY = unconfirmedRefetchKey(STORED_KEY, NOW)
+
+const SECOND_ATTEMPT_KEY = unconfirmedRefetchKey(STORED_KEY, NOW + 30_000)
+
+/**
+ * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
+ * back, refetch the current plan and the plan day. The retire branch is here on purpose — the screen has none —
+ * so that "the intent survives" is an assertion about the decision rather than about this simulator: it would
+ * retire the intent the moment the decision allowed it.
+ *
+ * The attempt key is a parameter because it is what the screen passes in: the guard is per-attempt, so a pass
+ * carrying a later commit's outcome runs the same effect under a different key.
+ */
+
+/**
+ * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
+ * back, refetch the current plan and the plan day. The retire branch is here on purpose — the screen has none —
+ * so that "the intent survives" is an assertion about the decision rather than about this simulator: it would
+ * retire the intent the moment the decision allowed it.
+ *
+ * The attempt key is a parameter because it is what the screen passes in: the guard is per-attempt, so a pass
+ * carrying a later commit's outcome runs the same effect under a different key.
+ */
+const runUnconfirmedEffect = (
+  viewKind: SwapView['kind'],
+  pass: ScreenPass,
+  attemptRefetchKey: string | null = FIRST_ATTEMPT_KEY
+): ScreenPass => {
+  const decision = resolveUnconfirmedRefetch({
+    viewKind,
+    attemptRefetchKey,
+    refetchedUnconfirmedKey: pass.guards.refetchedUnconfirmedKey
+  })
+
+  if (!decision.refetchesCurrentPlan && !decision.refetchesPlanDay) {
+    return pass
+  }
+
+  return {
+    guards: {...pass.guards, refetchedUnconfirmedKey: decision.refetchedUnconfirmedKey},
+    currentPlanRefetches: pass.currentPlanRefetches + (decision.refetchesCurrentPlan ? 1 : 0),
+    planDayRefetches: pass.planDayRefetches + (decision.refetchesPlanDay ? 1 : 0),
+    retiredIntents: decision.resolvesPendingIntent ? [...pass.retiredIntents, 'swap'] : pass.retiredIntents
+  }
+}
+
+describe('resolveUnconfirmedRefetch', () => {
+  describe('with an unconfirmed commit outcome', () => {
+    // 0.2.5 names both reads: the day is what shows the swapped meal, the current plan is what the tab behind
+    // this screen renders from, and a commit this attempt may already have made moved both.
+    it('asks for the current plan and the plan day together', () => {
+      const decision = resolveUnconfirmedRefetch({
+        viewKind: 'unconfirmed',
+        attemptRefetchKey: FIRST_ATTEMPT_KEY,
+        refetchedUnconfirmedKey: null
+      })
+      const pass = runUnconfirmedEffect('unconfirmed', freshPass())
+
+      expect(decision.refetchesCurrentPlan).toBe(true)
+      expect(decision.refetchesPlanDay).toBe(true)
+      expect(pass.currentPlanRefetches).toBe(1)
+      expect(pass.planDayRefetches).toBe(1)
+    })
+
+    it('refetches both exactly once, however many times the effect re-runs', () => {
+      const first = runUnconfirmedEffect('unconfirmed', freshPass())
+      const second = runUnconfirmedEffect('unconfirmed', first)
+      const third = runUnconfirmedEffect('unconfirmed', second)
+
+      expect(first.planDayRefetches).toBe(1)
+      expect(first.currentPlanRefetches).toBe(1)
+      expect(third.planDayRefetches).toBe(1)
+      expect(third.currentPlanRefetches).toBe(1)
+      expect(third.guards.refetchedUnconfirmedKey).toBe(FIRST_ATTEMPT_KEY)
+    })
+
+    it('refetches not at all when this attempt has already earned its pair', () => {
+      const decision = resolveUnconfirmedRefetch({
+        viewKind: 'unconfirmed',
+        attemptRefetchKey: FIRST_ATTEMPT_KEY,
+        refetchedUnconfirmedKey: FIRST_ATTEMPT_KEY
+      })
+      const guarded: ScreenPass = {
+        ...freshPass(),
+        guards: {recoveredTerminalKey: null, refetchedUnconfirmedKey: FIRST_ATTEMPT_KEY}
+      }
+      const pass = runUnconfirmedEffect('unconfirmed', guarded)
+
+      expect(decision.refetchesCurrentPlan).toBe(false)
+      expect(decision.refetchesPlanDay).toBe(false)
+      expect(decision.refetchedUnconfirmedKey).toBe(FIRST_ATTEMPT_KEY)
+      expect(pass.currentPlanRefetches).toBe(0)
+      expect(pass.planDayRefetches).toBe(0)
+    })
+
+    // The gap both SWAP-F05 and OBSEV-F06 name: the commit is fired from the preview screen, which resets
+    // nothing here, so a second unknown outcome arrives at a still-mounted SwapMeal whose guard is already
+    // written. Keyed by the attempt, that second outcome earns its own pair; keyed by the mount, it earned none
+    // and a committed swap could stay invisible until the user retried or navigated.
+    it('refetches both again for a later preview-originated outcome on the same mounted screen', () => {
+      const firstOutcome = runUnconfirmedEffect('unconfirmed', freshPass(), FIRST_ATTEMPT_KEY)
+      const redrawn = runUnconfirmedEffect('unconfirmed', firstOutcome, FIRST_ATTEMPT_KEY)
+
+      // "Back to alternatives", another candidate opened, another commit fired from the preview — nothing on
+      // this screen reset a guard in between, which is exactly the point.
+      const secondOutcome = runUnconfirmedEffect('unconfirmed', redrawn, SECOND_ATTEMPT_KEY)
+      const secondRedrawn = runUnconfirmedEffect('unconfirmed', secondOutcome, SECOND_ATTEMPT_KEY)
+
+      expect(redrawn.currentPlanRefetches).toBe(1)
+      expect(redrawn.planDayRefetches).toBe(1)
+      expect(secondOutcome.currentPlanRefetches).toBe(2)
+      expect(secondOutcome.planDayRefetches).toBe(2)
+      expect(secondRedrawn.currentPlanRefetches).toBe(2)
+      expect(secondRedrawn.planDayRefetches).toBe(2)
+      expect(secondRedrawn.guards.refetchedUnconfirmedKey).toBe(SECOND_ATTEMPT_KEY)
+      expect(secondRedrawn.retiredIntents).toEqual([])
+    })
+
+    // A guard that cannot be written cannot hold, so an outcome with no attempt behind it earns nothing: the
+    // effect re-runs on every query-identity change, and refetching there would read on every render.
+    it('refetches nothing when no attempt identifies the outcome', () => {
+      const decision = resolveUnconfirmedRefetch({
+        viewKind: 'unconfirmed',
+        attemptRefetchKey: null,
+        refetchedUnconfirmedKey: null
+      })
+      const pass = runUnconfirmedEffect('unconfirmed', freshPass(), null)
+
+      expect(decision.refetchesCurrentPlan).toBe(false)
+      expect(decision.refetchesPlanDay).toBe(false)
+      expect(decision.refetchedUnconfirmedKey).toBeNull()
+      expect(pass.currentPlanRefetches).toBe(0)
+      expect(pass.planDayRefetches).toBe(0)
+    })
+
+    // A key already earned is never forgotten by a render that refetches nothing: were it dropped, the next
+    // render of the same outcome would read again.
+    it('keeps the earned key while no attempt identifies the render', () => {
+      const earned = runUnconfirmedEffect('unconfirmed', freshPass(), FIRST_ATTEMPT_KEY)
+
+      expect(
+        resolveUnconfirmedRefetch({
+          viewKind: 'unconfirmed',
+          attemptRefetchKey: null,
+          refetchedUnconfirmedKey: earned.guards.refetchedUnconfirmedKey
+        }).refetchedUnconfirmedKey
+      ).toBe(FIRST_ATTEMPT_KEY)
+    })
+
+    it('never resolves the pending intent, so the stored key survives both refetches', () => {
+      const intent = storedIntent()
+      const state = stateWith(intent)
+      const pass = runUnconfirmedEffect(unconfirmedView().kind, freshPass())
+
+      expect(pass.currentPlanRefetches).toBe(1)
+      expect(pass.planDayRefetches).toBe(1)
+      expect(pass.retiredIntents).toEqual([])
+      expect(resolvePendingIntent(state, 'swap', USER_ID, NOW)).toEqual(intent)
+    })
+
+    it('leaves the intent and the state alone when the day query answers stale_plan at the same time', () => {
+      const intent = storedIntent()
+      const state = stateWith(intent)
+      const view = unconfirmedView(axiosError(409, {error: API_ERROR_CODES.stalePlan}))
+
+      const decision = resolveUnconfirmedRefetch({
+        viewKind: view.kind,
+        attemptRefetchKey: FIRST_ATTEMPT_KEY,
+        refetchedUnconfirmedKey: null
+      })
+      const pass = runUnconfirmedEffect(view.kind, freshPass())
+
+      expect(view.kind).toBe('unconfirmed')
+      expect(retiresPendingIntent(view)).toBe(false)
+      expect(decision.refetchesCurrentPlan).toBe(true)
+      expect(decision.refetchesPlanDay).toBe(true)
+      expect(decision.resolvesPendingIntent).toBe(false)
+      expect(pass.retiredIntents).toEqual([])
+      expect(resolvePendingIntent(state, 'swap', USER_ID, NOW)).toEqual(intent)
+    })
+
+    // The in-place retry clears the guard as its request leaves, which earns the same pair a second time even
+    // before the new submission renames the key.
+    it('refetches both again for the next outcome once a new attempt has reset the guard', () => {
+      const refetched = runUnconfirmedEffect('unconfirmed', freshPass())
+      const blocked = runUnconfirmedEffect('unconfirmed', refetched)
+
+      const afterRetryPressed: ScreenPass = {...blocked, guards: guardsForNewAttempt()}
+      const refetchedAgain = runUnconfirmedEffect('unconfirmed', afterRetryPressed)
+
+      expect(blocked.planDayRefetches).toBe(1)
+      expect(blocked.currentPlanRefetches).toBe(1)
+      expect(refetchedAgain.planDayRefetches).toBe(2)
+      expect(refetchedAgain.currentPlanRefetches).toBe(2)
+    })
+  })
+
+  describe('with any other view', () => {
+    const otherKinds: SwapView['kind'][] = ['loading', 'list', 'empty', 'error', 'failed', 'retrying', 'terminal']
+
+    it.each(otherKinds)('does not refetch for the %s view and leaves the guard untouched', kind => {
+      const decision = resolveUnconfirmedRefetch({
+        viewKind: kind,
+        attemptRefetchKey: FIRST_ATTEMPT_KEY,
+        refetchedUnconfirmedKey: null
+      })
+      const pass = runUnconfirmedEffect(kind, freshPass())
+
+      expect(decision.refetchesCurrentPlan).toBe(false)
+      expect(decision.refetchesPlanDay).toBe(false)
+      expect(decision.refetchedUnconfirmedKey).toBeNull()
+      expect(pass.currentPlanRefetches).toBe(0)
+      expect(pass.planDayRefetches).toBe(0)
+    })
+
+    // The replay of an unknown outcome is the same attempt still in flight, so it earns no second pair: its own
+    // answer is the next outcome, and a reset guard is what lets that one refetch.
+    it('keeps a guard already earned by an unconfirmed outcome through the replay and a terminal refusal', () => {
+      const guarded: UnconfirmedRefetchDecision = {
+        refetchesCurrentPlan: false,
+        refetchesPlanDay: false,
+        resolvesPendingIntent: false,
+        refetchedUnconfirmedKey: FIRST_ATTEMPT_KEY
+      }
+
+      expect(
+        resolveUnconfirmedRefetch({
+          viewKind: 'terminal',
+          attemptRefetchKey: FIRST_ATTEMPT_KEY,
+          refetchedUnconfirmedKey: FIRST_ATTEMPT_KEY
+        })
+      ).toEqual(guarded)
+      expect(
+        resolveUnconfirmedRefetch({
+          viewKind: 'retrying',
+          attemptRefetchKey: SECOND_ATTEMPT_KEY,
+          refetchedUnconfirmedKey: FIRST_ATTEMPT_KEY
+        })
+      ).toEqual(guarded)
+    })
+  })
+})
+
+describe('unconfirmedRefetchKey', () => {
+  it('composes the attempt key and its submission, so one outcome is one key', () => {
+    expect(unconfirmedRefetchKey(STORED_KEY, NOW)).toBe(`${STORED_KEY}:${NOW}`)
+    expect(unconfirmedRefetchKey(STORED_KEY, NOW)).toBe(unconfirmedRefetchKey(STORED_KEY, NOW))
+  })
+
+  // A replay re-sends the same idempotency key, so the key alone cannot tell two attempts apart: the submission
+  // is what does, and that is what earns the later outcome its own pair of reads.
+  it('separates two submissions of the same idempotency key', () => {
+    expect(unconfirmedRefetchKey(STORED_KEY, NOW)).not.toBe(unconfirmedRefetchKey(STORED_KEY, NOW + 30_000))
+    expect(unconfirmedRefetchKey(STORED_KEY, NOW)).not.toBe(unconfirmedRefetchKey(FRESH_KEY, NOW))
+  })
+
+  it('answers null unless both parts identify an attempt', () => {
+    expect(unconfirmedRefetchKey(null, NOW)).toBeNull()
+    expect(unconfirmedRefetchKey(STORED_KEY, null)).toBeNull()
+    expect(unconfirmedRefetchKey(null, null)).toBeNull()
+  })
+})
+
+describe('guardsForNewAttempt', () => {
+  it('clears both per-attempt guards so the new attempt earns its own recovery and refetch', () => {
+    expect(guardsForNewAttempt()).toEqual({recoveredTerminalKey: null, refetchedUnconfirmedKey: null})
+  })
+})
+
+describe('resolveSwapRetryPlan', () => {
+  it('replays the stored key while the request still fingerprints to the stored intent', () => {
+    const intent = storedIntent()
+
+    const plan = resolveSwapRetryPlan({
+      state: stateWith(intent),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW + 5_000,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.isReplay).toBe(true)
+    expect(plan.idempotencyKey).toBe(STORED_KEY)
+    expect(plan.request).toEqual(intent.request)
+    expect(plan.variables).toEqual({
+      mealId: MEAL_ID,
+      payload: {
+        recipeVersionId: 'recipe-version-wrap',
+        portionMultiplier: 1,
+        expectedPlanRevision: OPENED_REVISION,
+        idempotencyKey: STORED_KEY
+      }
+    })
+  })
+
+  it('mints the fresh key when the stored intent describes a different request', () => {
+    const plan = resolveSwapRetryPlan({
+      state: stateWith(storedIntent(swapSnapshot({recipeVersionId: 'recipe-version-salad'}))),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW + 5_000,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.isReplay).toBe(false)
+    expect(plan.idempotencyKey).toBe(FRESH_KEY)
+    expect(plan.variables.payload).toEqual({
+      recipeVersionId: 'recipe-version-wrap',
+      portionMultiplier: 1,
+      expectedPlanRevision: OPENED_REVISION,
+      idempotencyKey: FRESH_KEY
+    })
+  })
+
+  it('mints the fresh key when the portion or the revision the preview bound has moved', () => {
+    const movedRevision = resolveSwapRetryPlan({
+      state: stateWith(storedIntent(swapSnapshot({expectedPlanRevision: OPENED_REVISION + 1}))),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW,
+      freshKey: FRESH_KEY
+    })
+
+    const movedPortion = resolveSwapRetryPlan({
+      state: stateWith(storedIntent(swapSnapshot({portionMultiplier: 1.5}))),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW,
+      freshKey: FRESH_KEY
+    })
+
+    expect(movedRevision.idempotencyKey).toBe(FRESH_KEY)
+    expect(movedPortion.idempotencyKey).toBe(FRESH_KEY)
+  })
+
+  it('mints the fresh key when nothing is on record, and when the record has expired or belongs to another user', () => {
+    const nothingStored = resolveSwapRetryPlan({
+      state: stateWith(null),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW,
+      freshKey: FRESH_KEY
+    })
+
+    const expired = resolveSwapRetryPlan({
+      state: stateWith(storedIntent()),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW + PENDING_INTENT_TTL_MS,
+      freshKey: FRESH_KEY
+    })
+
+    const anotherUser = resolveSwapRetryPlan({
+      state: stateWith(storedIntent(swapSnapshot(), OTHER_USER_ID)),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW,
+      freshKey: FRESH_KEY
+    })
+
+    expect(nothingStored.idempotencyKey).toBe(FRESH_KEY)
+    expect(expired.idempotencyKey).toBe(FRESH_KEY)
+    expect(anotherUser.idempotencyKey).toBe(FRESH_KEY)
+  })
+
+  it('returns an intent that describes the request actually in flight', () => {
+    const attemptedAt = NOW + 9_000
+
+    const plan = resolveSwapRetryPlan({
+      state: stateWith(storedIntent()),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.intent.key).toBe(plan.idempotencyKey)
+    expect(plan.intent.userId).toBe(USER_ID)
+    expect(plan.intent.createdAt).toBe(attemptedAt)
+    expect(plan.intent.request).toEqual(plan.request)
+    expect(matchesFingerprint(plan.request, plan.intent.fingerprint)).toBe(true)
+  })
+})
+
+describe('resolveReplayableSwap', () => {
+  it('answers with the stored request for this user, plan and meal, and the key it was minted for', () => {
+    const intent = storedIntent()
+
+    const attempt = resolveReplayableSwap({
+      state: stateWith(intent),
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: MEAL_ID,
+      now: NOW
+    })
+
+    // The key travels with the request because it is what identifies the attempt in the shared mutation cache:
+    // without it the screen has no way to match the outcome of a commit the preview screen fired.
+    expect(attempt).toEqual({key: intent.key, request: intent.request})
+    expect(attempt?.key).toBe(STORED_KEY)
+  })
+
+  it('answers null when there is no signed-in user to scope the record to', () => {
+    expect(
+      resolveReplayableSwap({
+        state: stateWith(storedIntent()),
+        userId: null,
+        planId: PLAN_ID,
+        mealId: MEAL_ID,
+        now: NOW
+      })
+    ).toBeNull()
+  })
+
+  it('answers null for a record about another meal or another plan', () => {
+    const otherMeal = resolveReplayableSwap({
+      state: stateWith(storedIntent(swapSnapshot({mealId: 'meal-9'}))),
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: MEAL_ID,
+      now: NOW
+    })
+
+    const otherPlan = resolveReplayableSwap({
+      state: stateWith(storedIntent(swapSnapshot({planId: 'plan-9'}))),
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: MEAL_ID,
+      now: NOW
+    })
+
+    expect(otherMeal).toBeNull()
+    expect(otherPlan).toBeNull()
+  })
+
+  it('answers null for an expired record, for another user and for an empty slice', () => {
+    expect(
+      resolveReplayableSwap({
+        state: stateWith(storedIntent()),
+        userId: USER_ID,
+        planId: PLAN_ID,
+        mealId: MEAL_ID,
+        now: NOW + PENDING_INTENT_TTL_MS
+      })
+    ).toBeNull()
+
+    expect(
+      resolveReplayableSwap({
+        state: stateWith(storedIntent(swapSnapshot(), OTHER_USER_ID)),
+        userId: USER_ID,
+        planId: PLAN_ID,
+        mealId: MEAL_ID,
+        now: NOW
+      })
+    ).toBeNull()
+
+    expect(
+      resolveReplayableSwap({state: stateWith(null), userId: USER_ID, planId: PLAN_ID, mealId: MEAL_ID, now: NOW})
+    ).toBeNull()
+  })
+})
+
+describe('selectSwapAttemptState', () => {
+  // The shape a swap commit's mutation-cache entry really has: `useSwapMealMutation(planId, mealId)` closes
+  // over both ids, so the variables are a bare payload and the idempotency key is the only field that can tie
+  // an entry back to the pending intent recorded beside it.
+  type TestState = KeyedMutationState & {status: string; error: Error | null}
+
+  const entry = (idempotencyKey: string | null, submittedAt: number, status = 'error'): TestState => ({
+    submittedAt,
+    status,
+    error: status === 'error' ? new Error('swap_failed') : null,
+    variables:
+      idempotencyKey === null
+        ? {recipeVersionId: 'recipe-1', portionMultiplier: 1, expectedPlanRevision: 3}
+        : {recipeVersionId: 'recipe-1', portionMultiplier: 1, expectedPlanRevision: 3, idempotencyKey}
+  })
+
+  it('answers with the entry whose variables carry the attempt key', () => {
+    const mine = entry(STORED_KEY, 10)
+
+    expect(selectSwapAttemptState([entry('idem-other', 5), mine, entry('idem-later', 20)], STORED_KEY)).toBe(mine)
+  })
+
+  it('answers null when there is no unresolved attempt to match', () => {
+    // A null key is the resolved case — the intent was retired by a server answer — and draws no banner even
+    // while the cache still holds the entry that resolved it.
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10)], null)).toBeNull()
+  })
+
+  it('answers null when no entry carries the key, and for an empty cache', () => {
+    expect(selectSwapAttemptState([entry('idem-other', 10)], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([], STORED_KEY)).toBeNull()
+  })
+
+  it('answers with the latest submission when a replay re-sends the same key', () => {
+    const replay = entry(STORED_KEY, 30)
+
+    // A replay sends the identical key, so the cache holds two entries for one attempt and the newer one is the
+    // outcome now on screen. Order in the array must not decide it.
+    expect(selectSwapAttemptState([replay, entry(STORED_KEY, 10)], STORED_KEY)).toBe(replay)
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10), replay], STORED_KEY)).toBe(replay)
+  })
+
+  it('ignores entries whose variables carry no usable key', () => {
+    // Nothing may be inferred from an entry that cannot be attributed: variables are typed `unknown` at the
+    // cache boundary, so a missing or non-string key is skipped rather than matched loosely.
+    expect(selectSwapAttemptState([entry(null, 10)], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: undefined}], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: {idempotencyKey: 7}}], STORED_KEY)).toBeNull()
+    expect(selectSwapAttemptState([{submittedAt: 10, variables: 'idem-stored'}], STORED_KEY)).toBeNull()
+  })
+
+  it('preserves the entry type so the caller keeps its own status and error', () => {
+    const pending = entry(STORED_KEY, 10, 'pending')
+
+    expect(selectSwapAttemptState([pending], STORED_KEY)?.status).toBe('pending')
+    expect(selectSwapAttemptState([entry(STORED_KEY, 10)], STORED_KEY)?.error).toBeInstanceOf(Error)
+  })
+})
+
+describe('resolveAlternativesRevision', () => {
+  it('selects the revision the day query reports when it is newer than the one the screen opened on', () => {
+    expect(
+      resolveAlternativesRevision({dayPlanRevision: OPENED_REVISION + 1, openedPlanRevision: OPENED_REVISION})
+    ).toBe(OPENED_REVISION + 1)
+  })
+
+  it('selects the day revision even when it is older, because the list must match the plan the day describes', () => {
+    expect(
+      resolveAlternativesRevision({dayPlanRevision: OPENED_REVISION - 1, openedPlanRevision: OPENED_REVISION})
+    ).toBe(OPENED_REVISION - 1)
+  })
+
+  it('keeps the opened revision while the day query agrees or has not answered', () => {
+    expect(resolveAlternativesRevision({dayPlanRevision: OPENED_REVISION, openedPlanRevision: OPENED_REVISION})).toBe(
+      OPENED_REVISION
+    )
+    expect(resolveAlternativesRevision({dayPlanRevision: undefined, openedPlanRevision: OPENED_REVISION})).toBe(
+      OPENED_REVISION
+    )
+    expect(resolveAlternativesRevision({dayPlanRevision: null, openedPlanRevision: OPENED_REVISION})).toBe(
+      OPENED_REVISION
+    )
+  })
+})
+
+describe('resolveSwapCommitPayload', () => {
+  it('sends the stored snapshot under the stored key, byte-identical to the request the key was minted for', () => {
+    const snapshot = swapSnapshot()
+    const intent = storedIntent(snapshot)
+    const attempt: SwapAttempt = {key: intent.key, request: snapshot}
+
+    // Compared with the wire body IdempotencyUtility builds from the same snapshot: the replay the server
+    // answers with its stored result is the one whose body reproduces the fingerprinted request (0.7.2).
+    expect(resolveSwapCommitPayload(attempt)).toEqual(requestBody(intent.request, intent.key))
+    expect(resolveSwapCommitPayload(attempt)).toEqual({
+      recipeVersionId: 'recipe-version-wrap',
+      portionMultiplier: 1,
+      expectedPlanRevision: OPENED_REVISION,
+      idempotencyKey: STORED_KEY
+    })
+  })
+
+  it('carries the alternative, portion and revision the STORED request names, not the ones the screen now holds', () => {
+    // The screen reopened on revision 4 showing the wrap; the unresolved commit was for a different candidate
+    // at a different portion against an older revision. Rebuilding any of those from current state is what
+    // earns `409 idempotency_conflict` or commits a second swap.
+    const stored = swapSnapshot({
+      recipeVersionId: 'recipe-version-salad',
+      portionMultiplier: 1.5,
+      expectedPlanRevision: 2
+    })
+
+    expect(resolveSwapCommitPayload({key: STORED_KEY, request: stored})).toEqual({
+      recipeVersionId: 'recipe-version-salad',
+      portionMultiplier: 1.5,
+      expectedPlanRevision: 2,
+      idempotencyKey: STORED_KEY
+    })
+  })
+})
+
+describe('resolveSwapMountReplay', () => {
+  const attempt = (snapshot: SwapRequestSnapshot = swapSnapshot(), key: string = STORED_KEY): SwapAttempt => ({
+    key,
+    request: snapshot
+  })
+
+  const READY: SwapMountReplayInput = {
+    attempt: attempt(),
+    hasHydratedIntents: true,
+    userId: USER_ID,
+    isCommitInFlight: false,
+    replayedKey: null
+  }
+
+  it('replays the unresolved commit once, latching its key and carrying its stored body', () => {
+    expect(resolveSwapMountReplay(READY)).toEqual({
+      replays: true,
+      replayedKey: STORED_KEY,
+      payload: requestBody(swapSnapshot(), STORED_KEY)
+    })
+  })
+
+  it('reads the intent out of persisted state, so a cold start replays without any in-memory attempt', () => {
+    // The whole path the screen takes on a launch that found the mutation cache empty: the persisted slice is
+    // the only trace of the request, and it is enough to re-send it under its own key.
+    const restored = resolveReplayableSwap({
+      state: stateWith(storedIntent()),
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: MEAL_ID,
+      now: NOW
+    })
+
+    const replay = resolveSwapMountReplay({...READY, attempt: restored})
+
+    expect(replay.replays).toBe(true)
+    expect(replay.payload).toEqual(requestBody(storedIntent().request, STORED_KEY))
+  })
+
+  it('does not replay the same key twice', () => {
+    expect(resolveSwapMountReplay({...READY, replayedKey: STORED_KEY})).toEqual({
+      replays: false,
+      replayedKey: STORED_KEY,
+      payload: null
+    })
+  })
+
+  it('replays a later attempt recorded under a new key', () => {
+    // A key the screen has not sent is a different intent, and it earns its own replay however the record
+    // reached the store.
+    expect(
+      resolveSwapMountReplay({...READY, attempt: attempt(swapSnapshot(), FRESH_KEY), replayedKey: STORED_KEY})
+    ).toEqual({
+      replays: true,
+      replayedKey: FRESH_KEY,
+      payload: requestBody(swapSnapshot(), FRESH_KEY)
+    })
+  })
+
+  it('waits while the persisted slice has not arrived, leaving the latch untouched', () => {
+    // 'Nothing is pending' and 'the answer has not arrived' are different answers: deciding on the first frame
+    // is what lets the next press mint a second key for a request the server may already hold.
+    expect(resolveSwapMountReplay({...READY, hasHydratedIntents: false})).toEqual({
+      replays: false,
+      replayedKey: null,
+      payload: null
+    })
+
+    expect(resolveSwapMountReplay({...READY, hasHydratedIntents: false, replayedKey: STORED_KEY}).replayedKey).toBe(
+      STORED_KEY
+    )
+  })
+
+  it('waits while there is no signed-in account to judge ownership with', () => {
+    expect(resolveSwapMountReplay({...READY, userId: null})).toEqual({
+      replays: false,
+      replayedKey: null,
+      payload: null
+    })
+  })
+
+  it('does not replay while a commit for this key is already on the wire', () => {
+    expect(resolveSwapMountReplay({...READY, isCommitInFlight: true})).toEqual({
+      replays: false,
+      replayedKey: null,
+      payload: null
+    })
+  })
+
+  it('does nothing when no unresolved commit is on record', () => {
+    expect(resolveSwapMountReplay({...READY, attempt: null})).toEqual({
+      replays: false,
+      replayedKey: null,
+      payload: null
+    })
+  })
+
+  /**
+   * The mount effect of `index.tsx`, step for step: ask for the decision, write the latch back, send the stored
+   * body when told to. Run repeatedly because the effect re-runs on every render of the screen — the one thing
+   * that must not happen is a second request for a key already sent.
+   */
+  const runMountEffect = (input: SwapMountReplayInput, sent: string[]): {latch: string | null; sent: string[]} => {
+    const replay = resolveSwapMountReplay(input)
+
+    if (!replay.replays || replay.payload === null) {
+      return {latch: replay.replayedKey, sent}
+    }
+
+    return {latch: replay.replayedKey, sent: [...sent, String(replay.payload.idempotencyKey)]}
+  }
+
+  it('sends the stored key exactly once however many times the effect re-runs', () => {
+    const first = runMountEffect(READY, [])
+    const second = runMountEffect({...READY, replayedKey: first.latch}, first.sent)
+    const third = runMountEffect({...READY, replayedKey: second.latch}, second.sent)
+
+    expect(third.sent).toEqual([STORED_KEY])
+  })
+
+  it('sends nothing until hydration lands, then sends the restored key once', () => {
+    const waiting = runMountEffect({...READY, hasHydratedIntents: false, attempt: null}, [])
+    const hydrated = runMountEffect({...READY, replayedKey: waiting.latch}, waiting.sent)
+    const settled = runMountEffect({...READY, replayedKey: hydrated.latch, isCommitInFlight: true}, hydrated.sent)
+
+    expect(waiting.sent).toEqual([])
+    expect(settled.sent).toEqual([STORED_KEY])
+  })
+})
+
+describe('resolveSwapSlotOwnership', () => {
+  const ownershipOf = (intent: PendingIntent | null, userId: string | null = USER_ID, now: number = NOW) =>
+    resolveSwapSlotOwnership({state: stateWith(intent), userId, planId: PLAN_ID, mealId: MEAL_ID, now})
+
+  it("reports this plan and meal's own unresolved commit as mine", () => {
+    expect(ownershipOf(storedIntent())).toBe('mine')
+  })
+
+  it('reports an empty slot as free', () => {
+    expect(ownershipOf(null)).toBe('free')
+  })
+
+  it('reports a record for another meal or another plan as FOREIGN, not as an empty slot', () => {
+    // The distinction this whole decision exists for: `resolveReplayableSwap` answers null for both, and
+    // acting on that null is how meal B's preview minted a second key over meal A's unresolved one (0.7.2).
+    expect(ownershipOf(storedIntent(swapSnapshot({mealId: 'meal-9'})))).toBe('foreign')
+    expect(ownershipOf(storedIntent(swapSnapshot({planId: 'plan-9'})))).toBe('foreign')
+
+    expect(
+      resolveReplayableSwap({
+        state: stateWith(storedIntent(swapSnapshot({mealId: 'meal-9'}))),
+        userId: USER_ID,
+        planId: PLAN_ID,
+        mealId: MEAL_ID,
+        now: NOW
+      })
+    ).toBeNull()
+  })
+
+  it('reports an expired record, another account and no signed-in account as free', () => {
+    expect(ownershipOf(storedIntent(), USER_ID, NOW + PENDING_INTENT_TTL_MS)).toBe('free')
+    expect(ownershipOf(storedIntent(swapSnapshot(), OTHER_USER_ID))).toBe('free')
+    expect(ownershipOf(storedIntent(), null)).toBe('free')
+  })
+})
+
+describe('resolveSwapInteraction', () => {
+  const unresolved: SwapInteractionInput = {
+    ownership: 'mine',
+    hasHydratedIntents: true,
+    viewKind: 'list',
+    isCommitInFlight: false,
+    hasBanner: false
+  }
+
+  it('withholds the alternatives while a commit is unresolved, and says the screen is busy instead', () => {
+    // The preview records its own intent in the single `swap` slot, so an openable row is a route to
+    // overwriting the only key that can reconcile the unresolved write (0.7.2).
+    expect(resolveSwapInteraction(unresolved)).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: true,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('opens the alternatives once nothing is unresolved', () => {
+    expect(resolveSwapInteraction({...unresolved, ownership: 'free'})).toEqual({
+      allowsAlternativeSelection: true,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('withholds them while ANOTHER plan or meal holds the swap slot, and says why', () => {
+    // The verifier's case: the slot is taken by a swap this screen cannot answer for, so the rows — every one
+    // of them a route into the preview that records an intent — go away, and the screen states that rather
+    // than reading as "no alternatives for this slot".
+    expect(resolveSwapInteraction({...unresolved, ownership: 'foreign'})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: true
+    })
+  })
+
+  it('withholds them for a foreign holder in every view the list can be drawn from', () => {
+    const kinds: SwapInteractionInput['viewKind'][] = ['list', 'failed', 'terminal', 'empty', 'loading']
+
+    kinds.forEach(viewKind => {
+      expect(resolveSwapInteraction({...unresolved, ownership: 'foreign', viewKind}).allowsAlternativeSelection).toBe(
+        false
+      )
+    })
+  })
+
+  it('leaves the foreign notice to a banner the view already draws', () => {
+    expect(resolveSwapInteraction({...unresolved, ownership: 'foreign', hasBanner: true})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('withholds them before the persisted slice has arrived, when a pending key is not yet knowable', () => {
+    // Fail-closed, and the reason is hydration rather than the holder: an unread slice may already hold a key
+    // for this meal or for any other, so nothing is claimed about the slot until the read succeeds.
+    expect(resolveSwapInteraction({...unresolved, ownership: 'free', hasHydratedIntents: false})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+
+    expect(
+      resolveSwapInteraction({...unresolved, ownership: 'foreign', hasHydratedIntents: false}).showsForeignHoldNotice
+    ).toBe(false)
+  })
+
+  it('withholds them while any swap commit is on the wire', () => {
+    expect(resolveSwapInteraction({...unresolved, ownership: 'free', isCommitInFlight: true})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('keeps 13e interactive: a confirmed swap_failed answered that nothing was written', () => {
+    expect(resolveSwapInteraction({...unresolved, viewKind: 'failed', hasBanner: true})).toEqual({
+      allowsAlternativeSelection: true,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('keeps them away for a terminal READ refusal, which says nothing about whether the swap committed', () => {
+    expect(resolveSwapInteraction({...unresolved, viewKind: 'terminal'})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: true,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  it('leaves the busy state to the view that already draws one', () => {
+    const kinds: SwapInteractionInput['viewKind'][] = ['loading', 'empty']
+
+    kinds.forEach(viewKind => {
+      expect(resolveSwapInteraction({...unresolved, viewKind}).showsCommitBusyState).toBe(false)
+    })
+
+    expect(resolveSwapInteraction({...unresolved, viewKind: 'unconfirmed', hasBanner: true})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: false
+    })
+  })
+
+  /**
+   * The verifier's cold start, end to end at the decision level: the process died with meal A's commit
+   * unresolved, the mutation cache came back empty, and the user opened meal B. Everything this screen knows
+   * comes out of the persisted slice, and it must not offer a row whose preview would record a second key.
+   */
+  it('blocks meal B on a cold start while meal A holds the slot, from persisted state alone', () => {
+    const state = stateWith(storedIntent(swapSnapshot({mealId: 'meal-a', recipeVersionId: 'recipe-version-soup'})))
+
+    const ownership = resolveSwapSlotOwnership({
+      state,
+      userId: USER_ID,
+      planId: PLAN_ID,
+      mealId: 'meal-b',
+      now: NOW
+    })
+
+    const replayable = resolveReplayableSwap({state, userId: USER_ID, planId: PLAN_ID, mealId: 'meal-b', now: NOW})
+
+    expect(ownership).toBe('foreign')
+    expect(replayable).toBeNull()
+    expect(resolveSwapInteraction({...unresolved, ownership})).toEqual({
+      allowsAlternativeSelection: false,
+      showsCommitBusyState: false,
+      showsForeignHoldNotice: true
+    })
   })
 })

@@ -23,6 +23,10 @@ const VARIANT_STROKE: Record<AlertCircleVariant, number> = {
   inline: Stroke.DEFAULT
 }
 
+// Ring plus vertical stem is the whole glyph: Figma draws no detached dot under the stem on either node
+// (`34:380` at 30 px, `34:251` at 15 px), so there are exactly two subpaths, and no strokeLinecap or
+// strokeLinejoin because SVG's butt/miter defaults are what those nodes specify. Feather, Lucide, Material and
+// Ionicons all dot their alert-circle glyph, so the absence reads like an omission and is not one.
 const LG_RING_PATH =
   'M15 26.25C21.2132 26.25 26.25 21.2132 26.25 15C26.25 8.7868 21.2132 3.75 15 3.75C8.7868 3.75 3.75 8.7868 3.75 15C3.75 21.2132 8.7868 26.25 15 26.25Z'
 

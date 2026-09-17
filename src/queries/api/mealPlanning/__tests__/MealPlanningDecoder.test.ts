@@ -235,6 +235,7 @@ const makePlan = (overrides: Partial<io.TypeOf<typeof MealPlanResponse>> = {}): 
   id: 'plan-1',
   revision: 1,
   generationAttempt: 1,
+  generationKey: 'gen-key-1',
   startDate: '2026-07-05',
   endDate: '2026-07-11',
   status: 'active',

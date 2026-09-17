@@ -2,6 +2,7 @@ import {Insets, StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -49,7 +50,7 @@ export default StyleSheet.create({
     color: Theme.colors.textMuted
   },
   value: {
-    paddingTop: Spacing.MICRO,
+    paddingTop: Sizes.ROW_VALUE_INSET_T,
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.text

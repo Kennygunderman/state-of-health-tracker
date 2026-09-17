@@ -7,17 +7,18 @@ import {MealPlanActivityRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InfoBanner from '@components/InfoBanner'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SetupFooter from '@components/SetupFooter'
 import Text from '@components/Text'
 import {showToast} from '@components/toast/util/ShowToast'
@@ -28,6 +29,7 @@ import {
   MEAL_PLAN_ACTIVITY_INFO_BODY,
   MEAL_PLAN_ACTIVITY_LEVEL_DESCRIPTIONS,
   MEAL_PLAN_ACTIVITY_LEVEL_LABELS,
+  MEAL_PLAN_ACTIVITY_SUBTITLE,
   MEAL_PLAN_ACTIVITY_TITLE,
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
@@ -69,14 +71,22 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<MealPlanActivityRouteProp>()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
+  const {
+    data: preferencesData,
+    isLoading: isLoadingPreferences,
+    refetch: refetchPreferences
+  } = useMealPlanPreferencesQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, stepsForRoute} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. A successful save marks them stored first, so leaving after one keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('activity', params.mode === 'edit')
 
   const [hasSubmitted, setHasSubmitted] = useState(false)
   const [hasConflict, setHasConflict] = useState(false)
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
@@ -89,6 +99,8 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
 
   const advance = useCallback((): void => {
     setHasConflict(false)
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     if (params.mode === 'edit') {
       navigation.navigate(Screens.MEAL_PLAN_GOAL, {
@@ -102,7 +114,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
     }
 
     navigation.navigate(Screens.MEAL_PLAN_DIET, params)
-  }, [navigation, params])
+  }, [markSaved, navigation, params])
 
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
@@ -113,7 +125,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
       return
     }
 
-    const saved = preferences ?? (await preferencesQuery.refetch()).data ?? null
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
 
     if (saved === null) {
       showToast('error', TOAST_GENERIC_ERROR)
@@ -122,7 +134,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
     }
 
     try {
-      await saveStepMutation.mutateAsync({
+      await saveSetupStep({
         step: 'activity',
         payload: {
           activityLevel,
@@ -137,7 +149,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
         return
       }
 
-      const refetched = await preferencesQuery.refetch()
+      const refetched = await refetchPreferences()
       const fresh = refetched.data ?? null
 
       if (fresh === null) {
@@ -160,12 +172,16 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
     }
 
     advance()
-  }, [advance, draft.activityLevel, preferences, preferencesQuery, saveStepMutation])
+  }, [advance, draft.activityLevel, preferences, refetchPreferences, saveSetupStep])
 
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   const onSelectActivity = useCallback(
     (activityLevel: ActivityLevel) => {
@@ -188,10 +204,9 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
             onBack={navigation.goBack}
           />
 
-          {/* The designed sub-copy line beneath this headline is deliberately not rendered: it contradicts
-              the banner below and no replacement copy exists for the slot, which is why styles.subcopy is
-              left unused. */}
           <Text style={styles.headline}>{MEAL_PLAN_ACTIVITY_TITLE}</Text>
+
+          <Text style={styles.subcopy}>{MEAL_PLAN_ACTIVITY_SUBTITLE}</Text>
 
           <View style={styles.optionList} accessibilityRole="radiogroup">
             {ACTIVITY_OPTIONS.map(option => (
@@ -216,19 +231,22 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
       <SetupFooter>
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-          isLoading={saveStepMutation.isPending || preferencesQuery.isLoading}
+          isLoading={isSaving || isLoadingPreferences}
           onPress={onContinuePressed}
         />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onContinuePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onContinuePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

@@ -6,10 +6,12 @@ import {
   matchesFingerprint,
   MealPlanActionType,
   MealPlanRequestSnapshot,
-  parseRequestSnapshot
+  parseRequestSnapshot,
+  RequestScope,
+  snapshotMatchesScope
 } from '@utility/IdempotencyUtility'
 import {create} from 'zustand'
-import {persist} from 'zustand/middleware'
+import {persist, PersistStorage, StorageValue} from 'zustand/middleware'
 
 export type MacrosSegment = 'diary' | 'mealPlan'
 
@@ -24,6 +26,15 @@ export type PostLogResult = {
 }
 
 export type PendingIntentAction = MealPlanActionType
+
+/**
+ * How the persisted intent slice came back, kept as three states rather than two because the third one is the
+ * dangerous one: a read that REJECTED leaves the contents unknown, which is not the same as empty.
+ */
+export type IntentsHydration = 'pending' | 'succeeded' | 'failed'
+
+/** The two settled outcomes `markIntentsHydrated` may publish. */
+export type IntentsHydrationOutcome = Exclude<IntentsHydration, 'pending'>
 
 /**
  * One unresolved keyed write. `request` is what makes the record replayable: a fingerprint is a one-way
@@ -69,6 +80,26 @@ export type MealPlanStore = {
    * and is deliberately rebuilt from the server on the next launch.
    */
   pendingIntents: Partial<Record<PendingIntentAction, PendingIntent>>
+  /**
+   * Whether the persisted slice has come back from AsyncStorage yet — the difference between "no intent is
+   * pending" and "the answer has not arrived". A screen that owns a keyed write must wait for this before
+   * concluding there is nothing to replay, or its first frame would decide the slice was empty and its next
+   * press would mint a second key for a request the server may already hold (0.7.2).
+   *
+   * Ephemeral and deliberately absent from both `defaultState` and `reset()`: hydration is a fact about this
+   * process, not about the signed-in account, so a sign-out must not put every owning screen back to waiting
+   * for a read that has already happened.
+   */
+  hasHydratedIntents: boolean
+  /**
+   * The same fact with its third case kept: `'pending'` while the read is out, `'succeeded'` once the slice is
+   * in hand, `'failed'` when the read rejected and what is on disk is therefore unknown.
+   *
+   * `hasHydratedIntents` is `'succeeded'` alone, which is what makes every gate built on it fail closed — a
+   * failed read must never read as permission to mint a key, because the unread slice may hold one already.
+   * Screens that need to SAY so, and to offer `retryIntentsHydration`, read this instead of the boolean.
+   */
+  intentsHydration: IntentsHydration
   setMacrosSegment: (segment: MacrosSegment) => void
   setSelectedPlanDate: (dayKey: string | null) => void
   setSelectedPlanId: (planId: string | null) => void
@@ -78,6 +109,8 @@ export type MealPlanStore = {
   recordPendingIntent: (intent: PendingIntent) => void
   clearPendingIntent: (action: PendingIntentAction) => void
   prunePendingIntents: (now: number, userId: string | null) => void
+  markIntentsHydrated: (outcome: IntentsHydrationOutcome) => void
+  retryIntentsHydration: () => void
   reset: () => void
 }
 
@@ -110,10 +143,150 @@ const defaultState: Pick<
   pendingIntents: {}
 }
 
+/**
+ * The persisted slice as it was last handed to storage, per store name, so an identical write can be skipped.
+ * Module scope rather than closure state because the adapter below is created once and lives as long as the
+ * store does; `removeItem` clears the entry so a later write of the same value is not mistaken for a duplicate
+ * of one that is no longer on disk.
+ */
+const lastWrittenByName = new Map<string, string>()
+
+/**
+ * The serialised slice of the write currently on its way to storage, per store name — the newest one when
+ * several are queued. It keeps a duplicate of an unresolved write from being issued twice without letting an
+ * unresolved write count as persisted, which is the distinction `lastWrittenByName` alone cannot make.
+ */
+const inFlightWriteByName = new Map<string, string>()
+
+/**
+ * Store names whose last read FAILED, and whose contents are therefore unknown.
+ *
+ * A rejected read is not an empty store. The slice may still hold the idempotency key of an action the server
+ * has already committed, so writing over it would destroy the only record that can reconcile that action
+ * (0.7.2). The guard lives in the adapter rather than in the one action that noticed the failure, because
+ * every write path has to fail closed, not just that one — including the persist middleware's own write after
+ * any unrelated `set`. Cleared by a read that succeeds, and by `removeItem`, which makes the contents known
+ * again.
+ */
+const failedReadByName = new Set<string>()
+
+/**
+ * `zustandAsyncStorage`, minus the writes that would change nothing on disk.
+ *
+ * The persist middleware writes after every `set`, and it partializes only at write time — so a segment tap, a
+ * day selection or a banner dismissal, none of which are persisted, each serialised and wrote an unchanged
+ * `pendingIntents` to AsyncStorage. Those are hot UI updates, and the slice they rewrote is the one record the
+ * app cannot afford to churn. Comparing the serialised persisted slice against the last one written keeps the
+ * device write for the state changes that actually reach disk.
+ *
+ * The comparison is on `value.state` alone: `version` is a constant of this release, and including it would
+ * only widen the string every comparison walks. Wrapping the shared adapter rather than changing it is
+ * deliberate — other domains persist different shapes through it and must keep their own write behaviour.
+ */
+const dedupedPersistStorage: PersistStorage<MealPlanPersistedState> = {
+  getItem: async name => {
+    let stored: StorageValue<MealPlanPersistedState> | null
+
+    try {
+      stored = (await zustandAsyncStorage.getItem(name)) as StorageValue<MealPlanPersistedState> | null
+    } catch (error) {
+      // Whatever is on disk is now unknown, so every later write is refused until a read succeeds. Rethrown
+      // so the middleware reports the failure to `onRehydrateStorage`, which is what puts the store into its
+      // 'failed' hydration state instead of letting screens treat an unread slice as an empty one.
+      failedReadByName.add(name)
+      lastWrittenByName.delete(name)
+      inFlightWriteByName.delete(name)
+
+      throw error
+    }
+
+    failedReadByName.delete(name)
+
+    // Seeded from the read so the first write after hydration is skipped when it would restate what is
+    // already on disk — which is exactly what the rehydration prune does when nothing was stale.
+    if (stored === null) {
+      lastWrittenByName.delete(name)
+    } else {
+      lastWrittenByName.set(name, JSON.stringify(stored.state))
+    }
+
+    return stored
+  },
+  setItem: async (name, value) => {
+    // The contents are unknown, so there is nothing this write could safely replace.
+    if (failedReadByName.has(name)) {
+      return
+    }
+
+    const serialized = JSON.stringify(value.state)
+
+    const confirmed = lastWrittenByName.get(name)
+    const queued = inFlightWriteByName.get(name)
+
+    // Compared against where the device is HEADED, which is the newest queued write when one is out and the
+    // last confirmed value otherwise. Comparing against the confirmed value alone is wrong in both directions:
+    //
+    // - it would skip a write that restates the confirmed value while an older queued write is still on its
+    //   way, and that queued write would then land last and leave disk disagreeing with memory;
+    // - and recording a value as written before awaiting it — the order this adapter used to take — makes a
+    //   REJECTED write permanent, because every later attempt at the same value matches the memo and returns
+    //   without touching the device. For a slice whose whole purpose is to survive the process, that loses the
+    //   idempotency key of an action the server may already have committed, and the next launch mints a new
+    //   key and commits the same action twice (0.7.2).
+    if ((queued ?? confirmed) === serialized) {
+      return
+    }
+
+    inFlightWriteByName.set(name, serialized)
+
+    try {
+      await zustandAsyncStorage.setItem(name, value)
+    } catch (error) {
+      // The last CONFIRMED value is left in place rather than being replaced by the one that failed, so an
+      // identical later write is still a write and gets its own attempt at the device. This is the whole
+      // durability guarantee: the slice holds idempotency keys, and a key that silently never reached storage
+      // is a key the next launch mints again — committing the same action twice (0.7.2).
+      if (inFlightWriteByName.get(name) === serialized) {
+        inFlightWriteByName.delete(name)
+
+        if (confirmed === undefined) {
+          lastWrittenByName.delete(name)
+        } else {
+          lastWrittenByName.set(name, confirmed)
+        }
+      }
+
+      // Reported rather than rethrown, following the convention the other persisted stores already use for a
+      // storage failure. The persist middleware calls `setItem` without handling its rejection, so rethrowing
+      // surfaces as an unhandled rejection rather than reaching anything that could act on it — while the
+      // memo above has already been restored, which is what actually makes the next attempt retry.
+      console.error('Failed to persist the meal-plan pending-intent slice; the next identical write will retry:', error)
+    }
+
+    // Only the newest write may claim the memo. Two `set` calls in one tick queue two writes here, and the
+    // first may resolve last; letting it record its own value would tell the next comparison that the older
+    // state is what sits on disk, and the newer state would then be skipped forever.
+    if (inFlightWriteByName.get(name) === serialized) {
+      inFlightWriteByName.delete(name)
+      lastWrittenByName.set(name, serialized)
+    }
+  },
+  removeItem: async name => {
+    lastWrittenByName.delete(name)
+    inFlightWriteByName.delete(name)
+    // Deliberate removal makes the contents known again — empty — so writes may resume.
+    failedReadByName.delete(name)
+
+    await zustandAsyncStorage.removeItem(name)
+  }
+}
+
 const useMealPlanStore = create<MealPlanStore>()(
   persist(
     (set, get) => ({
       ...defaultState,
+      hasHydratedIntents: false,
+      intentsHydration: 'pending',
 
       setMacrosSegment: segment => set({macrosSegment: segment}),
 
@@ -185,13 +358,57 @@ const useMealPlanStore = create<MealPlanStore>()(
         }
       },
 
+      /**
+       * Announced through the store rather than read from `persist.hasHydrated()` so that the screens waiting
+       * on it actually re-render: a first launch restores nothing, so hydration finishes without a state
+       * change, and a component subscribed to `pendingIntents` alone would never hear that the answer had
+       * arrived.
+       *
+       * `hasHydratedIntents` follows 'succeeded' ONLY. A rejected read leaves it false, so every gate built on
+       * it keeps refusing to mint — the unread slice may already hold a key for an action the server
+       * committed, and minting a second one is the duplicate write this whole contract exists to prevent
+       * (0.7.2). The 'failed' state is what a screen offers a retry from; it is not a licence to proceed.
+       *
+       * The `set` is safe on failure even though the middleware writes after it: the adapter refuses every
+       * write for a store whose read rejected, so nothing can overwrite the unread slice.
+       */
+      markIntentsHydrated: outcome => {
+        const hasHydratedIntents = outcome === 'succeeded'
+        const current = get()
+
+        // Guarded on BOTH fields the outcome derives, not on the outcome alone: they are one fact in two
+        // shapes, and a guard that consults only one of them would leave the other stale.
+        if (current.intentsHydration !== outcome || current.hasHydratedIntents !== hasHydratedIntents) {
+          set({intentsHydration: outcome, hasHydratedIntents})
+        }
+      },
+
+      /**
+       * Asks storage for the slice again after a failed read, which is the only way out of 'failed': until a
+       * read succeeds the app cannot mint a key and the adapter will not write, so a user whose device
+       * momentarily refused the read would otherwise be stuck for the process. Returning to 'pending' is what
+       * puts the waiting screens back into their loading state while the retry is out.
+       */
+      retryIntentsHydration: () => {
+        if (get().intentsHydration !== 'failed') {
+          return
+        }
+
+        set({intentsHydration: 'pending', hasHydratedIntents: false})
+
+        // Not awaited, and its promise carries nothing this caller needs: the outcome arrives through
+        // `onRehydrateStorage`, which publishes 'succeeded' or 'failed' again, and a second failure simply
+        // leaves the retry available.
+        useMealPlanStore.persist.rehydrate()
+      },
+
       reset: () => {
         set(defaultState)
       }
     }),
     {
       name: 'meal-plan-store',
-      storage: zustandAsyncStorage,
+      storage: dedupedPersistStorage,
       partialize: selectPersistedState,
       /**
        * Hydration is the one moment an intent can come back already stale, and the only one with no
@@ -204,11 +421,24 @@ const useMealPlanStore = create<MealPlanStore>()(
        * or by an explicit `prunePendingIntents` call that knows the user.
        */
       onRehydrateStorage: () => (state, error) => {
-        if (error || !state) {
-          return
+        const failed = error !== undefined || state === undefined
+
+        // Nothing was read, so there is nothing to prune — and pruning a slice whose contents are unknown
+        // would be deciding the fate of records nobody has seen.
+        if (!failed && state !== undefined) {
+          state.prunePendingIntents(Date.now(), null)
         }
 
-        state.prunePendingIntents(Date.now(), null)
+        // The middleware reports a rejected read as `(undefined, error)` and leaves its own `hasHydrated()`
+        // false forever, so the answer has to be published here or the screens waiting on it never decide
+        // anything. It is published as what it is: 'failed' is NOT 'empty', and only 'succeeded' permits a
+        // fresh key.
+        //
+        // Reached through the store rather than the handed-in `state` because on failure there is no state to
+        // reach. Safe: the persisted adapter is AsyncStorage-backed, so this callback always runs in a later
+        // microtask than the `create` call that defines the binding — the same assumption
+        // `prunePendingIntentsForUser` already makes.
+        useMealPlanStore.getState().markIntentsHydrated(failed ? 'failed' : 'succeeded')
       }
     }
   )
@@ -349,6 +579,9 @@ export const selectPrunedPendingIntents = (
  * storage as well as memory rather than sitting there until something else happens to write. The
  * clock arrives as a source, not a value, because the deferred path reads it when hydration
  * finishes rather than when the sweep was requested.
+ *
+ * The wait is on `hasHydratedIntents`, the same signal the owning screens gate their replay on, so the two
+ * cannot disagree about when the slice is knowable.
  */
 export const prunePendingIntentsForUser = (userId: string, now: () => number): void => {
   if (useMealPlanStore.persist.hasHydrated()) {
@@ -357,9 +590,33 @@ export const prunePendingIntentsForUser = (userId: string, now: () => number): v
     return
   }
 
-  const stopWaiting = useMealPlanStore.persist.onFinishHydration(() => {
+  // Two things can end the wait, and only both together cover it. The middleware's own listener reports a read
+  // that succeeded, including a re-read already in flight, which must overwrite nothing this sweep has done.
+  // The store subscription reports the same success through `hasHydratedIntents`, which is also what a
+  // `retryIntentsHydration` after a failed read eventually flips — so a sweep deferred by a refused read still
+  // happens once the retry lands, rather than being abandoned for the session.
+  //
+  // A read that FAILED deliberately ends neither: the contents are unknown, and a sweep would decide the fate
+  // of records nobody has seen. The adapter refuses writes in that state, so nothing is stranded on disk that a
+  // successful retry will not then sweep.
+  let hasSwept = false
+
+  const sweep = (): void => {
+    if (hasSwept) {
+      return
+    }
+
+    hasSwept = true
     stopWaiting()
+    unsubscribe()
     useMealPlanStore.getState().prunePendingIntents(now(), userId)
+  }
+
+  const stopWaiting = useMealPlanStore.persist.onFinishHydration(sweep)
+  const unsubscribe = useMealPlanStore.subscribe(state => {
+    if (state.hasHydratedIntents) {
+      sweep()
+    }
   })
 }
 
@@ -381,6 +638,75 @@ export const resolvePendingIntent = (
   const intent = stored === undefined ? null : parsePendingIntent(stored, action)
 
   if (intent === null || intent.userId !== userId || isPendingIntentExpired(intent, now)) {
+    return null
+  }
+
+  return intent
+}
+
+/**
+ * The unresolved intent one owning screen may replay: the record for this action, this account and — through
+ * `scope` — this resource. One lookup for all four keyed writes, so the screens cannot disagree about which
+ * record belongs to which of them (0.7.2).
+ *
+ * The scope is what makes the answer safe to act on without further checks. An intent for another meal
+ * describes another request, and replaying its key would commit that swap or that diary entry instead of the
+ * one the screen is showing, so a screen showing a plan and a meal passes both ids and a tab looking for any
+ * unresolved generation passes none. Ownership and the 7-day life are already applied by
+ * `resolvePendingIntent`, and the returned record is the parsed snapshot — never raw storage — so a caller can
+ * only ever re-send a request this release can reproduce.
+ */
+/**
+ * Who holds one action's single intent slot, from the point of view of the caller's own plan and meal.
+ *
+ * `resolveReplayableIntent` answers a narrower question — "is there something HERE to replay" — and returns
+ * null both when the slot is empty and when it belongs to another meal. Those two are not interchangeable: an
+ * empty slot may be minted into, while a slot held by another resource may not, because the single
+ * `pendingIntents[action]` slot can hold exactly one record and overwriting it abandons the only key that can
+ * reconcile an action the server may already have committed (0.7.2). Treating 'foreign' as 'free' is precisely
+ * how a swap on one meal, or a log on one meal, used to destroy another's unresolved key.
+ */
+export type SlotOwnership =
+  | {kind: 'free'}
+  | {kind: 'mine'; intent: PendingIntent}
+  | {kind: 'foreign'; intent: PendingIntent}
+
+export const resolveSlotOwnership = (
+  state: Pick<MealPlanStore, 'pendingIntents'>,
+  action: PendingIntentAction,
+  userId: string | null,
+  now: number,
+  scope: RequestScope = {}
+): SlotOwnership => {
+  if (userId === null) {
+    return {kind: 'free'}
+  }
+
+  // Scope-independent on purpose: this is about the slot, not about the screen. An expired record, or one
+  // belonging to another account, is already excluded here and really is free to mint into.
+  const intent = resolvePendingIntent(state, action, userId, now)
+
+  if (intent === null) {
+    return {kind: 'free'}
+  }
+
+  return snapshotMatchesScope(intent.request, scope) ? {kind: 'mine', intent} : {kind: 'foreign', intent}
+}
+
+export const resolveReplayableIntent = (
+  state: Pick<MealPlanStore, 'pendingIntents'>,
+  action: PendingIntentAction,
+  userId: string | null,
+  now: number,
+  scope: RequestScope = {}
+): PendingIntent | null => {
+  if (userId === null) {
+    return null
+  }
+
+  const intent = resolvePendingIntent(state, action, userId, now)
+
+  if (intent === null || !snapshotMatchesScope(intent.request, scope)) {
     return null
   }
 

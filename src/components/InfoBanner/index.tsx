@@ -3,13 +3,13 @@ import React from 'react'
 import {TouchableOpacity, View} from 'react-native'
 
 import FontSize from '@styles/fontSize'
-import {Opacity, Sizes} from '@styles/sizes'
+import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+import Svg, {Circle, Path} from 'react-native-svg'
 
 import AlertCircleIcon from '@components/icons/AlertCircleIcon'
 import BannerCheckIcon from '@components/icons/BannerCheckIcon'
-import CheckIcon from '@components/icons/CheckIcon'
 import InfoCircleIcon from '@components/icons/InfoCircleIcon'
 import WarningTriangleIcon from '@components/icons/WarningTriangleIcon'
 import Text from '@components/Text'
@@ -17,6 +17,17 @@ import Text from '@components/Text'
 import styles from './index.styled'
 
 const LINK_ACTION_HIT_SLOP_V = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
+
+// The success banner's glyph is a construction rather than an exported asset, so it is drawn here instead of
+// under `components/icons`. Figma authors the tick `49:283` as an 8x5 frame with a 2 px bottom and left border
+// rotated -45 degrees — the CSS border-checkmark idiom — which leaves no path to transcribe; this is the
+// equivalent stroked centreline inside the disc `49:282`'s own 20-unit box. It is deliberately not `CheckIcon`:
+// the arms measure 4 and 7 (1:1.75) under a butt cap and a miter join against that glyph's 1:2.2 under round
+// ones, and no scale reconciles them — matching the long arm leaves the stroke 55% too thin, matching the
+// stroke makes the glyph 2.22x too large. `BannerCheckIcon` (`37:45`, 1:2.5) is no closer.
+const DISC_TICK_PATH = 'M6.1109 9.3534L8.9394 12.1819L13.8891 7.2322'
+
+const DISC_VIEW_BOX = '0 0 20 20'
 
 interface Props {
   tone?: 'neutral' | 'success' | 'error'
@@ -51,9 +62,22 @@ const InfoBanner = ({
   const infoColor = tone === 'neutral' ? Theme.colors.textSecondary : Theme.colors.greenOnTint
   const glyphElement =
     resolvedGlyph === 'disc' ? (
-      <View style={styles.checkDisc}>
-        <CheckIcon color={Theme.colors.white} size={Sizes.ICON_XS} />
-      </View>
+      /* BLITZY [A11Y]: the disc implements Figma `49:282` exactly and carries `49:283`'s white tick at 2.45:1,
+         below the 3:1 non-text minimum for a required glyph. Matched and flagged rather than adjusted:
+         Figma specifies the pair, and the project directive's accessibility rule requires exactly that for
+         a Figma-specified pair. The remedy is a darker disc or a near-black glyph (`background` on
+         `accentGreen` measures 7.67:1). See the accessible-colour register in `@styles/theme`. */
+      <Svg width={Sizes.ICON_MD} height={Sizes.ICON_MD} viewBox={DISC_VIEW_BOX} fill="none">
+        <Circle cx={10} cy={10} r={10} fill={Theme.colors.accentGreen} />
+
+        <Path
+          d={DISC_TICK_PATH}
+          stroke={Theme.colors.white}
+          strokeWidth={Stroke.BOLD}
+          strokeLinecap="butt"
+          strokeLinejoin="miter"
+        />
+      </Svg>
     ) : resolvedGlyph === 'tick' ? (
       <BannerCheckIcon color={Theme.colors.greenOnTint} size={Sizes.ICON_SM} />
     ) : resolvedGlyph === 'warning' ? (

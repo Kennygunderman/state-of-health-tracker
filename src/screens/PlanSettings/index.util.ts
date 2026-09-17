@@ -4,14 +4,26 @@ import {
   DislikedFoodSummary,
   HeightUnitPref,
   MealPlanPreferences,
+  MealPlanPreferencesSaveResult,
   MealTimeEntry,
   SetupStep,
   WeightUnitPref
 } from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import type {RootStackParamList, StepMode, TargetsReturn} from '@navigation/types'
+import {
+  buildPendingIntent,
+  IntentsHydration,
+  MealPlanStore,
+  PendingIntent,
+  resolveKeyedRequest,
+  resolveReplayableIntent
+} from '@store/mealPlan/useMealPlanStore'
+import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
+import type {RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
 import {formatPlanDayLabel, formatSlotTime, parseDayKey} from '@utility/MealPlanDateUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
+import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {lookupLabel} from '@utility/TextUtility'
 import {centimetersToFeetInches, formatHeightImperial, kilogramsToPounds} from '@utility/UnitConversionUtility'
 import {format} from 'date-fns'
@@ -120,6 +132,112 @@ export interface PlanRegenerateSummaryRow {
   value: string
   tone: PlanSummaryTone
 }
+
+/** The params the generating screen is pushed with, so a launch cannot describe a route it is not dispatched to. */
+export type RegenerateGeneratingParams = RootStackParamList[typeof Screens.MEAL_PLAN_GENERATING]
+
+/**
+ * The plan a regeneration replaces: the revision its write pins, and the week the generating screen states
+ * while it works. Declared structurally rather than taking a whole `MealPlan`, so the decision below is a
+ * function of the three members it actually reads.
+ */
+export interface RegeneratePlanPin {
+  id: string
+  revision: number
+  startDate: string
+}
+
+export interface RegenerateLaunchInput {
+  /**
+   * Whether this screen has already dispatched a launch that has not been released. Passed in rather than
+   * read from a ref so the double-press rule is decided in one place and can be asserted without a renderer.
+   */
+  isLaunchLatched: boolean
+  /**
+   * Whether the persisted intent slice has come back from AsyncStorage. "No intent is pending" and "the
+   * answer has not arrived" are different answers, and deciding on the second would mint a second key for a
+   * regeneration the server may already hold (0.7.2).
+   */
+  hasHydratedIntents: boolean
+  state: Pick<MealPlanStore, 'pendingIntents'>
+  plan: RegeneratePlanPin | null
+  expectedPreferencesRevision: number | null
+  expectedTargetsRevision: number | null
+  userId: string | null
+  attemptedAt: number
+  /**
+   * The key source, not a key: minting is the one thing this decision must not do while an unresolved
+   * regeneration is on record, so the caller's generator is invoked only on the branch that may mint.
+   */
+  mintFreshKey: () => string
+}
+
+export type RegenerateLaunchIgnoredReason = 'latched' | 'incompletePins' | 'unhydratedIntents'
+
+/**
+ * What just happened to the regeneration launch this screen guards: one confirmation dispatched a launch, or
+ * one of the two moments at which a further confirmation is a new user intent rather than a repeat of the one
+ * already sent — the dialog being reopened, and this screen being returned to once the generating screen it
+ * pushed is gone.
+ */
+export type RegenerateLatchEvent = 'launchDispatched' | 'confirmReopened' | 'screenFocused'
+
+/**
+ * Why the 16b confirm action reads as it does. `ready` is the only state a press decides from; the two
+ * pending reasons are the two ways a press is already accounted for — this screen has dispatched a launch, or
+ * the persisted intent slice has not been read yet — and `failedIntentsRead` is the state in which nothing
+ * may be minted at all, because an unread slice may already hold the key of a regeneration the server
+ * committed (0.7.2).
+ */
+export type RegenerateConfirmReason = 'ready' | 'launchDispatched' | 'unhydratedIntents' | 'failedIntentsRead'
+
+export interface RegenerateConfirmInput {
+  /**
+   * The rendering half of the launch latch. Taken from `resolveRegenerateLatch` like the ref that actually
+   * refuses the second press, so the spinner cannot disagree with the guard.
+   */
+  isLaunchDispatched: boolean
+  /**
+   * The persisted slice's read, in all three of its states rather than as the boolean the press gates on:
+   * 'pending' is a wait the user should see, while 'failed' is a refusal no press can leave.
+   */
+  intentsHydration: IntentsHydration
+}
+
+/**
+ * How the confirm action renders, so a press `resolveRegenerateLaunch` declines is never drawn as an enabled
+ * control that does nothing. Two flags rather than one: a launch already under way, or a read still out, is
+ * work in progress and reads as busy, whereas a refused read is a state no further press can resolve — it
+ * reads as disabled, and the screen offers the re-read instead.
+ */
+export interface RegenerateConfirmState {
+  reason: RegenerateConfirmReason
+  isPending: boolean
+  isDisabled: boolean
+}
+
+/**
+ * What a confirmed "Regenerate this week" does.
+ *
+ * `launch` carries the key the write must travel under and the request it must send — the stored pair when an
+ * unresolved regeneration of this plan is on record, a freshly minted pair otherwise. `handOff` is the case
+ * the single `pendingIntents.regenerate` slot creates: an unresolved regeneration of a *different* plan holds
+ * it, and recording over it would abandon a key whose write may have committed, so the press goes to the Meal
+ * Plan tab, which owns replaying a stranded generation intent. `ignored` is a press that decides nothing.
+ */
+export type RegenerateLaunchDecision =
+  | {kind: 'ignored'; reason: RegenerateLaunchIgnoredReason}
+  | {kind: 'handOff'; intent: PendingIntent}
+  | {
+      kind: 'launch'
+      idempotencyKey: string
+      /** True when the key is one the server may already have answered, so its reply can be a stored result. */
+      isReplay: boolean
+      request: RegenerateRequestSnapshot
+      /** The record to write before the request leaves, or null when there is no account to scope it to. */
+      intent: PendingIntent | null
+      params: RegenerateGeneratingParams
+    }
 
 type PlanTargetValues = NutritionTargets['targets']
 
@@ -574,3 +692,268 @@ export const buildRegenerateDialogBody = (startDate: string, endDate: string): s
       end: formatPlanDayLabel(endDate)
     })
   })
+
+// A closed record rather than a comparison, so an event added later cannot reach this rule without a decision
+// being made for it: releasing the latch at the wrong moment is what lets one intent file two keys.
+const REGENERATE_LATCH_BY_EVENT: Record<RegenerateLatchEvent, boolean> = {
+  launchDispatched: true,
+  confirmReopened: false,
+  screenFocused: false
+}
+
+/**
+ * Whether the launch latch is held after `event`. Held from the moment a confirmation dispatches a launch, so
+ * the next press in the same tick decides nothing; released where a re-launch is legitimate, so the control
+ * does not stay dead for the rest of the session. A release is safe on its own terms: an intent that is still
+ * unresolved is replayed by `resolveRegenerateLaunch` under its own key rather than minted over.
+ */
+export const resolveRegenerateLatch = (event: RegenerateLatchEvent): boolean => REGENERATE_LATCH_BY_EVENT[event]
+
+/**
+ * The two refusals a confirmation has to show for, in the shape the dialog renders them: the latch a
+ * duplicate press is declined by, and the persisted read no launch may mint ahead of. The third —
+ * `incompletePins` — never reaches the dialog, because the control that opens it is already disabled while a
+ * revision is unanswered. A refused read is answered first and is the one disabling state: it is not a wait
+ * that ends on its own, so drawing it as busy would promise a launch that can never leave.
+ */
+export const deriveRegenerateConfirmState = (input: RegenerateConfirmInput): RegenerateConfirmState => {
+  if (input.intentsHydration === 'failed') {
+    return {reason: 'failedIntentsRead', isPending: false, isDisabled: true}
+  }
+
+  if (input.isLaunchDispatched) {
+    return {reason: 'launchDispatched', isPending: true, isDisabled: false}
+  }
+
+  if (input.intentsHydration === 'pending') {
+    return {reason: 'unhydratedIntents', isPending: true, isDisabled: false}
+  }
+
+  return {reason: 'ready', isPending: false, isDisabled: false}
+}
+
+// One launch, assembled from the request it sends so the recorded snapshot, the key and the route params
+// cannot describe three different regenerations. `startDate` is the plan's own week: it is the week the
+// generating screen states, and a regeneration keeps the dates of the plan it replaces.
+const regenerateLaunch = (
+  request: RegenerateRequestSnapshot,
+  idempotencyKey: string,
+  isReplay: boolean,
+  intent: PendingIntent | null,
+  startDate: string
+): RegenerateLaunchDecision => ({
+  kind: 'launch',
+  idempotencyKey,
+  isReplay,
+  request,
+  intent,
+  params: {
+    context: {kind: 'regenerate', planId: request.planId, planRevision: request.expectedPlanRevision},
+    idempotencyKey,
+    expectedPreferencesRevision: request.expectedPreferencesRevision,
+    expectedTargetsRevision: request.expectedTargetsRevision,
+    startDate
+  }
+})
+
+/**
+ * Which regeneration a confirmed 16b dialog launches, and under which key (0.7.2).
+ *
+ * The rule the single `pendingIntents.regenerate` slot forces: a key is minted only when no unresolved
+ * regeneration is on record. An unresolved one is a request whose answer was lost, so it may have committed —
+ * recording a new key over it would abandon the only key that could ever reconcile that write and would
+ * launch a second regeneration of the same week. So an unresolved regeneration of *this* plan is replayed
+ * instead, under its stored key and carrying its stored request, which the server answers with the stored
+ * result when the write landed and re-runs under the same key when it did not; a confirmed refusal (a moved
+ * plan or preferences revision) is what retires it, and only then does a further press mint. That covers the
+ * equal-fingerprint case `resolveKeyedRequest` names and the moved-revision case it would mint for, which is
+ * why the stored request — never the freshly built one — is what travels under a stored key.
+ *
+ * An unresolved regeneration of another plan cannot be replayed from here (this screen knows only the week it
+ * was opened for) and cannot be written over either, so it is handed to the Meal Plan tab.
+ */
+export const resolveRegenerateLaunch = (input: RegenerateLaunchInput): RegenerateLaunchDecision => {
+  if (input.isLaunchLatched) {
+    return {kind: 'ignored', reason: 'latched'}
+  }
+
+  // Regeneration pins three revisions and the two read ones may not have answered yet; a fabricated pin earns
+  // a refusal the user cannot act on, so the press decides nothing until all three are real.
+  if (input.plan === null || input.expectedPreferencesRevision === null || input.expectedTargetsRevision === null) {
+    return {kind: 'ignored', reason: 'incompletePins'}
+  }
+
+  const request: RegenerateRequestSnapshot = {
+    action: 'regenerate',
+    planId: input.plan.id,
+    expectedPlanRevision: input.plan.revision,
+    expectedPreferencesRevision: input.expectedPreferencesRevision,
+    expectedTargetsRevision: input.expectedTargetsRevision
+  }
+
+  // Intents are scoped by account, so with no signed-in id there is nothing to replay and nothing that could
+  // be overwritten: the launch carries a key it cannot record.
+  if (input.userId === null) {
+    return regenerateLaunch(request, input.mintFreshKey(), false, null, input.plan.startDate)
+  }
+
+  if (!input.hasHydratedIntents) {
+    return {kind: 'ignored', reason: 'unhydratedIntents'}
+  }
+
+  const unresolved = resolveReplayableIntent(input.state, 'regenerate', input.userId, input.attemptedAt)
+
+  if (unresolved !== null) {
+    // The lookup reads the slot filed under this action and parses the record against it, so the snapshot is
+    // a regeneration; the check narrows the union rather than guarding a reachable case, and a record that
+    // somehow failed it is still a record this press may not overwrite.
+    const stored = unresolved.request.action === 'regenerate' ? unresolved.request : null
+
+    if (stored === null || stored.planId !== request.planId) {
+      return {kind: 'handOff', intent: unresolved}
+    }
+
+    // Re-recorded with the intent's own `createdAt`, so the write restates the record rather than extending
+    // the 7-day life of a key that was minted a week ago.
+    return regenerateLaunch(
+      stored,
+      unresolved.key,
+      true,
+      buildPendingIntent(stored, unresolved.key, input.userId, unresolved.createdAt),
+      input.plan.startDate
+    )
+  }
+
+  // Nothing unresolved, so this press is a new intent and may mint. The key it travels under still comes from
+  // the decision all four keyed writes share, rather than from a second rule living here.
+  const keyed = resolveKeyedRequest(input.state, request, input.userId, input.attemptedAt, input.mintFreshKey())
+  const sent = keyed.request.action === 'regenerate' ? keyed.request : request
+
+  return regenerateLaunch(
+    sent,
+    keyed.idempotencyKey,
+    keyed.isReplay,
+    buildPendingIntent(sent, keyed.idempotencyKey, input.userId, input.attemptedAt),
+    input.plan.startDate
+  )
+}
+
+/**
+ * The whole body a zone reconciliation sends: the device's zone and the revision it is replacing. It carries
+ * no answer of the user's, which is what makes the conflict handling below legitimate.
+ */
+export interface TimeZoneReconciliationRequest {
+  timeZone: string
+  expectedRevision: number
+}
+
+export interface TimeZoneReconciliationCollaborators {
+  savePreferences: (payload: TimeZoneReconciliationRequest) => Promise<MealPlanPreferencesSaveResult>
+  refetchPreferences: () => Promise<MealPlanPreferences | null>
+}
+
+export interface TimeZoneReconciliationRun extends TimeZoneReconciliationCollaborators {
+  storedTimeZone: string | null
+  deviceTimeZone: string
+  expectedRevision: number
+}
+
+/**
+ * How far the reconciliation got. `failed` is the only outcome the caller may retry, and it is retried by
+ * reopening the screen rather than by looping here.
+ */
+export type TimeZoneReconciliationOutcome = 'not_needed' | 'saved' | 'already_current' | 'resubmitted' | 'failed'
+
+/**
+ * Brings the stored IANA zone up to the device's, through the one full preferences save.
+ *
+ * The server resolves this user's "today" from the zone stored on their preferences, and the client is
+ * required to refresh it on every step save and on every `PUT /meal-planning/preferences` (AAP 0.5.2). Each
+ * settings row saves only the step it edits, so a user who has travelled without editing an answer would
+ * otherwise keep reading their plan in the calendar they left.
+ *
+ * A refused revision is recovered, never swallowed. `409 stale_revision` refetches the authoritative
+ * preferences and hands them to the shared `resolveStaleRevision` helper AAP 0.7.2 mandates for every
+ * revisioned save, over the single field this draft carries:
+ *
+ * - `resolved` — the fresh stored zone already equals the device's, so another writer (or this client's own
+ *   first attempt, whose response was lost) has already applied it. That resolves silently as success, which
+ *   is exactly what the helper's contract prescribes and what stops a second write.
+ * - `conflict` — the stored zone is still not the device's, so the save is re-sent once against the revision
+ *   the refetch reported. This is the helper's "keep mine" answer, taken without prompting because the user
+ *   never entered a zone: there is no answer of theirs on either side to arbitrate, and a "changed on another
+ *   device" dialog over a field they did not edit would ask them to decide something they have no stake in.
+ *   A third writer landing inside that window leaves the zone stale until the next open, which is bounded and
+ *   truthful rather than a retry loop.
+ *
+ * Any other failure returns `failed` with the stored zone untouched. Note that only the `stale_revision` path
+ * has an obsolete revision to discard, and that path refetches — so a caller retrying after `failed` never
+ * re-sends a pin the server has already moved past.
+ */
+export const reconcilePreferencesTimeZone = async ({
+  storedTimeZone,
+  deviceTimeZone,
+  expectedRevision,
+  savePreferences,
+  refetchPreferences
+}: TimeZoneReconciliationRun): Promise<TimeZoneReconciliationOutcome> => {
+  // A user who has never completed a step has no stored zone to correct, and one already in the device's zone
+  // is the common case — neither issues a request.
+  if (storedTimeZone === null || storedTimeZone === deviceTimeZone) {
+    return 'not_needed'
+  }
+
+  try {
+    await savePreferences({timeZone: deviceTimeZone, expectedRevision})
+
+    return 'saved'
+  } catch (error) {
+    if (getApiErrorCode(error) !== API_ERROR_CODES.staleRevision) {
+      return 'failed'
+    }
+
+    const fresh = await refetchPreferences().catch(() => null)
+
+    if (fresh === null) {
+      return 'failed'
+    }
+
+    if (
+      resolveStaleRevision<MealPlanPreferences>({timeZone: deviceTimeZone}, fresh, ['timeZone']).status === 'resolved'
+    ) {
+      return 'already_current'
+    }
+
+    try {
+      await savePreferences({timeZone: deviceTimeZone, expectedRevision: fresh.revision})
+
+      return 'resubmitted'
+    } catch {
+      return 'failed'
+    }
+  }
+}
+
+export interface RegenerationReadiness {
+  hasPlan: boolean
+  hasPreferences: boolean
+  hasTargetsRevision: boolean
+  isReconcilingTimeZone: boolean
+}
+
+/**
+ * Whether "Regenerate this week" may be offered. The three reads are the revision pins regeneration sends, so
+ * a read that has not answered has no pin to send.
+ *
+ * `isReconcilingTimeZone` is the fourth term because a zone reconciliation is a full preferences save: it
+ * bumps the preferences revision and, while a plan is active, recomputes that plan's flags and bumps its
+ * revision too. A regeneration pressed inside that window would pin the revisions this screen read before the
+ * save and earn a `409` the user cannot act on, so the control waits for the reconciliation and the refetches
+ * it triggers to settle.
+ */
+export const canSubmitRegeneration = ({
+  hasPlan,
+  hasPreferences,
+  hasTargetsRevision,
+  isReconcilingTimeZone
+}: RegenerationReadiness): boolean => hasPlan && hasPreferences && hasTargetsRevision && !isReconcilingTimeZone

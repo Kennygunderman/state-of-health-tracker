@@ -1,14 +1,9 @@
-import {
-  activateQueryCachePartition,
-  discardPersistedQueryCache,
-  queryClient,
-  sealQueryCachePartition
-} from '@queries/queryClient'
+import {asyncStoragePersister, queryClient} from '@queries/queryClient'
 import {FirebaseAuthTypes} from '@react-native-firebase/auth'
 import authService from '@service/auth/AuthService'
 import offlineWorkoutStorageService from '@service/workouts/OfflineWorkoutStorageService'
 import useDailyWorkoutEntryStore from '@store/dailyWorkoutEntry/useDailyWorkoutEntryStore'
-import useMealPlanStore, {prunePendingIntentsForUser} from '@store/mealPlan/useMealPlanStore'
+import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import useProgressStore from '@store/progress/useProgressStore'
 import {create} from 'zustand'
 
@@ -27,39 +22,32 @@ export type AuthState = {
   deleteUser: () => Promise<void>
 }
 
-// The account boundary itself: server cache, the in-progress workout, progress,
-// and meal-plan UI state (including its persisted intents). Synchronous and
-// infallible on purpose — nothing that can fail may run before it, or a rejection
-// would leave the previous account's data readable by whoever signs in next.
-// Sealing the persisted cache partition is deliberately the first statement and
-// cannot be reordered: clearing the cache makes every mounted query refetch, and
-// from here until the next account opens its own partition those responses belong
-// to nobody this partition may be written for.
+// Everything the outgoing account owns that lives in this process. Synchronous and infallible
+// by construction, and it runs before any of the device cleanup below: a boundary that only
+// held when a filesystem call succeeded would be no boundary at all.
 const clearInMemoryUserData = () => {
-  sealQueryCachePartition()
   queryClient.clear()
   useDailyWorkoutEntryStore.getState().reset()
   useProgressStore.getState().reset()
+  // The meal-plan store holds plan UI state and its persisted pending intents, neither of
+  // which the query cache reaches, so a session change has to clear it here for the plan not
+  // to be readable by whoever signs in next
   useMealPlanStore.getState().reset()
 }
 
-// The persisted query cache is the one half of the boundary that outlives the
-// process, so the account leaving the session has its partition taken off the
-// device rather than only out of memory. Partitioning is what makes the isolation
-// hold even if this never completes — another account reads another key — so a
-// rejection is reported for the same reason as the offline workout file below and
-// never surfaced as a failed sign-out.
-const discardPersistedCacheForUser = async (userId: string) => {
+// The persisted query cache is the half of the boundary that outlives the process: it holds the
+// diary, the profile photo and the saved weekly plan under one device-wide key, so the outgoing
+// account's copy is taken off the device rather than only out of memory. Reported rather than
+// thrown for the same reason as the workout file below — the memory boundary above is already
+// enforced by the time this runs, and a storage failure must not surface as a failed sign-out.
+const discardPersistedQueryCache = async () => {
   try {
-    await discardPersistedQueryCache(userId)
+    await asyncStoragePersister.removeClient()
   } catch (error) {
-    console.error("Failed to clear the previous account's persisted query cache during session cleanup:", error)
+    console.error("Failed to remove the previous account's persisted query cache:", error)
   }
 }
 
-// A filesystem rejection here must never be the reason a sign-out looks failed:
-// it happens after the boundary above is already enforced, and the caller only
-// awaits the auth provider's own result.
 const clearOfflineWorkoutFile = async () => {
   try {
     await offlineWorkoutStorageService.clear()
@@ -68,18 +56,14 @@ const clearOfflineWorkoutFile = async () => {
   }
 }
 
-// Clears everything owned by the previous account so a different login never
-// sees stale data: server cache in memory and on disk, the in-progress workout,
-// and unsynced workouts. `userId` is the account being signed out — the caller
-// reads it before the auth provider's own listener can null it — and is `null`
-// only when there was no session to clean up.
-const clearUserSession = async (userId: string | null) => {
+// Clears everything owned by the previous account so a different login never sees stale data:
+// server cache in memory and on the device, unsynced workouts, and the in-progress workout.
+// The order is the contract — memory first, then the two fallible device calls, each reporting
+// its own failure — so no single rejection can leave the previous account's data readable.
+const clearUserSession = async () => {
   clearInMemoryUserData()
 
-  if (userId !== null) {
-    await discardPersistedCacheForUser(userId)
-  }
-
+  await discardPersistedQueryCache()
   await clearOfflineWorkoutFile()
 }
 
@@ -98,13 +82,6 @@ const useAuthStore = create<AuthState>()((set, get) => ({
       isAuthed
     })
 
-    // A meal-plan intent is replayable only by the account that minted it, and this is the first
-    // point in a launch where that account is known, so a record left behind by a previous one is
-    // swept from the persisted slice here instead of waiting for the next keyed write.
-    if (user !== null) {
-      prunePendingIntentsForUser(user.uid, Date.now)
-    }
-
     return isAuthed
   },
   // Keeps the store in sync with Firebase's async auth state — cold-start
@@ -119,16 +96,18 @@ const useAuthStore = create<AuthState>()((set, get) => ({
     const previousUserId = get().userId
     const nextUserId = user?.uid ?? null
 
-    // A remote sign-out, a revoked token and an account change all arrive here
-    // and nowhere else, so the boundary has to be enforced before the new state
-    // is published — otherwise the incoming user renders the previous account's
-    // cache. Only a real change of account qualifies: an unchanged uid is a
-    // token or profile refresh, and a null previous id is cold-start restore.
-    // The two device-storage sweeps are intentionally left unawaited — this
-    // action is synchronous and each helper already reports its own failure.
+    // A remote sign-out, a revoked token and an account change all arrive here and nowhere else,
+    // so the session boundary has to be enforced on this path too and not only in logoutUser:
+    // the query cache and the user-scoped stores are singletons that outlive the navigator swap,
+    // so without this whoever signs in next can read the previous account's diary, meal plan and
+    // avatar until every one of those queries has refetched. Only a real change of account
+    // qualifies — an unchanged uid is a token or profile refresh, and a null previous id is
+    // cold-start restore. The device cleanup is started rather than awaited because this action
+    // is synchronous; each half reports its own failure, and the in-memory clear has already
+    // closed the boundary before either runs.
     if (previousUserId !== null && previousUserId !== nextUserId) {
       clearInMemoryUserData()
-      discardPersistedCacheForUser(previousUserId)
+      discardPersistedQueryCache()
       clearOfflineWorkoutFile()
     }
 
@@ -137,12 +116,6 @@ const useAuthStore = create<AuthState>()((set, get) => ({
       userEmail: user?.email ?? null,
       isAuthed: user !== null
     })
-
-    // Firebase restores a session asynchronously, so this is the other point where the account
-    // becomes known — and the one that catches a restore initAuth's synchronous read missed.
-    if (nextUserId !== null) {
-      prunePendingIntentsForUser(nextUserId, Date.now)
-    }
   },
   loginUser: async (email, password) => {
     set({isAttemptingAuth: true})
@@ -221,13 +194,8 @@ const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
   logoutUser: async () => {
-    // Read before signing out: the auth provider's listener reaches syncAuthState
-    // first and nulls the id, and the account whose cache is being removed has to
-    // be known here even when it does.
-    const previousUserId = get().userId
-
     await authService.logOutUser()
-    await clearUserSession(previousUserId)
+    await clearUserSession()
 
     set({
       userId: null,
@@ -236,10 +204,8 @@ const useAuthStore = create<AuthState>()((set, get) => ({
     })
   },
   deleteUser: async () => {
-    const previousUserId = get().userId
-
     await authService.deleteCurrentUser()
-    await clearUserSession(previousUserId)
+    await clearUserSession()
 
     set({
       userId: null,
@@ -248,16 +214,5 @@ const useAuthStore = create<AuthState>()((set, get) => ({
     })
   }
 }))
-
-// Which account the persisted cache may be written for follows the identity this store has
-// committed, and nothing else — in particular not a render, which React is free to start and throw
-// away. Every action that changes accounts publishes through `set`, so one subscription covers them
-// all, including any added later; zustand notifies synchronously, so the partition is already open
-// before React renders the tree whose persister belongs to it.
-useAuthStore.subscribe((state, previousState) => {
-  if (state.userId !== previousState.userId) {
-    activateQueryCachePartition(state.userId)
-  }
-})
 
 export default useAuthStore

@@ -2,6 +2,7 @@ import React from 'react'
 
 import {ActivityIndicator, DimensionValue, StyleProp, TouchableOpacity, View, ViewStyle} from 'react-native'
 
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import Text from '@components/Text'
@@ -32,7 +33,7 @@ const PrimaryButton = (props: Props): React.JSX.Element => {
     <TouchableOpacity
       style={buttonTouchable(width)}
       onPress={handlePress}
-      activeOpacity={0.5}
+      activeOpacity={Opacity.PRESSED_CTA}
       disabled={pressBlocked}
       accessibilityRole="button"
       accessibilityLabel={label}

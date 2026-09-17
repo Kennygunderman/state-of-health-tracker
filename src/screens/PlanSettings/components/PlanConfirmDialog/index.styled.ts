@@ -52,6 +52,9 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.CARD_LG,
     backgroundColor: Theme.colors.inset
   },
+  notice: {
+    marginTop: Spacing.MEDIUM
+  },
   primaryAction: {
     marginTop: Spacing.GUTTER
   },

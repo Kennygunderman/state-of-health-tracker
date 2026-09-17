@@ -6,7 +6,7 @@ import {useWeightUnitLabel} from '@hooks/userData/useWeightUnitLabel'
 import {HomeTabsParamList} from '@navigation/HomeTabs'
 import {mutationKeys} from '@queries/keys'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {resolveTargetAuthority, targetAuthorityKey} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useRunsTotalQuery} from '@queries/runs/useRunsTotalQuery'
 import {useUserAvatarQuery} from '@queries/user/useUserAvatarQuery'
 import {useWeighInsQuery} from '@queries/weighIns/useWeighInsQuery'
@@ -86,9 +86,8 @@ const AccountScreen = () => {
 
   const initials = userEmail?.slice(0, 2).toUpperCase() ?? GUEST_AVATAR_INITIAL
 
-  const serverTargetCalories = selectNutritionTargets(targetsQuery)?.targets?.calories
-  const hasServerTargets = serverTargetCalories != null
-  const displayedTargetCalories = serverTargetCalories ?? targetCalories
+  const targetAuthority = resolveTargetAuthority({read: targetsQuery, isAuthed})
+  const displayedTargetCalories = targetAuthority.serverCalories ?? targetCalories
 
   const openTargetsEditor = () => {
     navigation.navigate('MacrosStack', {
@@ -154,12 +153,16 @@ const AccountScreen = () => {
 
       <View style={styles.groupCard}>
         <AccountListItem
+          // AccountListItem owns its modal's visibility and AAP 0.8.2 freezes it, so an authority change
+          // remounts the row to close a legacy modal the device no longer owns the target for
+          key={targetAuthorityKey(targetAuthority)}
           type="target-calories"
+          clickable={targetAuthority.isEditable}
           label={ACCOUNT_DAILY_CALORIES_LABEL}
           value={displayedTargetCalories.toLocaleString()}
           tileVariant="danger"
           icon={<FlameIcon color={Theme.colors.danger} size={TILE_ICON_SIZE} />}
-          onPressOverride={hasServerTargets ? openTargetsEditor : undefined}
+          onPressOverride={targetAuthority.editor === 'canonical' ? openTargetsEditor : undefined}
         />
 
         <AccountListItem

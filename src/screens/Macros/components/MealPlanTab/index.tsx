@@ -1,15 +1,20 @@
-import React, {ReactNode, useCallback, useEffect, useRef, useState} from 'react'
+import React, {ReactNode, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
-import {LayoutChangeEvent, TouchableOpacity, View} from 'react-native'
+import {AccessibilityInfo, LayoutChangeEvent, Platform, TouchableOpacity, useWindowDimensions, View} from 'react-native'
 
-import {MealPlan, MealPlanDay, MealPlanMeal} from '@data/models/MealPlan'
+import {LoggedPlannedEntry, MealPlan, MealPlanDay, MealPlanMeal} from '@data/models/MealPlan'
 import {useMealPlanEntitlement} from '@hooks/mealPlanning/useMealPlanEntitlement'
+import {useSetupResumeNavigation} from '@hooks/mealPlanning/useSetupResumeNavigation'
 import {Navigation} from '@navigation/types'
+import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
+import {useLogPlannedMealMutation} from '@queries/mealPlanning/useLogPlannedMealMutation'
 import {useMealPlanDayQuery} from '@queries/mealPlanning/useMealPlanDayQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
-import {ParamListBase, useNavigation} from '@react-navigation/native'
-import {NativeStackNavigationProp} from '@react-navigation/native-stack'
+import {useSwapMealMutation} from '@queries/mealPlanning/useSwapMealMutation'
+import {BottomTabBarHeightContext} from '@react-navigation/bottom-tabs'
+import {useIsFocused, useNavigation} from '@react-navigation/native'
+import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {useSessionStore} from '@store/session/useSessionStore'
 import BorderRadius from '@styles/borderRadius'
@@ -17,7 +22,8 @@ import FontSize, {LineHeight} from '@styles/fontSize'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
-import {getApiErrorCode} from '@utility/ApiErrorUtility'
+import {useIsMutating, useMutationState} from '@tanstack/react-query'
+import {isPlanStateError, isUnknownOutcome} from '@utility/ApiErrorUtility'
 import {formatIsoDayMonthDay} from '@utility/DateUtility'
 import {
   addDaysToDayKey,
@@ -27,6 +33,7 @@ import {
   planDates
 } from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroPair} from '@utility/NutritionFormatUtility'
+import {useSafeAreaInsets} from 'react-native-safe-area-context'
 
 import InfoBanner from '@components/InfoBanner'
 import SectionOverline from '@components/SectionOverline'
@@ -68,37 +75,49 @@ import MealPlanCard from './components/MealPlanCard'
 import PlanHeader from './components/PlanHeader'
 import PlannedTotalsCard from './components/PlannedTotalsCard'
 import PlanSettingsRow from './components/PlanSettingsRow'
-import styles from './index.styled'
+import styles, {emptyRegion} from './index.styled'
 import {
   arePlanActionsOffered,
+  buildMealCardModels,
   EmptyPlanCta,
   flexItemWidth,
   formatPostLogBannerBody,
-  isStalePlanCode,
+  InPlaceWriteAction,
+  isKeyedWriteHeldByAnotherMeal,
+  isPostLogBannerVisible,
+  isStalePlanError,
   LastDayAction,
-  MealLoggedState,
+  MealCardModel,
   planDayWeekdayName,
   PlanSwitchLink,
   resolveEmptyPlanCtaLabel,
+  resolveFrameOutcome,
+  resolveHandoffLatch,
   resolveLastDayAction,
-  resolveMealLoggedState,
+  resolveLogOwnership,
   resolveMealPlanBody,
+  resolveMealPlanDaySection,
+  resolvePendingGeneration,
   resolvePlanSwitchLink,
+  resolvePostLogBannerOrigin,
   resolveSelectedPlanDate,
-  resolveSetupResumeTarget,
   resolveStalePlanSelection,
-  resolveViewTarget,
-  SetupResumeTarget
+  resolveSwapOwnership,
+  resolveTabFrame,
+  resolveViewTarget
 } from './index.util'
 
 // The day query is scoped to a plan and this tab renders four states that have none. The empty id is never
 // sent: it is paired with the disabled gate below, so no request is issued without a plan to read.
 const NO_PLAN_ID = ''
 
+// The same for the two replay mutations, which are addressed by plan and meal. A mutation fires nothing until
+// something calls `mutate`, and the only caller is the replay path — which runs only with an intent in hand,
+// so these stand-ins are never on the wire.
+const NO_MEAL_ID = ''
+
 const NEXT_WEEK_OFFSET_DAYS = 1
 
-// A placeholder stands in for content whose length it cannot know, so each bar takes a share of the measured
-// column rather than a width of its own.
 const SKELETON_OVERLINE_WIDTH_RATIO = 0.4
 
 const SKELETON_TITLE_WIDTH_RATIO = 0.6
@@ -113,40 +132,56 @@ const SKELETON_MEAL_ROW_KEYS: number[] = [0, 1]
 
 const SKELETON_MEAL_CARD_KEYS: number[] = [0, 1]
 
-// A placeholder card carries the gutter padding on both of its sides, which its bars sit inside.
 const CARD_INSET_SIDES = 2
 
-// A text link is shorter than the smallest comfortable target, so the difference is made up around it.
 const PLAN_SWITCH_HIT_SLOP = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
 
 const RETRY_PILL_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.PILL_SM) / 2
+
+// The bottom padding the host Macros screen puts on its scroll content. Subtracted from the measured
+// remainder so filling it leaves the empty state centred rather than scrollable by that padding.
+const HOST_SCROLL_BOTTOM_PADDING = Spacing.X_LARGE
+
+const NO_DAY_KEYS: string[] = []
+
+const NO_MEAL_CARDS: MealCardModel[] = []
 
 interface Props {
   segmentedControl: ReactNode
 }
 
-/**
- * Frames 11c, 11 and 11b: the Meal Plan segment of the Macros screen, from the week that does not exist yet
- * through the plan and its logged meal.
- *
- * The header is this component's decision rather than the parent's, because which of the three it is follows
- * the plan state that only the queries here can answer: the empty and error states keep the Macros header the
- * screen already had, a plan replaces it with its own range-and-grocery header, and the first load shows
- * neither. The segmented control is handed in so exactly one exists whichever segment is on screen.
- */
 const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
+  const {resumeSetup} = useSetupResumeNavigation()
+
+  // Whether this tab is the route on screen, which is what keeps the generation handoff below from firing
+  // while the Generating screen is already open above it or the user is looking at another tab.
+  const isFocused = useIsFocused()
+
+  const userId = useAuthStore(state => state.userId)
+  const isGeneratePending = useIsMutating({mutationKey: mutationKeys.generatePlan}) > 0
+  const isRegeneratePending = useIsMutating({mutationKey: mutationKeys.regeneratePlan}) > 0
+  // Counted across every instance of these mutations, this tab's own included, which is what keeps the tab and
+  // the write's own screen from ever sending one key at the same time.
+  const isSwapPending = useIsMutating({mutationKey: mutationKeys.swapMeal}) > 0
+  const isLogPending = useIsMutating({mutationKey: mutationKeys.logPlannedMeal}) > 0
 
   const {availability, isGatedRequestAllowed} = useMealPlanEntitlement()
-  // The session's day key, not the clock: it is the app's own 'today', re-evaluated on every foreground, and it
-  // is what makes the plan rollover refetch fire. It is never written from here.
+  // The app's own 'today', re-evaluated on every foreground, which is what makes the rollover refetch fire.
+  // Never written from here.
   const sessionDayKey = useSessionStore(state => state.sessionStartDateIso)
 
-  // Gated on the same flag the entitlement hook reads, so these observers share its query instances instead of
-  // splitting each read into two with conflicting enablement.
+  // Gated on the flag the entitlement hook reads, so these observers share its query instances rather than
+  // splitting each read in two with conflicting enablement.
   const preferencesQuery = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const currentPlanQuery = useCurrentMealPlanQuery(isGatedRequestAllowed, sessionDayKey)
 
+  // Read through the store hook, not getState(): the persisted intents arrive from AsyncStorage after the
+  // first frame, so this tab has to re-render when the slice and its hydration state land.
+  const pendingIntents = useMealPlanStore(state => state.pendingIntents)
+  // The three-state read rather than `hasHydratedIntents`, because this tab draws the difference: a refused
+  // read leaves what is stored unknown and has to offer the retry that is the only way out of it.
+  const intentsHydration = useMealPlanStore(state => state.intentsHydration)
   const selectedPlanId = useMealPlanStore(state => state.selectedPlanId)
   const selectedPlanDate = useMealPlanStore(state => state.selectedPlanDate)
   const postLogResult = useMealPlanStore(state => state.postLogResult)
@@ -154,13 +189,43 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const setSelectedPlanId = useMealPlanStore(state => state.setSelectedPlanId)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
+  const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const dismissSuccessBanner = useMealPlanStore(state => state.dismissSuccessBanner)
   const clearPostLogResult = useMealPlanStore(state => state.clearPostLogResult)
+  const retryIntentsHydration = useMealPlanStore(state => state.retryIntentsHydration)
 
-  const [skeletonWidth, setSkeletonWidth] = useState(0)
+  // The newest successful swap, read from the shared mutation cache rather than from the swap hook, which
+  // this tab does not own. Success only: a swap that failed or lost its answer changed nothing the post-log
+  // confirmation was describing, so it must not retire it.
+  const swapSuccessTimes = useMutationState({
+    filters: {mutationKey: mutationKeys.swapMeal, status: 'success'},
+    select: mutation => mutation.state.submittedAt
+  })
+  const lastSwapSucceededAt = swapSuccessTimes.reduce((latest, at) => (at > latest ? at : latest), 0)
+
+  const {height: windowHeight} = useWindowDimensions()
+  const safeAreaInsets = useSafeAreaInsets()
+  // Read through the context rather than the hook so this tab still renders outside a tab navigator, where the
+  // hook throws; the scene is laid out above the bar, so the window height includes it.
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0
+
+  const [columnWidth, setColumnWidth] = useState(0)
+  const [emptyRegionTop, setEmptyRegionTop] = useState(0)
+
+  // The generation key this tab has handed to the Generating screen for the handoff it is holding. State
+  // rather than a ref because the body renders the placeholder until the handoff is taken, so taking the latch
+  // has to re-render; it is released when focus is lost, which is when that handoff has been taken.
+  const [navigatedGenerationKey, setNavigatedGenerationKey] = useState<string | null>(null)
+  // The swap and log keys this tab has already sent. One replay per key, whatever else re-renders this tab.
+  const [replayedSwapKey, setReplayedSwapKey] = useState<string | null>(null)
+  const [replayedLogKey, setReplayedLogKey] = useState<string | null>(null)
+
+  // One reading of the clock per render, shared by all three intent decisions below so they cannot disagree
+  // about which records are still within their 7-day life.
+  const now = Date.now()
 
   const plans = currentPlanQuery.data
-  const outcome = resolveMealPlanBody({
+  const planOutcome = resolveMealPlanBody({
     availability,
     preferences: preferencesQuery.data,
     preferencesError: preferencesQuery.error,
@@ -170,64 +235,261 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     selectedPlanId
   })
 
+  /**
+   * AAP 0.7.2: this tab is the cold-start owner of an unresolved generation. Navigation state is not
+   * persisted, so once the Generating route is gone nothing else would ever ask again for a plan the request
+   * may already have committed — the tab reopens that screen with the stored key and the stored snapshot.
+   *
+   * The signed-in account scopes the lookup (a record minted by a previous account is nobody's to replay),
+   * focus keeps the handoff from firing while Generating is already on top of this tab or the user is in
+   * another tab, and the in-flight gate keeps it from racing an attempt already on the wire.
+   */
+  const generation = resolvePendingGeneration({
+    intents: {pendingIntents},
+    userId,
+    now,
+    intentsHydration,
+    isHandoffAllowed: isFocused && availability === 'enabled' && planOutcome.kind !== 'loading',
+    isGenerationInFlight: isGeneratePending || isRegeneratePending,
+    navigatedKey: navigatedGenerationKey,
+    plans,
+    todayDayKey: sessionDayKey
+  })
+
+  /**
+   * AAP 0.7.2 also names this tab the cold-start owner of the two keyed writes that have no screen to
+   * reconstruct: a swap or a planned log whose response was lost is replayed here silently, under the stored
+   * key and from the stored body, before the tab offers a write of its own.
+   *
+   * The gate is the same one the handoff uses — the persisted slice read, an account known, this tab focused
+   * and the feature available — plus the per-action in-flight count, which is what stops this tab and the
+   * write's own screen from ever putting one key on the wire twice.
+   */
+  const inPlaceWriteGate = {
+    intents: {pendingIntents},
+    userId,
+    now,
+    intentsHydration,
+    isReplayAllowed: isFocused && availability === 'enabled'
+  }
+
+  const swapOwnership = resolveSwapOwnership({
+    ...inPlaceWriteGate,
+    isRequestInFlight: isSwapPending,
+    replayedKey: replayedSwapKey
+  })
+
+  const logOwnership = resolveLogOwnership({
+    ...inPlaceWriteGate,
+    isRequestInFlight: isLogPending,
+    replayedKey: replayedLogKey
+  })
+
+  // Addressed from the STORED record, so a replay commits against the meal the user acted on rather than the
+  // one on screen. Both instances exist on every render — a mutation sends nothing until `mutate` is called —
+  // which is what keeps the hook order stable while the records come and go.
+  const swapReplayMutation = useSwapMealMutation(
+    swapOwnership.intent?.planId ?? NO_PLAN_ID,
+    swapOwnership.intent?.mealId ?? NO_MEAL_ID
+  )
+  const logReplayMutation = useLogPlannedMealMutation(
+    logOwnership.intent?.planId ?? NO_PLAN_ID,
+    logOwnership.intent?.mealId ?? NO_MEAL_ID
+  )
+
+  const frame = resolveTabFrame(planOutcome, generation.outcome)
+  // The body outcome the header and the body block are drawn from. A withheld frame borrows the first-load
+  // placeholder, and a refused persisted read borrows the inline retry card — neither draws a plan, a setup
+  // call to action or a write control while an unresolved keyed write may exist (0.7.2).
+  const outcome = resolveFrameOutcome(frame)
+  const handoffParams = generation.outcome.kind === 'handoff' ? generation.outcome.params : null
+  const handoffLatch = generation.navigatedKey
+  const settledGeneration = generation.outcome.kind === 'settled' ? generation.outcome : null
+  const settledAction = settledGeneration?.action ?? null
+  const settledPlanId = settledGeneration?.planId ?? null
+
+  useEffect(() => {
+    if (handoffParams === null) {
+      return
+    }
+
+    setNavigatedGenerationKey(handoffLatch)
+    navigation.navigate(Screens.MEAL_PLAN_GENERATING, handoffParams)
+  }, [handoffLatch, handoffParams, navigation])
+
+  /**
+   * The latch belongs to the handoff, not to this component's lifetime. Losing focus is the moment the handoff
+   * has been taken — the Generating screen is now the route on screen — so the latch is released there, and a
+   * return to an intent that is still unresolved reconstructs its owner again instead of drawing the plan
+   * surfaces, with their Swap and Log controls, over a key nobody owns (0.7.2).
+   */
+  useEffect(() => {
+    setNavigatedGenerationKey(latch => resolveHandoffLatch(latch, isFocused))
+  }, [isFocused])
+
+  /**
+   * The one resolution a READ may reach: a returned plan carries the pending `generationKey`, so the server
+   * has answered that key (AAP 0.2.5) and the record is retired here rather than filtered away on every
+   * render. Retiring it is what frees the action's single slot — an unretired record makes the launch path
+   * hand its superseded request back to this tab, which filters it again, so the user could not regenerate
+   * until the 7-day expiry.
+   *
+   * The selection is set alongside it because the plan that key produced is the one the user asked for, and
+   * the two writes land in a single React commit before the body leaves the placeholder frame above.
+   */
+  useEffect(() => {
+    if (settledAction === null || settledPlanId === null) {
+      return
+    }
+
+    setSelectedPlanId(settledPlanId)
+    clearPendingIntent(settledAction)
+  }, [clearPendingIntent, setSelectedPlanId, settledAction, settledPlanId])
+
   // Taken from the outcome rather than resolved a second time, so the plan the body renders and the plan the
   // day query, the header and every route parameter are built from cannot diverge.
   const plan = outcome.kind === 'plan' ? outcome.plan : null
-  const selectedDayKey =
-    plan === null ? sessionDayKey : resolveSelectedPlanDate(plan, selectedPlanDate, parseDayKey(sessionDayKey))
+  const planId = plan?.id ?? null
+  const sessionDate = useMemo(() => parseDayKey(sessionDayKey), [sessionDayKey])
+  const selectedDayKey = plan === null ? sessionDayKey : resolveSelectedPlanDate(plan, selectedPlanDate, sessionDate)
 
-  const dayQuery = useMealPlanDayQuery(plan?.id ?? NO_PLAN_ID, selectedDayKey, plan !== null && isGatedRequestAllowed)
+  const dayQuery = useMealPlanDayQuery(planId ?? NO_PLAN_ID, selectedDayKey, plan !== null && isGatedRequestAllowed)
 
   const envelope = dayQuery.data ?? null
-  // The day route is the fresher read — its meals carry the logged entries and its envelope the write verdict —
-  // and the plan's own day stands in for it until it answers, so switching days never empties the screen.
-  const day: MealPlanDay | null =
-    envelope?.day ?? plan?.days.find(candidate => candidate.date === selectedDayKey) ?? null
+  const daySection =
+    plan === null ? null : resolveMealPlanDaySection({plan, selectedDayKey, envelope, dayError: dayQuery.error})
+  const day = daySection?.kind === 'day' ? daySection.day : null
 
-  const areActionsOffered = arePlanActionsOffered(outcome, envelope?.isWritable)
+  // A record for either in-place write withholds both controls on every OTHER meal: the single slot per action
+  // must not be replaceable while its key is unanswered (0.7.2). The meal the record names keeps its controls,
+  // because its own screen is where the unconfirmed outcome is drawn and where "Try again" replays that key
+  // (0.2.5) — see `isKeyedWriteHeldByAnotherMeal`.
+  const unresolvedInPlaceWrites = useMemo(
+    () => [swapOwnership.intent, logOwnership.intent],
+    [logOwnership.intent, swapOwnership.intent]
+  )
+
+  const isDayWritable = envelope?.isWritable
+
+  // Per meal rather than per screen, and memoised because every card reads it: the meal a record names keeps
+  // its controls, and every other meal loses them until that record is retired.
+  const areWriteActionsEnabledFor = useCallback(
+    (mealId: string): boolean =>
+      arePlanActionsOffered(
+        outcome,
+        isDayWritable,
+        isKeyedWriteHeldByAnotherMeal(unresolvedInPlaceWrites, planId ?? NO_PLAN_ID, mealId)
+      ),
+    [isDayWritable, outcome, planId, unresolvedInPlaceWrites]
+  )
+
   // The refusal itself, as opposed to a verdict that has not arrived or a plan restored from the cache: only
   // this one has something true to tell the user when a control is pressed.
-  const isWriteRefused = envelope?.isWritable === false
+  const isWriteRefused = isDayWritable === false
 
   const planSwitchLink = plan === null ? null : resolvePlanSwitchLink(plans, selectedPlanId)
   const lastDayAction = plan === null ? null : resolveLastDayAction(plans, selectedPlanId, selectedDayKey)
 
-  const isSuccessBannerVisible = postLogResult !== null && postLogResult.entryId !== dismissedSuccessBannerFor
+  const [bannerOrigin, setBannerOrigin] = useState<ReturnType<typeof resolvePostLogBannerOrigin>>(null)
+  // Adjusted during render rather than in an effect: the banner stands where the totals card does, so an
+  // origin settled after paint costs one frame of the wrong day's success. The resolver returns the same
+  // object when nothing changed, which is what ends the adjustment after a single pass.
+  const nextBannerOrigin = resolvePostLogBannerOrigin(bannerOrigin, postLogResult, planId, lastSwapSucceededAt)
 
-  // Read from the query errors rather than from the body outcome, because a superseded plan is a fact about the
-  // plan even on a background refetch that left a readable week on screen. Null for a network or undecodable
-  // failure, which is answered by the inline retry card alone.
-  const readErrorCode =
-    getApiErrorCode(currentPlanQuery.error) ??
-    getApiErrorCode(preferencesQuery.error) ??
-    getApiErrorCode(dayQuery.error)
-  const stalePlanReadCode = isStalePlanCode(readErrorCode) ? readErrorCode : null
+  if (nextBannerOrigin !== bannerOrigin) {
+    setBannerOrigin(nextBannerOrigin)
+  }
+
+  const isSuccessBannerVisible = isPostLogBannerVisible({
+    result: postLogResult,
+    origin: nextBannerOrigin,
+    dismissedEntryId: dismissedSuccessBannerFor,
+    planId,
+    selectedDayKey,
+    lastSwapSucceededAt
+  })
+
+  const isDayReadFailed = daySection?.kind === 'error' || (daySection?.kind === 'day' && daySection.hasFailedRead)
 
   const refetchCurrentPlan = currentPlanQuery.refetch
+  const refetchPreferences = preferencesQuery.refetch
+  const refetchDay = dayQuery.refetch
 
   const recoverFromStalePlan = useCallback((): void => {
     showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
     refetchCurrentPlan()
   }, [refetchCurrentPlan])
 
-  const recoveredStalePlanCode = useRef<string | null>(null)
+  /**
+   * The silent same-key attempt both in-place replays make, and the only place their records are retired.
+   *
+   * `mutateAsync` is awaited rather than fired and forgotten so the continuation runs even if the user leaves
+   * this segment mid-flight — the store action it calls is not component state, which is what makes that safe.
+   *
+   * What clears the record is an answer to its own key (AAP 0.2.5). A commit or a stored replay answers it, so
+   * it goes. A CONFIRMED failure is the server describing this key's fate and is terminal, so it goes too —
+   * and a plan the server will no longer read or write earns the stale-plan toast and refetch the AAP asks for
+   * (0.7.2). An UNKNOWN outcome answers nothing: the write may have committed before the response was lost, so
+   * the key stays on record as the only safe way to ask again, and the next launch owns it once more.
+   */
+  const replayKeyedWrite = useCallback(
+    async (action: InPlaceWriteAction, send: () => Promise<unknown>): Promise<void> => {
+      try {
+        await send()
+        clearPendingIntent(action)
+      } catch (error) {
+        if (isUnknownOutcome(error)) {
+          return
+        }
+
+        clearPendingIntent(action)
+
+        if (isPlanStateError(error)) {
+          recoverFromStalePlan()
+        }
+      }
+    },
+    [clearPendingIntent, recoverFromStalePlan]
+  )
+
+  const swapReplayPayload = swapOwnership.payload
+  const swapReplayLatch = swapOwnership.replayedKey
+  const sendSwapReplay = swapReplayMutation.mutateAsync
 
   useEffect(() => {
-    if (stalePlanReadCode === null) {
-      // Cleared so a stale-plan read that returns after a successful retry reports itself once more.
-      recoveredStalePlanCode.current = null
-
+    if (swapReplayPayload === null) {
       return
     }
 
-    if (recoveredStalePlanCode.current === stalePlanReadCode) {
+    setReplayedSwapKey(swapReplayLatch)
+    replayKeyedWrite('swap', () => sendSwapReplay(swapReplayPayload))
+  }, [replayKeyedWrite, sendSwapReplay, swapReplayLatch, swapReplayPayload])
+
+  const logReplayPayload = logOwnership.payload
+  const logReplayLatch = logOwnership.replayedKey
+  const sendLogReplay = logReplayMutation.mutateAsync
+
+  useEffect(() => {
+    if (logReplayPayload === null) {
       return
     }
 
-    recoveredStalePlanCode.current = stalePlanReadCode
+    setReplayedLogKey(logReplayLatch)
+    replayKeyedWrite('log', () => sendLogReplay(logReplayPayload))
+  }, [logReplayLatch, logReplayPayload, replayKeyedWrite, sendLogReplay])
 
-    recoverFromStalePlan()
-  }, [recoverFromStalePlan, stalePlanReadCode])
+  // Whichever read surfaced it, the plan the screen holds has been contradicted, so the recovery is the same.
+  // The error's own identity is the effect's key, and it only changes when a further read fails.
+  const stalePlanReadError = [currentPlanQuery.error, preferencesQuery.error, dayQuery.error].find(isStalePlanError)
+
+  useEffect(() => {
+    if (stalePlanReadError === undefined) {
+      return
+    }
+
+    showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
+    refetchCurrentPlan()
+  }, [refetchCurrentPlan, stalePlanReadError])
 
   useEffect(() => {
     const resolvedPlanId = resolveStalePlanSelection(plans, selectedPlanId)
@@ -237,45 +499,39 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     }
   }, [plans, selectedPlanId, setSelectedPlanId])
 
-  const bannerContext = useRef<string | null>(null)
-
-  /**
-   * AAP 0.1.4 (iii): the success banner stands where the totals card does until the user reads the entry, moves
-   * to another day or plan, or leaves this segment. The day and plan it was raised against are held here
-   * because the store records neither, and nothing re-raises it — only another log does.
-   */
+  // Visibility is decided at render; this only retires the payload once it can no longer be shown. Gated on a
+  // known plan id, because "no plan yet" is indistinguishable from "a different plan" until the week's read
+  // answers, and clearing on the former would discard a confirmation that was about to become visible.
   useEffect(() => {
     if (postLogResult === null) {
-      bannerContext.current = null
-
       return
     }
 
-    const context = `${selectedPlanId ?? NO_PLAN_ID}|${selectedDayKey}`
-
-    if (bannerContext.current === null) {
-      bannerContext.current = context
-
-      return
-    }
-
-    if (bannerContext.current !== context) {
+    if (planId !== null && !isSuccessBannerVisible) {
       clearPostLogResult()
     }
-  }, [clearPostLogResult, postLogResult, selectedDayKey, selectedPlanId])
+  }, [clearPostLogResult, isSuccessBannerVisible, planId, postLogResult])
 
-  // Leaving the segment unmounts this tab, which is the third of the three ways the banner is dismissed.
+  // Leaving the segment unmounts this tab, the last of the ways the banner ends.
   useEffect(() => clearPostLogResult, [clearPostLogResult])
 
-  const onSkeletonLayout = (event: LayoutChangeEvent): void => setSkeletonWidth(event.nativeEvent.layout.width)
+  const bannerBody =
+    isSuccessBannerVisible && postLogResult !== null
+      ? formatPostLogBannerBody(postLogResult.dateIso, postLogResult.slotLabel, sessionDayKey)
+      : null
+  const announcement = outcome.kind === 'error' || isDayReadFailed ? MEAL_PLAN_LOAD_ERROR_TITLE : bannerBody
 
-  const openSetupResumeTarget = (target: SetupResumeTarget): void => {
-    // Route and params arrive correlated from the util, and the runtime navigation object takes the pair as it
-    // stands rather than re-deriving the pairing — the same dispatch the tab-return actions use.
-    const stack: NativeStackNavigationProp<ParamListBase> = navigation
+  // The blocks below carry a polite live region, which Android announces on its own; iOS does not, so it is
+  // announced here and only there, so neither platform says it twice.
+  useEffect(() => {
+    if (announcement !== null && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(announcement)
+    }
+  }, [announcement])
 
-    stack.navigate<string>(target.route, target.params)
-  }
+  const onColumnLayout = (event: LayoutChangeEvent): void => setColumnWidth(event.nativeEvent.layout.width)
+
+  const onEmptyRegionLayout = (event: LayoutChangeEvent): void => setEmptyRegionTop(event.nativeEvent.layout.y)
 
   const onEmptyPrimaryPressed = (cta: EmptyPlanCta): void => {
     if (cta === 'create') {
@@ -285,8 +541,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     }
 
     if (cta === 'continueSetupStep') {
-      // Resuming opens the saved step itself, so a returning user never meets the introduction again.
-      openSetupResumeTarget(resolveSetupResumeTarget(preferencesQuery.data?.setupStep ?? null))
+      resumeSetup(preferencesQuery.data?.setupStep ?? null, preferencesQuery.data?.setupStatus)
 
       return
     }
@@ -302,21 +557,37 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
 
   const onGoToDiaryPressed = (): void => setMacrosSegment('diary')
 
-  const onGroceryPressed = (): void => {
-    if (plan === null) {
+  /**
+   * Everything the inline retry card can ask again for: the two reads behind the plan state and — when the
+   * persisted intent slice is what failed — storage itself. `retryIntentsHydration` is a no-op unless that
+   * read was refused, so one handler serves both failures and the card never has to guess which it is drawn
+   * for (a refused intents read resolves to the same `error` outcome, per `resolveFrameOutcome`).
+   */
+  const onRetryPlanReadPressed = (): void => {
+    retryIntentsHydration()
+    refetchPreferences()
+    refetchCurrentPlan()
+  }
+
+  const onRetryDayReadPressed = (): void => {
+    refetchDay()
+  }
+
+  const onGroceryPressed = useCallback((): void => {
+    if (planId === null) {
       return
     }
 
-    navigation.navigate(Screens.GROCERY_LIST, {planId: plan.id})
-  }
+    navigation.navigate(Screens.GROCERY_LIST, {planId})
+  }, [navigation, planId])
 
-  const onPlanSettingsPressed = (): void => {
-    if (plan === null) {
+  const onPlanSettingsPressed = useCallback((): void => {
+    if (planId === null) {
       return
     }
 
-    navigation.navigate(Screens.PLAN_SETTINGS, {planId: plan.id})
-  }
+    navigation.navigate(Screens.PLAN_SETTINGS, {planId})
+  }, [navigation, planId])
 
   const onPlanSwitchPressed = (link: PlanSwitchLink): void => {
     const target = link === 'next' ? plans?.upcoming : plans?.current
@@ -349,76 +620,79 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     })
   }
 
-  const onOpenRecipePressed = (meal: MealPlanMeal): void => {
-    if (plan === null) {
-      return
-    }
-
-    navigation.navigate(Screens.RECIPE_DETAIL, {
-      recipeVersionId: meal.recipe.versionId,
-      context: {kind: 'plan', planId: plan.id, mealId: meal.id, date: selectedDayKey}
-    })
-  }
-
-  /**
-   * Swap and Log are always drawn, so the press decides what it does: a plan the server has superseded — or a
-   * week that has finished, which storage still calls active — gets the stale-plan toast and a refetch rather
-   * than two controls that quietly do nothing.
-   *
-   * A verdict that has not arrived, and a week restored read-only from the cache, are not that refusal and say
-   * nothing: reporting either would tell a user whose plan is live that it is no longer active.
-   */
-  const onWriteActionPressed = (
-    route: typeof Screens.LOG_PLANNED_MEAL | typeof Screens.SWAP_MEAL,
-    meal: MealPlanMeal
-  ): void => {
-    if (plan === null || envelope === null) {
-      return
-    }
-
-    if (!areActionsOffered) {
-      if (isWriteRefused) {
-        recoverFromStalePlan()
+  const onOpenRecipePressed = useCallback(
+    (meal: MealPlanMeal): void => {
+      if (planId === null) {
+        return
       }
 
-      return
-    }
+      navigation.navigate(Screens.RECIPE_DETAIL, {
+        recipeVersionId: meal.recipe.versionId,
+        context: {kind: 'plan', planId, mealId: meal.id, date: selectedDayKey}
+      })
+    },
+    [navigation, planId, selectedDayKey]
+  )
 
-    const routeParams = {
-      planId: plan.id,
-      mealId: meal.id,
-      date: selectedDayKey,
-      // The revision the day was read at, which is what the destination pins its write to.
-      planRevision: envelope.planRevision
-    }
+  // A refused plan earns the stale-plan recovery rather than a control that silently does nothing; an
+  // unanswered verdict earns only the dimming, because there is nothing true to say about it yet.
+  const onWriteActionPressed = useCallback(
+    (route: typeof Screens.LOG_PLANNED_MEAL | typeof Screens.SWAP_MEAL, meal: MealPlanMeal): void => {
+      if (planId === null || envelope === null) {
+        return
+      }
 
-    if (route === Screens.SWAP_MEAL) {
-      navigation.navigate(Screens.SWAP_MEAL, routeParams)
+      if (!areWriteActionsEnabledFor(meal.id)) {
+        if (isWriteRefused) {
+          recoverFromStalePlan()
+        }
 
-      return
-    }
+        return
+      }
 
-    navigation.navigate(Screens.LOG_PLANNED_MEAL, routeParams)
-  }
+      const routeParams = {
+        planId,
+        mealId: meal.id,
+        date: selectedDayKey,
+        // The revision the day was read at, which is what the destination pins its write to.
+        planRevision: envelope.planRevision
+      }
 
-  /**
-   * The diary the logged meal went to. Today's entry is in the Diary segment, so switching to it is the whole
-   * answer — no row is scrolled to or highlighted; any other date is in Macros History, which already lists
-   * every day that has entries.
-   */
-  const onViewDiaryPressed = (loggedState: MealLoggedState): void => {
-    if (loggedState.kind === 'unlogged') {
-      return
-    }
+      if (route === Screens.SWAP_MEAL) {
+        navigation.navigate(Screens.SWAP_MEAL, routeParams)
 
-    if (resolveViewTarget(loggedState.entry.date, sessionDayKey) === 'diary') {
-      setMacrosSegment('diary')
+        return
+      }
 
-      return
-    }
+      navigation.navigate(Screens.LOG_PLANNED_MEAL, routeParams)
+    },
+    [areWriteActionsEnabledFor, envelope, isWriteRefused, navigation, planId, recoverFromStalePlan, selectedDayKey]
+  )
 
-    navigation.navigate(Screens.MACROS_HISTORY)
-  }
+  const onSwapPressed = useCallback(
+    (meal: MealPlanMeal): void => onWriteActionPressed(Screens.SWAP_MEAL, meal),
+    [onWriteActionPressed]
+  )
+
+  const onLogPressed = useCallback(
+    (meal: MealPlanMeal): void => onWriteActionPressed(Screens.LOG_PLANNED_MEAL, meal),
+    [onWriteActionPressed]
+  )
+
+  // Switching segments is the whole answer for today: no row is scrolled to or highlighted, which would put
+  // the shipped Diary list in scope.
+  const onViewEntryPressed = useCallback(
+    (entry: LoggedPlannedEntry): void => {
+      if (resolveViewTarget(entry.date, sessionDayKey) === 'diary') {
+        setMacrosSegment('diary')
+
+        return
+      }
+
+      navigation.navigate(Screens.MACROS_HISTORY)
+    },
+    [navigation, sessionDayKey, setMacrosSegment]
+  )
 
   const onBannerViewDiaryPressed = (): void => {
     if (postLogResult === null) {
@@ -427,8 +701,9 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
 
     dismissSuccessBanner(postLogResult.entryId)
 
-    // The target was decided when the entry was written, against the date it was written to.
-    if (postLogResult.viewTarget === 'diary') {
+    // Resolved now rather than when the entry was written: across midnight the destination the banner names
+    // and the one it opens would otherwise disagree.
+    if (resolveViewTarget(postLogResult.dateIso, sessionDayKey) === 'diary') {
       setMacrosSegment('diary')
 
       return
@@ -437,21 +712,51 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     navigation.navigate(Screens.MACROS_HISTORY)
   }
 
+  const planDayKeys = useMemo(() => (plan === null ? NO_DAY_KEYS : planDates(plan.startDate)), [plan])
+
+  const skeletonDayKeys = useMemo(() => planDates(sessionDayKey), [sessionDayKey])
+
+  const mealCardModels = useMemo(() => (day === null ? NO_MEAL_CARDS : buildMealCardModels(day)), [day])
+
+  const totalsLegend = useMemo(
+    () =>
+      plan === null || day === null
+        ? []
+        : [
+            {
+              label: MEAL_PLAN_MACRO_LABELS.protein,
+              valueText: formatMacroPair(day.plannedTotals.protein, plan.targets.protein),
+              dotColor: Theme.colors.accentGreen
+            },
+            {
+              label: MEAL_PLAN_MACRO_LABELS.carbs,
+              valueText: formatMacroPair(day.plannedTotals.carbs, plan.targets.carbs),
+              dotColor: Theme.colors.teal
+            },
+            {
+              label: MEAL_PLAN_MACRO_LABELS.fat,
+              valueText: formatMacroPair(day.plannedTotals.fat, plan.targets.fat),
+              dotColor: Theme.colors.lime
+            }
+          ],
+    [day, plan]
+  )
+
   const skeletonHeaderBlock = (): React.JSX.Element => (
     <View style={styles.skeletonHeaderRow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {skeletonWidth > 0 && (
+      {columnWidth > 0 && (
         <>
           <SkeletonBlock
             height={Sizes.SKELETON_BAR_SM}
             // Skeleton takes a number and sizes its shimmer sweep from it, so the measured column width is what
             // the animation has to match.
-            width={skeletonWidth * SKELETON_OVERLINE_WIDTH_RATIO}
+            width={columnWidth * SKELETON_OVERLINE_WIDTH_RATIO}
             borderRadius={BorderRadius.BAR}
           />
 
           <SkeletonBlock
             height={LineHeight.SCREEN_TITLE}
-            width={skeletonWidth * SKELETON_TITLE_WIDTH_RATIO}
+            width={columnWidth * SKELETON_TITLE_WIDTH_RATIO}
             borderRadius={BorderRadius.TILE}
           />
         </>
@@ -484,8 +789,6 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     return macrosHeaderBlock()
   }
 
-  // Figma draws no switch between a current and an upcoming plan: the week on screen is named by the header, so
-  // the other one is offered as a link beside it (AAP 0.7.4).
   const planSwitchBlock = (link: PlanSwitchLink): React.JSX.Element => (
     <View style={styles.planSwitchRow}>
       <TouchableOpacity
@@ -502,7 +805,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   )
 
   const skeletonCardBlock = (cardKey: string, rowKeys: number[]): React.JSX.Element => {
-    const innerWidth = skeletonWidth - Spacing.GUTTER * CARD_INSET_SIDES
+    const innerWidth = columnWidth - Spacing.GUTTER * CARD_INSET_SIDES
 
     return (
       <View key={cardKey} style={styles.skeletonCard}>
@@ -525,41 +828,43 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     )
   }
 
-  // Shaped like the plan it stands in for — the week's day strip, its totals and two of its meals — so the
-  // first answer lands in a layout the eye has already settled on (AAP 0.2.5).
-  const loadingBlock = (): React.JSX.Element => {
-    // Keyed by the dates this session would ask for, since the placeholder cannot know the week it stands in
-    // for and a positional key would re-order the shimmer when the real strip arrives.
-    const skeletonDayKeys = planDates(sessionDayKey)
+  const dayPlaceholderBlock = (): React.JSX.Element => (
+    <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+      {columnWidth > 0 && (
+        <>
+          {skeletonCardBlock('totals', SKELETON_TOTALS_ROW_KEYS)}
 
-    return (
-      <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
-        {skeletonWidth > 0 && (
-          <>
-            <View style={styles.skeletonDayStrip}>
-              {skeletonDayKeys.map(dayKey => (
-                <SkeletonBlock
-                  key={dayKey}
-                  height={Sizes.CONTROL_LG}
-                  width={flexItemWidth(skeletonWidth, Spacing.TIGHT, skeletonDayKeys.length)}
-                  borderRadius={BorderRadius.TILE}
-                />
-              ))}
-            </View>
+          {SKELETON_MEAL_CARD_KEYS.map(cardKey => skeletonCardBlock(`meal-${cardKey}`, SKELETON_MEAL_ROW_KEYS))}
+        </>
+      )}
+    </View>
+  )
 
-            {skeletonCardBlock('totals', SKELETON_TOTALS_ROW_KEYS)}
+  const loadingBlock = (): React.JSX.Element => (
+    <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+      {columnWidth > 0 && (
+        <>
+          <View style={styles.skeletonDayStrip}>
+            {skeletonDayKeys.map(dayKey => (
+              <SkeletonBlock
+                key={dayKey}
+                height={Sizes.CONTROL_LG}
+                width={flexItemWidth(columnWidth, Spacing.TIGHT, skeletonDayKeys.length)}
+                borderRadius={BorderRadius.TILE}
+              />
+            ))}
+          </View>
 
-            {SKELETON_MEAL_CARD_KEYS.map(cardKey => skeletonCardBlock(`meal-${cardKey}`, SKELETON_MEAL_ROW_KEYS))}
-          </>
-        )}
-      </View>
-    )
-  }
+          {skeletonCardBlock('totals', SKELETON_TOTALS_ROW_KEYS)}
 
-  // A failure that leaves nothing to read is reported where the week would have been, never as the no-plan
-  // state: claiming the user has no plan because a request failed is the one answer that is always wrong.
-  const errorBlock = (): React.JSX.Element => (
-    <View style={styles.errorCard}>
+          {SKELETON_MEAL_CARD_KEYS.map(cardKey => skeletonCardBlock(`meal-${cardKey}`, SKELETON_MEAL_ROW_KEYS))}
+        </>
+      )}
+    </View>
+  )
+
+  const errorBlock = (onRetryPressed: () => void): React.JSX.Element => (
+    <View style={styles.errorCard} accessibilityLiveRegion="polite">
       <Text style={styles.errorTitle}>{MEAL_PLAN_LOAD_ERROR_TITLE}</Text>
 
       <TouchableOpacity
@@ -568,40 +873,43 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
         accessibilityRole="button"
         accessibilityLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
         hitSlop={RETRY_PILL_HIT_SLOP}
-        onPress={() => {
-          preferencesQuery.refetch()
-          refetchCurrentPlan()
-        }}>
+        onPress={onRetryPressed}>
         <Text style={styles.retryLabel}>{MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}</Text>
       </TouchableOpacity>
     </View>
   )
 
-  // No call to action: the feature is switched off or the routes are gone, and nothing the user can press here
-  // would change either (AAP 0.2.5).
   const unavailableBlock = (): React.JSX.Element => (
     <View style={styles.unavailableCard}>
       <Text style={styles.unavailableText}>{MEAL_PLAN_UNAVAILABLE_TEXT}</Text>
     </View>
   )
 
-  const emptyBlock = (cta: EmptyPlanCta): React.JSX.Element => (
-    <EmptyPlanState
-      headline={MEAL_PLAN_EMPTY_TITLE}
-      body={MEAL_PLAN_EMPTY_BODY}
-      primaryLabel={resolveEmptyPlanCtaLabel(cta)}
-      onPrimary={() => onEmptyPrimaryPressed(cta)}
-      secondaryLabel={MEAL_PLAN_GO_TO_DIARY_BUTTON_TEXT}
-      onSecondary={onGoToDiaryPressed}
-    />
-  )
+  // minHeight rather than height: a scaled-up text size must still be able to grow the block and scroll.
+  const emptyBlock = (cta: EmptyPlanCta): React.JSX.Element => {
+    const availableHeight =
+      windowHeight - safeAreaInsets.top - tabBarHeight - emptyRegionTop - HOST_SCROLL_BOTTOM_PADDING
 
-  const successBannerBlock = (result: NonNullable<typeof postLogResult>): React.JSX.Element => (
-    <View style={styles.bannerContainer}>
+    return (
+      <View style={emptyRegion(Math.max(0, availableHeight))} onLayout={onEmptyRegionLayout}>
+        <EmptyPlanState
+          headline={MEAL_PLAN_EMPTY_TITLE}
+          body={MEAL_PLAN_EMPTY_BODY}
+          primaryLabel={resolveEmptyPlanCtaLabel(cta)}
+          onPrimary={() => onEmptyPrimaryPressed(cta)}
+          secondaryLabel={MEAL_PLAN_GO_TO_DIARY_BUTTON_TEXT}
+          onSecondary={onGoToDiaryPressed}
+        />
+      </View>
+    )
+  }
+
+  const successBannerBlock = (body: string): React.JSX.Element => (
+    <View style={styles.bannerContainer} accessibilityLiveRegion="polite">
       <InfoBanner
         tone="success"
         glyph="disc"
-        body={formatPostLogBannerBody(result.dateIso, result.slotLabel, sessionDayKey)}
+        body={body}
         actionLabel={MEAL_PLAN_VIEW_DIARY_LINK_TEXT}
         onAction={onBannerViewDiaryPressed}
       />
@@ -619,26 +927,9 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
         })}
         figure={formatCalories(plannedDay.plannedTotals.calories)}
         unitText={stringWithNamedParameters(MEAL_PLAN_MEAL_COUNT_TEMPLATE, {n: plannedDay.meals.length})}
-        legend={[
-          {
-            label: MEAL_PLAN_MACRO_LABELS.protein,
-            valueText: formatMacroPair(plannedDay.plannedTotals.protein, activePlan.targets.protein),
-            dotColor: Theme.colors.accentGreen
-          },
-          {
-            label: MEAL_PLAN_MACRO_LABELS.carbs,
-            valueText: formatMacroPair(plannedDay.plannedTotals.carbs, activePlan.targets.carbs),
-            dotColor: Theme.colors.teal
-          },
-          {
-            label: MEAL_PLAN_MACRO_LABELS.fat,
-            valueText: formatMacroPair(plannedDay.plannedTotals.fat, activePlan.targets.fat),
-            dotColor: Theme.colors.lime
-          }
-        ]}
+        legend={totalsLegend}
       />
 
-      {/* A plan outliving the targets it was built against says so and changes nothing on its own (AAP 0.2.5). */}
       {activePlan.targetsStale && (
         <View style={styles.captionContainer}>
           <Text style={styles.staleCaption}>{MEAL_PLAN_TARGETS_STALE_CAPTION}</Text>
@@ -647,23 +938,40 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     </View>
   )
 
-  const mealCardsBlock = (plannedDay: MealPlanDay): React.JSX.Element[] =>
-    plannedDay.meals.map((meal, index) => {
-      const loggedState = resolveMealLoggedState(meal)
+  const mealCardsBlock = (): React.JSX.Element[] =>
+    mealCardModels.map((model, index) => (
+      <View key={model.meal.id} style={index === 0 ? styles.mealCardContainerFirst : styles.mealCardContainer}>
+        <MealPlanCard
+          meal={model.meal}
+          loggedState={model.loggedState}
+          areWriteActionsEnabled={areWriteActionsEnabledFor(model.meal.id)}
+          onOpen={onOpenRecipePressed}
+          onSwap={onSwapPressed}
+          onLog={onLogPressed}
+          onViewEntry={onViewEntryPressed}
+        />
+      </View>
+    ))
 
-      return (
-        <View key={meal.id} style={index === 0 ? styles.mealCardContainerFirst : styles.mealCardContainer}>
-          <MealPlanCard
-            meal={meal}
-            loggedState={loggedState}
-            onOpen={() => onOpenRecipePressed(meal)}
-            onSwap={() => onWriteActionPressed(Screens.SWAP_MEAL, meal)}
-            onLog={() => onWriteActionPressed(Screens.LOG_PLANNED_MEAL, meal)}
-            onViewDiary={() => onViewDiaryPressed(loggedState)}
-          />
-        </View>
-      )
-    })
+  const daySectionBlock = (activePlan: MealPlan): React.JSX.Element => {
+    if (daySection === null || daySection.kind === 'loading') {
+      return dayPlaceholderBlock()
+    }
+
+    if (daySection.kind === 'error') {
+      return errorBlock(onRetryDayReadPressed)
+    }
+
+    return (
+      <>
+        {daySection.hasFailedRead && errorBlock(onRetryDayReadPressed)}
+
+        {bannerBody === null ? totalsBlock(activePlan, daySection.day) : successBannerBlock(bannerBody)}
+
+        {mealCardsBlock()}
+      </>
+    )
+  }
 
   const lastDayBlock = (activePlan: MealPlan, action: LastDayAction): React.JSX.Element => (
     <View style={styles.lastDayCardContainer}>
@@ -684,7 +992,6 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
 
   const planBlock = (activePlan: MealPlan, isSavedCopy: boolean): React.JSX.Element => (
     <>
-      {/* The week is the one persisted read, so a failing refresh leaves it on screen and says which it is. */}
       {isSavedCopy && (
         <View style={styles.bannerContainer}>
           <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_OFFLINE_BANNER_TEXT} />
@@ -692,23 +999,13 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
       )}
 
       <View style={styles.dayStripContainer}>
-        <DayStrip
-          dayKeys={planDates(activePlan.startDate)}
-          selectedDayKey={selectedDayKey}
-          onDayPressed={setSelectedPlanDate}
-        />
+        <DayStrip dayKeys={planDayKeys} selectedDayKey={selectedDayKey} onDayPressed={setSelectedPlanDate} />
       </View>
 
-      {isSuccessBannerVisible && postLogResult !== null
-        ? successBannerBlock(postLogResult)
-        : day !== null && totalsBlock(activePlan, day)}
-
-      {day !== null && mealCardsBlock(day)}
+      {daySectionBlock(activePlan)}
 
       {lastDayAction !== null && lastDayBlock(activePlan, lastDayAction)}
 
-      {/* Figma gives the plan header one action, the grocery list, so the settings screen is reached from the
-          foot of every plan day instead (AAP 0.1.4). */}
       <View style={styles.planSettingsRowContainer}>
         <PlanSettingsRow onPress={onPlanSettingsPressed} />
       </View>
@@ -725,7 +1022,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     }
 
     if (outcome.kind === 'error') {
-      return errorBlock()
+      return errorBlock(onRetryPlanReadPressed)
     }
 
     if (outcome.kind === 'empty') {
@@ -736,7 +1033,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   }
 
   return (
-    <View style={styles.body} onLayout={onSkeletonLayout}>
+    <View style={styles.body} onLayout={onColumnLayout}>
       {headerBlock()}
 
       {segmentedControl}

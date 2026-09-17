@@ -3,6 +3,7 @@ import React from 'react'
 import {StyleProp, TouchableOpacity, View, ViewStyle} from 'react-native'
 
 import {AntDesign} from '@expo/vector-icons'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import Text from '@components/Text'
@@ -42,7 +43,7 @@ const SecondaryButton = (props: Props): React.JSX.Element => {
       accessibilityState={{disabled}}
       disabled={disabled}
       onPress={onPress}
-      activeOpacity={0.5}>
+      activeOpacity={Opacity.PRESSED_CTA}>
       <View style={[styles.inner, isDark && styles.innerDark, disabled && styles.innerDisabled, style]}>
         {showsPlusIcon(variant) && <AntDesign name="plus" size={16} color={Theme.colors.accentGreen} />}
 

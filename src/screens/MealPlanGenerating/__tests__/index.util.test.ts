@@ -1,3 +1,4 @@
+import {CurrentMealPlans, MealPlan} from '@data/models/MealPlan'
 import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
@@ -57,6 +58,7 @@ import {
   resolveConstraintReturnTo,
   resolveGenerationSummary,
   resolveGenerationView,
+  resolveSettledGenerationPlanId,
   resolveTerminalRecovery
 } from '../index.util'
 
@@ -1452,5 +1454,105 @@ describe('the keyed intent lifecycle', () => {
     const edited = buildGenerationRequest({...INPUTS, expectedPreferencesRevision: 5})
 
     expect(edited).not.toEqual(buildGenerationRequest(INPUTS))
+  })
+})
+
+// The identity that settles a generation, which is the only thing that may resolve its key: the plan a
+// confirmed commit returned, or a refetched plan carrying that very key. Everything else about a refetch is
+// display-only (AAP 0.2.5, 0.7.2).
+describe('resolveSettledGenerationPlanId', () => {
+  const CURRENT_PLAN_ID = 'plan-current'
+  const UPCOMING_PLAN_ID = 'plan-upcoming'
+  const SENT_KEY = 'idem-generate-1'
+
+  const makePlan = (overrides: Partial<MealPlan> = {}): MealPlan => ({
+    id: CURRENT_PLAN_ID,
+    revision: 1,
+    generationAttempt: 1,
+    generationKey: 'gen-key-current',
+    startDate: '2026-07-05',
+    endDate: '2026-07-11',
+    status: 'active',
+    targets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
+    generationTargets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
+    targetsStale: false,
+    preferencesRevision: 7,
+    targetsRevision: 4,
+    hasIncompatibilities: false,
+    summary: {plannedMeals: 21, groceryItemCount: 14, loggedEntryCount: 0},
+    days: [],
+    ...overrides
+  })
+
+  const makeUpcomingPlan = (overrides: Partial<MealPlan> = {}): MealPlan =>
+    makePlan({
+      id: UPCOMING_PLAN_ID,
+      generationKey: 'gen-key-upcoming',
+      startDate: '2026-07-12',
+      endDate: '2026-07-18',
+      ...overrides
+    })
+
+  const makePlans = (current: MealPlan | null, upcoming: MealPlan | null): CurrentMealPlans => ({current, upcoming})
+
+  describe('a confirmed commit', () => {
+    it('selects the plan the server returned', () => {
+      const plan = makePlan()
+
+      expect(resolveSettledGenerationPlanId({kind: 'committed', plan})).toBe(CURRENT_PLAN_ID)
+    })
+
+    // The regression behind a next-week generation and an upcoming-plan regeneration: the settled plan is the
+    // new week, so leaving the selection on the week that was on screen reopens the wrong plan.
+    it('selects the newly generated week rather than the week that was on screen', () => {
+      const generated = makeUpcomingPlan()
+
+      expect(resolveSettledGenerationPlanId({kind: 'committed', plan: generated})).toBe(UPCOMING_PLAN_ID)
+      expect(resolveSettledGenerationPlanId({kind: 'committed', plan: generated})).not.toBe(CURRENT_PLAN_ID)
+    })
+  })
+
+  describe('a refetch after a lost response', () => {
+    it('settles on the current plan carrying the key this attempt sent', () => {
+      const plans = makePlans(makePlan({generationKey: SENT_KEY}), null)
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBe(CURRENT_PLAN_ID)
+    })
+
+    it('settles on the upcoming plan carrying the key, with the current week still in hand', () => {
+      const plans = makePlans(makePlan(), makeUpcomingPlan({generationKey: SENT_KEY}))
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBe(UPCOMING_PLAN_ID)
+    })
+
+    it('settles nothing when neither plan carries the key', () => {
+      const plans = makePlans(makePlan(), makeUpcomingPlan())
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBeNull()
+    })
+
+    it('settles nothing when the refetch answered with no plan at all', () => {
+      expect(
+        resolveSettledGenerationPlanId({kind: 'refetched', plans: makePlans(null, null), sentKey: SENT_KEY})
+      ).toBeNull()
+    })
+
+    it('settles nothing when the refetch could not answer', () => {
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans: undefined, sentKey: SENT_KEY})).toBeNull()
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans: null, sentKey: SENT_KEY})).toBeNull()
+    })
+
+    it('settles nothing while no key has been sent', () => {
+      const plans = makePlans(makePlan({generationKey: SENT_KEY}), null)
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: null})).toBeNull()
+    })
+
+    // A plan whose own key failed to decode to anything must never be matched by an attempt that has none.
+    it('never matches an empty key against an empty generation key', () => {
+      const plans = makePlans(makePlan({generationKey: ''}), null)
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: ''})).toBeNull()
+    })
   })
 })

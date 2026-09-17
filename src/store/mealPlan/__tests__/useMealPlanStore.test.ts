@@ -22,6 +22,8 @@ import useMealPlanStore, {
   prunePendingIntentsForUser,
   resolveKeyedRequest,
   resolvePendingIntent,
+  resolveReplayableIntent,
+  resolveSlotOwnership,
   selectPersistedState,
   selectPrunedPendingIntents
 } from '../useMealPlanStore'
@@ -39,9 +41,7 @@ jest.mock('@store/zustandAsyncStorage', () => ({
 // meal-plan store itself is deliberately left unmocked — it is what the assertion reads back.
 jest.mock('@queries/queryClient', () => ({
   queryClient: {clear: jest.fn()},
-  sealQueryCachePartition: jest.fn(),
-  activateQueryCachePartition: jest.fn(),
-  discardPersistedQueryCache: jest.fn(async () => undefined)
+  asyncStoragePersister: {removeClient: jest.fn(async () => undefined)}
 }))
 
 jest.mock('@service/auth/AuthService', () => ({
@@ -66,6 +66,28 @@ jest.mock('@store/progress/useProgressStore', () => ({
 
 const persistedReads = zustandAsyncStorage.getItem as jest.Mock
 const persistedWrites = zustandAsyncStorage.setItem as jest.Mock
+
+/**
+ * Lets the adapter's awaited writes settle. The persist middleware writes after `set` without awaiting, so
+ * the memo that decides whether the NEXT write is a duplicate is only correct once those promises have run.
+ */
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+/**
+ * Drives one successful read, which is what clears the adapter's failed-read latch and re-seeds its write
+ * memo. The latch is module state by design — a refused read must block every write path, not just the one
+ * that noticed — so a case that rejected a read leaves it set for the cases that follow.
+ */
+const flushPersistedRead = async (): Promise<void> => {
+  persistedReads.mockResolvedValueOnce(null)
+
+  await useMealPlanStore.persist.rehydrate()
+  await flushMicrotasks()
+}
 
 const NOW = 1_760_000_000_000
 
@@ -577,6 +599,41 @@ describe('prunePendingIntentsForUser', () => {
     expect(persistedWrites.mock.calls[0][1]).toEqual({state: {pendingIntents: {log: live}}, version: 0})
   })
 
+  // A read that REJECTED leaves the contents of storage unknown, so sweeping would decide the fate of records
+  // nobody has seen — including, possibly, a key the server has already acted on. The sweep therefore waits,
+  // and a retry that succeeds is what finally runs it.
+  it('does not sweep a slice it could not read, and sweeps once a retry succeeds', async () => {
+    const clock = Date.now()
+    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
+
+    useMealPlanStore.setState({
+      pendingIntents: {generate: foreign},
+      hasHydratedIntents: false,
+      intentsHydration: 'pending'
+    })
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    const hydration = useMealPlanStore.persist.rehydrate()
+
+    prunePendingIntentsForUser('user-a', () => clock)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign})
+
+    await hydration
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('failed')
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign})
+
+    // The retry reads successfully, which both permits writes again and releases the deferred sweep.
+    persistedReads.mockResolvedValueOnce(null)
+    useMealPlanStore.getState().retryIntentsHydration()
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('succeeded')
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+
   it('drops the signed-in account own record once it has aged out', () => {
     const expired = makePendingIntent({action: 'swap', userId: 'user-a', createdAt: NOW - PENDING_INTENT_TTL_MS})
 
@@ -988,5 +1045,382 @@ describe('cold-start replay', () => {
     const misfiled = makePendingIntent({action: 'swap'})
 
     expect(selectPrunedPendingIntents({log: misfiled}, NOW, 'user-a')).toEqual({})
+  })
+})
+
+describe('resolveReplayableIntent', () => {
+  const state = (intent: PendingIntent, action: PendingIntentAction = 'swap') => ({pendingIntents: {[action]: intent}})
+
+  it('returns the record when the scope names the plan and meal it was minted for', () => {
+    const intent = makePendingIntent({action: 'swap', request: REQUESTS.swap})
+
+    expect(resolveReplayableIntent(state(intent), 'swap', 'user-a', NOW, {planId: 'plan-1', mealId: 'meal-1'})).toEqual(
+      intent
+    )
+  })
+
+  // Replaying another meal's key would commit that meal's swap, which is why the ids are compared rather than
+  // assumed from the action alone.
+  it('refuses a record minted for another meal', () => {
+    const intent = makePendingIntent({action: 'swap', request: REQUESTS.swap})
+
+    expect(
+      resolveReplayableIntent(state(intent), 'swap', 'user-a', NOW, {planId: 'plan-1', mealId: 'meal-2'})
+    ).toBeNull()
+  })
+
+  it('refuses a record minted for another plan', () => {
+    const intent = makePendingIntent({action: 'swap', request: REQUESTS.swap})
+
+    expect(
+      resolveReplayableIntent(state(intent), 'swap', 'user-a', NOW, {planId: 'plan-2', mealId: 'meal-1'})
+    ).toBeNull()
+  })
+
+  it('returns a generation when no scope is given, since it names no resource', () => {
+    const intent = makePendingIntent({action: 'generate', request: REQUESTS.generate})
+
+    expect(resolveReplayableIntent(state(intent, 'generate'), 'generate', 'user-a', NOW)).toEqual(intent)
+  })
+
+  it('refuses a record belonging to another account', () => {
+    const intent = makePendingIntent({action: 'log', request: REQUESTS.log, userId: 'user-b'})
+
+    expect(
+      resolveReplayableIntent(state(intent, 'log'), 'log', 'user-a', NOW, {planId: 'plan-1', mealId: 'meal-1'})
+    ).toBeNull()
+  })
+
+  it('refuses a record that has aged out', () => {
+    const intent = makePendingIntent({action: 'log', request: REQUESTS.log, createdAt: NOW - PENDING_INTENT_TTL_MS})
+
+    expect(
+      resolveReplayableIntent(state(intent, 'log'), 'log', 'user-a', NOW, {planId: 'plan-1', mealId: 'meal-1'})
+    ).toBeNull()
+  })
+
+  // Signed out, ownership cannot be judged at all, so nothing is replayable.
+  it('refuses every record while the account is unknown', () => {
+    const intent = makePendingIntent({action: 'log', request: REQUESTS.log})
+
+    expect(resolveReplayableIntent(state(intent, 'log'), 'log', null, NOW)).toBeNull()
+  })
+
+  it('refuses the slot the caller did not ask about', () => {
+    const intent = makePendingIntent({action: 'swap', request: REQUESTS.swap})
+
+    expect(resolveReplayableIntent(state(intent), 'log', 'user-a', NOW)).toBeNull()
+  })
+})
+
+describe('hasHydratedIntents', () => {
+  it('is announced through the store, so a screen subscribed to it re-renders when the read lands', async () => {
+    useMealPlanStore.setState({hasHydratedIntents: false})
+
+    // A first launch restores nothing: hydration finishes with no state change at all, which is exactly the
+    // case a screen waiting on `pendingIntents` alone would never hear about.
+    persistedReads.mockResolvedValueOnce(null)
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().hasHydratedIntents).toBe(true)
+  })
+
+  // A refused read is NOT an empty store, and this is the assertion that says so. The slice may still hold the
+  // key of an action the server committed, so reporting the read as "hydrated" would hand every gate built on
+  // this flag permission to mint a second key for that same action (0.7.2).
+  it('reports a refused read as failed rather than as hydrated, so no fresh key may be minted', async () => {
+    const stranded = makePendingIntent({action: 'log', key: 'stranded', userId: 'user-a'})
+
+    useMealPlanStore.setState({
+      pendingIntents: {log: stranded},
+      hasHydratedIntents: false,
+      intentsHydration: 'pending'
+    })
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+    persistedWrites.mockClear()
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('failed')
+    expect(useMealPlanStore.getState().hasHydratedIntents).toBe(false)
+
+    // And nothing was written back. The old behaviour announced hydration through the persisting setter, whose
+    // write would have put this process's default empty slice on top of whatever the failed read did not see.
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
+
+  // The way out of 'failed': until a read succeeds nothing may be minted and nothing may be written, so a
+  // device that momentarily refused the read must not strand the feature for the rest of the process.
+  it('returns to pending and then succeeds when the read is retried', async () => {
+    useMealPlanStore.setState({hasHydratedIntents: false, intentsHydration: 'pending'})
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('failed')
+
+    persistedReads.mockResolvedValueOnce(null)
+    useMealPlanStore.getState().retryIntentsHydration()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('pending')
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('succeeded')
+    expect(useMealPlanStore.getState().hasHydratedIntents).toBe(true)
+  })
+
+  it('refuses every storage write while the contents are unknown, and writes again after a successful read', async () => {
+    useMealPlanStore.setState({pendingIntents: {}, hasHydratedIntents: false, intentsHydration: 'pending'})
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    await useMealPlanStore.persist.rehydrate()
+
+    persistedWrites.mockClear()
+    useMealPlanStore.getState().recordPendingIntent(makePendingIntent({key: 'after-failed-read'}))
+
+    expect(persistedWrites).not.toHaveBeenCalled()
+
+    persistedReads.mockResolvedValueOnce(null)
+    useMealPlanStore.getState().retryIntentsHydration()
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+
+    // Cleared here so the count below is the recorded intent's own write, not the rehydration prune's.
+    persistedWrites.mockClear()
+    useMealPlanStore.getState().recordPendingIntent(makePendingIntent({key: 'after-retry'}))
+
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+  })
+
+  // Hydration is a fact about this process, not about the account: putting every owning screen back to
+  // 'not yet known' at sign-out would leave each of them waiting for a read that already happened.
+  it('survives reset, unlike every other field', () => {
+    useMealPlanStore.setState({hasHydratedIntents: true})
+    useMealPlanStore.getState().reset()
+
+    expect(useMealPlanStore.getState().hasHydratedIntents).toBe(true)
+  })
+
+  it('is not persisted, since it describes this launch rather than the stored record', () => {
+    useMealPlanStore.setState({hasHydratedIntents: true})
+
+    expect(selectPersistedState(useMealPlanStore.getState())).toEqual({
+      pendingIntents: useMealPlanStore.getState().pendingIntents
+    })
+  })
+})
+
+describe('persisted writes', () => {
+  // The middleware writes after every set and partializes only at write time, so before this every segment
+  // tap, day selection and banner dismissal serialised and wrote an unchanged pendingIntents to the device.
+  it.each([
+    ['the macros segment', () => useMealPlanStore.getState().setMacrosSegment('mealPlan')],
+    ['the selected day', () => useMealPlanStore.getState().setSelectedPlanDate('2026-07-06')],
+    ['the selected plan', () => useMealPlanStore.getState().setSelectedPlanId('plan-2')],
+    ['the post-log banner', () => useMealPlanStore.getState().setPostLogResult(makePostLogResult())],
+    ['a banner dismissal', () => useMealPlanStore.getState().dismissSuccessBanner('entry-1')]
+  ])('skips the storage write when %s changes, leaving the intent slice untouched', (_case, change) => {
+    useMealPlanStore.setState({pendingIntents: {log: makePendingIntent()}})
+    persistedWrites.mockClear()
+
+    change()
+
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
+
+  it('still writes when the intent slice itself changes', () => {
+    useMealPlanStore.setState({pendingIntents: {}})
+    persistedWrites.mockClear()
+
+    useMealPlanStore.getState().recordPendingIntent(makePendingIntent())
+
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+    expect(persistedWrites.mock.calls[0][0]).toBe('meal-plan-store')
+  })
+
+  it('writes once for a change and not again for the ephemeral updates that follow it', () => {
+    useMealPlanStore.setState({pendingIntents: {}})
+    persistedWrites.mockClear()
+
+    useMealPlanStore.getState().recordPendingIntent(makePendingIntent())
+    useMealPlanStore.getState().setMacrosSegment('mealPlan')
+    useMealPlanStore.getState().setSelectedPlanDate('2026-07-07')
+
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes again when the slice returns to a value it held earlier, since the last write was a different one', () => {
+    const intent = makePendingIntent()
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    useMealPlanStore.getState().recordPendingIntent(intent)
+    useMealPlanStore.getState().clearPendingIntent('log')
+    persistedWrites.mockClear()
+
+    useMealPlanStore.getState().recordPendingIntent(intent)
+
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('persisted write durability', () => {
+  // The memo exists to skip writes that would change nothing on disk, so it may only ever record what disk
+  // has CONFIRMED. Recording the value before awaiting made a rejected write permanent: the next identical
+  // attempt matched the memo and returned without touching the device, so the key of an action the server may
+  // already have committed never reached storage and the next launch minted a second one (0.7.2).
+  it('retries an identical write after the first one was rejected', async () => {
+    const intent = makePendingIntent({key: 'durable'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+
+    persistedWrites.mockClear()
+    persistedWrites.mockRejectedValueOnce(new Error('disk full'))
+
+    useMealPlanStore.getState().recordPendingIntent(intent)
+    await flushMicrotasks()
+
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+
+    // Same slice, second attempt: a write, not a no-op.
+    useMealPlanStore.setState({pendingIntents: {}})
+    useMealPlanStore.getState().recordPendingIntent(intent)
+    await flushMicrotasks()
+
+    expect(persistedWrites).toHaveBeenCalledTimes(3)
+    expect(persistedWrites.mock.calls[2][1]).toEqual({state: {pendingIntents: {log: intent}}, version: 0})
+  })
+
+  // Two sets in one tick queue two writes, and the first may resolve last. Letting whichever finished last
+  // claim the memo would tell the next comparison that the OLDER state is what sits on disk, and the newer
+  // state would then be skipped for good.
+  it('lets only the newest queued write claim the memo, whatever order they resolve in', async () => {
+    const first = makePendingIntent({key: 'first'})
+    const second = makePendingIntent({key: 'second'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+    persistedWrites.mockClear()
+
+    let releaseFirst = (): void => undefined
+
+    persistedWrites.mockImplementationOnce(
+      async () =>
+        new Promise<void>(resolve => {
+          releaseFirst = resolve
+        })
+    )
+
+    useMealPlanStore.getState().recordPendingIntent(first)
+    useMealPlanStore.getState().recordPendingIntent(second)
+
+    releaseFirst()
+    await flushMicrotasks()
+
+    expect(persistedWrites).toHaveBeenCalledTimes(2)
+
+    // The newest value is what disk holds, so restating it is the no-op...
+    useMealPlanStore.getState().recordPendingIntent(second)
+    await flushMicrotasks()
+
+    expect(persistedWrites).toHaveBeenCalledTimes(2)
+
+    // ...while returning to the older value is a real change and must be written.
+    useMealPlanStore.getState().recordPendingIntent(first)
+    await flushMicrotasks()
+
+    expect(persistedWrites).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('resolveSlotOwnership', () => {
+  const swap = (planId: string, mealId: string): PendingIntent =>
+    makePendingIntent({
+      action: 'swap',
+      key: `key-${mealId}`,
+      userId: 'user-a',
+      request: {...REQUESTS.swap, planId, mealId}
+    })
+
+  it('reports a free slot when nothing is on record', () => {
+    expect(
+      resolveSlotOwnership({pendingIntents: {}}, 'swap', 'user-a', NOW, {planId: 'plan-1', mealId: 'meal-1'})
+    ).toEqual({
+      kind: 'free'
+    })
+  })
+
+  it('reports the caller own unresolved request as theirs to replay', () => {
+    const intent = swap('plan-1', 'meal-1')
+
+    expect(
+      resolveSlotOwnership({pendingIntents: {swap: intent}}, 'swap', 'user-a', NOW, {
+        planId: 'plan-1',
+        mealId: 'meal-1'
+      })
+    ).toEqual({kind: 'mine', intent})
+  })
+
+  // The distinction the scoped resolver cannot make, and the one that matters: another meal holding the slot
+  // is NOT an empty slot. Minting over it abandons the only key that could reconcile that meal's commit.
+  it('reports another meal holding the slot as foreign rather than free', () => {
+    const intent = swap('plan-1', 'meal-other')
+
+    expect(
+      resolveSlotOwnership({pendingIntents: {swap: intent}}, 'swap', 'user-a', NOW, {
+        planId: 'plan-1',
+        mealId: 'meal-1'
+      })
+    ).toEqual({kind: 'foreign', intent})
+  })
+
+  it('reports another plan holding the slot as foreign', () => {
+    const intent = swap('plan-other', 'meal-1')
+
+    expect(
+      resolveSlotOwnership({pendingIntents: {swap: intent}}, 'swap', 'user-a', NOW, {
+        planId: 'plan-1',
+        mealId: 'meal-1'
+      })
+    ).toEqual({kind: 'foreign', intent})
+  })
+
+  // Expired and foreign-account records really are free: neither may be replayed, and neither is a reason to
+  // refuse the user's new request.
+  it('reports a free slot for a record that has aged out or belongs to another account', () => {
+    const expired = makePendingIntent({
+      action: 'swap',
+      userId: 'user-a',
+      createdAt: NOW - PENDING_INTENT_TTL_MS,
+      request: REQUESTS.swap
+    })
+    const foreignUser = makePendingIntent({
+      action: 'swap',
+      userId: 'user-b',
+      request: REQUESTS.swap
+    })
+
+    expect(resolveSlotOwnership({pendingIntents: {swap: expired}}, 'swap', 'user-a', NOW).kind).toBe('free')
+    expect(resolveSlotOwnership({pendingIntents: {swap: foreignUser}}, 'swap', 'user-a', NOW).kind).toBe('free')
+  })
+
+  it('reports a free slot when no account is known, since ownership cannot be judged', () => {
+    const intent = swap('plan-1', 'meal-1')
+
+    expect(resolveSlotOwnership({pendingIntents: {swap: intent}}, 'swap', null, NOW).kind).toBe('free')
+  })
+
+  // A generate snapshot carries neither id, so an empty scope is the only one it can match — which is what
+  // keeps the fail-closed scope check from reporting the generation slot as foreign to its own owner.
+  it('reports an unscoped generation record as theirs when no scope is asked for', () => {
+    const intent = makePendingIntent({action: 'generate', userId: 'user-a', request: REQUESTS.generate})
+
+    expect(resolveSlotOwnership({pendingIntents: {generate: intent}}, 'generate', 'user-a', NOW).kind).toBe('mine')
+    expect(
+      resolveSlotOwnership({pendingIntents: {generate: intent}}, 'generate', 'user-a', NOW, {planId: 'plan-1'}).kind
+    ).toBe('foreign')
   })
 })

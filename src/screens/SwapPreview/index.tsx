@@ -1,25 +1,27 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useRef} from 'react'
 
-import {ScrollView, TouchableOpacity, View} from 'react-native'
+import {ScrollView, useWindowDimensions, View} from 'react-native'
 
 import {Navigation, SwapPreviewRouteProp} from '@navigation/types'
+import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useMealPlanDayQuery} from '@queries/mealPlanning/useMealPlanDayQuery'
 import {useSwapMealMutation} from '@queries/mealPlanning/useSwapMealMutation'
 import {useSwapPreviewQuery} from '@queries/mealPlanning/useSwapPreviewQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
-import useMealPlanStore, {
-  buildPendingIntent,
-  KeyedRequestPlan,
-  resolveKeyedRequest
-} from '@store/mealPlan/useMealPlanStore'
-import {Opacity, Sizes} from '@styles/sizes'
+import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {Theme} from '@styles/theme'
-import {API_ERROR_CODES, getApiErrorCode, isPlanStateError, isUnknownOutcome} from '@utility/ApiErrorUtility'
+import {useIsMutating} from '@tanstack/react-query'
+import {
+  API_ERROR_CODES,
+  getApiErrorCode,
+  isFeatureDisabledError,
+  isPlanStateError,
+  isUnknownOutcome
+} from '@utility/ApiErrorUtility'
 import {mintKey, SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {dayStripLabel} from '@utility/MealPlanDateUtility'
-import {isWriteRefusedByVerdict} from '@utility/MealPlanLifecycleUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 import {v4 as uuidv4} from 'uuid'
 
@@ -43,18 +45,17 @@ import Screens from '@constants/screens'
 import {
   MEAL_PLAN_LOAD_ERROR_BODY,
   MEAL_PLAN_LOAD_ERROR_TITLE,
+  MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_MACRO_LABELS,
   MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_STALE_PLAN_TOAST,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
-  MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY,
-  MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
-  MEAL_SLOT_SENTENCE_LABELS,
+  MEAL_PLAN_OTHER_MEAL_PENDING_BODY,
+  MEAL_PLAN_OTHER_MEAL_PENDING_TITLE,
   RECIPE_DETAIL_INGREDIENTS_HEADER,
+  RECIPE_NUTRITION_METHOD_CAPTION,
   stringWithNamedParameters,
   SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT,
-  SWAP_FAILED_BODY_TEMPLATE,
-  SWAP_FAILED_TITLE,
   SWAP_PREVIEW_DAY_TOTAL_TEMPLATE,
   SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE,
   SWAP_PREVIEW_DELTA_UP_ACCESSIBILITY_TEMPLATE,
@@ -67,7 +68,15 @@ import {
 } from '@constants/strings'
 
 import CalorieProgressBar from './components/CalorieProgressBar'
-import styles from './index.styled'
+import styles, {
+  HERO_PLACEHOLDER_HEIGHT,
+  PLACEHOLDER_BAR_RADIUS,
+  placeholderCardWidth,
+  placeholderWidth,
+  THIS_MEAL_PLACEHOLDER_HEIGHTS,
+  TITLE_PLACEHOLDER_HEIGHTS,
+  TOTALS_PLACEHOLDER_HEIGHTS
+} from './index.styled'
 import {
   buildSwapMacroLegend,
   buildThisMealMetrics,
@@ -75,7 +84,12 @@ import {
   deriveCalorieDelta,
   formatPreviewSubtitle,
   formatReplacingContext,
+  isOutcomeOwnedBySwapMeal,
+  resolveCommitFailureDisposition,
   resolvePreviewIngredients,
+  resolveSwapCommitGate,
+  resolveSwapCommitLaunch,
+  resolveSwapSlotOwnership,
   SwapMacroLegendItem
 } from './index.util'
 
@@ -87,56 +101,87 @@ const MACRO_DOT_COLORS: Record<SwapMacroLegendItem['key'], string> = {
   fat: Theme.colors.lime
 }
 
-// Shaped like the loaded column: the title, the "This meal" card, the day-totals card and two ingredient rows.
-const SKELETON_HEIGHTS: number[] = [
-  Sizes.CONTROL,
-  Sizes.CONTROL_LG,
-  Sizes.CONTROL_LG,
-  Sizes.SKELETON_BAR,
-  Sizes.SKELETON_BAR
-]
-
-// Which assurance the failed commit is allowed to make. A server that answered `swap_failed` has told us
-// nothing was written, so the drawn copy naming the meal unchanged is truthful; an outcome nothing described
-// may have committed before its response was lost, so that screen states only that it could not be confirmed.
-type CommitFailure = 'confirmed' | 'unconfirmed'
-
 /**
  * Frame 13b, and the only screen that commits a swap. The commit is keyed: the intent is recorded before the
  * request leaves and the key is reused only for a byte-identical replay, so a response lost in transit is
  * asked again rather than swapping the meal a second time (AAP 0.7.2).
  *
- * The two drawn failure states (13e and its neutral unconfirmed variant) belong to `SwapMeal` in the design,
- * but that screen selects the attempt out of the shared mutation cache by a `mealId` this mutation's variables
- * do not carry, so an attempt made here is invisible to it. Both are therefore drawn in place, which also
- * keeps the retry on the screen still holding the pending key.
+ * The drawn failure states — 13e, its neutral unconfirmed variant and the rowless refusal a contradicted plan
+ * revision earns — belong to `SwapMeal` (AAP 0.2.5), and this screen draws none of them. It hands those
+ * outcomes over by returning there with the mutation and the pending intent untouched (see `onCommitFailed`):
+ * `SwapMeal` finds THIS attempt by matching the intent recorded below (its own user, plan and meal) and then
+ * the shared mutation cache entry carrying that intent's idempotency key, and it owns the same-key retry, the
+ * "still your lunch" assurance, the withheld alternatives and the display-only plan/day refetch those states
+ * require. It is also this screen's only pusher, so `goBack()` always lands on it.
  */
 const SwapPreviewScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<SwapPreviewRouteProp>()
+  const {width: windowWidth} = useWindowDimensions()
 
   const userId = useAuthStore(state => state.userId)
   const pendingIntents = useMealPlanStore(state => state.pendingIntents)
+  // Subscribed rather than read once: the slice arrives from AsyncStorage after the first frame, and this
+  // screen may neither mint nor record a key until that read has SUCCEEDED (0.7.2).
+  const hasHydratedIntents = useMealPlanStore(state => state.hasHydratedIntents)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
-
-  const [commitFailure, setCommitFailure] = useState<CommitFailure | null>(null)
 
   const previewQuery = useSwapPreviewQuery(params.planId, params.mealId, params.recipeVersionId, params.planRevision)
   const dayQuery = useMealPlanDayQuery(params.planId, params.date)
   const currentPlanQuery = useCurrentMealPlanQuery()
   const swapMutation = useSwapMealMutation(params.planId, params.mealId)
 
+  // TanStack keeps refetch and mutateAsync stable while replacing the observer object on every status change,
+  // so the callbacks and effects below depend on these rather than on the observers they hang off.
+  const {refetch: refetchPreview} = previewQuery
+  const {refetch: refetchDay} = dayQuery
+  const {refetch: refetchCurrentPlan} = currentPlanQuery
+  const {mutateAsync: commitSwap} = swapMutation
+
   const preview = previewQuery.data ?? null
   const meal = dayQuery.data?.day.meals.find(candidate => candidate.id === params.mealId) ?? null
 
-  // A plan the server has closed to writes cannot be swapped, so the commit is barred before it is attempted
-  // rather than after a 409. An unknown verdict — the day seeded from cache, which reports none — is not a
-  // refusal: the server decides, and it decides on the request.
-  const isWriteRefused = isWriteRefusedByVerdict(dayQuery.data?.isWritable)
-  const isCommitBlocked = swapMutation.isPending || isWriteRefused
+  // Counted across the app rather than read from this hook instance: the swap screen underneath owns a silent
+  // same-key replay of its own, and the two must never put one key on the wire at the same time (0.7.2).
+  const isCommitInFlight = useIsMutating({mutationKey: mutationKeys.swapMeal}) > 0
+
+  // One clock for this mount: a pending intent's life is measured in days, so re-reading it per render could
+  // only make two reads of the same record disagree.
+  const now = useMemo(() => Date.now(), [])
+
+  // Who holds the single `swap` slot. A record for another plan or meal is not an empty slot: recording over it
+  // would abandon the only key that can reconcile a swap the server may already have committed (0.7.2).
+  const swapSlotOwnership = useMemo(
+    () =>
+      resolveSwapSlotOwnership({
+        state: {pendingIntents},
+        userId,
+        planId: params.planId,
+        mealId: params.mealId,
+        now
+      }),
+    [now, params.mealId, params.planId, pendingIntents, userId]
+  )
+
+  // Everything the commit has to have in hand, in one place (see `resolveSwapCommitGate`): the one `swap`
+  // slot free, the persisted slice read, a verdict that positively permits the write, a preview still bound
+  // to the day's revision, and no read or write of its own in flight. An unknown verdict is not a refusal —
+  // the server decides, and it decides on the request — but it is not permission either, so the CTA stays
+  // inert until the day route answers.
+  const commitGate = resolveSwapCommitGate({
+    ownership: swapSlotOwnership,
+    isHydrated: hasHydratedIntents,
+    isCommitInFlight,
+    isPlanWritable: dayQuery.data?.isWritable,
+    dayPlanRevision: dayQuery.data?.planRevision,
+    previewPlanRevision: preview?.planRevision,
+    isPreviewFetching: previewQuery.isFetching
+  })
+
+  const {isCommitDisabled, isCommitPending, showsForeignHoldNotice} = commitGate
 
   // The hero names the meal being replaced and the card states the candidate's figures, so nothing is drawn
   // until both are in hand. Memoised because the commit handler closes over it.
@@ -150,6 +195,10 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   // keeps a transport failure out of this branch, which is why the generic card below is reserved for one.
   const isRecipeIneligible =
     !isUnknownOutcome(previewQuery.error) && getApiErrorCode(previewQuery.error) === API_ERROR_CODES.recipeIneligible
+
+  // The hero placeholder and the card silhouettes are one state, so it is decided once: the two are the same
+  // shell split across the full-bleed band and the content column.
+  const isShellLoading = ready === null && (isLoading || isRecipeIneligible)
 
   const dayName = useMemo(() => dayStripLabel(params.date).weekday, [params.date])
 
@@ -171,14 +220,34 @@ const SwapPreviewScreen = (): React.JSX.Element => {
 
   useEffect(() => {
     // Said once, and the screen is left standing: the candidate is still worth reading even though it can no
-    // longer be taken, and the plan it belonged to is a tap away.
-    if (!isWriteRefused || hasWarnedWriteRefused.current) {
+    // longer be taken, and the plan it belonged to is a tap away. The ANSWERED refusal only — a verdict still
+    // in flight is not a dead plan and gets no copy of its own.
+    if (!commitGate.isWriteRefused || hasWarnedWriteRefused.current) {
       return
     }
 
     hasWarnedWriteRefused.current = true
     showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
-  }, [isWriteRefused])
+  }, [commitGate.isWriteRefused])
+
+  const hasAskedForWriteVerdict = useRef(false)
+
+  useEffect(() => {
+    // The day query is seeded from the cached week and stamped with that entry's own `dataUpdatedAt`, so a
+    // plan cached inside the 60s staleTime mounts this query already fresh: the route is never asked, and the
+    // seed's verdict is `null` by design because writeability is judged in the user's saved zone and no local
+    // value may stand in for it. Gating the commit on a positive verdict without asking would then leave the
+    // CTA inert for the whole visit. So the route is asked once per mount while the verdict is unknown, which
+    // is the only thing that can replace that `null`. Guarded by the ref rather than by the verdict so an
+    // answer that somehow leaves it unknown is not asked for in a loop, and skipped while a read is already in
+    // flight, which will answer it anyway.
+    if (!commitGate.isAwaitingWriteVerdict || hasAskedForWriteVerdict.current || dayQuery.isFetching) {
+      return
+    }
+
+    hasAskedForWriteVerdict.current = true
+    dayQuery.refetch()
+  }, [commitGate.isAwaitingWriteVerdict, dayQuery])
 
   const refetchedForRevision = useRef<number | null>(null)
 
@@ -199,8 +268,8 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     }
 
     refetchedForRevision.current = dayRevision
-    previewQuery.refetch()
-  }, [dayQuery.data?.planRevision, preview, previewQuery])
+    refetchPreview()
+  }, [dayQuery.data?.planRevision, preview, refetchPreview])
 
   const onSwapCommitted = useCallback((): void => {
     // A server answer to the key resolves the intent, whether it committed now or replayed a stored result.
@@ -214,38 +283,72 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   }, [clearPendingIntent, navigation, params.date, setMacrosSegment, setSelectedPlanDate])
 
   /**
-   * Retiring the key is the decision this makes.
+   * Which screen owns this outcome, and whether the key survives it.
    *
-   * A confirmed refusal the server would repeat — a portion it recomputed differently, a plan that has moved
-   * on, a key already spent on another payload — ends the intent, so the next attempt mints a fresh one and
-   * cannot be answered with `idempotency_conflict`. A confirmed `swap_failed` and an outcome nothing described
-   * both keep it: the first is the drawn same-key retry, and the second may have committed before its response
-   * was lost, which leaves that key the only way to ask again without risking a second swap (AAP 0.7.2).
+   * FOUR OUTCOMES ARE HANDED BACK TO `SwapMeal` UNTOUCHED (AAP 0.2.5): an outcome nothing described and a
+   * confirmed `swap_failed`, which are its drawn unconfirmed and 13e states, plus `preview_stale` and
+   * `recipe_ineligible`, which say the revision its alternatives were computed for is not the one a commit
+   * would land against — so its rows must go, and stay gone until that list has answered again.
+   *
+   * THE PENDING RECORD IS WHAT MAKES THAT POSSIBLE, so it must outlive the handoff. `SwapMeal` fires none of
+   * these commits: it finds the attempt by resolving the pending intent for its own user, plan and meal and
+   * matching that intent's key against the shared mutation cache. Retiring the record here would leave it with
+   * no key, no outcome to classify and the very candidates the server has just refused, still tappable — which
+   * is why the handoff runs ahead of everything below and retires nothing itself. That screen then owns the
+   * whole recovery: the rowless refusal, its toast, the day and alternatives re-read, the display-only
+   * `mealPlanCurrent`/`mealPlanDay` refetch an unknown outcome earns, the same-key retry where one is offered,
+   * and retiring the key where a replay could never resolve it (0.7.2). Recovering any of it here instead
+   * would reconcile against a preview the user is leaving.
+   *
+   * WHAT REMAINS IS WHAT THIS SCREEN STILL ANSWERS FOR, and retiring the key is the decision it makes:
+   * every confirmed answer resolves the action, so only an outcome nothing described keeps the intent — that
+   * request may have committed before its response was lost, which leaves its key the only way to ask again
+   * without risking a second swap (AAP 0.7.2). A confirmed refusal the server would repeat — a plan that has
+   * moved on, a key already spent on another payload, a `swap_failed` that persisted nothing (0.5.2) — ends
+   * the intent, so the next attempt mints a fresh one and cannot be answered with `idempotency_conflict`.
    */
   const onCommitFailed = useCallback(
     (error: unknown): void => {
-      if (isUnknownOutcome(error)) {
-        setCommitFailure('unconfirmed')
+      // The pending record and the mutation cache entry are the whole handoff: no route parameter carries an
+      // outcome, because a param cannot say whether the key it describes is still unresolved. Signed-in only —
+      // `pendingIntents` is keyed by user, so a signed-out attempt was never recorded, `resolveReplayableSwap`
+      // answers null for it over there, and this screen is the only one that could ever report it.
+      if (userId !== null && isOutcomeOwnedBySwapMeal(error)) {
+        navigation.goBack()
 
         return
       }
 
       const code = getApiErrorCode(error)
 
-      if (code === API_ERROR_CODES.swapFailed) {
-        setCommitFailure('confirmed')
+      // Which outcomes spend the key, stated in one place: `resolveCommitFailureDisposition` keeps a record
+      // only for an outcome nothing described, and every confirmed answer — including a `swap_failed`, which
+      // persisted nothing — retires it. The four outcomes handed to `SwapMeal` above never reach this line:
+      // that screen reads the attempt out of the record first and retires the key itself, so no answer
+      // outlives its key either way.
+      const disposition = resolveCommitFailureDisposition(error)
+
+      if (!disposition.retainsPendingIntent) {
+        clearPendingIntent('swap')
+      }
+
+      // Reached by a signed-out attempt at the two outcomes with no copy of their own, and by a rejection
+      // that carried no value to classify. Reported here, and the key's fate is the disposition's above: an
+      // outcome nothing described may have committed, which makes that key the only way to ask again without
+      // risking a second swap (AAP 0.7.2). The user keeps the candidate they were about to commit.
+      if (isUnknownOutcome(error) || code === API_ERROR_CODES.swapFailed) {
+        showToast('error', TOAST_GENERIC_ERROR)
 
         return
       }
 
-      clearPendingIntent('swap')
-
-      // The server recomputed a different portion for this alternative, so the figures on screen are answers
-      // about a portion it will not commit. The alternatives are keyed by plan revision, so refreshing the plan
-      // is what makes the list behind this screen ask again.
+      // Signed out, so nothing recorded the attempt and this code and `recipe_ineligible` are recovered here
+      // rather than handed over. The server recomputed a different portion for this alternative, so the figures
+      // on screen are answers about a portion it will not commit. The alternatives are keyed by plan revision,
+      // so refreshing the plan is what makes the list behind this screen ask again.
       if (code === API_ERROR_CODES.previewStale) {
         showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
-        currentPlanQuery.refetch()
+        refetchCurrentPlan()
         navigation.goBack()
 
         return
@@ -262,8 +365,22 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       // behind this screen are no more use than the preview and the whole flow gives way to the current plan.
       if (isPlanStateError(error)) {
         showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
-        currentPlanQuery.refetch()
+        refetchCurrentPlan()
         setSelectedPlanDate(params.date)
+        setMacrosSegment('mealPlan')
+        navigation.popTo(Screens.MACROS)
+
+        return
+      }
+
+      // Meal planning itself has been switched off behind a mounted backend, so no commit from this preview
+      // can ever land and there is nothing here to retry. The refusal is stated once, by the Meal Plan
+      // segment's neutral no-CTA unavailable card (AAP 0.2.5, 0.7.5), so this carries NO toast and leaves for
+      // that tab — re-reading the current plan on the way, because the same `feature_disabled` answer from a
+      // gated route is the signal the entitlement router turns into that card. `SwapMeal`'s own
+      // 'exitToPlanTab' recovery and `MealPlanGenerating`'s unavailable family do exactly this.
+      if (isFeatureDisabledError(error)) {
+        refetchCurrentPlan()
         setMacrosSegment('mealPlan')
         navigation.popTo(Screens.MACROS)
 
@@ -274,7 +391,7 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       // still offers goes out under a new one.
       showToast('error', TOAST_GENERIC_ERROR)
     },
-    [clearPendingIntent, currentPlanQuery, navigation, params.date, setMacrosSegment, setSelectedPlanDate]
+    [clearPendingIntent, navigation, params.date, refetchCurrentPlan, setMacrosSegment, setSelectedPlanDate, userId]
   )
 
   /**
@@ -290,10 +407,6 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       return
     }
 
-    // A fresh attempt speaks for itself; leaving the last failure drawn would state an outcome for a request
-    // now in flight.
-    setCommitFailure(null)
-
     const request: SwapRequestSnapshot = {
       action: 'swap',
       planId: params.planId,
@@ -303,36 +416,45 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       expectedPlanRevision: ready.preview.planRevision
     }
 
-    const attemptedAt = Date.now()
-
     // Minted at the press, never before it: a key survives only for a byte-identical replay, so a different
-    // alternative or a moved revision gets its own. An attempt with no signed-in user to scope a record to
-    // still goes out under a fresh key, but is not persisted — `pendingIntents` is keyed by user.
-    const freshKey = mintKey(uuidv4)
-    const plan: KeyedRequestPlan =
-      userId === null
-        ? {idempotencyKey: freshKey, isReplay: false, request}
-        : resolveKeyedRequest({pendingIntents}, request, userId, attemptedAt, freshKey)
+    // alternative or a moved revision gets its own. Whether it is used at all is the launch decision's, which
+    // reads the persisted slot first — an unread slice, an attempt on the wire or another meal's unresolved key
+    // each mean nothing may be recorded or sent (0.7.2).
+    const launch = resolveSwapCommitLaunch({
+      state: {pendingIntents},
+      request,
+      userId,
+      isHydrated: hasHydratedIntents,
+      isCommitInFlight,
+      attemptedAt: Date.now(),
+      freshKey: mintKey(uuidv4)
+    })
 
-    if (userId !== null) {
-      recordPendingIntent(buildPendingIntent(plan.request, plan.idempotencyKey, userId, attemptedAt))
+    if (launch.kind === 'blocked') {
+      // The CTA is drawn pending for 'hydrating' and 'inFlight' and the hold notice states 'otherResource', so
+      // the refusal is already on screen; this only catches a press queued before that state arrived. What must
+      // not happen is a second key recorded over an unresolved one.
+      return
+    }
+
+    if (launch.intent !== null) {
+      recordPendingIntent(launch.intent)
     }
 
     try {
-      // The portion goes back exactly as the preview bound it. Recomputing it here is what earns
-      // `preview_stale`: the server derives the same number from the same function and compares.
-      await swapMutation.mutateAsync({
-        recipeVersionId: params.recipeVersionId,
-        portionMultiplier: request.portionMultiplier,
-        expectedPlanRevision: request.expectedPlanRevision,
-        idempotencyKey: plan.idempotencyKey
-      })
+      // The portion goes back exactly as the preview bound it, and on a replay every member comes from the
+      // STORED snapshot. Recomputing either here is what earns `preview_stale` or `409 idempotency_conflict`:
+      // the server derives the same number from the same function and compares the fingerprint.
+      await commitSwap(launch.payload)
 
       onSwapCommitted()
     } catch (error) {
       onCommitFailed(error)
     }
   }, [
+    commitSwap,
+    hasHydratedIntents,
+    isCommitInFlight,
     onCommitFailed,
     onSwapCommitted,
     params.mealId,
@@ -341,14 +463,13 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     pendingIntents,
     ready,
     recordPendingIntent,
-    swapMutation,
     userId
   ])
 
   const onRetryPressed = useCallback(() => {
-    previewQuery.refetch()
-    dayQuery.refetch()
-  }, [dayQuery, previewQuery])
+    refetchPreview()
+    refetchDay()
+  }, [refetchDay, refetchPreview])
 
   const onOpenRecipePressed = useCallback((): void => {
     // The route's revision, not the envelope's: recipe detail reads this candidate's planned figures out of the
@@ -366,24 +487,56 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     })
   }, [navigation, params.date, params.mealId, params.planId, params.planRevision, params.recipeVersionId])
 
+  // The 13b hero is a 180px full-bleed band, so its placeholder is one too — dropping it and starting the
+  // screen at the content column would move every row up by the height of the band that is about to appear.
+  // Outside `ContentColumn` for the same reason the hero itself is: the band spans the window, and only the
+  // rows below it take the gutter.
+  const heroPlaceholder = (): React.JSX.Element => (
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <SkeletonBlock height={HERO_PLACEHOLDER_HEIGHT} width={windowWidth} />
+    </View>
+  )
+
+  // Skeleton reads its width as a number rather than from a style, so the width a bar stands in for is passed
+  // in: the content column's for the title block, the cards' inner width for what sits inside a card.
+  const placeholderBars = (heights: readonly number[], width: number): React.JSX.Element[] =>
+    heights.map((height, index) => (
+      <SkeletonBlock
+        key={`${height}-${index}`}
+        height={height}
+        width={width}
+        borderRadius={PLACEHOLDER_BAR_RADIUS}
+        style={styles.skeletonBar}
+      />
+    ))
+
+  // One accessible element for the whole shell, reporting busy: the bars underneath it say nothing a screen
+  // reader can use, and hiding them without a status left this screen announcing nothing at all while it
+  // loaded. `accessible` on the wrapper is what collapses them into it.
   const loadingBlock = (): React.JSX.Element => (
-    <View style={styles.skeletonBlock} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {SKELETON_HEIGHTS.map((height, index) => (
-        <View key={`${height}-${index}`} style={styles.skeletonRow}>
-          <SkeletonBlock
-            height={height}
-            // The fill style overrides this, but Skeleton sizes its shimmer sweep from the prop, so the
-            // column's own maximum is what the animation is measured against.
-            width={Sizes.CONTENT_MAX_WIDTH}
-            style={styles.skeletonFill}
-          />
+    <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL} accessibilityState={{busy: true}}>
+      {/* The real title block, whose own row gap is the one the title and subtitle sit at. */}
+      <View style={styles.titleBlock}>{placeholderBars(TITLE_PLACEHOLDER_HEIGHTS, placeholderWidth(windowWidth))}</View>
+
+      <View style={styles.thisMealSection}>
+        <View style={styles.skeletonStack}>
+          {placeholderBars(THIS_MEAL_PLACEHOLDER_HEIGHTS, placeholderCardWidth(windowWidth))}
         </View>
-      ))}
+      </View>
+
+      <View style={styles.totalsCard}>
+        <View style={styles.skeletonStack}>
+          {placeholderBars(TOTALS_PLACEHOLDER_HEIGHTS, placeholderCardWidth(windowWidth))}
+        </View>
+      </View>
     </View>
   )
 
   const errorBlock = (): React.JSX.Element => (
-    <View style={styles.errorBlock}>
+    // The only thing on this screen that appears in response to a failure, so it is announced as one rather
+    // than waiting to be found: the hero and the footer are both absent in this state, and without the live
+    // region a screen reader is left on a screen whose loading status simply stopped.
+    <View style={styles.errorBlock} accessibilityRole="alert" accessibilityLiveRegion="polite">
       <InfoBanner
         tone="error"
         glyph="alert"
@@ -397,32 +550,28 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     </View>
   )
 
-  // 13e, and the neutral variant of it that an unconfirmed outcome earns. Drawn above the title, where the
-  // frame puts it, and offering the same key again: a swap that did commit answers the retry with its stored
-  // result, so the flow reaches the plan either way.
-  const commitFailureBlock = (loaded: NonNullable<typeof ready>): React.JSX.Element => {
-    const isConfirmed = commitFailure === 'confirmed'
-    const title = isConfirmed ? SWAP_FAILED_TITLE : MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE
-    const body = isConfirmed
-      ? stringWithNamedParameters(SWAP_FAILED_BODY_TEMPLATE, {slot: MEAL_SLOT_SENTENCE_LABELS[loaded.meal.slot]})
-      : MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY
-
-    return (
-      <View style={styles.errorBlock}>
-        <InfoBanner
-          tone="error"
-          glyph="alert"
-          title={title}
-          body={body}
-          actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
-          onAction={onUseThisMealPressed}
-          isActionPending={swapMutation.isPending}
-          secondaryActionLabel={SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT}
-          onSecondaryAction={navigation.goBack}
-        />
-      </View>
-    )
-  }
+  /**
+   * Why the commit is closed when the single `swap` slot is held by another plan or meal. A disabled CTA with
+   * nothing said about it is indistinguishable from a broken screen, and this state lasts until that other key
+   * is answered rather than for a moment.
+   *
+   * The copy names the wait rather than reusing the unconfirmed-outcome pair, because nothing the user did on
+   * THIS meal has failed and there is nothing here for them to retry. No "Try again" is offered either — this
+   * screen's mutation is bound to its own plan and meal, so the only honest move is back to the alternatives
+   * while the owning screen replays that key.
+   */
+  const foreignHoldBlock = (): React.JSX.Element => (
+    <View style={styles.errorBlock}>
+      <InfoBanner
+        tone="error"
+        glyph="alert"
+        title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
+        body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
+        secondaryActionLabel={SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT}
+        onSecondaryAction={navigation.goBack}
+      />
+    </View>
+  )
 
   const previewBlock = (loaded: NonNullable<typeof ready>): React.JSX.Element => {
     const {alternative, dayTotalsIfSwapped, targets, calorieDelta} = loaded.preview
@@ -458,6 +607,8 @@ const SwapPreviewScreen = (): React.JSX.Element => {
 
           <MetricGrid4 items={buildThisMealMetrics(alternative.nutrition)} />
         </View>
+
+        <Text style={styles.provenanceCaption}>{RECIPE_NUTRITION_METHOD_CAPTION}</Text>
 
         <View style={styles.totalsCard}>
           <View style={styles.totalsHeaderRow}>
@@ -508,7 +659,7 @@ const SwapPreviewScreen = (): React.JSX.Element => {
 
           <View style={styles.ingredientsList}>
             {ingredients.map(ingredient => (
-              <IngredientRow key={ingredient.name} name={ingredient.name} quantityText={ingredient.quantityText} />
+              <IngredientRow key={ingredient.key} name={ingredient.name} quantityText={ingredient.quantityText} />
             ))}
           </View>
         </View>
@@ -519,32 +670,30 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* The hero opens the recipe; the back button nested inside it is the deeper responder and keeps its
-            own touches. */}
+        {isShellLoading && heroPlaceholder()}
+
+        {/* The hero opens the recipe through its own content pressable, so the back button it draws stays a
+            sibling of that pressable rather than a control nested inside one. */}
         {ready !== null && (
-          <TouchableOpacity
-            activeOpacity={Opacity.PRESSED}
-            accessibilityRole="button"
+          <RecipeHero
+            size="preview"
+            iconKey={ready.preview.alternative.recipe.iconKey}
+            contextText={formatReplacingContext(ready.meal.slot, params.date)}
+            onBack={navigation.goBack}
+            onPress={onOpenRecipePressed}
             accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {
               recipe: ready.preview.alternative.recipe.name
             })}
-            onPress={onOpenRecipePressed}>
-            <RecipeHero
-              size="preview"
-              iconKey={ready.preview.alternative.recipe.iconKey}
-              contextText={formatReplacingContext(ready.meal.slot, params.date)}
-              onBack={navigation.goBack}
-            />
-          </TouchableOpacity>
+          />
         )}
 
         <ContentColumn>
           {/* The ineligible refusal keeps the loading shape until the effect above pops the screen: its recovery
               is the toast, so drawing the generic "couldn't load" card and its retry would state the wrong cause
               for the one frame this screen has left. */}
-          {ready === null && (isLoading || isRecipeIneligible ? loadingBlock() : errorBlock())}
+          {ready === null && (isShellLoading ? loadingBlock() : errorBlock())}
 
-          {ready !== null && commitFailure !== null && commitFailureBlock(ready)}
+          {ready !== null && showsForeignHoldNotice && foreignHoldBlock()}
 
           {ready !== null && previewBlock(ready)}
         </ContentColumn>
@@ -554,8 +703,8 @@ const SwapPreviewScreen = (): React.JSX.Element => {
         <SetupFooter hairline>
           <PrimaryButton
             label={SWAP_USE_THIS_MEAL_BUTTON_TEXT}
-            isLoading={swapMutation.isPending}
-            disabled={isCommitBlocked}
+            isLoading={isCommitPending}
+            disabled={isCommitDisabled}
             onPress={onUseThisMealPressed}
           />
 

@@ -20,6 +20,7 @@ import useUserData from '@store/userData/useUserData'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {heightUnitPrefFor, weightUnitPrefFor} from '@utility/UnitConversionUtility'
@@ -27,11 +28,11 @@ import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SegmentedControl, {SegmentedControlOption} from '@components/SegmentedControl'
 import SetupFooter from '@components/SetupFooter'
 import SkeletonBlock from '@components/Skeleton'
@@ -82,17 +83,19 @@ import styles from './index.styled'
 import {
   ABOUT_YOU_STEP,
   AboutYouErrorCode,
+  AboutYouFieldOverrides,
   buildBodyStepValues,
+  convertHeightFieldsToUnit,
+  convertWeightFieldToUnit,
   initialFieldsFor,
   MealPlanAboutYouFields,
+  mergeAboutYouFields,
   resolveWeighInPrefill,
   selectLatestWeighIn,
   validateAboutYou,
   wizardTotalSteps
 } from './index.util'
 
-// The order 46:297 draws the three options in. 'prefer_not_to_say' is an answer, not an absence of one:
-// the server resolves it to the manual target route, so it leads where Skip leads.
 const SEX_ORDER: readonly SexForEstimate[] = Object.freeze(['female', 'male', 'prefer_not_to_say'] as const)
 
 const HEIGHT_UNIT_OPTIONS: readonly SegmentedControlOption<HeightUnitPref>[] = Object.freeze([
@@ -105,17 +108,12 @@ const WEIGHT_UNIT_OPTIONS: readonly SegmentedControlOption<WeightUnitPref>[] = O
   Object.freeze({key: 'kg', label: MEAL_PLAN_KG_UNIT} as const)
 ])
 
-// Each field stops at the widest value its validator accepts, so a number pad cannot produce input the step
-// will only reject: ages and centimetre heights run to three digits, a foot count to one, inches to two, and
-// a weight to four digits and a decimal point.
 const AGE_MAX_LENGTH = 3
 const FEET_MAX_LENGTH = 1
 const INCHES_MAX_LENGTH = 2
 const CENTIMETERS_MAX_LENGTH = 3
 const WEIGHT_MAX_LENGTH = 5
 
-// The rhythm 46:297's form loads into: a label bar over its 48-tall control for age, height and weight, then
-// the sex label over its three option cards.
 const SKELETON_BLOCK_HEIGHTS: number[] = [
   Sizes.SKELETON_BAR_SM,
   Sizes.CONTROL_LG,
@@ -129,8 +127,6 @@ const SKELETON_BLOCK_HEIGHTS: number[] = [
   Sizes.CONTROL_LG
 ]
 
-// One message per code the validator can return. A field's required and range codes share the field's single
-// Figma message, because 46:404 draws one row per field rather than one per reason.
 const ABOUT_YOU_ERROR_COPY: Readonly<Record<AboutYouErrorCode, string>> = Object.freeze({
   age_required: MEAL_PLAN_AGE_ERROR_TEXT,
   age_range: MEAL_PLAN_AGE_ERROR_TEXT,
@@ -144,12 +140,11 @@ const ABOUT_YOU_ERROR_COPY: Readonly<Record<AboutYouErrorCode, string>> = Object
   sex_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT
 })
 
-// What one attempt at the body step settled. 'saved' covers both a fresh write and a rejected revision the
-// refetch proved already holds this answer, because the two are indistinguishable to the caller.
+// 'saved' covers a fresh write and a rejected revision the refetch proved already holds this answer,
+// the two being indistinguishable to the caller.
 type BodyStepOutcome = 'saved' | 'failed' | 'conflict'
 
-// The measurements this step owns, compared when a revision is rejected so an activity level or a meal time
-// edited on another device is never reported as a conflict with a height.
+// Only what this step owns: an activity level edited on another device is not a conflict with a height.
 const BODY_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze([
   'age',
   'heightCm',
@@ -159,8 +154,6 @@ const BODY_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Ob
   'weightUnitPref'
 ])
 
-// Skip supplies no measurement at all: the only thing it asserts is the manual target route, so that is the
-// single field a rejected revision is compared on.
 const SKIP_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = Object.freeze(['targetRoute'])
 
 const MealPlanAboutYouScreen = (): React.JSX.Element => {
@@ -168,24 +161,28 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanAboutYouRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
-  const weighInsQuery = useWeighInsQuery()
-  const saveStepMutation = useSaveSetupStepMutation()
+  const {
+    data: preferencesData,
+    isLoading: isLoadingPreferences,
+    refetch: refetchPreferences
+  } = useMealPlanPreferencesQuery()
+  const {data: weighInsData} = useWeighInsQuery()
+  const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, answerBodySkipped} = useMealPlanSetupDraft()
+  // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
+  // whichever exit the user takes — including the iOS swipe and Android system back, which reach no
+  // handler. Each answered branch marks them stored first, so leaving after a save keeps them.
+  const {markSaved, discardEdits} = useSetupStepEdit('body', params.mode === 'edit')
   const weightUnit = useUserData(state => state.weightUnit)
 
-  // Null until the user types: while it is null the fields are still the saved values read in the selected
-  // units, so switching a unit re-reads them rather than leaving a number the toggle has contradicted.
-  const [enteredFields, setEnteredFields] = useState<MealPlanAboutYouFields | null>(null)
+  const [fieldOverrides, setFieldOverrides] = useState<AboutYouFieldOverrides>({})
+  const [isWeightEdited, setIsWeightEdited] = useState(false)
   const [hasSubmitted, setHasSubmitted] = useState(false)
-  // Live only while a refetched row genuinely differs from what this screen tried to write.
   const [hasConflict, setHasConflict] = useState(false)
-  // Which of the step's two answers the live conflict refused. 'Keep mine' re-sends that same answer, and
-  // the measurements and Skip are different writes — a ref holds it because it is read when the dialog's
-  // button is pressed, never during render.
+  // A ref, not state: it is read when the dialog's button is pressed, never during render.
   const conflictedAnswer = useRef<'body' | 'skip'>('body')
 
-  const preferences = preferencesQuery.data ?? null
+  const preferences = preferencesData ?? null
 
   useEffect(() => {
     if (!seeded && preferences !== null) {
@@ -197,8 +194,8 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   const weightUnitPref = draft.weightUnitPref ?? preferences?.weightUnitPref ?? weightUnitPrefFor(weightUnit)
 
   const prefill = useMemo(
-    () => resolveWeighInPrefill(selectLatestWeighIn(weighInsQuery.data ?? []), weightUnit),
-    [weighInsQuery.data, weightUnit]
+    () => resolveWeighInPrefill(selectLatestWeighIn(weighInsData ?? []), weightUnit),
+    [weighInsData, weightUnit]
   )
 
   const savedFields = useMemo(
@@ -214,31 +211,57 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     [draft.age, draft.heightCm, draft.weightKg, heightUnit, prefill, weightUnitPref]
   )
 
-  const fields = enteredFields ?? savedFields
+  const fields = useMemo(() => mergeAboutYouFields(savedFields, fieldOverrides), [fieldOverrides, savedFields])
   const validation = validateAboutYou(fields, heightUnit, weightUnitPref, draft.sexForEstimate)
   const errors = hasSubmitted ? validation.errors : null
 
-  // The suggestion is labelled only while it is still the suggestion: an edited field, or a weight already
-  // saved on the server, is the user's own number and needs no provenance caption (03b drops it).
-  const showsPrefillCaption = prefill.showCaption && draft.weightKg === null && enteredFields === null
+  // A weight the user typed, or one already saved, is their own number and carries no suggestion caption.
+  const showsPrefillCaption = prefill.showCaption && draft.weightKg === null && !isWeightEdited
 
-  const onChangeField = useCallback(
-    (field: keyof MealPlanAboutYouFields, text: string) => {
-      setEnteredFields(current => ({...(current ?? savedFields), [field]: text}))
+  const onChangeField = useCallback((field: keyof MealPlanAboutYouFields, text: string) => {
+    setFieldOverrides(current => ({...current, [field]: text}))
+
+    if (field === 'weight') {
+      setIsWeightEdited(true)
+    }
+  }, [])
+
+  // Only text the user entered is converted. Everything else on screen is derived from the saved row or the
+  // weigh-in suggestion, both of which re-derive in the newly selected unit, so converting them into an
+  // override would pin the old number and shut out a weigh-in that answers later.
+  const onHeightUnitChanged = useCallback(
+    (nextUnit: HeightUnitPref) => {
+      const hasEnteredHeight =
+        fieldOverrides.feet !== undefined ||
+        fieldOverrides.inches !== undefined ||
+        fieldOverrides.centimeters !== undefined
+      const converted = hasEnteredHeight ? convertHeightFieldsToUnit(fields, heightUnit, nextUnit) : {}
+
+      setFieldOverrides(current => ({...current, ...converted}))
+      setStepFields('body', {heightUnitPref: nextUnit})
     },
-    [savedFields]
+    [fieldOverrides, fields, heightUnit, setStepFields]
+  )
+
+  const onWeightUnitChanged = useCallback(
+    (nextUnit: WeightUnitPref) => {
+      const converted =
+        fieldOverrides.weight === undefined
+          ? {}
+          : convertWeightFieldToUnit(fieldOverrides.weight, weightUnitPref, nextUnit)
+
+      setFieldOverrides(current => ({...current, ...converted}))
+      setStepFields('body', {weightUnitPref: nextUnit})
+    },
+    [fieldOverrides.weight, setStepFields, weightUnitPref]
   )
 
   const manualTargetsReturn = useMemo<TargetsReturn>(
-    // The manual editor sits inside the run it was opened from: in setup it continues forward to Diet, and an
-    // edit returns to the row that opened this step.
     () => (params.mode === 'edit' ? {kind: 'stack', route: params.returnTo} : {kind: 'stack', route: 'diet'}),
     [params]
   )
 
-  // Both answers to this step — the measurements and Skip — go out through here, so the rejected-revision
-  // recovery 0.7.2 prescribes is written once and cannot differ between them. The comparison is the caller's,
-  // because what counts as a conflicting change is exactly what that answer claimed.
+  // What counts as a conflicting change is the caller's, being exactly what its answer claimed.
   const saveBodyStep = useCallback(
     async (
       payload: BodyStepPayload,
@@ -246,23 +269,20 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
       comparedFields: readonly (keyof MealPlanPreferences & string)[]
     ): Promise<BodyStepOutcome> => {
       try {
-        await saveStepMutation.mutateAsync({step: 'body', payload})
+        await saveSetupStep({step: 'body', payload})
         setHasConflict(false)
 
         return 'saved'
       } catch (error) {
-        // The screen stays mounted with every entered measurement intact and the CTA usable again, so the
-        // next press re-sends exactly the step that is still unsaved.
         if (getApiErrorCode(error) !== API_ERROR_CODES.staleRevision) {
           showToast('error', TOAST_GENERIC_ERROR)
 
           return 'failed'
         }
 
-        // A rejected revision is never retried blindly: refetch the authoritative row and compare it with
-        // what this answer claimed. Equal values mean the write whose response was lost, or the identical
-        // edit from another device, already landed — so it resolves silently rather than writing twice.
-        const refetched = await preferencesQuery.refetch()
+        // Never retried blindly: equal values mean the write whose response was lost, or the identical edit
+        // from another device, already landed, so it resolves silently rather than writing twice.
+        const refetched = await refetchPreferences()
         const fresh = refetched.data ?? null
 
         if (fresh === null) {
@@ -277,14 +297,12 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
           return 'saved'
         }
 
-        // A real difference is the user's to settle, so it raises the persistent dialog 0.7.2 requires
-        // rather than a toast that fades; a second rejection repeats the cycle.
         setHasConflict(true)
 
         return 'conflict'
       }
     },
-    [preferencesQuery, saveStepMutation]
+    [refetchPreferences, saveSetupStep]
   )
 
   const openManualTargets = useCallback(() => {
@@ -297,6 +315,15 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     const values = buildBodyStepValues(fields, heightUnit, weightUnitPref)
 
     if (!validation.isValid || values === null || draft.sexForEstimate === null) {
+      return
+    }
+
+    // The server requires this step's exact revision, so a query that never produced one is asked again.
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
+
+    if (saved === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
       return
     }
 
@@ -322,7 +349,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         heightUnitPref: heightUnit,
         weightUnitPref,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        expectedRevision: preferences?.revision
+        expectedRevision: saved.revision
       },
       {
         age: values.age,
@@ -338,6 +365,9 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     if (outcome !== 'saved') {
       return
     }
+
+    // Stored now, so the discard this screen performs on its way out has nothing to take back.
+    markSaved()
 
     // 'Prefer not to say' leaves the server with no sex to estimate from, so it takes the manual route the
     // same way Skip does — with the measurements it did supply kept.
@@ -358,10 +388,12 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     draft.sexForEstimate,
     fields,
     heightUnit,
+    markSaved,
     navigation,
     openManualTargets,
     params,
-    preferences?.revision,
+    preferences,
+    refetchPreferences,
     returnFromTargets,
     saveBodyStep,
     setStepFields,
@@ -370,8 +402,14 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   ])
 
   const onSkipPressed = useCallback(async (): Promise<void> => {
-    // Skip is the body step's other answer rather than a way past it: it records the manual route and clears
-    // no measurement, which is why the draft is told before the request goes out.
+    const saved = preferences ?? (await refetchPreferences()).data ?? null
+
+    if (saved === null) {
+      showToast('error', TOAST_GENERIC_ERROR)
+
+      return
+    }
+
     answerBodySkipped()
     conflictedAnswer.current = 'skip'
 
@@ -379,19 +417,18 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
       {
         skipped: true,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        expectedRevision: preferences?.revision
+        expectedRevision: saved.revision
       },
       {targetRoute: 'manual'},
       SKIP_CONFLICT_FIELDS
     )
 
     if (outcome === 'saved') {
+      markSaved()
       openManualTargets()
     }
-  }, [answerBodySkipped, openManualTargets, preferences?.revision, saveBodyStep])
+  }, [answerBodySkipped, markSaved, openManualTargets, preferences, refetchPreferences, saveBodyStep])
 
-  // 'Keep mine' re-presses the answer the conflict refused, unchanged: the mutation now carries the revision
-  // the failed attempt refetched, so the server either accepts it or refuses it again and the cycle repeats.
   const onKeepMinePressed = useCallback(async (): Promise<void> => {
     if (conflictedAnswer.current === 'skip') {
       await onSkipPressed()
@@ -402,14 +439,17 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
     await onContinuePressed()
   }, [onContinuePressed, onSkipPressed])
 
-  // 'Use theirs' discards this step's answers in favour of the refetched row. The typed field text goes with
-  // them: while it is set it outranks the saved values on every render, so leaving it would keep overriding
-  // the measurements the user just accepted.
+  // Entered text outranks the saved value on every render, so it goes with the answers 'Use theirs' discards.
   const onUseTheirsPressed = useCallback((): void => {
     setHasConflict(false)
-    setEnteredFields(null)
+    setFieldOverrides({})
+    setIsWeightEdited(false)
+    // Seeding adopts the refetched row without overwriting a step the user has edited, which is what
+    // protects the other steps — so this step's own edits have to be dropped explicitly for the row to
+    // be what 'Use theirs' leaves behind.
     seedFromPreferences(preferences)
-  }, [preferences, seedFromPreferences])
+    discardEdits()
+  }, [discardEdits, preferences, seedFromPreferences])
 
   const ageErrorMessage = errors?.age == null ? null : ABOUT_YOU_ERROR_COPY[errors.age]
   const feetErrorMessage = errors?.feet == null ? null : ABOUT_YOU_ERROR_COPY[errors.feet]
@@ -417,8 +457,8 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   const centimetersErrorMessage = errors?.centimeters == null ? null : ABOUT_YOU_ERROR_COPY[errors.centimeters]
   const weightErrorMessage = errors?.weight == null ? null : ABOUT_YOU_ERROR_COPY[errors.weight]
 
-  // A field carries its own error in its label, so reaching the input after validation still says what is
-  // wrong with it — the row below the field announces itself once, at the moment validation runs.
+  // A field carries its error in its own label too, so reaching the input later still says what is wrong
+  // with it; the row below it announces itself once, when validation runs.
   const ageFieldLabel =
     ageErrorMessage === null
       ? MEAL_PLAN_AGE_HEADER
@@ -477,7 +517,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
 
           {/* The saved answers decide both the field values and which unit each is read in, so the form waits
               for them rather than rendering defaults it would then contradict. */}
-          {preferencesQuery.isLoading && (
+          {isLoadingPreferences && (
             <View style={styles.skeletonGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
               {SKELETON_BLOCK_HEIGHTS.map((height, index) => (
                 <SkeletonBlock
@@ -493,7 +533,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
             </View>
           )}
 
-          {!preferencesQuery.isLoading && (
+          {!isLoadingPreferences && (
             <View style={styles.form}>
               <View style={styles.fieldGroup}>
                 <View style={styles.labelRow}>
@@ -532,7 +572,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
                       options={[...HEIGHT_UNIT_OPTIONS]}
                       selected={heightUnit}
                       variant="unit"
-                      onChange={heightUnitPref => setStepFields('body', {heightUnitPref})}
+                      onChange={onHeightUnitChanged}
                     />
                   </View>
                 </View>
@@ -614,7 +654,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
                       options={[...WEIGHT_UNIT_OPTIONS]}
                       selected={weightUnitPref}
                       variant="unit"
-                      onChange={unitPref => setStepFields('body', {weightUnitPref: unitPref})}
+                      onChange={onWeightUnitChanged}
                     />
                   </View>
                 </View>
@@ -674,10 +714,8 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
       <SetupFooter>
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
-          isLoading={saveStepMutation.isPending}
-          // 46:555 keeps this enabled so every press re-validates. The one thing it waits for is the revision
-          // the saved row carries: sending the step without it is a write the server refuses outright.
-          disabled={preferencesQuery.isLoading}
+          isLoading={isSaving}
+          disabled={isLoadingPreferences}
           onPress={onContinuePressed}
           style={styles.ctaHeight}
         />
@@ -687,20 +725,23 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         {params.mode !== 'edit' && (
           <TertiaryTextButton
             label={MEAL_PLAN_SKIP_BUTTON_TEXT}
-            disabled={saveStepMutation.isPending || preferencesQuery.isLoading}
+            disabled={isSaving || isLoadingPreferences}
             onPress={onSkipPressed}
           />
         )}
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={hasConflict}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveStepMutation.isPending}
-        onKeepMine={onKeepMinePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isSaving}
+        avoidKeyboard
+        onConfirmPressed={onKeepMinePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

@@ -1,10 +1,17 @@
-import {StyleSheet} from 'react-native'
+import {StyleSheet, ViewStyle} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
 import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+// The height is measured at runtime — what the viewport has left below the segmented control — so the style
+// is a factory, the form `PrimaryButton/index.styled.ts` uses for its measured width.
+export const emptyRegion = (minHeight: number): ViewStyle => ({
+  minHeight,
+  justifyContent: 'center'
+})
 
 export default StyleSheet.create({
   body: {

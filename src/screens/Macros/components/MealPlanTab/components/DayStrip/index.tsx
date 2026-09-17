@@ -1,4 +1,4 @@
-import React from 'react'
+import React, {useMemo} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
@@ -18,10 +18,13 @@ interface Props {
 }
 
 const DayStrip = ({dayKeys, selectedDayKey, onDayPressed}: Props): React.JSX.Element => {
+  // Each label is two date formats, so they are derived from the week rather than from the selection: moving
+  // the selection re-renders the strip but re-formats nothing.
+  const labels = useMemo(() => dayKeys.map(dayKey => ({dayKey, ...dayStripLabel(dayKey)})), [dayKeys])
+
   return (
     <View style={styles.strip}>
-      {dayKeys.map(dayKey => {
-        const {weekday, dayNumber} = dayStripLabel(dayKey)
+      {labels.map(({dayKey, weekday, dayNumber}) => {
         const isSelected = dayKey === selectedDayKey
 
         return (
@@ -45,4 +48,6 @@ const DayStrip = ({dayKeys, selectedDayKey, onDayPressed}: Props): React.JSX.Ele
   )
 }
 
-export default DayStrip
+// Memoized so the strip re-renders when the week or the selected day changes rather than on every store and
+// query change the tab above it observes.
+export default React.memo(DayStrip)

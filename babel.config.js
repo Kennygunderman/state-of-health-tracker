@@ -32,7 +32,7 @@ module.exports = function (api) {
         {
           moduleName: '@env',
           path: '.env',
-          allowlist: ['USDA_BASE_URL', 'USDA_FOOD_API_KEY', 'SOH_API_KEY', 'SOH_API_BASE_URL']
+          allowlist: ['SOH_API_BASE_URL']
         }
       ]
     ]

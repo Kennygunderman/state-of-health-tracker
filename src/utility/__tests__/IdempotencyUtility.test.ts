@@ -3,6 +3,8 @@ import {
   fingerprintSnapshot,
   GenerateRequestSnapshot,
   isMealPlanActionType,
+  KeyedLaunchDecision,
+  KeyedLaunchInput,
   LogRequestSnapshot,
   matchesFingerprint,
   MEAL_PLAN_REQUEST_METHOD,
@@ -13,6 +15,12 @@ import {
   RegenerateRequestSnapshot,
   requestBody,
   requestIds,
+  requestMealId,
+  requestPlanId,
+  resolveKeyedLaunch,
+  resolveMountReplay,
+  SlotOwnership,
+  snapshotMatchesScope,
   SwapRequestSnapshot
 } from '../IdempotencyUtility'
 
@@ -911,5 +919,171 @@ describe('isMealPlanActionType', () => {
     ['an array', ['generate']]
   ])('rejects %s, which is not a name at all', (_case, value) => {
     expect(isMealPlanActionType(value)).toBe(false)
+  })
+})
+
+describe('requestPlanId', () => {
+  it('answers null for a generation, which precedes every plan', () => {
+    expect(requestPlanId(generateSnapshot())).toBeNull()
+  })
+
+  it.each([
+    ['a regeneration', regenerateSnapshot({planId: 'plan-9'})],
+    ['a swap', swapSnapshot({planId: 'plan-9'})],
+    ['a planned log', logSnapshot({planId: 'plan-9'})]
+  ])('reports the plan %s names', (_case, snapshot) => {
+    expect(requestPlanId(snapshot)).toBe('plan-9')
+  })
+})
+
+describe('requestMealId', () => {
+  it.each([
+    ['a generation', generateSnapshot()],
+    ['a regeneration', regenerateSnapshot()]
+  ])('answers null for %s, which addresses the whole week', (_case, snapshot) => {
+    expect(requestMealId(snapshot)).toBeNull()
+  })
+
+  it.each([
+    ['a swap', swapSnapshot({mealId: 'meal-9'})],
+    ['a planned log', logSnapshot({mealId: 'meal-9'})]
+  ])('reports the meal %s names', (_case, snapshot) => {
+    expect(requestMealId(snapshot)).toBe('meal-9')
+  })
+})
+
+describe('snapshotMatchesScope', () => {
+  it('matches every snapshot against an empty scope, which constrains nothing', () => {
+    EVERY_SNAPSHOT.forEach(snapshot => {
+      expect(snapshotMatchesScope(snapshot, {})).toBe(true)
+    })
+  })
+
+  it('matches a swap on both its ids', () => {
+    expect(
+      snapshotMatchesScope(swapSnapshot({planId: 'plan-1', mealId: 'meal-1'}), {planId: 'plan-1', mealId: 'meal-1'})
+    ).toBe(true)
+  })
+
+  // The ids are what tie a key to the resource it would commit against, so the wrong meal's screen must never
+  // recognise this record: replaying it would commit that other meal's swap.
+  it('rejects a swap for another meal of the same plan', () => {
+    expect(
+      snapshotMatchesScope(swapSnapshot({planId: 'plan-1', mealId: 'meal-1'}), {planId: 'plan-1', mealId: 'meal-2'})
+    ).toBe(false)
+  })
+
+  it('rejects a swap for the same slot of another plan', () => {
+    expect(
+      snapshotMatchesScope(swapSnapshot({planId: 'plan-1', mealId: 'meal-1'}), {planId: 'plan-2', mealId: 'meal-1'})
+    ).toBe(false)
+  })
+
+  it('matches a regeneration on its plan alone', () => {
+    expect(snapshotMatchesScope(regenerateSnapshot({planId: 'plan-1'}), {planId: 'plan-1'})).toBe(true)
+  })
+
+  // Fail-closed: absence is a mismatch rather than a wildcard, so a screen that knows a plan can never adopt
+  // a record that names none.
+  it('rejects a generation asked about a plan, since it carries none', () => {
+    expect(snapshotMatchesScope(generateSnapshot(), {planId: 'plan-1'})).toBe(false)
+  })
+
+  it('rejects a regeneration asked about a meal, since it addresses the week', () => {
+    expect(snapshotMatchesScope(regenerateSnapshot({planId: 'plan-1'}), {planId: 'plan-1', mealId: 'meal-1'})).toBe(
+      false
+    )
+  })
+
+  it('matches a planned log on its plan and meal', () => {
+    expect(
+      snapshotMatchesScope(logSnapshot({planId: 'plan-1', mealId: 'meal-1'}), {planId: 'plan-1', mealId: 'meal-1'})
+    ).toBe(true)
+  })
+})
+
+describe('resolveMountReplay', () => {
+  const READY = {intent: {key: 'key-1'}, isReady: true, isRequestInFlight: false, replayedKey: null}
+
+  it('replays the unresolved intent once and latches its key', () => {
+    expect(resolveMountReplay(READY)).toEqual({replays: true, replayedKey: 'key-1'})
+  })
+
+  it('does not replay again once that key has been sent', () => {
+    expect(resolveMountReplay({...READY, replayedKey: 'key-1'})).toEqual({replays: false, replayedKey: 'key-1'})
+  })
+
+  // The latch holds a key rather than a flag precisely so this case still replays: a later attempt under a new
+  // key is a new intent, and the screen that reopens on it owes it the same silent replay.
+  it('replays a different key recorded after the first was sent', () => {
+    expect(resolveMountReplay({...READY, intent: {key: 'key-2'}, replayedKey: 'key-1'})).toEqual({
+      replays: true,
+      replayedKey: 'key-2'
+    })
+  })
+
+  it('does nothing when no intent is on record', () => {
+    expect(resolveMountReplay({...READY, intent: null})).toEqual({replays: false, replayedKey: null})
+  })
+
+  // 'No intent' and 'not yet known' are different answers, and deciding before the persisted slice and the
+  // signed-in account are known is what would mint a second key for a request the server may already hold.
+  it('waits while its prerequisites are unknown, keeping the latch untouched', () => {
+    expect(resolveMountReplay({...READY, isReady: false})).toEqual({replays: false, replayedKey: null})
+  })
+
+  it('leaves an existing latch alone while it waits', () => {
+    expect(resolveMountReplay({...READY, isReady: false, replayedKey: 'key-0'})).toEqual({
+      replays: false,
+      replayedKey: 'key-0'
+    })
+  })
+
+  // An attempt already on the wire is the same ask; firing a second would race two answers for one key.
+  it('does not replay while a request is in flight', () => {
+    expect(resolveMountReplay({...READY, isRequestInFlight: true})).toEqual({replays: false, replayedKey: null})
+  })
+})
+
+describe('resolveKeyedLaunch', () => {
+  const launch = (overrides: Partial<KeyedLaunchInput> = {}): KeyedLaunchDecision =>
+    resolveKeyedLaunch({ownership: 'free', isHydrated: true, isRequestInFlight: false, ...overrides})
+
+  it('mints for a request nothing is on record for', () => {
+    expect(launch()).toEqual({kind: 'mint'})
+  })
+
+  it('replays the caller own unresolved request instead of minting beside it', () => {
+    expect(launch({ownership: 'mine'})).toEqual({kind: 'replay'})
+  })
+
+  // The case the duplicate-write findings turn on: the action holds ONE slot, so a request from another plan
+  // or meal is refused rather than allowed to mint over the key that slot already holds.
+  it('blocks a launch while another resource holds the slot', () => {
+    expect(launch({ownership: 'foreign'})).toEqual({kind: 'blocked', reason: 'otherResource'})
+  })
+
+  // A pending read and a refused one are both "not hydrated", and both fail closed: an unread slice may
+  // already hold a key for this action, and minting beside it is the duplicate this contract prevents.
+  it('blocks every launch until the persisted slice has been read successfully', () => {
+    const ownerships: SlotOwnership[] = ['free', 'mine', 'foreign']
+
+    ownerships.forEach(ownership =>
+      expect(launch({ownership, isHydrated: false})).toEqual({kind: 'blocked', reason: 'hydrating'})
+    )
+  })
+
+  it('blocks a launch while an attempt for this action is already on the wire', () => {
+    expect(launch({isRequestInFlight: true})).toEqual({kind: 'blocked', reason: 'inFlight'})
+    expect(launch({ownership: 'mine', isRequestInFlight: true})).toEqual({kind: 'blocked', reason: 'inFlight'})
+  })
+
+  // Precedence runs from least to most knowledge, so the reason reported is the one furthest upstream.
+  it('reports hydration ahead of an in-flight request, and an in-flight request ahead of a foreign holder', () => {
+    expect(launch({ownership: 'foreign', isHydrated: false, isRequestInFlight: true})).toEqual({
+      kind: 'blocked',
+      reason: 'hydrating'
+    })
+    expect(launch({ownership: 'foreign', isRequestInFlight: true})).toEqual({kind: 'blocked', reason: 'inFlight'})
   })
 })

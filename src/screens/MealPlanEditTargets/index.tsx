@@ -1,30 +1,36 @@
 import React, {useCallback, useMemo, useRef, useState} from 'react'
 
-import {View} from 'react-native'
+import {TouchableOpacity, View} from 'react-native'
 
 import type {MacroTargets} from '@data/models/Macros'
-import type {NutritionTargets} from '@data/models/NutritionTargets'
+import type {NutritionTargets, NutritionTargetsEditIntent} from '@data/models/NutritionTargets'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
 import {MealPlanEditTargetsRouteProp} from '@navigation/types'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {
+  isNutritionTargetsReadFailure,
+  isNutritionTargetsRouteMissing,
+  selectNutritionTargets
+} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
 import {useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
-import {Sizes} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
+import {formatCalories} from '@utility/NutritionFormatUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import BackCircleButton from '@components/BackCircleButton'
 import ContentColumn from '@components/ContentColumn'
+import ConfirmModal from '@components/dialog/ConfirmModal'
 import InfoBanner from '@components/InfoBanner'
 import InlineError from '@components/InlineError'
 import PrimaryButton from '@components/PrimaryButton'
-import RevisionConflictDialog from '@components/RevisionConflictDialog'
 import SetupFooter from '@components/SetupFooter'
 import SkeletonBlock from '@components/Skeleton'
 import TertiaryTextButton from '@components/TertiaryTextButton'
@@ -43,34 +49,47 @@ import {
   MEAL_PLAN_DONE_BUTTON_TEXT,
   MEAL_PLAN_EDIT_TARGETS_SUBTITLE,
   MEAL_PLAN_EDIT_TARGETS_TITLE,
+  MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT,
+  MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE,
   MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
-  MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
   MEAL_PLAN_GRAMS_UNIT,
+  MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
   MEAL_PLAN_KCAL_UNIT,
+  MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT,
+  MEAL_PLAN_LOAD_ERROR_BODY,
+  MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_MACRO_LABELS,
   MEAL_PLAN_MANUAL_MACROS_BANNER_BODY,
   MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  MEAL_PLAN_RECALCULATE_LINK_TEXT,
   MEAL_PLAN_REVIEW_HEADER_LABEL,
   MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_DIALOG_TITLE,
   MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
+  MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+  MEAL_PLAN_UNAVAILABLE_TEXT,
   stringWithNamedParameters,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
-import styles from './index.styled'
+import styles, {RECALCULATE_HIT_SLOP} from './index.styled'
 import {
-  CALORIES_MAX,
   EditTargetsFieldKey,
   EditTargetsFields,
   feasibilityBannerBody,
-  MACRO_MAX,
   resolveEditTargetsIntent,
+  resolveEditTargetsReadiness,
   resolveTargetsSave,
   sanitizeIntegerInput,
+  shouldOfferRecalculate,
+  targetFieldAccessibilityLabel,
+  targetFieldDisplayText,
+  targetFieldMaxLength,
   targetFieldText,
   validateEditTargets
 } from './index.util'
@@ -79,41 +98,47 @@ interface TargetFieldSpec {
   readonly key: EditTargetsFieldKey
   readonly label: string
   readonly unit: string
+  readonly unitAccessibilityText: string
   readonly errorMessage: string
   readonly maxLength: number
 }
 
 // The four fields in the order 34:214 draws them, each with the message 09b shows for it. Each field stops
-// accepting digits at the width of its own upper bound, so a figure the server would refuse outright cannot be
-// typed — the bounds stay declared once, in index.util, and the keyboard limit is read off them.
+// accepting characters at the width of its own upper bound, so a figure the server would refuse outright cannot
+// be typed — the bounds stay declared once, in index.util, and the limit is read off them in the grouped
+// presentation the field actually displays, which is one character wider than the bare number.
 const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
   Object.freeze({
     key: 'calories',
     label: MEAL_PLAN_CALORIES_HEADER,
     unit: MEAL_PLAN_KCAL_UNIT,
+    unitAccessibilityText: MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT,
     errorMessage: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
-    maxLength: String(CALORIES_MAX).length
+    maxLength: targetFieldMaxLength('calories')
   } as const),
   Object.freeze({
     key: 'protein',
     label: MEAL_PLAN_MACRO_LABELS.protein,
     unit: MEAL_PLAN_GRAMS_UNIT,
+    unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     errorMessage: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
-    maxLength: String(MACRO_MAX).length
+    maxLength: targetFieldMaxLength('protein')
   } as const),
   Object.freeze({
     key: 'carbs',
     label: MEAL_PLAN_MACRO_LABELS.carbs,
     unit: MEAL_PLAN_GRAMS_UNIT,
+    unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     errorMessage: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
-    maxLength: String(MACRO_MAX).length
+    maxLength: targetFieldMaxLength('carbs')
   } as const),
   Object.freeze({
     key: 'fat',
     label: MEAL_PLAN_MACRO_LABELS.fat,
     unit: MEAL_PLAN_GRAMS_UNIT,
+    unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     errorMessage: MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
-    maxLength: String(MACRO_MAX).length
+    maxLength: targetFieldMaxLength('fat')
   } as const)
 ])
 
@@ -152,6 +177,14 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   // The draft a refused press asserted, held only while a refetched row genuinely differs from it. Holding
   // the figures rather than a flag is what lets "Keep mine" re-send them and not whatever the refetch shows.
   const [conflictFields, setConflictFields] = useState<EditTargetsFields | null>(null)
+  // What this visit switched to editing: 'confirm_estimate' once the user asked for a recalculation, or
+  // 'manual_entry' once they chose to enter figures no estimate could supply. The route decides the intent
+  // until one of those happens, so an override is what makes the choice outlive the press that made it.
+  const [intentOverride, setIntentOverride] = useState<NutritionTargetsEditIntent | null>(null)
+  // The whole save operation, which outlasts the request: a rejected revision is followed by a refetch and a
+  // comparison, and the press has to stay closed for all of it or a second submission overlaps the recovery of
+  // the first.
+  const [isRecovering, setIsRecovering] = useState(false)
 
   // What the last successful save wrote. A second press on the same figures returns instead of writing them
   // again, so a failure later in the sequence cannot turn one confirmation into two revisions.
@@ -162,7 +195,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   const targets = selectNutritionTargets(targetsQuery)
   const estimate = estimateQuery.data ?? null
 
-  const intent = resolveEditTargetsIntent({mode: params.mode, routeIntent: params.intent, targets})
+  const intent = intentOverride ?? resolveEditTargetsIntent({mode: params.mode, routeIntent: params.intent, targets})
 
   // What the editor opens on: blank on the manual route (Skip or "Prefer not to say"), the calculated estimate
   // when there is nothing saved to edit, and the saved figures otherwise.
@@ -190,9 +223,30 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   // for the standing copy to say these figures replace — note 34:177 titles that route for the user's own
   // chosen targets instead.
   const isManualRoute = intent === 'manual_entry'
-  // Which figures each field opens on is the targets read's answer, so the form waits for it rather than
-  // rendering blanks that a resolved read would then contradict.
-  const isLoadingTargets = targetsQuery.isLoading
+
+  // The estimate's two refusals are different answers and lead different ways out: "no estimate can be
+  // calculated for these inputs" is a decision the server made, past which manual entry is the only route,
+  // while anything else is a read that failed and can be retried.
+  const isEstimateUnavailable =
+    estimateQuery.isError && getApiErrorCode(estimateQuery.error) === API_ERROR_CODES.estimateUnavailable
+
+  // Which figures each field opens on is the reads' answer, so the form waits for them rather than rendering
+  // blanks that a resolved read would contradict — and withholds the save until it has a revision to pin.
+  const readiness = resolveEditTargetsReadiness({
+    intent,
+    isTargetsLoading: targetsQuery.isLoading,
+    isTargetsRouteMissing: isNutritionTargetsRouteMissing(targetsQuery),
+    hasTargetsReadFailure: isNutritionTargetsReadFailure(targetsQuery),
+    isEstimateLoading: estimateQuery.isLoading,
+    isEstimateUnavailable,
+    hasEstimateReadFailure: estimateQuery.isError && !isEstimateUnavailable,
+    hasDraft: enteredFields !== null
+  })
+
+  const offersRecalculate = shouldOfferRecalculate({intent, targets, hasEstimate: estimate !== null})
+
+  // Every affordance that writes or leaves is closed for the whole operation, not just the request.
+  const isBusy = saveTargetsMutation.isPending || isRecovering
 
   const onChangeField = useCallback(
     (key: EditTargetsFieldKey, text: string) => {
@@ -213,6 +267,38 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   const onCancelPressed = useCallback(() => {
     returnFromTargets(params.returnTo)
   }, [params.returnTo, returnFromTargets])
+
+  // Retries whichever read failed, never both blindly: re-running a read that answered would throw away a good
+  // answer, and the route-missing answer is offered no retry at all because the next attempt is identical.
+  const onRetryReadsPressed = useCallback((): void => {
+    if (readiness.retryTargets) {
+      targetsQuery.refetch()
+    }
+
+    if (readiness.retryEstimate) {
+      estimateQuery.refetch()
+    }
+  }, [estimateQuery, readiness.retryEstimate, readiness.retryTargets, targetsQuery])
+
+  // Recalculating changes what this visit saves, not just what it shows: the fields re-derive from the
+  // estimate and the save becomes a confirmation of the server's own recomputed figures, which is the only
+  // shape that records which inputs they came from. Retyping them by hand would store the same numbers as a
+  // manual set and leave the staleness it was meant to clear in place. Dropping the draft is what hands the
+  // fields back to the opening figures.
+  const onRecalculatePressed = useCallback((): void => {
+    setIntentOverride('confirm_estimate')
+    setEnteredFields(null)
+    setHasSubmitted(false)
+    setFeasibilityBody(null)
+  }, [])
+
+  // No estimate can be calculated for these inputs, so the user supplies the figures: blank fields, and a save
+  // that claims nothing about where the numbers came from (0.2.5).
+  const onEnterManuallyPressed = useCallback((): void => {
+    setIntentOverride('manual_entry')
+    setEnteredFields(null)
+    setHasSubmitted(false)
+  }, [])
 
   const submitTargets = useCallback(
     async (submittedFields: EditTargetsFields): Promise<void> => {
@@ -250,6 +336,8 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         return
       }
 
+      setIsRecovering(true)
+
       try {
         const result = await saveTargetsMutation.mutateAsync(decision.payload)
 
@@ -273,12 +361,21 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         // An estimate computed from inputs that have since moved is refused rather than stored: the figures are
         // refetched and the user stays here to review them. Never an automatic retry, never a navigation.
         if (code === API_ERROR_CODES.estimateStale) {
-          // Dropping the draft is what repopulates the four fields: with nothing entered they derive from the
-          // estimate query again, so the refetched figures are the ones left on screen to review. Only the
-          // title is toasted — its body tells the user to generate a plan again, which is untrue of the
-          // Account, Progress and Diary entry points, none of which reaches this editor with a plan in view.
+          // The refetch comes first and the draft is dropped only once it has actually answered. Dropping it is
+          // what repopulates the four fields — with nothing entered they derive from the estimate query again —
+          // so clearing it ahead of a refetch that then fails would destroy the user's figures and leave the
+          // previous estimate, which TanStack retains, on screen presented as the recalculated one. Only the
+          // title is toasted: its body tells the user to generate a plan again, which is untrue of the Account,
+          // Progress and Diary entry points, none of which reaches this editor with a plan in view.
+          const refreshed = await estimateQuery.refetch()
+
+          if (!refreshed.isSuccess) {
+            showToast('error', TOAST_GENERIC_ERROR)
+
+            return
+          }
+
           setEnteredFields(null)
-          await estimateQuery.refetch()
           showToast('error', MEAL_PLAN_GENERATION_TERMINAL_COPY.stale_revision.title)
 
           return
@@ -294,6 +391,17 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         // the figures this press asserted are compared with them. Equal figures mean the write whose response
         // was lost, or the same edit from another device, already landed — so it resolves silently.
         const refetched = await targetsQuery.refetch()
+
+        // A refetch that failed is not an answer. TanStack resolves it with the data it was already holding, so
+        // comparing against that would measure this press against figures the server may never have stored —
+        // and, wherever the retained row happens to match, would report a write the server refused as one that
+        // landed and leave the editor. The draft stays, the reads' own retry is what moves this forward.
+        if (!refetched.isSuccess) {
+          showToast('error', TOAST_GENERIC_ERROR)
+
+          return
+        }
+
         const fresh = selectNutritionTargets(refetched)
 
         // The figures the attempt asserted: its own for a manual save, the estimate's for a confirmation —
@@ -335,6 +443,8 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         // A real difference is the user's to settle, so the prompt stays up until they answer it: "Keep mine"
         // re-submits these figures against the revision just refetched, "Use theirs" abandons them.
         setConflictFields(submittedFields)
+      } finally {
+        setIsRecovering(false)
       }
     },
     [estimate, estimateQuery, intent, params.returnTo, returnFromTargets, saveTargetsMutation, targets, targetsQuery]
@@ -355,12 +465,19 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
     submitTargets(conflictFields)
   }, [conflictFields, submitTargets])
 
-  // 'Use theirs' abandons the entered figures for the ones the server holds: the editor reopens on them by
-  // leaving, because its opening values are derived from the targets query it has just refetched.
+  // 'Use theirs' abandons the entered figures for the ones the server holds — and shows them, here, instead of
+  // leaving. The refetch that found the conflict has already put the winning row in the cache, so dropping the
+  // draft is enough for the four fields to re-derive from it, and the intent moves to the saved figures because
+  // a confirmation's fields would otherwise re-derive from the estimate and show anything but "theirs". The
+  // user sees what they accepted and can still edit it or cancel from the same screen; leaving would answer a
+  // question about four figures with a navigation to a surface that shows a calorie total at most.
   const onUseTheirsPressed = useCallback((): void => {
     setConflictFields(null)
-    returnFromTargets(params.returnTo)
-  }, [params.returnTo, returnFromTargets])
+    setEnteredFields(null)
+    setIntentOverride('edit_saved')
+    setHasSubmitted(false)
+    setFeasibilityBody(null)
+  }, [])
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -386,7 +503,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
             {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_CAPTION : MEAL_PLAN_EDIT_TARGETS_SUBTITLE}
           </Text>
 
-          {isLoadingTargets && (
+          {readiness.status === 'loading' && (
             <View style={styles.skeletonGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
               {SKELETON_BLOCK_HEIGHTS.map((height, index) => (
                 <SkeletonBlock
@@ -402,7 +519,42 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
             </View>
           )}
 
-          {!isLoadingTargets && (
+          {/* A read that did not answer is stated rather than rendered as empty fields, and each of the three
+              says how to get past it: a failure retries, a rolled-back route cannot and says so, and an
+              estimate that cannot be calculated hands over to manual entry (0.2.5). The save waits in all
+              three — the payload pins the revision these reads carry. */}
+          {readiness.status === 'read_failed' && (
+            <View style={styles.bannerWrapper} accessibilityLiveRegion="polite">
+              <InfoBanner
+                tone="error"
+                glyph="alert"
+                title={MEAL_PLAN_LOAD_ERROR_TITLE}
+                body={MEAL_PLAN_LOAD_ERROR_BODY}
+                actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
+                onAction={onRetryReadsPressed}
+              />
+            </View>
+          )}
+
+          {readiness.status === 'unavailable' && (
+            <View style={styles.bannerWrapper} accessibilityLiveRegion="polite">
+              <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_UNAVAILABLE_TEXT} />
+            </View>
+          )}
+
+          {readiness.status === 'estimate_unavailable' && (
+            <View style={styles.bannerWrapper} accessibilityLiveRegion="polite">
+              <InfoBanner
+                tone="error"
+                glyph="alert"
+                body={MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE}
+                actionLabel={MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT}
+                onAction={onEnterManuallyPressed}
+              />
+            </View>
+          )}
+
+          {readiness.showFields && (
             <>
               <View style={styles.fieldGroup}>
                 {TARGET_FIELDS.map(field => (
@@ -410,23 +562,22 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
                     <Text style={styles.fieldLabel}>{field.label}</Text>
 
                     <TextField
-                      value={fields[field.key]}
+                      // Grouped for display while the stored field keeps the bare digits the estimate
+                      // comparison and the save payload are built from.
+                      value={targetFieldDisplayText(fields[field.key])}
                       onChangeText={text => onChangeField(field.key, text)}
                       placeholder={field.label}
                       unit={field.unit}
                       state={errors[field.key] === undefined ? 'default' : 'error'}
                       keyboardType="numeric"
                       maxLength={field.maxLength}
-                      // A field that is reporting an error carries the reason in its own label, so it is
-                      // announced with the field and not only by the row beneath it.
-                      accessibilityLabel={
-                        errors[field.key] === undefined
-                          ? field.label
-                          : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
-                              label: field.label,
-                              message: field.errorMessage
-                            })
-                      }
+                      // The field names its own unit, and a field reporting an error carries the reason in its
+                      // name too, so both are announced with the input and not only by the row beneath it.
+                      accessibilityLabel={targetFieldAccessibilityLabel({
+                        label: field.label,
+                        unitText: field.unitAccessibilityText,
+                        errorMessage: errors[field.key] === undefined ? undefined : field.errorMessage
+                      })}
                     />
 
                     {errors[field.key] !== undefined && (
@@ -437,6 +588,32 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
                   </View>
                 ))}
               </View>
+
+              {/* The recalculated figure and the link that adopts it, shown while the saved set this editor
+                  opened on is one the server calls stale, legacy or incomplete. Pressing it is the only way to
+                  save these numbers as a confirmation of the server's own estimate: typing them by hand stores
+                  the same figures as a manual set and leaves the staleness in place (0.5.2, 0.7.3). */}
+              {offersRecalculate && estimate !== null && (
+                <View style={styles.recalculateRow}>
+                  <Text style={styles.recalculateLabel}>
+                    {stringWithNamedParameters(MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE, {
+                      calories: formatCalories(estimate.calories)
+                    })}
+                  </Text>
+
+                  <TouchableOpacity
+                    activeOpacity={Opacity.PRESSED}
+                    hitSlop={RECALCULATE_HIT_SLOP}
+                    accessibilityRole="button"
+                    accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE, {
+                      action: MEAL_PLAN_RECALCULATE_LINK_TEXT
+                    })}
+                    disabled={isBusy}
+                    onPress={onRecalculatePressed}>
+                    <Text style={styles.recalculateLink}>{MEAL_PLAN_RECALCULATE_LINK_TEXT}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* The advisory replaces the standing note in place, because both describe the figures above and
                   09b draws a single banner in this slot. It is announced as a status rather than an alert: the
@@ -459,30 +636,32 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
           // and leaves — the repeat guard in submitTargets recognises the unchanged figures and returns
           // without a second revision. Editing any field clears the advisory, so the label reverts with it.
           label={feasibilityBody === null ? MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT : MEAL_PLAN_DONE_BUTTON_TEXT}
-          isLoading={saveTargetsMutation.isPending}
+          isLoading={isBusy}
           // 46:555 keeps this enabled so every press re-validates, and 34:285 is drawn enabled beside a live
-          // error. The one thing it waits for is the targets read: the revision that read carries is what
-          // pins the write, and sending targets without it is refused outright.
-          disabled={isLoadingTargets}
+          // error. It waits for two things only: the reads whose revisions pin the write, because targets sent
+          // without them are refused outright, and its own operation, which outlasts the request whenever a
+          // rejected revision has to be refetched and compared. An advisory press is neither — the write it
+          // acknowledges already committed and the repeat guard returns without a second one — so it stays live
+          // rather than trapping the user behind a read that failed after their save landed.
+          disabled={isBusy || (feasibilityBody === null && !readiness.canSave)}
           onPress={onSavePressed}
           style={styles.ctaHeight}
         />
 
-        <TertiaryTextButton
-          label={CANCEL_BUTTON_TEXT}
-          disabled={saveTargetsMutation.isPending}
-          onPress={onCancelPressed}
-        />
+        <TertiaryTextButton label={CANCEL_BUTTON_TEXT} disabled={isBusy} onPress={onCancelPressed} />
       </SetupFooter>
 
-      <RevisionConflictDialog
+      <ConfirmModal
         isVisible={conflictFields !== null}
-        title={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
-        keepMineLabel={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
-        useTheirsLabel={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
-        isKeepMinePending={saveTargetsMutation.isPending}
-        onKeepMine={onKeepMinePressed}
-        onUseTheirs={onUseTheirsPressed}
+        confirmationTitle={MEAL_PLAN_STALE_REVISION_DIALOG_TITLE}
+        confirmButtonText={MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT}
+        confirmButtonColor={Theme.colors.accentGreen}
+        cancelButtonText={MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT}
+        cancelButtonColor={Theme.colors.track}
+        isConfirmPending={isBusy}
+        avoidKeyboard
+        onConfirmPressed={onKeepMinePressed}
+        onCancel={onUseTheirsPressed}
       />
     </SafeAreaView>
   )

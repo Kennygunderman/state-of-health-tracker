@@ -809,6 +809,19 @@ export const MEAL_PLAN_CHANGE_LINK_TEXT = 'Change'
 
 export const MEAL_PLAN_RECALCULATE_LINK_TEXT = 'Recalculate'
 
+// The recalculated figure shown beside a saved target the user has not reconfirmed, so the two can be compared
+// before anything is replaced: generation keeps using the saved set until the user acts on the link beside this.
+export const MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE = 'New estimate {calories}'
+
+// The card's figure slot when the saved record holds macros but no calorie target. The four target fields are
+// independently nullable (0.5.2), so this state is reachable, and the calculated figure may not stand in for
+// the absent one: that would present a number the user never chose as their target. The dash says the target
+// is unset and the Recalculate link beside it is how one gets set.
+export const MEAL_PLAN_NO_TARGET_FIGURE_TEXT = '—'
+
+// Spoken in place of the dash, which a screen reader would otherwise read as punctuation or skip entirely.
+export const MEAL_PLAN_NO_TARGET_FIGURE_ACCESSIBILITY_TEXT = 'not set'
+
 export const MEAL_PLAN_OPTIONAL_LABEL = 'Optional'
 
 export const MEAL_PLAN_REVIEW_HEADER_LABEL = 'Review'
@@ -818,6 +831,12 @@ export const MEAL_PLAN_WIZARD_STEP_TEMPLATE = '{n} of {m}'
 export const MEAL_PLAN_KCAL_UNIT = 'kcal'
 
 export const MEAL_PLAN_GRAMS_UNIT = 'g'
+
+// Spoken forms of the two unit suffixes above. A screen reader announcing the drawn abbreviation reads 'g' as a
+// letter and 'kcal' as a word fragment, so a numeric field names its unit with the word instead.
+export const MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT = 'kilocalories'
+
+export const MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT = 'grams'
 
 export const MEAL_PLAN_LB_UNIT = 'lb'
 
@@ -844,6 +863,15 @@ export const MEAL_PLAN_OFFLINE_BANNER_TEXT = 'Showing your last saved plan'
 export const MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE = "We couldn't confirm that"
 
 export const MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY = 'Check your connection and try again.'
+
+// An earlier swap or log on a DIFFERENT meal is still unresolved, and each of those actions has one
+// idempotency-key slot, so this meal's control is withheld until that key is answered rather than overwriting
+// it (0.7.2). Distinct from MEAL_PLAN_UNCONFIRMED_OUTCOME_*, which describes the user's OWN request going
+// unanswered: here nothing the user did on this meal has failed, and there is nothing for them to retry, so
+// the copy names the wait instead of asking them to check their connection.
+export const MEAL_PLAN_OTHER_MEAL_PENDING_TITLE = "We're still confirming another meal"
+
+export const MEAL_PLAN_OTHER_MEAL_PENDING_BODY = "We'll finish that one first, then this meal is yours to change."
 
 export const MEAL_PLAN_STALE_PLAN_TOAST = 'Your plan changed. Try that again.'
 
@@ -1046,9 +1074,8 @@ export const MEAL_PLAN_WEIGHT_ERROR_TEXT = 'Enter your weight to continue'
 
 export const MEAL_PLAN_ACTIVITY_TITLE = 'How active are you?'
 
-// Supersedes the Figma 04 info-card copy ("Outside of workouts you log in the
-// app."): the activity factor multiplies BMR once and already covers habitual
-// training, so the original wording contradicted the target calculation.
+export const MEAL_PLAN_ACTIVITY_SUBTITLE = 'Outside of workouts you log in the app.'
+
 export const MEAL_PLAN_ACTIVITY_INFO_BODY =
   'Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.'
 
@@ -1155,9 +1182,6 @@ export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query
 export const MEAL_PLAN_FOOD_SEARCH_RESULTS_ACCESSIBILITY_TEMPLATE = 'Results, {count} found'
 
 export const MEAL_PLAN_SEARCH_CLEAR_GLYPH = '✕'
-
-// The add affordance on an unadded search result (47:399); the added state draws a tick instead.
-export const MEAL_PLAN_SEARCH_ADD_GLYPH = '+'
 
 // The remove affordance on a selected chip (47:191). Same character as the search clear disc, kept
 // separate because the two are different controls and either may be restyled without the other.
@@ -1875,6 +1899,10 @@ export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} ti
 // — the inline message below the field only announces itself at the moment validation runs.
 export const MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE = '{label}, {message}'
 
+// A numeric field names its own unit: the suffix is drawn inside the input and is not part of the label, so
+// without this a target field is announced as 'Protein' and the user cannot tell grams from a percentage.
+export const MEAL_PLAN_FIELD_UNIT_ACCESSIBILITY_TEMPLATE = '{label}, {unit}'
+
 // The unit toggles sit beside a label that names the measurement, not the choice, so each group is named
 // separately — otherwise "ft/in" and "cm" are announced with nothing saying what they switch.
 export const MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Height unit'
@@ -1882,6 +1910,10 @@ export const MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Height unit'
 export const MEAL_PLAN_WEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Weight unit'
 
 export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
+
+// A pressable summary row reopens the setup screen that owns the answer instead of editing in place, so the
+// hint names the step the tap actually reaches — the row's own label and value only say what the answer is.
+export const MEAL_PLAN_SUMMARY_ROW_ACCESSIBILITY_HINT = 'Opens this answer so you can change it'
 
 // A food row opens the serving editor rather than logging on the spot, so the hint names the step the tap
 // actually reaches — the row's own label only says which food it is.
@@ -1923,3 +1955,41 @@ export const PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE = '{label}, {value}. Opens
 export const MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE = '{action} daily nutrition targets'
 
 export const MEAL_PLAN_PLAN_START_ACTION_ACCESSIBILITY_TEMPLATE = '{action} plan start date'
+
+// Announced on the alternatives section when the list replaces frame 13c's spinner, so the completion of a
+// wait a screen reader was told about ("Loading") is reported rather than left silent. Frame 13 draws the
+// "Alternatives" overline without a count, so the count belongs to this invisible name rather than to it.
+export const SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE = 'Alternatives, {count} found'
+
+// One metric of a spoken announcement. The grid draws the caption above the figure, but a sentence reads the
+// other way round — '420 cal', '32g protein' — and 'cal 420' is what reading the cells in drawn order gives.
+export const MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE = '{value} {caption}'
+
+// Joins the parts of one announcement. A named separator rather than punctuation inside a template because how
+// many parts there are is the data's business, not the copy's (same precedent as ADD_FOOD_ROW_LABEL_SEPARATOR).
+// Same characters as MEAL_PLAN_LIST_SEPARATOR, kept separate because spoken-only copy and a visible list are
+// different surfaces: a comma that reads well on screen is a pause a screen reader may be reworded around.
+export const MEAL_PLAN_ANNOUNCEMENT_SEPARATOR = ', '
+
+// Spoken form of 15's 'This adds' card after a serving change. `accessibilityLiveRegion` is Android-only in
+// RN 0.86, so VoiceOver is given the four figures as one sentence led by the label they belong to — the
+// figures alone would be four numbers with nothing saying what changed.
+export const LOG_PLANNED_MEAL_THIS_ADDS_ANNOUNCEMENT_TEMPLATE = '{label} {metrics}'
+
+// Spoken form of the flagged-meals alert on 16 (node 38:385). Its wrapper carries the alert role without
+// `accessible` — grouping it would swallow the 'Review affected meals' pill — and `accessibilityLiveRegion` is
+// Android-only, so VoiceOver is told the title and the body explicitly when the banner appears.
+export const PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE = '{title}. {body}'
+
+// The targets are one fact, so they are announced as one: the calorie figure and the three macro rows are
+// separate text nodes on screen, and read individually they arrive as four unrelated numbers with no unit
+// between them. {macros} and {estimate} each carry their own sentence break and are empty when the card shows
+// neither — a record holding only a calorie target has no macro rows — so the announcement never ends up with
+// a stray separator between two full stops.
+export const MEAL_PLAN_TARGETS_SUMMARY_ACCESSIBILITY_TEMPLATE = '{label}, {calories} {unit}{macros}{estimate}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_MACROS_TEMPLATE = '. {macros}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_MACRO_TEMPLATE = '{label} {value}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_ESTIMATE_TEMPLATE = '. {estimate}'

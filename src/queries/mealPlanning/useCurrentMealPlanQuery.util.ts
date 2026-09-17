@@ -1,4 +1,9 @@
+import {CurrentMealPlans} from '@data/models/MealPlan'
+import {fetchCurrentMealPlan} from '@queries/api/mealPlanning/fetchCurrentMealPlan'
+import type {QueryClient, UndefinedInitialDataOptions} from '@tanstack/react-query'
 import {formatDayKey} from '@utility/MealPlanDateUtility'
+
+import {queryKeys} from '../keys'
 
 export interface CurrentMealPlanRefetchInputs {
   previousDayKey: string | undefined
@@ -55,3 +60,40 @@ export const shouldRefetchCurrentMealPlan = ({
 }: CurrentMealPlanRefetchInputs): boolean =>
   shouldInvalidateForSessionDayChange(previousDayKey, sessionDayKey) ||
   isAnswerBeforeSessionDay(answerDayKey, sessionDayKey)
+
+/**
+ * The options `useCurrentMealPlanQuery` hands to `useQuery`. The key is `queryKeys.mealPlanCurrent` itself
+ * rather than a literal of the same shape: it is the persisted read, the entry `useMealPlanDayQuery` seeds
+ * from by exact key and the root every plan mutation invalidates by prefix, so all of them have to name one
+ * array and none of them may spell it out again.
+ *
+ * `enabled` is passed through untouched because /meal-planning/plans/current is gated by the meal-planning
+ * kill switch — no gated request may be issued while the flag is off, and a hook call cannot be skipped.
+ */
+export const buildCurrentMealPlanQueryOptions = (enabled: boolean): UndefinedInitialDataOptions<CurrentMealPlans> => ({
+  queryKey: queryKeys.mealPlanCurrent,
+  queryFn: fetchCurrentMealPlan,
+  enabled
+})
+
+/**
+ * Invalidates the current-plan answer when the day it was resolved for has moved, which is the whole of the
+ * rollover effect's body: the server picks the current plan from today's date, so a stale answer can show an
+ * ended plan as current and never promote the upcoming one.
+ *
+ * Invalidation, not a refetch or a reset, is what does it: it keeps the stale plan as data when the refetch
+ * fails, which is what leaves an offline session with its read-only plan and its last-saved-plan banner
+ * rather than the no-plan state. A disabled read is skipped entirely, because marking a kill-switched entry
+ * stale would send the gated request the flag exists to prevent as soon as an observer is active.
+ */
+export const applyCurrentMealPlanRollover = (
+  queryClient: QueryClient,
+  enabled: boolean,
+  inputs: CurrentMealPlanRefetchInputs
+): void => {
+  if (!enabled || !shouldRefetchCurrentMealPlan(inputs)) {
+    return
+  }
+
+  queryClient.invalidateQueries({queryKey: queryKeys.mealPlanCurrent})
+}

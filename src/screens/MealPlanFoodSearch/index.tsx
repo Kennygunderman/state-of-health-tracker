@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import {
   FlatList,
@@ -11,19 +11,15 @@ import {
 } from 'react-native'
 
 import type {CatalogFood} from '@data/models/CatalogFood'
-import type {MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {Navigation} from '@navigation/types'
 import {useCatalogSearchInfiniteQuery} from '@queries/catalog/useCatalogSearchInfiniteQuery'
-import {queryKeys} from '@queries/keys'
 import {useNavigation} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
-import Spacing from '@styles/spacing'
-import {useQueryClient} from '@tanstack/react-query'
 
 import CatalogSearchField from '@components/CatalogSearchField'
 import ContentColumn from '@components/ContentColumn'
-import {useMealPlanSetupDraft} from '@components/MealPlanSetupProvider'
+import {useDislikeStaging, useMealPlanSetupActions} from '@components/MealPlanSetupProvider'
 import PrimaryButton from '@components/PrimaryButton'
 import Screen from '@components/Screen'
 import SectionOverline from '@components/SectionOverline'
@@ -49,103 +45,158 @@ import {
 import FoodSearchResultRow from './components/FoodSearchResultRow'
 import SelectedChipsRow from './components/SelectedChipsRow'
 import styles from './index.styled'
+import {
+  catalogResultsTotal,
+  EMPTY_SEARCH_QUERY,
+  flattenCatalogPages,
+  isCatalogQuerySearchable,
+  resolveSearchResultsView,
+  SEARCH_SKELETON_ROWS,
+  SearchGesture,
+  searchQueryAfter,
+  SearchQueryState,
+  skeletonBarWidth
+} from './index.util'
 
 const SEARCH_DEBOUNCE_MS = 400
 
-// The server rejects a shorter query and useCatalogSearchInfiniteQuery is disabled below it, which leaves the
-// query permanently pending — so this bound decides the first branch of the empty-state order, not a request.
-const CATALOG_QUERY_MIN_LENGTH = 2
-
 const SEARCH_PAGE_END_THRESHOLD = 0.2
 
-// Skeleton takes a numeric width and reads it once at mount, so a proportional bar has to be measured against
-// the filled column rather than given a percentage. The three pairs are Figma 13c's own skeleton bars
-// (193.68/129.12, 156.02/107.59, 177.54/139.88) over the 281px text column a row leaves beside its control.
-const SEARCH_SKELETON_ROWS: ReadonlyArray<{primary: number; secondary: number}> = Object.freeze([
-  Object.freeze({primary: 0.69, secondary: 0.46}),
-  Object.freeze({primary: 0.55, secondary: 0.38}),
-  Object.freeze({primary: 0.63, secondary: 0.5})
-])
+// Module scope so the list is never handed a new reader: a keystroke re-renders this screen on every
+// character, and a prop that changes identity makes FlatList re-run every row it is holding.
+const keyExtractor = (item: CatalogFood): string => item.id
 
 const MealPlanFoodSearchScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
-  const queryClient = useQueryClient()
-  const {draft, toggleDislikedFood, setDislikedFoods} = useMealPlanSetupDraft()
-  const [searchText, setSearchText] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  // This screen stages rather than answers, so it reads and writes the visit the provider holds and never the
+  // step's own selection: the visit reaches the draft only through commitDislikeStaging, below, which is what
+  // makes Done the one way out that keeps these changes. It carries the name of every food it stages, because
+  // a food reached from catalog search is one the saved preferences cannot name yet and screen 06 has to put
+  // it on a chip the user can review and remove.
+  const {
+    beginDislikeStaging,
+    toggleStagedDislike,
+    removeStagedDislike,
+    clearStagedDislikes,
+    commitDislikeStaging,
+    discardDislikeStaging
+  } = useMealPlanSetupActions()
+  const stagedDislikes = useDislikeStaging()
+  const [search, setSearch] = useState<SearchQueryState>(EMPTY_SEARCH_QUERY)
   const [skeletonBarAreaWidth, setSkeletonBarAreaWidth] = useState(0)
-  // The draft carries ids, so an ingredient staged on 06 arrives here with no name to put on its chip. Reading
-  // the preferences the wizard already fetched is a label lookup, not a fetch: getQueryData issues no request,
-  // adds no subscription and triggers no refetch, which is why this screen still runs no preferences query.
-  const [foodLabels, setFoodLabels] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      (queryClient.getQueryData<MealPlanPreferences>(queryKeys.mealPlanPreferences)?.dislikedFoods ?? []).map(food => [
-        food.id,
-        food.name
-      ])
-    )
-  )
-  // Cancel discards the changes made in THIS visit, and the draft is shared with 06, so the set to restore is
-  // the one this screen mounted with. A ref captures it once; later renders can never overwrite it.
-  const mountedSelectionRef = useRef<string[]>(draft.dislikedFoodIds)
   const {data, isError, isPending, hasNextPage, isFetchingNextPage, fetchNextPage, refetch} =
-    useCatalogSearchInfiniteQuery(debouncedQuery)
+    useCatalogSearchInfiniteQuery(search.query)
 
-  const catalogFoods = useMemo<CatalogFood[]>(() => data?.pages.flatMap(page => page.items) ?? [], [data])
+  const catalogFoods = useMemo<CatalogFood[]>(() => flattenCatalogPages(data?.pages), [data])
 
-  const trimmedQuery = debouncedQuery.trim()
-  const isSearchable = trimmedQuery.length >= CATALOG_QUERY_MIN_LENGTH
-  const selectedCount = draft.dislikedFoodIds.length
+  const trimmedQuery = search.query.trim()
+  const resultsView = resolveSearchResultsView({
+    isSearchable: isCatalogQuerySearchable(search),
+    isError,
+    isPending,
+    resultCount: catalogFoods.length
+  })
+  // The staged selection is the truth of what Done would keep, so the count is its length whether or not
+  // every entry can be named.
+  const selectedCount = stagedDislikes.selection.length
 
   const selectedFoods = useMemo(
     () =>
-      draft.dislikedFoodIds.flatMap(id => {
-        const name = foodLabels[id]
+      stagedDislikes.selection.flatMap(id => {
+        const food = stagedDislikes.labels[id]
 
-        return name ? [{id, name}] : []
+        return food === undefined ? [] : [{id, name: food.name}]
       }),
-    [draft.dislikedFoodIds, foodLabels]
+    [stagedDislikes.labels, stagedDislikes.selection]
   )
 
-  const resultsAccessibilityLabel = stringWithNamedParameters(MEAL_PLAN_FOOD_SEARCH_RESULTS_ACCESSIBILITY_TEMPLATE, {
-    count: catalogFoods.length
-  })
+  // Every row asks whether it is selected, so the answer is a set rather than a scan of the staged array.
+  const selectedIds = useMemo(() => new Set(stagedDislikes.selection), [stagedDislikes.selection])
 
-  useEffect(() => {
-    const timeout = setTimeout(() => setDebouncedQuery(searchText), SEARCH_DEBOUNCE_MS)
+  const resultsAccessibilityLabel = useMemo(
+    () =>
+      stringWithNamedParameters(MEAL_PLAN_FOOD_SEARCH_RESULTS_ACCESSIBILITY_TEMPLATE, {
+        count: catalogResultsTotal(data?.pages, catalogFoods.length)
+      }),
+    [catalogFoods.length, data]
+  )
 
-    return () => clearTimeout(timeout)
-  }, [searchText])
-
-  useEffect(() => {
-    setFoodLabels(previous => {
-      const unlabelled = catalogFoods.filter(food => previous[food.id] !== food.name)
-
-      if (unlabelled.length === 0) {
-        return previous
-      }
-
-      return {...previous, ...Object.fromEntries(unlabelled.map(food => [food.id, food.name]))}
-    })
-  }, [catalogFoods])
-
-  const onClearPressed = useCallback(() => {
-    setSearchText('')
-    setDebouncedQuery('')
+  // Every gesture reports here, so the one module that decides what a gesture does to the query is also the
+  // only writer of it.
+  const applyGesture = useCallback((gesture: SearchGesture): void => {
+    setSearch(previous => searchQueryAfter(previous, gesture))
   }, [])
 
+  useEffect(() => {
+    const timeout = setTimeout(() => applyGesture({kind: 'debounce_elapsed'}), SEARCH_DEBOUNCE_MS)
+
+    return () => clearTimeout(timeout)
+  }, [applyGesture, search.text])
+
+  // Opening the visit on mount and discarding it on the way out is one rule for every exit this route has:
+  // the drawn Cancel, the iOS swipe, Android system back and any pop a parent performs all unmount the
+  // screen, and none of them reaches a handler. Done commits before it pops, so the discard that follows it
+  // has nothing left to drop.
+  useEffect(() => {
+    beginDislikeStaging()
+
+    return () => discardDislikeStaging()
+  }, [beginDislikeStaging, discardDislikeStaging])
+
+  const onChangeText = useCallback(
+    (text: string) => {
+      applyGesture({kind: 'typed', text})
+    },
+    [applyGesture]
+  )
+
+  const onClearPressed = useCallback(() => {
+    applyGesture({kind: 'query_cleared'})
+  }, [applyGesture])
+
+  // Cancel stages nothing and commits nothing: the visit is discarded by the unmount below, which is the
+  // same exit the iOS swipe and Android system back take.
   const onCancelPressed = useCallback(() => {
-    setDislikedFoods(mountedSelectionRef.current)
+    applyGesture({kind: 'cancel_pressed'})
     navigation.goBack()
-  }, [navigation, setDislikedFoods])
+  }, [applyGesture, navigation])
 
   const onDonePressed = useCallback(() => {
+    applyGesture({kind: 'done_pressed'})
+    commitDislikeStaging()
     navigation.goBack()
-  }, [navigation])
+  }, [applyGesture, commitDislikeStaging, navigation])
 
   const onClearAllPressed = useCallback(() => {
-    setDislikedFoods([])
-  }, [setDislikedFoods])
+    applyGesture({kind: 'clear_all_pressed'})
+    clearStagedDislikes()
+  }, [applyGesture, clearStagedDislikes])
+
+  // The loaded pages, by id: the row hands back the id it was drawn from, and staging needs the food's own
+  // name — nothing else here can name a food reached from catalog search.
+  const foodsById = useMemo(() => new Map(catalogFoods.map(food => [food.id, food])), [catalogFoods])
+
+  const onFoodPressed = useCallback(
+    (foodId: string) => {
+      const food = foodsById.get(foodId)
+
+      if (food === undefined) {
+        return
+      }
+
+      applyGesture({kind: 'food_pressed'})
+      toggleStagedDislike({id: food.id, name: food.name, foodGroup: food.foodGroup})
+    },
+    [applyGesture, foodsById, toggleStagedDislike]
+  )
+
+  const onChipRemoved = useCallback(
+    (foodId: string) => {
+      applyGesture({kind: 'chip_removed'})
+      removeStagedDislike(foodId)
+    },
+    [applyGesture, removeStagedDislike]
+  )
 
   const onRetryPressed = useCallback(() => {
     refetch()
@@ -161,32 +212,40 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
     setSkeletonBarAreaWidth(event.nativeEvent.layout.width)
   }, [])
 
-  const renderResult = ({item, index}: ListRenderItemInfo<CatalogFood>): React.JSX.Element => (
-    <FoodSearchResultRow
-      food={item}
-      isAdded={draft.dislikedFoodIds.includes(item.id)}
-      isFirst={index === 0}
-      isLast={index === catalogFoods.length - 1}
-      onPress={() => toggleDislikedFood(item.id)}
-    />
+  // The row hands its id back so the reader it is memoized against stays the same one across a keystroke;
+  // the food itself is looked up here, because staging records the name the chip will show.
+  const renderResult = useCallback(
+    ({item, index}: ListRenderItemInfo<CatalogFood>): React.JSX.Element => (
+      <FoodSearchResultRow
+        food={item}
+        isAdded={selectedIds.has(item.id)}
+        isFirst={index === 0}
+        isLast={index === catalogFoods.length - 1}
+        onToggle={onFoodPressed}
+      />
+    ),
+    [catalogFoods.length, onFoodPressed, selectedIds]
   )
 
-  const resultsHeader = (): React.JSX.Element => (
-    <>
-      <View style={styles.resultsSection} accessible accessibilityLabel={resultsAccessibilityLabel}>
-        <SectionOverline text={MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER} />
-      </View>
+  const resultsHeader = useMemo(
+    () => (
+      <>
+        <View style={styles.resultsSection} accessible accessibilityLabel={resultsAccessibilityLabel}>
+          <SectionOverline text={MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER} />
+        </View>
 
-      <View style={styles.resultsListWrapper} />
-    </>
+        <View style={styles.resultsListWrapper} />
+      </>
+    ),
+    [resultsAccessibilityLabel]
   )
 
-  const emptyBlock = (): React.JSX.Element | null => {
-    if (!isSearchable) {
+  const emptyBlock = useMemo((): React.JSX.Element | null => {
+    if (resultsView === 'idle' || resultsView === 'results') {
       return null
     }
 
-    if (isError) {
+    if (resultsView === 'error') {
       return (
         <TouchableOpacity
           style={styles.retryContainer}
@@ -201,24 +260,24 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
       )
     }
 
-    if (isPending) {
+    if (resultsView === 'loading') {
       return (
-        <View style={styles.skeletonList} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+        <View style={styles.skeletonCard} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
           {SEARCH_SKELETON_ROWS.map((row, rowIndex) => (
-            <View key={rowIndex} style={styles.skeletonRow}>
+            <View key={rowIndex} style={[styles.skeletonRow, rowIndex > 0 && styles.skeletonRowDivider]}>
               <View style={styles.skeletonTextColumn} onLayout={onSkeletonBarAreaLayout}>
                 {skeletonBarAreaWidth > 0 && (
                   <>
                     <SkeletonBlock
                       height={Sizes.SKELETON_BAR}
-                      width={Math.round(skeletonBarAreaWidth * row.primary)}
+                      width={skeletonBarWidth(skeletonBarAreaWidth, row.primary)}
                       borderRadius={BorderRadius.CHECKBOX}
                       style={styles.skeletonBar}
                     />
 
                     <SkeletonBlock
                       height={Sizes.SKELETON_BAR_SM}
-                      width={Math.round(skeletonBarAreaWidth * row.secondary)}
+                      width={skeletonBarWidth(skeletonBarAreaWidth, row.secondary)}
                       borderRadius={BorderRadius.CHECKBOX}
                       style={styles.skeletonBar}
                     />
@@ -243,33 +302,38 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
         {stringWithNamedParameters(MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE, {query: trimmedQuery})}
       </Text>
     )
-  }
+  }, [onRetryPressed, onSkeletonBarAreaLayout, resultsView, skeletonBarAreaWidth, trimmedQuery])
 
-  const selectedSection = (): React.JSX.Element => (
-    <View style={styles.selectedSection}>
-      <View style={styles.selectedHeaderRow}>
-        <SectionOverline text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedCount})} />
+  const selectedSection = useMemo(
+    () => (
+      <View style={styles.selectedSection}>
+        <View style={styles.selectedHeaderRow}>
+          <SectionOverline
+            text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedCount})}
+          />
 
-        {selectedCount > 0 && (
-          <TouchableOpacity
-            activeOpacity={Opacity.PRESSED}
-            hitSlop={Spacing.SMALL}
-            accessibilityRole="button"
-            accessibilityLabel={MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT}
-            onPress={onClearAllPressed}>
-            <Text style={styles.clearAllLabel}>{MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT}</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {selectedFoods.length > 0 && (
-        <View style={styles.selectedChipsWrapper}>
-          <SelectedChipsRow foods={selectedFoods} onRemove={toggleDislikedFood} />
+          {selectedCount > 0 && (
+            <TouchableOpacity
+              style={styles.clearAllButton}
+              activeOpacity={Opacity.PRESSED}
+              accessibilityRole="button"
+              accessibilityLabel={MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT}
+              onPress={onClearAllPressed}>
+              <Text style={styles.clearAllLabel}>{MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT}</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
 
-      <Text style={styles.helperText}>{MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT}</Text>
-    </View>
+        {selectedFoods.length > 0 && (
+          <View style={styles.selectedChipsWrapper}>
+            <SelectedChipsRow foods={selectedFoods} onRemove={onChipRemoved} />
+          </View>
+        )}
+
+        <Text style={styles.helperText}>{MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT}</Text>
+      </View>
+    ),
+    [onChipRemoved, onClearAllPressed, selectedCount, selectedFoods]
   )
 
   return (
@@ -279,10 +343,10 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
           <CatalogSearchField
             mode="input"
             autoFocus
-            value={searchText}
+            value={search.text}
             placeholder={MEAL_PLAN_FOOD_SEARCH_PLACEHOLDER}
             accessibilityLabel={MEAL_PLAN_FOOD_SEARCH_PLACEHOLDER}
-            onChangeText={setSearchText}
+            onChangeText={onChangeText}
             onClear={onClearPressed}
             onCancel={onCancelPressed}
           />
@@ -293,15 +357,15 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
           <FlatList
             data={catalogFoods}
             renderItem={renderResult}
-            keyExtractor={item => item.id}
+            keyExtractor={keyExtractor}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             onEndReached={onEndReached}
             onEndReachedThreshold={SEARCH_PAGE_END_THRESHOLD}
-            ListHeaderComponent={isSearchable ? resultsHeader() : null}
-            ListEmptyComponent={emptyBlock()}
-            ListFooterComponent={selectedSection()}
+            ListHeaderComponent={resultsView === 'idle' ? null : resultsHeader}
+            ListEmptyComponent={emptyBlock}
+            ListFooterComponent={selectedSection}
           />
         </ContentColumn>
       </KeyboardAvoidingView>

@@ -4,6 +4,7 @@ import {WeightUnit} from '@data/models/WeightUnit'
 import {
   centimetersToFeetInches,
   feetInchesToCentimeters,
+  formatMeasurementValue,
   isSupportedBodyWeightInUnit,
   kilogramsToPounds,
   poundsToKilograms,
@@ -17,6 +18,11 @@ export interface MealPlanAboutYouFields {
   centimeters: string
   weight: string
 }
+
+// The fields the user has supplied a value for, each one overriding the saved answer on its own. Held per
+// field rather than as a whole snapshot so that editing one measurement neither freezes the others at the
+// values they happened to show nor withdraws the weigh-in suggestion from a weight field left untouched.
+export type AboutYouFieldOverrides = Partial<Record<keyof MealPlanAboutYouFields, string>>
 
 export type AboutYouErrorCode =
   | 'age_required'
@@ -46,6 +52,9 @@ export interface AboutYouValidation {
 
 export interface WeighInPrefill {
   value: string
+  // The unit `value` was read in. A weigh-in stores no unit, so the number is meaningful only with the one
+  // it was interpreted against, and the field it lands in may since have been switched to the other.
+  unit: WeightUnitPref | null
   showCaption: boolean
 }
 
@@ -86,8 +95,6 @@ const INTEGER_PATTERN = /^\d+$/
 
 const DECIMAL_PATTERN = /^(\d+(\.\d*)?|\.\d+)$/
 
-const DISPLAY_ROUNDING_FACTOR = 10
-
 const isBlank = (text: string): boolean => text.trim() === ''
 
 const parseIntegerField = (text: string): number | null => {
@@ -116,9 +123,6 @@ const parseDecimalField = (text: string): number | null => {
 
 const isSupportedHeightCm = (centimeters: number): boolean =>
   Number.isFinite(centimeters) && centimeters >= MIN_HEIGHT_CM && centimeters <= MAX_HEIGHT_CM
-
-const formatMeasurement = (value: number): string =>
-  String(Math.round(value * DISPLAY_ROUNDING_FACTOR) / DISPLAY_ROUNDING_FACTOR)
 
 const loggedAtMs = (weighIn: WeighIn): number => {
   const parsed = Date.parse(weighIn.loggedAt)
@@ -207,12 +211,15 @@ export const selectLatestWeighIn = (weighIns: WeighIn[]): WeighIn | null =>
 // today: it is offered as a suggestion the user confirms with Continue, never converted for them.
 export const resolveWeighInPrefill = (latestWeighIn: WeighIn | null, weightUnit: WeightUnit): WeighInPrefill => {
   if (latestWeighIn === null || weightUnit === 'st') {
-    return {value: '', showCaption: false}
+    return {value: '', unit: null, showCaption: false}
   }
 
-  const isSuggestible = isSupportedBodyWeightInUnit(latestWeighIn.weight, weightUnitPrefFor(weightUnit))
+  const readInUnit = weightUnitPrefFor(weightUnit)
+  const isSuggestible = isSupportedBodyWeightInUnit(latestWeighIn.weight, readInUnit)
 
-  return isSuggestible ? {value: String(latestWeighIn.weight), showCaption: true} : {value: '', showCaption: false}
+  return isSuggestible
+    ? {value: String(latestWeighIn.weight), unit: readInUnit, showCaption: true}
+    : {value: '', unit: null, showCaption: false}
 }
 
 export const validateAboutYou = (
@@ -254,6 +261,18 @@ export const buildBodyStepValues = (
 export const wizardTotalSteps = (targetRoute: TargetRoute | null): number =>
   targetRoute === 'manual' ? WIZARD_TOTAL_STEPS_MANUAL : WIZARD_TOTAL_STEPS_ESTIMATED
 
+// The suggestion is offered in the unit the field is showing, whichever way the toggle has been moved since
+// the weigh-in was read: the same weight, never the same digits under a different label.
+export const suggestedWeightField = (prefill: WeighInPrefill, weightUnit: WeightUnitPref): string => {
+  const parsed = parseDecimalField(prefill.value)
+
+  if (prefill.unit === null || parsed === null || prefill.unit === weightUnit) {
+    return prefill.value
+  }
+
+  return formatMeasurementValue(weightUnit === 'kg' ? poundsToKilograms(parsed) : kilogramsToPounds(parsed))
+}
+
 export const initialFieldsFor = ({
   savedAge,
   savedHeightCm,
@@ -271,7 +290,64 @@ export const initialFieldsFor = ({
     age: savedAge === null ? '' : String(savedAge),
     feet: imperialHeight === null ? '' : String(imperialHeight.feet),
     inches: imperialHeight === null ? '' : String(imperialHeight.inches),
-    centimeters: isImperial || savedHeightCm === null ? '' : formatMeasurement(savedHeightCm),
-    weight: savedWeightInUnit === null ? prefill.value : formatMeasurement(savedWeightInUnit)
+    centimeters: isImperial || savedHeightCm === null ? '' : formatMeasurementValue(savedHeightCm),
+    weight:
+      savedWeightInUnit === null ? suggestedWeightField(prefill, weightUnit) : formatMeasurementValue(savedWeightInUnit)
   }
+}
+
+export const mergeAboutYouFields = (
+  savedFields: MealPlanAboutYouFields,
+  overrides: AboutYouFieldOverrides
+): MealPlanAboutYouFields => ({
+  age: overrides.age ?? savedFields.age,
+  feet: overrides.feet ?? savedFields.feet,
+  inches: overrides.inches ?? savedFields.inches,
+  centimeters: overrides.centimeters ?? savedFields.centimeters,
+  weight: overrides.weight ?? savedFields.weight
+})
+
+// Switching a unit re-reads an entered measurement in the unit now selected, because it was typed against
+// the previous one: relabelling 182.2 lb as 182.2 kg would submit a weight nobody gave. Only entered text is
+// carried across — a displayed suggestion is re-derived from the weigh-in instead (`suggestedWeightField`),
+// so converting it here would freeze that number against a weigh-in arriving later. A field holding nothing
+// parseable is left untouched, there being no measurement to carry.
+export const convertWeightFieldToUnit = (
+  weight: string,
+  fromUnit: WeightUnitPref,
+  toUnit: WeightUnitPref
+): AboutYouFieldOverrides => {
+  const parsed = parseDecimalField(weight)
+
+  if (fromUnit === toUnit || parsed === null) {
+    return {}
+  }
+
+  return {weight: formatMeasurementValue(toUnit === 'kg' ? poundsToKilograms(parsed) : kilogramsToPounds(parsed))}
+}
+
+export const convertHeightFieldsToUnit = (
+  fields: MealPlanAboutYouFields,
+  fromUnit: HeightUnitPref,
+  toUnit: HeightUnitPref
+): AboutYouFieldOverrides => {
+  if (fromUnit === toUnit) {
+    return {}
+  }
+
+  if (toUnit === 'cm') {
+    const heightCm = imperialHeightCm(fields)
+
+    return heightCm === null ? {} : {centimeters: formatMeasurementValue(heightCm)}
+  }
+
+  const heightCm = parseDecimalField(fields.centimeters)
+
+  if (heightCm === null) {
+    return {}
+  }
+
+  const imperialHeight = centimetersToFeetInches(heightCm)
+
+  return {feet: String(imperialHeight.feet), inches: String(imperialHeight.inches)}
 }

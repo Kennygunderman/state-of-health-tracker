@@ -1,8 +1,8 @@
-import React from 'react'
+import React, {useCallback} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {MealPlanMeal} from '@data/models/MealPlan'
+import {LoggedPlannedEntry, MealPlanMeal} from '@data/models/MealPlan'
 import {Opacity, Sizes} from '@styles/sizes'
 import {formatSlotTime} from '@utility/MealPlanDateUtility'
 import {formatCalories, formatMacroGrams} from '@utility/NutritionFormatUtility'
@@ -44,16 +44,45 @@ const IS_LOGGED_BY_STATE: Record<MealLoggedState['kind'], boolean> = {
 interface Props {
   meal: MealPlanMeal
   loggedState: MealLoggedState
-  onOpen: () => void
-  onSwap: () => void
-  onLog: () => void
-  onViewDiary: () => void
+  // Whether this day's plan currently accepts writes. The controls are still drawn and still pressable when it
+  // is false, so a refusal the caller can explain is not swallowed by a disabled button.
+  areWriteActionsEnabled: boolean
+  onOpen: (meal: MealPlanMeal) => void
+  onSwap: (meal: MealPlanMeal) => void
+  onLog: (meal: MealPlanMeal) => void
+  onViewEntry: (entry: LoggedPlannedEntry) => void
 }
 
-const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: Props): React.JSX.Element => {
+const MealPlanCard = ({
+  meal,
+  loggedState,
+  areWriteActionsEnabled,
+  onOpen,
+  onSwap,
+  onLog,
+  onViewEntry
+}: Props): React.JSX.Element => {
   const isLogged = IS_LOGGED_BY_STATE[loggedState.kind]
   const previousEntry = loggedState.kind === 'loggedThenSwapped' ? loggedState.entry : null
+  const loggedEntry = loggedState.kind === 'unlogged' ? null : loggedState.entry
   const flagReason = resolveMealFlagReason(meal.flags)
+  // "View in diary" is a read of an entry that already exists, so it stays available while the plan does not
+  // accept writes; only Swap and Log follow the verdict.
+  const isPrimaryWrite = !isLogged
+  const isSwapDimmed = !areWriteActionsEnabled
+  const isPrimaryDimmed = isPrimaryWrite && !areWriteActionsEnabled
+
+  const onOpenPressed = useCallback((): void => onOpen(meal), [meal, onOpen])
+
+  const onSwapPressed = useCallback((): void => onSwap(meal), [meal, onSwap])
+
+  const onLogPressed = useCallback((): void => onLog(meal), [meal, onLog])
+
+  const onViewEntryPressed = useCallback((): void => {
+    if (loggedEntry !== null) {
+      onViewEntry(loggedEntry)
+    }
+  }, [loggedEntry, onViewEntry])
 
   // Figma draws no flagged card: a meal the user's edited preferences no longer allow keeps its drawn structure
   // and gains this line, so the reason is stated where the meal is rather than only in the settings banner.
@@ -98,7 +127,7 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
         accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {
           recipe: meal.recipe.name
         })}
-        onPress={onOpen}>
+        onPress={onOpenPressed}>
         <View style={styles.metaRow}>
           <View style={styles.metaLeftGroup}>
             <Text style={styles.metaText}>{metaText}</Text>
@@ -141,7 +170,7 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
             accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE, {
               recipe: previousEntry.recipeName
             })}
-            onPress={onViewDiary}>
+            onPress={onViewEntryPressed}>
             <Text style={styles.swappedLink}>{MEAL_PLAN_VIEW_IN_DIARY_BUTTON_TEXT}</Text>
           </TouchableOpacity>
         </View>
@@ -149,24 +178,26 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
 
       <View style={styles.actionRow}>
         <TouchableOpacity
-          style={styles.pillSecondary}
+          style={[styles.pillSecondary, isSwapDimmed && styles.pillDimmed]}
           activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
           accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE, {
             recipe: meal.recipe.name
           })}
+          accessibilityState={{disabled: isSwapDimmed}}
           hitSlop={ACTION_PILL_HIT_SLOP}
-          onPress={onSwap}>
+          onPress={onSwapPressed}>
           <Text style={styles.pillLabelSecondary}>{MEAL_PLAN_SWAP_BUTTON_TEXT}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.pillPrimary}
+          style={[styles.pillPrimary, isPrimaryDimmed && styles.pillDimmed]}
           activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
           accessibilityLabel={primaryAccessibilityLabel}
+          accessibilityState={{disabled: isPrimaryDimmed}}
           hitSlop={ACTION_PILL_HIT_SLOP}
-          onPress={isLogged ? onViewDiary : onLog}>
+          onPress={isLogged ? onViewEntryPressed : onLogPressed}>
           <Text style={styles.pillLabelPrimary}>{primaryLabel}</Text>
         </TouchableOpacity>
       </View>
@@ -174,4 +205,8 @@ const MealPlanCard = ({meal, loggedState, onOpen, onSwap, onLog, onViewDiary}: P
   )
 }
 
-export default MealPlanCard
+/**
+ * Memoized because the tab re-renders on every store and query change while a card's own inputs — the meal,
+ * its resolved logged state and the four handlers — are all stable across those renders.
+ */
+export default React.memo(MealPlanCard)

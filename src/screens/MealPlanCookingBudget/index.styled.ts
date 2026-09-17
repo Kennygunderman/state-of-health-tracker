@@ -2,6 +2,7 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -68,10 +69,14 @@ export default StyleSheet.create({
     paddingTop: Spacing.X_SMALL
   },
 
+  /* BLITZY [A11Y]: 47:646 draws a 22px checkbox in a row that hugs it, which reaches 34px including this
+     rung. The whole row is the pressable, so it carries the 44px minimum AAP 0.7.2 requires rather than hit
+     slop a hugging parent would clip — rendering the row 10px taller than drawn, flagged for designer review. */
   preferenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     columnGap: Spacing.SMALL,
+    minHeight: Sizes.TOUCH_TARGET,
     paddingTop: Spacing.SMALL
   },
   preferenceLabel: {

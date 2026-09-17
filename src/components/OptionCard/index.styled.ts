@@ -54,7 +54,7 @@ export default StyleSheet.create({
   },
   textColumn: {
     flex: 1,
-    gap: Spacing.MICRO
+    gap: Sizes.OPTION_SUBCOPY_GAP
   },
   label: {
     fontSize: FontSize.H3,

@@ -2,7 +2,7 @@ import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight} from '@styles/fontSize'
-import {Sizes, Stroke} from '@styles/sizes'
+import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -43,6 +43,11 @@ export default StyleSheet.create({
   chipSelected: {
     backgroundColor: Theme.colors.greenTint,
     borderColor: Theme.colors.accentGreen
+  },
+  // The same dimming the disabled step buttons and date arrows use, applied to the whole chip so its glyph
+  // follows: a chip carries no value of its own beyond the fraction it would set.
+  chipDisabled: {
+    opacity: Opacity.DISABLED
   },
   chipLabel: {
     fontSize: FontSize.LABEL,

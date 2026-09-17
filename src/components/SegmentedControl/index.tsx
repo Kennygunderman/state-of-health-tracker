@@ -2,20 +2,20 @@ import React, {useState} from 'react'
 
 import {LayoutChangeEvent, TouchableOpacity, View} from 'react-native'
 
-import {Sizes} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 import Animated, {SharedValue, useAnimatedStyle} from 'react-native-reanimated'
 
 import Text from '@components/Text'
 
 import styles, {indicatorWidth} from './index.styled'
-import {isFlexSegments, segmentWidthFor} from './index.util'
+import {isFlexSegments, SegmentedControlVariant, segmentWidthFor} from './index.util'
 
 export interface SegmentedControlOption<T extends string> {
   key: T
   label: string
 }
 
-export type SegmentedControlVariant = 'large' | 'small' | 'unit'
+export type {SegmentedControlVariant}
 
 interface Props<T extends string> {
   options: SegmentedControlOption<T>[]
@@ -70,7 +70,7 @@ const SegmentedControl = <T extends string>({
           <TouchableOpacity
             key={option.key}
             style={[styles.option, !flexSegments && styles.optionCompact]}
-            activeOpacity={0.7}
+            activeOpacity={Opacity.PRESSED_SEGMENT}
             accessibilityRole="tab"
             accessibilityState={{selected: isSelected}}
             accessibilityLabel={option.label}

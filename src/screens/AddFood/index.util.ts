@@ -2,6 +2,7 @@ import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood, CatalogNutritionBasis} from '@data/models/CatalogFood'
 import {CatalogSourcedFood, FoodSourceEnum, PersonalFood} from '@data/models/Food'
 import {SourcedNutritionProvenance} from '@data/models/NutritionProvenance'
+import {CatalogSearchState} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
@@ -159,3 +160,40 @@ export const CATALOG_SKELETON_ROWS: ReadonlyArray<CatalogSkeletonRow> = Object.f
 // be measured against the filled column rather than given a percentage.
 export const catalogSkeletonBarWidth = (barAreaWidth: number, widthProportion: number): number =>
   barAreaWidth > 0 ? Math.round(barAreaWidth * widthProportion) : 0
+
+export type AddFoodSectionKey = 'library' | 'catalog' | 'branded'
+
+export interface AddFoodSectionVisibility {
+  showLibrary: boolean
+  showCatalog: boolean
+  showBranded: boolean
+}
+
+/**
+ * The section that draws the "New Food" button, which is whichever of the three renders first — so exactly
+ * one of them ever draws it: library claims it whenever it renders, catalog only when library is hidden,
+ * branded only when both of the sections above it are hidden, and no section claims it when the list is empty
+ * of sections entirely.
+ */
+export const newFoodButtonOwner = ({
+  showLibrary,
+  showCatalog,
+  showBranded
+}: AddFoodSectionVisibility): AddFoodSectionKey | null => {
+  if (showLibrary) {
+    return 'library'
+  }
+
+  if (showCatalog) {
+    return 'catalog'
+  }
+
+  return showBranded ? 'branded' : null
+}
+
+/**
+ * Whether the catalog section renders for a given verdict. Unlike branded, the section stays mounted for the
+ * whole search — its loading, error and no-results answers are each a distinct thing the user is owed — so it
+ * renders for every verdict except the two that have nothing to report.
+ */
+export const isCatalogSectionVisible = (state: CatalogSearchState): boolean => state !== 'hidden' && state !== 'idle'

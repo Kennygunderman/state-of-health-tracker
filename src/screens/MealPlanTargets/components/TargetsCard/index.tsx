@@ -35,6 +35,10 @@ interface Props {
   readonly macros: TargetsCardMacro[]
   readonly editLabel: string
   readonly estimateFigure?: string
+  // The whole figure block as one announcement, composed by the screen's util. The calorie figure, its unit,
+  // the recalculated figure beside it and the three legend rows are separate text nodes, so a screen reader
+  // walking them individually reads out five unrelated numbers with nothing saying which target each is.
+  readonly summaryAccessibilityLabel: string
   readonly onEditPress: () => void
 }
 
@@ -45,6 +49,7 @@ const TargetsCard = ({
   macros,
   editLabel,
   estimateFigure,
+  summaryAccessibilityLabel,
   onEditPress
 }: Props): React.JSX.Element => {
   return (
@@ -67,26 +72,34 @@ const TargetsCard = ({
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.figureWrapper, estimateFigure ? styles.estimatePairRow : undefined]}>
-        <BigNumberRow figure={calorieFigure} unit={unitLabel} size="hero" />
+      {/* One accessibility element for the figures, and only for the figures: the Edit action is a sibling in
+          the header row above, so grouping here never swallows the one control on the card. */}
+      <View
+        style={styles.summaryGroup}
+        accessible
+        accessibilityRole="summary"
+        accessibilityLabel={summaryAccessibilityLabel}>
+        <View style={[styles.figureWrapper, estimateFigure ? styles.estimatePairRow : undefined]}>
+          <BigNumberRow figure={calorieFigure} unit={unitLabel} size="hero" />
 
-        {estimateFigure ? <Text style={styles.estimateFigure}>{estimateFigure}</Text> : null}
-      </View>
+          {estimateFigure ? <Text style={styles.estimateFigure}>{estimateFigure}</Text> : null}
+        </View>
 
-      <View style={styles.dividerWrapper}>
-        <View style={styles.divider} />
-      </View>
+        <View style={styles.dividerWrapper}>
+          <View style={styles.divider} />
+        </View>
 
-      <View style={styles.legendWrapper}>
-        {macros.map((macro, index) => (
-          <MacroLegendRow
-            key={macro.key}
-            label={macro.label}
-            valueText={macro.valueText}
-            dotColor={MACRO_DOT_COLORS[macro.key]}
-            isFirst={index === 0}
-          />
-        ))}
+        <View style={styles.legendWrapper}>
+          {macros.map((macro, index) => (
+            <MacroLegendRow
+              key={macro.key}
+              label={macro.label}
+              valueText={macro.valueText}
+              dotColor={MACRO_DOT_COLORS[macro.key]}
+              isFirst={index === 0}
+            />
+          ))}
+        </View>
       </View>
     </View>
   )

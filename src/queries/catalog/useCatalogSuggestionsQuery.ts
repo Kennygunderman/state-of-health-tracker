@@ -3,5 +3,5 @@ import {DefaultError, useQuery, UseQueryResult} from '@tanstack/react-query'
 
 import {buildCatalogSuggestionsQueryOptions} from './useCatalogSuggestionsQuery.util'
 
-export const useCatalogSuggestionsQuery = (limit?: number): UseQueryResult<CatalogFoodSuggestion[], DefaultError> =>
-  useQuery(buildCatalogSuggestionsQueryOptions(limit))
+export const useCatalogSuggestionsQuery = (): UseQueryResult<CatalogFoodSuggestion[], DefaultError> =>
+  useQuery(buildCatalogSuggestionsQueryOptions())

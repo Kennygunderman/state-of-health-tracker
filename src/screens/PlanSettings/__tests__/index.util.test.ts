@@ -1,7 +1,15 @@
 import {AffectedMeal, MealPlanFlag, MealPlanSummary} from '@data/models/MealPlan'
-import {MealPlanPreferences} from '@data/models/MealPlanPreferences'
+import {MealPlanPreferences, MealPlanPreferencesSaveResult} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
+import {
+  buildPendingIntent,
+  IntentsHydration,
+  MealPlanStore,
+  PendingIntent,
+  PENDING_INTENT_TTL_MS
+} from '@store/mealPlan/useMealPlanStore'
 import {Theme} from '@styles/theme'
+import {matchesFingerprint, RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
 
 import Screens from '@constants/screens'
 
@@ -10,13 +18,30 @@ import {
   buildPlanSettingsRows,
   buildRegenerateDialogBody,
   buildRegenerateSummaryRows,
+  canSubmitRegeneration,
   derivePlanSettingsBanner,
+  deriveRegenerateConfirmState,
   earliestFlaggedDate,
   nextPlanAcknowledgementTarget,
   PlanSettingsRowKey,
+  reconcilePreferencesTimeZone,
+  RegenerateConfirmReason,
+  RegenerateConfirmState,
+  RegenerateLatchEvent,
+  RegenerateLaunchInput,
+  RegeneratePlanPin,
+  resolveRegenerateLatch,
+  resolveRegenerateLaunch,
   shouldRecalculateTargets,
-  shouldShowUseForNextPlan
+  shouldShowUseForNextPlan,
+  TimeZoneReconciliationRequest
 } from '../index.util'
+
+// Mocking the persist adapter keeps the suite free of native modules: `index.util` imports the store module
+// for its pure replay API, and importing that module creates the persisted store.
+jest.mock('@store/zustandAsyncStorage', () => ({
+  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
 
 const PLAN_START_DATE = '2026-07-05'
 const PLAN_END_DATE = '2026-07-11'
@@ -1116,5 +1141,656 @@ describe('regenerateSummaryValueColor — the styled layer applying the tone the
 
   it('resolves the default tone to no colour, leaving SummaryRows its own', () => {
     expect(regenerateSummaryValueColor('default')).toBeUndefined()
+  })
+})
+
+const REGENERATE_USER_ID = 'user-1'
+const OTHER_USER_ID = 'user-2'
+const PLAN_ID = 'plan-1'
+const OTHER_PLAN_ID = 'plan-2'
+const PLAN_REVISION = 3
+const PREFERENCES_REVISION = 4
+const TARGETS_REVISION = 2
+const LAUNCHED_AT = 1_760_000_000_000
+const STORED_KEY = 'key-of-the-unresolved-regeneration'
+const FRESH_KEY = 'key-minted-by-this-press'
+
+const REGENERATE_PLAN_PIN: RegeneratePlanPin = {
+  id: PLAN_ID,
+  revision: PLAN_REVISION,
+  startDate: PLAN_START_DATE
+}
+
+const makeRegenerateRequest = (overrides: Partial<RegenerateRequestSnapshot> = {}): RegenerateRequestSnapshot => ({
+  action: 'regenerate',
+  planId: PLAN_ID,
+  expectedPlanRevision: PLAN_REVISION,
+  expectedPreferencesRevision: PREFERENCES_REVISION,
+  expectedTargetsRevision: TARGETS_REVISION,
+  ...overrides
+})
+
+const makeLaunchInput = (overrides: Partial<RegenerateLaunchInput> = {}): RegenerateLaunchInput => ({
+  isLaunchLatched: false,
+  hasHydratedIntents: true,
+  state: {pendingIntents: {}},
+  plan: REGENERATE_PLAN_PIN,
+  expectedPreferencesRevision: PREFERENCES_REVISION,
+  expectedTargetsRevision: TARGETS_REVISION,
+  userId: REGENERATE_USER_ID,
+  attemptedAt: LAUNCHED_AT,
+  mintFreshKey: () => FRESH_KEY,
+  ...overrides
+})
+
+const stateWith = (intent: PendingIntent): Pick<MealPlanStore, 'pendingIntents'> => ({
+  pendingIntents: {regenerate: intent}
+})
+
+// The record an earlier confirmation left behind: minted a minute ago, for this account, and never answered.
+const unresolvedIntent = (
+  request: RegenerateRequestSnapshot = makeRegenerateRequest(),
+  userId: string = REGENERATE_USER_ID,
+  createdAt: number = LAUNCHED_AT - 60_000
+): PendingIntent => buildPendingIntent(request, STORED_KEY, userId, createdAt)
+
+describe('resolveRegenerateLaunch — which key a confirmed regeneration launches under', () => {
+  it('mints and records a key when no regeneration is unresolved', () => {
+    const decision = resolveRegenerateLaunch(makeLaunchInput())
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: FRESH_KEY, isReplay: false})
+  })
+
+  it('records the request it launches, so the stored fingerprint is the one the generating screen rebuilds', () => {
+    const decision = resolveRegenerateLaunch(makeLaunchInput())
+
+    if (decision.kind !== 'launch' || decision.intent === null) {
+      throw new Error('expected a launch carrying a record')
+    }
+
+    expect(decision.intent.key).toBe(FRESH_KEY)
+    expect(decision.intent.userId).toBe(REGENERATE_USER_ID)
+    expect(decision.intent.createdAt).toBe(LAUNCHED_AT)
+    expect(decision.intent.request).toEqual(decision.request)
+    expect(matchesFingerprint(decision.request, decision.intent.fingerprint)).toBe(true)
+  })
+
+  it('pins the three revisions the plan and the two reads answered with', () => {
+    const decision = resolveRegenerateLaunch(makeLaunchInput())
+
+    expect(decision).toMatchObject({
+      kind: 'launch',
+      request: {
+        action: 'regenerate',
+        planId: PLAN_ID,
+        expectedPlanRevision: PLAN_REVISION,
+        expectedPreferencesRevision: PREFERENCES_REVISION,
+        expectedTargetsRevision: TARGETS_REVISION
+      }
+    })
+  })
+
+  it('dispatches the generating screen with the launched key and the launched request', () => {
+    const decision = resolveRegenerateLaunch(makeLaunchInput())
+
+    if (decision.kind !== 'launch') {
+      throw new Error('expected a launch')
+    }
+
+    expect(decision.params).toEqual({
+      context: {kind: 'regenerate', planId: PLAN_ID, planRevision: PLAN_REVISION},
+      idempotencyKey: FRESH_KEY,
+      expectedPreferencesRevision: PREFERENCES_REVISION,
+      expectedTargetsRevision: TARGETS_REVISION,
+      startDate: PLAN_START_DATE
+    })
+  })
+
+  it('replays the stored key rather than minting when the same regeneration is unresolved', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({state: stateWith(unresolvedIntent()), mintFreshKey}))
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: STORED_KEY, isReplay: true})
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('keeps the stored key and the stored request when the plan revision has moved since it was minted', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    const stored = makeRegenerateRequest({expectedPlanRevision: PLAN_REVISION - 1})
+
+    const decision = resolveRegenerateLaunch(
+      makeLaunchInput({state: stateWith(unresolvedIntent(stored)), mintFreshKey})
+    )
+
+    if (decision.kind !== 'launch') {
+      throw new Error('expected a launch')
+    }
+
+    expect(decision.idempotencyKey).toBe(STORED_KEY)
+    expect(decision.isReplay).toBe(true)
+    expect(decision.request).toEqual(stored)
+    expect(decision.params.context).toEqual({
+      kind: 'regenerate',
+      planId: PLAN_ID,
+      planRevision: PLAN_REVISION - 1
+    })
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('keeps the stored key and the stored request when the preference and target pins have moved', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    const stored = makeRegenerateRequest({
+      expectedPreferencesRevision: PREFERENCES_REVISION - 1,
+      expectedTargetsRevision: TARGETS_REVISION - 1
+    })
+
+    const decision = resolveRegenerateLaunch(
+      makeLaunchInput({state: stateWith(unresolvedIntent(stored)), mintFreshKey})
+    )
+
+    if (decision.kind !== 'launch') {
+      throw new Error('expected a launch')
+    }
+
+    expect(decision.idempotencyKey).toBe(STORED_KEY)
+    expect(decision.request).toEqual(stored)
+    expect(decision.params.expectedPreferencesRevision).toBe(PREFERENCES_REVISION - 1)
+    expect(decision.params.expectedTargetsRevision).toBe(TARGETS_REVISION - 1)
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('restates the unresolved record without extending the seven days it may be replayed for', () => {
+    const intent = unresolvedIntent()
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({state: stateWith(intent)}))
+
+    if (decision.kind !== 'launch' || decision.intent === null) {
+      throw new Error('expected a launch carrying a record')
+    }
+
+    expect(decision.intent).toEqual(intent)
+    expect(decision.intent.createdAt).toBe(intent.createdAt)
+  })
+
+  it('hands an unresolved regeneration of another plan to the plan tab rather than recording over it', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    const intent = unresolvedIntent(makeRegenerateRequest({planId: OTHER_PLAN_ID}))
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({state: stateWith(intent), mintFreshKey}))
+
+    expect(decision).toEqual({kind: 'handOff', intent})
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('mints again once the age guard has retired the unresolved record', () => {
+    const expired = unresolvedIntent(makeRegenerateRequest(), REGENERATE_USER_ID, LAUNCHED_AT - PENDING_INTENT_TTL_MS)
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({state: stateWith(expired)}))
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: FRESH_KEY, isReplay: false})
+  })
+
+  it('never replays a key minted by another account', () => {
+    const decision = resolveRegenerateLaunch(
+      makeLaunchInput({state: stateWith(unresolvedIntent(makeRegenerateRequest(), OTHER_USER_ID))})
+    )
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: FRESH_KEY, isReplay: false})
+  })
+
+  it('mints rather than replaying a stored record that disagrees with its own request', () => {
+    const corrupt: PendingIntent = {...unresolvedIntent(), fingerprint: 'a-fingerprint-of-another-request'}
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({state: stateWith(corrupt)}))
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: FRESH_KEY, isReplay: false})
+  })
+
+  it('decides nothing while the persisted intents are still on their way out of storage', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({hasHydratedIntents: false, mintFreshKey}))
+
+    expect(decision).toEqual({kind: 'ignored', reason: 'unhydratedIntents'})
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the plan has not loaded', {plan: null}],
+    ['the preferences read has not answered', {expectedPreferencesRevision: null}],
+    ['the targets read has not answered', {expectedTargetsRevision: null}]
+  ])('decides nothing while %s', (_case, overrides: Partial<RegenerateLaunchInput>) => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+
+    expect(resolveRegenerateLaunch(makeLaunchInput({...overrides, mintFreshKey}))).toEqual({
+      kind: 'ignored',
+      reason: 'incompletePins'
+    })
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('launches without a record when no account is signed in, since intents are scoped by one', () => {
+    const decision = resolveRegenerateLaunch(makeLaunchInput({userId: null}))
+
+    expect(decision).toMatchObject({kind: 'launch', idempotencyKey: FRESH_KEY, isReplay: false, intent: null})
+  })
+})
+
+describe('resolveRegenerateLaunch — the launch latch', () => {
+  it('decides nothing once a launch has been dispatched', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+
+    const decision = resolveRegenerateLaunch(makeLaunchInput({isLaunchLatched: true, mintFreshKey}))
+
+    expect(decision).toEqual({kind: 'ignored', reason: 'latched'})
+    expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+
+  it('files one key for two queued presses of the same confirmation', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    let isLaunchLatched = false
+
+    const press = (): void => {
+      const decision = resolveRegenerateLaunch(makeLaunchInput({isLaunchLatched, mintFreshKey}))
+
+      if (decision.kind !== 'ignored') {
+        isLaunchLatched = true
+      }
+    }
+
+    press()
+    press()
+
+    expect(mintFreshKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('declines a latched press even where a replay would otherwise be due', () => {
+    const decision = resolveRegenerateLaunch(
+      makeLaunchInput({isLaunchLatched: true, state: stateWith(unresolvedIntent())})
+    )
+
+    expect(decision).toEqual({kind: 'ignored', reason: 'latched'})
+  })
+
+  it('holds the latch from the dispatch itself', () => {
+    expect(resolveRegenerateLatch('launchDispatched')).toBe(true)
+  })
+
+  it.each<RegenerateLatchEvent>(['confirmReopened', 'screenFocused'])(
+    'releases the latch on %s, so the control does not die for the session',
+    event => {
+      expect(resolveRegenerateLatch(event)).toBe(false)
+    }
+  )
+
+  it('releases on nothing but a reopened dialog and a returned-to screen', () => {
+    const events: RegenerateLatchEvent[] = ['launchDispatched', 'confirmReopened', 'screenFocused']
+
+    expect(events.filter(event => !resolveRegenerateLatch(event))).toEqual(['confirmReopened', 'screenFocused'])
+  })
+
+  it('launches again once a release has happened', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    let isLaunchLatched = resolveRegenerateLatch('launchDispatched')
+
+    expect(resolveRegenerateLaunch(makeLaunchInput({isLaunchLatched, mintFreshKey}))).toEqual({
+      kind: 'ignored',
+      reason: 'latched'
+    })
+
+    isLaunchLatched = resolveRegenerateLatch('confirmReopened')
+
+    expect(resolveRegenerateLaunch(makeLaunchInput({isLaunchLatched, mintFreshKey}))).toMatchObject({
+      kind: 'launch',
+      idempotencyKey: FRESH_KEY
+    })
+    expect(mintFreshKey).toHaveBeenCalledTimes(1)
+  })
+})
+
+const READY_CONFIRM: RegenerateConfirmState = {reason: 'ready', isPending: false, isDisabled: false}
+
+const PENDING_CONFIRM_REASONS: RegenerateConfirmReason[] = ['launchDispatched', 'unhydratedIntents']
+
+describe('deriveRegenerateConfirmState — what the confirm action says about a press', () => {
+  it('reads as available while nothing has been dispatched and the persisted slice is in hand', () => {
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: false, intentsHydration: 'succeeded'})).toEqual(
+      READY_CONFIRM
+    )
+  })
+
+  it('reads as pending from the dispatch itself, so a second tap is refused visibly and not only silently', () => {
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: true, intentsHydration: 'succeeded'})).toEqual({
+      reason: 'launchDispatched',
+      isPending: true,
+      isDisabled: false
+    })
+  })
+
+  it('reads as pending while the persisted intents are still on their way out of storage', () => {
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: false, intentsHydration: 'pending'})).toEqual({
+      reason: 'unhydratedIntents',
+      isPending: true,
+      isDisabled: false
+    })
+  })
+
+  it('reads as disabled rather than busy once the persisted read has been refused', () => {
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: false, intentsHydration: 'failed'})).toEqual({
+      reason: 'failedIntentsRead',
+      isPending: false,
+      isDisabled: true
+    })
+  })
+
+  it('states the refused read even where a launch was dispatched, since no wait resolves it', () => {
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: true, intentsHydration: 'failed'})).toEqual({
+      reason: 'failedIntentsRead',
+      isPending: false,
+      isDisabled: true
+    })
+  })
+
+  it('never draws one state as busy and disabled at once, and leaves only the ready state pressable', () => {
+    const hydrations: IntentsHydration[] = ['pending', 'succeeded', 'failed']
+    const states = hydrations.flatMap(intentsHydration =>
+      [false, true].map(isLaunchDispatched => deriveRegenerateConfirmState({isLaunchDispatched, intentsHydration}))
+    )
+
+    expect(states.filter(state => state.isPending && state.isDisabled)).toEqual([])
+    expect(states.filter(state => !state.isPending && !state.isDisabled)).toEqual([READY_CONFIRM])
+  })
+
+  it('takes the pending state from the latch rule rather than from a second rule of its own', () => {
+    const events: RegenerateLatchEvent[] = ['launchDispatched', 'confirmReopened', 'screenFocused']
+
+    const pending = events.filter(
+      event =>
+        deriveRegenerateConfirmState({
+          isLaunchDispatched: resolveRegenerateLatch(event),
+          intentsHydration: 'succeeded'
+        }).isPending
+    )
+
+    expect(pending).toEqual(['launchDispatched'])
+  })
+
+  it.each<RegenerateLatchEvent>(['confirmReopened', 'screenFocused'])(
+    'clears the pending state on %s, the same moment the latch releases',
+    event => {
+      expect(
+        deriveRegenerateConfirmState({
+          isLaunchDispatched: resolveRegenerateLatch(event),
+          intentsHydration: 'succeeded'
+        })
+      ).toEqual(READY_CONFIRM)
+    }
+  )
+
+  it('turns the confirmation pending on the press that mints, and files one key for two queued presses', () => {
+    const mintFreshKey = jest.fn(() => FRESH_KEY)
+    let isLaunchLatched = false
+    const drawn: RegenerateConfirmState[] = []
+
+    const press = (): void => {
+      const decision = resolveRegenerateLaunch(makeLaunchInput({isLaunchLatched, mintFreshKey}))
+
+      if (decision.kind !== 'ignored') {
+        isLaunchLatched = resolveRegenerateLatch('launchDispatched')
+      }
+
+      drawn.push(deriveRegenerateConfirmState({isLaunchDispatched: isLaunchLatched, intentsHydration: 'succeeded'}))
+    }
+
+    press()
+    press()
+
+    expect(mintFreshKey).toHaveBeenCalledTimes(1)
+    expect(drawn.map(state => state.reason)).toEqual(['launchDispatched', 'launchDispatched'])
+  })
+
+  it('draws every press the launch declines as pending or disabled, never as available', () => {
+    const declined = resolveRegenerateLaunch(makeLaunchInput({hasHydratedIntents: false}))
+
+    expect(declined).toEqual({kind: 'ignored', reason: 'unhydratedIntents'})
+    expect(PENDING_CONFIRM_REASONS).toContain(
+      deriveRegenerateConfirmState({isLaunchDispatched: false, intentsHydration: 'pending'}).reason
+    )
+    expect(deriveRegenerateConfirmState({isLaunchDispatched: false, intentsHydration: 'pending'}).isPending).toBe(true)
+  })
+})
+
+const DEVICE_ZONE = 'Pacific/Auckland'
+const STORED_ZONE = 'Europe/London'
+const READ_REVISION = 7
+const FRESH_REVISION = 9
+
+/**
+ * The `{error}` body the backend answers a refused revision with, which is the field `getApiErrorCode` reads.
+ * Shaped as the axios-style error the http layer surfaces so the orchestration is exercised against the real
+ * classification rather than a stand-in for it.
+ */
+const apiError = (code: string, status = 409): unknown => ({
+  isAxiosError: true,
+  response: {status, data: {error: code}}
+})
+
+const preferencesWith = (timeZone: string | null, revision: number): MealPlanPreferences =>
+  ({timeZone, revision}) as MealPlanPreferences
+
+const saveResult = (): MealPlanPreferencesSaveResult =>
+  ({
+    preferences: preferencesWith(DEVICE_ZONE, FRESH_REVISION + 1),
+    affectedMealCount: 0
+  }) as MealPlanPreferencesSaveResult
+
+interface Collaborators {
+  savePreferences: jest.Mock<Promise<MealPlanPreferencesSaveResult>, [TimeZoneReconciliationRequest]>
+  refetchPreferences: jest.Mock<Promise<MealPlanPreferences | null>, []>
+}
+
+const collaborators = (): Collaborators => ({
+  savePreferences: jest.fn<Promise<MealPlanPreferencesSaveResult>, [TimeZoneReconciliationRequest]>(() =>
+    Promise.resolve(saveResult())
+  ),
+  refetchPreferences: jest.fn<Promise<MealPlanPreferences | null>, []>(() =>
+    Promise.resolve(preferencesWith(STORED_ZONE, FRESH_REVISION))
+  )
+})
+
+const run = (overrides: Partial<Parameters<typeof reconcilePreferencesTimeZone>[0]> & Collaborators) =>
+  reconcilePreferencesTimeZone({
+    storedTimeZone: STORED_ZONE,
+    deviceTimeZone: DEVICE_ZONE,
+    expectedRevision: READ_REVISION,
+    ...overrides
+  })
+
+describe('reconcilePreferencesTimeZone', () => {
+  describe('when there is nothing to correct', () => {
+    it('issues no request for a stored zone the device already matches', async () => {
+      const deps = collaborators()
+
+      await expect(run({...deps, storedTimeZone: DEVICE_ZONE})).resolves.toBe('not_needed')
+
+      expect(deps.savePreferences).not.toHaveBeenCalled()
+      expect(deps.refetchPreferences).not.toHaveBeenCalled()
+    })
+
+    it('issues no request for a user who has never stored a zone', async () => {
+      const deps = collaborators()
+
+      await expect(run({...deps, storedTimeZone: null})).resolves.toBe('not_needed')
+
+      expect(deps.savePreferences).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('when the zones differ', () => {
+    it('saves the device zone against the revision it read', async () => {
+      const deps = collaborators()
+
+      await expect(run(deps)).resolves.toBe('saved')
+
+      expect(deps.savePreferences).toHaveBeenCalledTimes(1)
+      expect(deps.savePreferences).toHaveBeenCalledWith({timeZone: DEVICE_ZONE, expectedRevision: READ_REVISION})
+      expect(deps.refetchPreferences).not.toHaveBeenCalled()
+    })
+
+    it('sends the zone and the pin and nothing else, so it cannot alter an answer of the user’s', async () => {
+      const deps = collaborators()
+
+      await run(deps)
+
+      expect(Object.keys(deps.savePreferences.mock.calls[0][0]).sort()).toEqual(['expectedRevision', 'timeZone'])
+    })
+  })
+
+  describe('when the revision is refused', () => {
+    it('resolves silently once the refetch shows the zone already applied, without writing again', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('stale_revision'))
+      deps.refetchPreferences.mockResolvedValueOnce(preferencesWith(DEVICE_ZONE, FRESH_REVISION))
+
+      await expect(run(deps)).resolves.toBe('already_current')
+
+      expect(deps.refetchPreferences).toHaveBeenCalledTimes(1)
+      expect(deps.savePreferences).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-sends the zone against the refetched revision when it is still not applied', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('stale_revision'))
+
+      await expect(run(deps)).resolves.toBe('resubmitted')
+
+      expect(deps.refetchPreferences).toHaveBeenCalledTimes(1)
+      expect(deps.savePreferences).toHaveBeenCalledTimes(2)
+      expect(deps.savePreferences).toHaveBeenLastCalledWith({
+        timeZone: DEVICE_ZONE,
+        expectedRevision: FRESH_REVISION
+      })
+    })
+
+    it('never re-sends the revision the server already refused', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('stale_revision'))
+
+      await run(deps)
+
+      expect(deps.savePreferences.mock.calls.map(([payload]) => payload.expectedRevision)).toEqual([
+        READ_REVISION,
+        FRESH_REVISION
+      ])
+    })
+
+    it('gives up when the refetch cannot answer, leaving the stored zone alone', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('stale_revision'))
+      deps.refetchPreferences.mockResolvedValueOnce(null)
+
+      await expect(run(deps)).resolves.toBe('failed')
+
+      expect(deps.savePreferences).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives up when the refetch itself rejects, rather than propagating', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('stale_revision'))
+      deps.refetchPreferences.mockRejectedValueOnce(new Error('offline'))
+
+      await expect(run(deps)).resolves.toBe('failed')
+    })
+
+    it('gives up after one re-submission, so a third writer cannot start a loop', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences
+        .mockRejectedValueOnce(apiError('stale_revision'))
+        .mockRejectedValueOnce(apiError('stale_revision'))
+
+      await expect(run(deps)).resolves.toBe('failed')
+
+      expect(deps.savePreferences).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('when the save fails for any other reason', () => {
+    it('reports failure without refetching, because the pin it sent is not obsolete', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(new Error('Network Error'))
+
+      await expect(run(deps)).resolves.toBe('failed')
+
+      expect(deps.refetchPreferences).not.toHaveBeenCalled()
+      expect(deps.savePreferences).toHaveBeenCalledTimes(1)
+    })
+
+    it('treats a refusal that is not a stale revision as an ordinary failure', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('read_only_field', 400))
+
+      await expect(run(deps)).resolves.toBe('failed')
+
+      expect(deps.refetchPreferences).not.toHaveBeenCalled()
+    })
+
+    it('is retryable: a second run after a failure sends the zone again', async () => {
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(new Error('Network Error'))
+
+      await expect(run(deps)).resolves.toBe('failed')
+      await expect(run(deps)).resolves.toBe('saved')
+
+      expect(deps.savePreferences).toHaveBeenCalledTimes(2)
+    })
+  })
+})
+
+describe('canSubmitRegeneration', () => {
+  const ready = {hasPlan: true, hasPreferences: true, hasTargetsRevision: true, isReconcilingTimeZone: false}
+
+  it('offers regeneration once all three reads have answered and nothing is reconciling', () => {
+    expect(canSubmitRegeneration(ready)).toBe(true)
+  })
+
+  it('withholds it while the zone reconciliation is in flight, because that save moves the pins it sends', () => {
+    expect(canSubmitRegeneration({...ready, isReconcilingTimeZone: true})).toBe(false)
+  })
+
+  it.each([
+    ['the plan', {hasPlan: false}],
+    ['the preferences', {hasPreferences: false}],
+    ['the targets revision', {hasTargetsRevision: false}]
+  ])('withholds it while %s has not answered', (_label, missing) => {
+    expect(canSubmitRegeneration({...ready, ...missing})).toBe(false)
+  })
+
+  it('withholds it for every combination that is not fully ready', () => {
+    const flags = [true, false]
+    const combinations = flags.flatMap(hasPlan =>
+      flags.flatMap(hasPreferences =>
+        flags.flatMap(hasTargetsRevision =>
+          flags.map(isReconcilingTimeZone => ({
+            hasPlan,
+            hasPreferences,
+            hasTargetsRevision,
+            isReconcilingTimeZone
+          }))
+        )
+      )
+    )
+
+    expect(combinations).toHaveLength(16)
+    expect(combinations.filter(canSubmitRegeneration)).toEqual([ready])
   })
 })

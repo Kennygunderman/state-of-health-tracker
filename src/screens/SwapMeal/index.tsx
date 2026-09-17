@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import {FlatList, ListRenderItemInfo, View} from 'react-native'
 
-import type {SwapAlternative} from '@data/models/SwapAlternative'
+import type {SwapAlternative, SwapMealPayload} from '@data/models/SwapAlternative'
 import {Navigation, SwapMealRouteProp} from '@navigation/types'
 import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -14,7 +14,7 @@ import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {Sizes, Stroke} from '@styles/sizes'
 import {Theme} from '@styles/theme'
-import {useMutationState} from '@tanstack/react-query'
+import {useIsMutating, useMutationState} from '@tanstack/react-query'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
@@ -35,8 +35,12 @@ import {
   MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT,
   MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_STALE_PLAN_TOAST,
+  MEAL_PLAN_OTHER_MEAL_PENDING_BODY,
+  MEAL_PLAN_OTHER_MEAL_PENDING_TITLE,
+  stringWithNamedParameters,
   SWAP_ALTERNATIVES_FOOTNOTE,
   SWAP_ALTERNATIVES_HEADER,
+  SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE,
   SWAP_FINDING_ALTERNATIVES_TEXT,
   SWAP_FITS_TARGETS_LABEL,
   SWAP_KEEP_CURRENT_MEAL_BUTTON_TEXT,
@@ -49,14 +53,6 @@ import {
 import AlternativeRow from './components/AlternativeRow'
 import CurrentMealCard from './components/CurrentMealCard'
 import SkeletonAlternatives from './components/SkeletonAlternatives'
-import {
-  guardsForNewAttempt,
-  resolveAlternativesRevision,
-  resolveReplayableSwap,
-  resolveSwapRetryPlan,
-  resolveUnconfirmedRefetch,
-  selectSwapAttemptState
-} from './index.orchestration'
 import styles from './index.styled'
 import {
   buildMealMetaText,
@@ -64,11 +60,29 @@ import {
   buildSwapDateLabel,
   buildSwapTitle,
   currentMealEyebrow,
+  guardsForNewAttempt,
   isPlanInactive,
+  rememberedOutcomeForAttempt,
   rendersAlternatives,
   rendersAlternativesGuidance,
+  rendersOutcomeRetrySpinner,
+  resolveAlternativesRevision,
+  resolveAlternativesTrust,
+  resolveBannerSlot,
+  resolveOutcomeMemory,
+  resolveReplayableSwap,
+  resolveSwapInteraction,
+  resolveSwapMountReplay,
+  resolveSwapRetryPlan,
+  resolveSwapSlotOwnership,
   resolveSwapView,
-  retiresPendingIntent
+  resolveUnconfirmedRefetch,
+  retiresPendingIntent,
+  selectSwapAttemptState,
+  SwapAttempt,
+  SwapOutcomeMemoryRecord,
+  terminalRecoveryKey,
+  unconfirmedRefetchKey
 } from './index.util'
 
 /**
@@ -84,10 +98,20 @@ type AlternativesBlock = {
 
 const ALTERNATIVES_BLOCK_KEY = 'swap-alternatives'
 
+// One frozen empty list for every view that carries none, so "no rows" is a stable value rather than a new
+// array per render.
+const NO_LISTED_ALTERNATIVES: readonly SwapAlternative[] = Object.freeze([])
+
 /**
  * Frames 13 / 13c / 13d / 13e. The commit is pressed on the preview screen, so this screen draws the outcome of
  * an attempt it never fired, and its "Try again" replays the very key that attempt was minted for — a commit
  * whose response was lost returns its stored result instead of swapping the meal twice (AAP 0.7.2).
+ *
+ * It also OWNS that key once the process it was minted in is gone: opening on an unresolved swap intent, this
+ * screen re-sends the stored request under the stored key exactly once, silently, and withholds the
+ * alternatives until the server answers it — a cold start finds the mutation cache empty, and a candidate the
+ * user could open in the meantime would record a second key over the only one capable of reconciling the
+ * first write (0.7.2).
  */
 const SwapMealScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -95,6 +119,9 @@ const SwapMealScreen = (): React.JSX.Element => {
 
   const userId = useAuthStore(state => state.userId)
   const pendingIntents = useMealPlanStore(state => state.pendingIntents)
+  // Subscribed rather than read once: the persisted slice arrives from AsyncStorage after the first frame, and
+  // the mount replay below has to run when the answer lands rather than on the frame that asked for it.
+  const hasHydratedIntents = useMealPlanStore(state => state.hasHydratedIntents)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
   const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
@@ -114,27 +141,91 @@ const SwapMealScreen = (): React.JSX.Element => {
   const alternativesQuery = useSwapAlternativesQuery(params.planId, params.mealId, planRevision)
   const swapMutation = useSwapMealMutation(params.planId, params.mealId)
 
+  // TanStack keeps refetch and mutateAsync stable while replacing the observer object on every status change,
+  // so the callbacks and effects below depend on these rather than on the observers they hang off.
+  const {refetch: refetchDay} = dayQuery
+  const {refetch: refetchAlternatives} = alternativesQuery
+  const {mutateAsync: commitSwap} = swapMutation
+
   // One clock for this mount: the pending intent's expiry is measured in days, so re-reading it per render
   // could only make two reads of the same record disagree.
   const now = useMemo(() => Date.now(), [])
 
   const [dismissedAttemptAt, setDismissedAttemptAt] = useState<number | null>(null)
 
-  // Both guards are per-attempt: each attempt earns its own outcome, so a retry's recovery must not be skipped
-  // because the previous attempt already applied its own. `onRetrySwap` resets them as the request leaves.
-  const recoveredTerminalCode = useRef<string | null>(null)
-  const hasRefetchedUnconfirmed = useRef(false)
+  // Both guards are per-attempt, and both hold the attempt's own key rather than a flag: each attempt earns its
+  // own outcome, so a retry's recovery must not be skipped because the previous attempt already applied its
+  // own. `onRetrySwap` resets them as the request leaves, and each is keyed — by `terminalRecoveryKey` and by
+  // `unconfirmedRefetchKey` — so a commit fired from the preview, which resets nothing here, is a new outcome
+  // even when the server answers it exactly as it answered the last one.
+  const recoveredTerminalKey = useRef<string | null>(null)
+  const refetchedUnconfirmedKey = useRef<string | null>(null)
+
+  // When a refusal last contradicted the alternatives this screen was holding. Not a guard but a clock: the
+  // rows stay hidden until the list has answered again, because the cache would otherwise hand back the very
+  // array the server just refused (`resolveAlternativesTrust`).
+  const contradictedAt = useRef<number | null>(null)
+
+  // The outcome a retry is reconciling, which the mutation cache stops reporting the moment that retry is fired
+  // (see `resolveOutcomeMemory`). Written after the render that drew the outcome, so every render reads the
+  // outcome as it stood before this one — exactly the value a replay in flight has to keep drawing.
+  const outcomeMemory = useRef<SwapOutcomeMemoryRecord | null>(null)
+
+  // Every key this screen has sent, however it sent it — the mount replay below and "Try again" both latch here,
+  // because a key the mount effect cannot see as already sent is a key it would send again.
+  const replayedCommitKey = useRef<string | null>(null)
 
   // The unresolved commit for this user, plan and meal — its stored request, which a replay has to re-send, and
   // the key it was minted for, which is what finds its outcome below. The alternative and the portion the
   // preview bound live in that snapshot, not in this screen's params.
-  const pendingSwap = resolveReplayableSwap({
-    state: {pendingIntents},
-    userId,
-    planId: params.planId,
-    mealId: params.mealId,
-    now
-  })
+  //
+  // Memoised so the record keeps one identity while it is unchanged: the mount replay effect depends on it, and
+  // a fresh object per render would re-enter that effect on every render of the screen.
+  const pendingSwap = useMemo(
+    () =>
+      resolveReplayableSwap({
+        state: {pendingIntents},
+        userId,
+        planId: params.planId,
+        mealId: params.mealId,
+        now
+      }),
+    [now, params.mealId, params.planId, pendingIntents, userId]
+  )
+
+  // Who holds the single `swap` slot, which is a different question from "is there something here to replay":
+  // a record for ANOTHER plan or meal leaves `pendingSwap` null while the slot is very much taken, and opening
+  // a preview against it would mint a second key over the only one that can reconcile that write (0.7.2).
+  const swapSlotOwnership = useMemo(
+    () =>
+      resolveSwapSlotOwnership({
+        state: {pendingIntents},
+        userId,
+        planId: params.planId,
+        mealId: params.mealId,
+        now
+      }),
+    [now, params.mealId, params.planId, pendingIntents, userId]
+  )
+
+  /**
+   * The attempt this screen is still DRAWING after its key was retired.
+   *
+   * A confirmed `swap_failed` resolves the action, so the intent goes (0.7.2) — but frame 13e is drawn from that
+   * attempt's entry in the shared mutation cache, and the intent's key is what finds it. Holding the answered
+   * attempt here keeps the assurance and its "Try again" alive across the retirement: without it the record
+   * would vanish in the same commit that retires the key, the selector below would match nothing, and the
+   * screen would fall back to the ordinary alternatives list as though the commit had never been refused.
+   *
+   * It carries the request as well as the key, because 13e's retry is built from that snapshot under a FRESH
+   * key — the refused one may never be replayed.
+   */
+  const [answeredAttempt, setAnsweredAttempt] = useState<SwapAttempt | null>(null)
+
+  // The unresolved intent while one is on record, and the answered attempt this screen still draws once it is
+  // not. Reads and retries go through this; the interaction gate below deliberately does not, because an
+  // answered attempt no longer holds the slot and must not keep the alternatives closed.
+  const attempt = pendingSwap ?? answeredAttempt
 
   /**
    * Read from the mutation cache rather than from a hook instance this screen owns, because the attempt was
@@ -149,23 +240,68 @@ const SwapMealScreen = (): React.JSX.Element => {
     select: mutation => mutation.state
   })
 
-  const swapState = selectSwapAttemptState(swapStates, pendingSwap?.key ?? null)
+  // The key that identifies this attempt's entry in the shared cache: the unresolved record's while one is on
+  // record, and the answered attempt's once that key has been retired and 13e is still drawn.
+  const attemptKey = attempt?.key ?? null
+
+  const swapState = selectSwapAttemptState(swapStates, attemptKey)
+
+  // Counted across the app rather than read from this screen's own hook instance, for the same reason the
+  // outcome is: the commit is fired by the preview screen, which sits ABOVE this one in the stack while its
+  // request is on the wire. A per-instance `isPending` would report false there and let the replay below put a
+  // second request for that key on the wire.
+  const isCommitInFlight = useIsMutating({mutationKey: mutationKeys.swapMeal}) > 0
 
   // "Back to alternatives" dismisses the attempt it was shown for, not every future one: a later commit that
   // fails again is a new outcome and draws its own banner.
   const isDismissed = swapState !== null && swapState.submittedAt === dismissedAttemptAt
 
+  const isAttemptPending = swapState?.status === 'pending'
+
+  // The identity of this attempt's outcome, and so of the display-only pair it is owed (0.2.5). A string rather
+  // than the state object, because it is a dependency of the effect below: two renders of one outcome must
+  // compare equal, and the next commit's outcome must not.
+  const attemptRefetchKey = unconfirmedRefetchKey(attemptKey, swapState?.submittedAt ?? null)
+
   const view = resolveSwapView({
     currentMeal,
     alternatives: alternativesQuery.data?.alternatives,
     isAlternativesPending: alternativesQuery.isPending,
+    isAlternativesFetching: alternativesQuery.isFetching,
+    isAlternativesTrusted: resolveAlternativesTrust({
+      contradictedAt: contradictedAt.current,
+      alternativesUpdatedAt: alternativesQuery.dataUpdatedAt
+    }),
     alternativesError: alternativesQuery.error,
     swapError: isDismissed ? null : (swapState?.error ?? null),
+    // Deliberately NOT gated on the dismissal: "Back to alternatives" pressed while the replay is still in
+    // flight dismisses the outcome it was shown for, and that takes effect when the server answers — it may
+    // not put candidates back on screen mid-reconciliation, because opening one would re-record the key the
+    // request in flight was minted for.
+    rememberedOutcome: rememberedOutcomeForAttempt(outcomeMemory.current, attemptKey),
+    isAttemptPending,
     isDayPending: dayQuery.isPending,
     dayError: dayQuery.error
   })
 
   const banner = 'banner' in view ? view.banner : null
+  const bannerSlot = resolveBannerSlot(view)
+
+  // A read's "Try again" refetches the query that failed, so its spinner is that query's own fetch — not the
+  // commit's, which the above-title banner reports and which can be in flight at the same time.
+  const isRetryPending =
+    view.kind === 'error' && (view.retry === 'day' ? dayQuery.isFetching : alternativesQuery.isFetching)
+
+  // Whether the alternatives may be opened at all. An unresolved commit owns the single `swap` intent slot, so
+  // while its key is unanswered a new preview would overwrite the only record that can reconcile it — whether
+  // that commit is this meal's own or another meal's, since one slot serves the whole account (0.7.2).
+  const {allowsAlternativeSelection, showsCommitBusyState, showsForeignHoldNotice} = resolveSwapInteraction({
+    ownership: swapSlotOwnership,
+    hasHydratedIntents,
+    viewKind: view.kind,
+    isCommitInFlight,
+    hasBanner: banner !== null
+  })
 
   // Only an ANSWERED false is a refusal: a verdict the day query has not returned — null on the cache-seeded
   // envelope, undefined with no envelope at all — is not a dead plan, and telling the user their plan is gone
@@ -181,15 +317,47 @@ const SwapMealScreen = (): React.JSX.Element => {
     navigation.popTo(Screens.MACROS)
   }, [clearPendingIntent, navigation, params.date, setMacrosSegment, setSelectedPlanDate])
 
+  /**
+   * The silent same-key attempt this screen owes an unresolved commit as it opens (AAP 0.7.2).
+   *
+   * The body is the STORED snapshot's, handed in by `resolveSwapMountReplay`: a replay is answered with the
+   * stored result only while it reproduces the request the key was minted for, so nothing here may be rebuilt
+   * from the route or from the alternatives list. Awaited rather than given per-call callbacks, exactly as
+   * "Try again" is — TanStack drops those when the caller unmounts, and a reply that arrived after the user
+   * left would then never retire the intent the server had just answered.
+   */
+  const replayPendingSwap = useCallback(
+    async (payload: SwapMealPayload): Promise<void> => {
+      const guards = guardsForNewAttempt()
+
+      recoveredTerminalKey.current = guards.recoveredTerminalKey
+      refetchedUnconfirmedKey.current = guards.refetchedUnconfirmedKey
+
+      try {
+        await swapMutation.mutateAsync(payload)
+
+        onSwapCommitted()
+      } catch {
+        // Nothing imperative belongs here: the attempt leaves its own entry in the mutation cache under the key
+        // this screen already matches on, so `resolveSwapView` draws 13e, the unconfirmed variant or a terminal
+        // refusal from it. The intent stays pending unless that answer resolves it.
+      }
+    },
+    [onSwapCommitted, swapMutation]
+  )
+
   // 13e's retry sits inside the error banner rather than navigating. The key and the body it sends are the
   // orchestration module's answer: the stored key while the request still fingerprints to the intent, and the
+
+  // 13e's retry sits inside the error banner rather than navigating. The key and the body it sends are
+  // `resolveSwapRetryPlan`'s answer: the stored key while the request still fingerprints to the intent, and the
   // freshly minted one otherwise, so the server is never asked to reuse a key under a changed body (0.7.2).
   //
   // A refused write verdict deliberately does NOT gate this. The attempt may already be durable, and only a
   // server answer to its own key can settle that — a read reporting the plan inactive cannot. Replaying returns
   // the stored result, or the confirmed refusal that finally retires the intent.
   const onRetrySwap = useCallback(async (): Promise<void> => {
-    if (pendingSwap === null || userId === null) {
+    if (attempt === null || userId === null) {
       // Nothing replayable is on record — the intent was retired or belongs to another user — so the only
       // honest move is back to the alternatives, where the next attempt is built from a fresh preview.
       setDismissedAttemptAt(swapState?.submittedAt ?? null)
@@ -199,7 +367,7 @@ const SwapMealScreen = (): React.JSX.Element => {
 
     const plan = resolveSwapRetryPlan({
       state: {pendingIntents},
-      snapshot: pendingSwap.request,
+      snapshot: attempt.request,
       userId,
       attemptedAt: Date.now(),
       freshKey: mintKey(uuidv4)
@@ -210,13 +378,22 @@ const SwapMealScreen = (): React.JSX.Element => {
     // finds this attempt's outcome by that very key.
     recordPendingIntent(plan.intent)
 
+    // This attempt is the one being drawn from now on, and it is on record again, so the answered attempt held
+    // across a retirement is no longer what the screen reads.
+    setAnsweredAttempt(null)
+
+    // Latched here as well as in the mount effect, because the latch is about what this screen has SENT, not
+    // about which path sent it: a freshly minted key recorded by this press would otherwise look to the mount
+    // effect like an intent nobody had replayed, and be sent a second time.
+    replayedCommitKey.current = plan.idempotencyKey
+
     const guards = guardsForNewAttempt()
 
-    recoveredTerminalCode.current = guards.recoveredTerminalCode
-    hasRefetchedUnconfirmed.current = guards.hasRefetchedUnconfirmed
+    recoveredTerminalKey.current = guards.recoveredTerminalKey
+    refetchedUnconfirmedKey.current = guards.refetchedUnconfirmedKey
 
     try {
-      await swapMutation.mutateAsync(plan.variables.payload)
+      await commitSwap(plan.variables.payload)
 
       onSwapCommitted()
     } catch {
@@ -228,23 +405,23 @@ const SwapMealScreen = (): React.JSX.Element => {
       // this attempt's outcome straight from the mutation cache and returns 13e or the unconfirmed variant,
       // and a terminal code is retired by the effect above. Toasting here would report the same failure twice.
     }
-  }, [onSwapCommitted, pendingIntents, pendingSwap, recordPendingIntent, swapMutation, swapState, userId])
+  }, [attempt, commitSwap, onSwapCommitted, pendingIntents, recordPendingIntent, swapState, userId])
 
   const onBannerAction = useCallback(async (): Promise<void> => {
     if (view.kind === 'error') {
       if (view.retry === 'day') {
-        dayQuery.refetch()
+        refetchDay()
 
         return
       }
 
-      alternativesQuery.refetch()
+      refetchAlternatives()
 
       return
     }
 
     await onRetrySwap()
-  }, [alternativesQuery, dayQuery, onRetrySwap, view])
+  }, [onRetrySwap, refetchAlternatives, refetchDay, view])
 
   const onDismissAttempt = useCallback((): void => {
     setDismissedAttemptAt(swapState?.submittedAt ?? null)
@@ -256,6 +433,14 @@ const SwapMealScreen = (): React.JSX.Element => {
 
   const onOpenPreview = useCallback(
     (alternative: SwapAlternative): void => {
+      if (!allowsAlternativeSelection) {
+        // The rows are not drawn in this state, so this only catches a press queued before they went away. It
+        // stays silent: the banner, the hold notice or the busy indicator above already says what the screen is
+        // waiting for, and the one thing that must not happen is the preview recording a new key over an
+        // unresolved one — this meal's own or another meal's.
+        return
+      }
+
       if (isPlanWriteRefused) {
         // The preview's whole job is to bind a commit, and nothing downstream could make one land, so the
         // refusal is repeated here rather than letting the user choose a portion against a plan already gone.
@@ -272,21 +457,95 @@ const SwapMealScreen = (): React.JSX.Element => {
         planRevision
       })
     },
-    [isPlanWriteRefused, navigation, params.date, params.mealId, params.planId, planRevision]
+    [
+      allowsAlternativeSelection,
+      isPlanWriteRefused,
+      navigation,
+      params.date,
+      params.mealId,
+      params.planId,
+      planRevision
+    ]
   )
 
   useEffect(() => {
-    if (view.kind !== 'terminal' || recoveredTerminalCode.current === view.terminal.code) {
+    outcomeMemory.current = resolveOutcomeMemory({
+      attemptKey,
+      viewKind: view.kind,
+      isAttemptPending,
+      memory: outcomeMemory.current
+    })
+  }, [attemptKey, isAttemptPending, view.kind])
+
+  useEffect(() => {
+    // AAP 0.7.2: the owning screen replays an unresolved intent silently on the next open or cold start, before
+    // exposing its normal state — a cold start finds the mutation cache empty, so without this the screen would
+    // offer ordinary alternatives over a key whose write may already have committed. The latch is written on
+    // every pass, so a re-run while the first attempt is still being set up cannot double it, and nothing here
+    // resolves the intent: only the server's answer to that key does.
+    const replay = resolveSwapMountReplay({
+      attempt: pendingSwap,
+      hasHydratedIntents,
+      userId,
+      isCommitInFlight,
+      replayedKey: replayedCommitKey.current
+    })
+
+    replayedCommitKey.current = replay.replayedKey
+
+    if (replay.replays && replay.payload !== null) {
+      // Not awaited: `replayPendingSwap` owns the whole continuation and resolves rather than rejects, so there
+      // is no outcome left here to handle.
+      replayPendingSwap(replay.payload)
+    }
+  }, [hasHydratedIntents, isCommitInFlight, pendingSwap, replayPendingSwap, userId])
+
+  useEffect(() => {
+    // Frame 13e. The server confirmed `502 swap_failed`, which persisted nothing (0.5.2), so the action is
+    // resolved and its key goes — the identical answer `SwapPreview` gives the identical outcome, so a failure
+    // answered on either screen leaves the same state behind (0.7.2).
+    //
+    // The attempt is retained in the same commit, because what the user is reading is drawn from that attempt's
+    // mutation entry and this key is what finds it. Retiring without retaining would blank the assurance and
+    // hand back the ordinary alternatives list; retaining without retiring is what left a refused key on record
+    // until its seventh day.
+    if (view.kind !== 'failed' || pendingSwap === null || !retiresPendingIntent(view)) {
       return
     }
 
-    recoveredTerminalCode.current = view.terminal.code
+    setAnsweredAttempt(pendingSwap)
+    clearPendingIntent('swap')
+  }, [clearPendingIntent, pendingSwap, view])
+
+  useEffect(() => {
+    if (view.kind !== 'terminal') {
+      return
+    }
+
+    // Keyed by the attempt, not by the code: a second commit refused the same way still owes its recovery.
+    const recoveryKey = terminalRecoveryKey(view.terminal, swapState?.submittedAt ?? null)
+
+    if (recoveredTerminalKey.current === recoveryKey) {
+      return
+    }
+
+    recoveredTerminalKey.current = recoveryKey
+
+    // Whatever the recovery is, the refusal has contradicted the revision this list was computed for, so the
+    // rows are withheld from here until the list has answered again.
+    contradictedAt.current = Date.now()
 
     // Only an answer to the key itself may retire the intent, which is why the predicate — and not the code —
     // decides: a terminal answer from the day query is a read, and says nothing about whether the swap
     // committed.
     if (retiresPendingIntent(view)) {
       clearPendingIntent('swap')
+
+      // The intent is gone, but the mutation cache keeps this attempt's error: dismissing the attempt is what
+      // guarantees the refusal stops being the view, so the screen can return to data once the list is re-read
+      // rather than sitting on a rowless refusal. It dismisses this attempt only — a later commit is a new
+      // submission and draws its own outcome.
+      setDismissedAttemptAt(swapState?.submittedAt ?? null)
     }
 
     if (view.terminal.recovery === 'exitToPlanTab') {
@@ -302,34 +561,57 @@ const SwapMealScreen = (): React.JSX.Element => {
 
     showToast('error', view.terminal.toastText ?? TOAST_GENERIC_ERROR)
 
-    if (view.terminal.recovery === 'refetchPlan') {
-      dayQuery.refetch()
-
-      return
-    }
-
-    // The chosen alternative is what the refusal was about, so the list is re-read and the user picks again;
-    // the next attempt is then built from a fresh preview under a new key.
-    alternativesQuery.refetch()
-  }, [alternativesQuery, clearPendingIntent, dayQuery, navigation, refetchCurrentPlan, setMacrosSegment, view])
+    // BOTH reads, for every recovery that stays on this screen, and unconditionally — the refusal has withheld
+    // the rows (`resolveAlternativesTrust`) and only fresh answers earn them back, so a read this effect skips
+    // is a state the screen cannot leave.
+    //
+    // The day is the authoritative envelope: it carries the plan revision the alternatives query is keyed by
+    // and the writeability verdict a commit is offered against. A refusal about the chosen alternative —
+    // 'reselectAlternative' — is no less a reason to re-read it, because the revision that contradicted the
+    // candidate is the day's, and without that read the same list is re-asked under the very key it already
+    // holds: unasked, and so never answering. The alternatives read is here for the mirror reason: a
+    // plan-state refusal whose day answer comes back on the same revision leaves the list's key unchanged too.
+    //
+    // Which codes reach this effect is the classification's business, not this call site's, so neither read is
+    // narrowed to a code or a recovery.
+    refetchDay()
+    refetchAlternatives()
+  }, [
+    clearPendingIntent,
+    navigation,
+    refetchAlternatives,
+    refetchCurrentPlan,
+    refetchDay,
+    setMacrosSegment,
+    swapState,
+    view
+  ])
 
   useEffect(() => {
     const decision = resolveUnconfirmedRefetch({
       viewKind: view.kind,
-      hasRefetchedUnconfirmed: hasRefetchedUnconfirmed.current
+      attemptRefetchKey,
+      refetchedUnconfirmedKey: refetchedUnconfirmedKey.current
     })
 
-    if (!decision.refetchesPlanDay) {
+    if (!decision.refetchesCurrentPlan && !decision.refetchesPlanDay) {
       return
     }
 
-    hasRefetchedUnconfirmed.current = decision.hasRefetchedUnconfirmed
-    // Display-only (0.2.5): it warms the day a commit this attempt may already have made, so the plan shows it
-    // the moment the user leaves. It never resolves or clears the pending intent — only a server answer to the
-    // same key does, which is what "Try again" asks for — and it leaves the unconfirmed banner's copy alone
-    // even when the day answers with a terminal code of its own.
-    dayQuery.refetch()
-  }, [dayQuery, view.kind])
+    refetchedUnconfirmedKey.current = decision.refetchedUnconfirmedKey
+
+    // Display-only, and both reads (0.2.5): they warm the day and the current plan a commit this attempt may
+    // already have made, so the plan shows it the moment the user leaves. Neither resolves or clears the
+    // pending intent — only a server answer to the same key does, which is what "Try again" asks for — and
+    // neither touches the unconfirmed banner's copy, even when one answers with a terminal code of its own.
+    if (decision.refetchesCurrentPlan) {
+      refetchCurrentPlan()
+    }
+
+    if (decision.refetchesPlanDay) {
+      refetchDay()
+    }
+  }, [attemptRefetchKey, refetchCurrentPlan, refetchDay, view.kind])
 
   useEffect(() => {
     if (!isPlanWriteRefused) {
@@ -343,13 +625,22 @@ const SwapMealScreen = (): React.JSX.Element => {
     refetchCurrentPlan()
   }, [isPlanWriteRefused, refetchCurrentPlan])
 
+  // Withheld rather than drawn disabled while a commit is unresolved: every row is a route into the preview,
+  // which records its own intent, so the rows and the section around them go away until the key resolves.
+  const listedAlternatives =
+    allowsAlternativeSelection && rendersAlternatives(view) ? view.alternatives : NO_LISTED_ALTERNATIVES
+
   const blocks: readonly AlternativesBlock[] =
-    rendersAlternatives(view) && view.alternatives.length > 0
-      ? [{key: ALTERNATIVES_BLOCK_KEY, alternatives: view.alternatives}]
-      : []
+    listedAlternatives.length > 0 ? [{key: ALTERNATIVES_BLOCK_KEY, alternatives: listedAlternatives}] : []
+
+  const resultsAccessibilityLabel = stringWithNamedParameters(SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE, {
+    count: listedAlternatives.length
+  })
 
   // Frame 13's two explanatory pieces travel together and frame 13e drops both (see index.util).
   const showsGuidance = rendersAlternativesGuidance(view)
+
+  const showsOutcomeRetrySpinner = rendersOutcomeRetrySpinner(view)
 
   const renderAlternatives = useCallback(
     ({item: block}: ListRenderItemInfo<AlternativesBlock>): React.JSX.Element => (
@@ -388,9 +679,10 @@ const SwapMealScreen = (): React.JSX.Element => {
                 <Text style={styles.dateLabel}>{buildSwapDateLabel(params.date)}</Text>
               </View>
 
-              {banner !== null && (
-                // The banner is the only thing on this screen that appears in response to a failure, so it is
-                // announced as one. `InfoBanner` declares no role of its own, so there is nothing to double up.
+              {banner !== null && bannerSlot === 'aboveTitle' && (
+                // 13e's slot: the outcome of the commit the user just asked for, which is what the screen is
+                // about, so it precedes the title and the card it makes promises about. It is announced as a
+                // failure — `InfoBanner` declares no role of its own, so there is nothing to double up.
                 <View style={styles.errorBannerWrapper} accessibilityRole="alert">
                   <InfoBanner
                     tone={banner.tone}
@@ -399,16 +691,46 @@ const SwapMealScreen = (): React.JSX.Element => {
                     body={banner.body}
                     actionLabel={banner.actionLabel}
                     onAction={onBannerAction}
-                    isActionPending={swapState?.status === 'pending'}
+                    isActionPending={isAttemptPending}
                     secondaryActionLabel={banner.secondaryActionLabel}
                     onSecondaryAction={banner.secondaryActionLabel === undefined ? undefined : onDismissAttempt}
+                  />
+
+                  {showsOutcomeRetrySpinner && (
+                    // The same-key replay in flight. The banner above keeps the copy of the outcome being
+                    // reconciled, so this is what tells the user the request is running — the reason every
+                    // alternative is withheld until it answers. The spinner declares its own progressbar role
+                    // and label, so the row is a layout wrapper and adds nothing to announce.
+                    <View style={styles.outcomeRetryRow}>
+                      <IndeterminateSpinner size="sm" />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {showsForeignHoldNotice && (
+                // The rows are withheld because a swap on ANOTHER meal is still unconfirmed, and a withheld
+                // list with nothing said about it reads as "no alternatives". The copy names that wait rather
+                // than reusing the unconfirmed-outcome pair: nothing the user did HERE failed, and telling them
+                // to check their connection would ask for an action that cannot help. It carries no action
+                // either, because only the meal holding the key may replay it.
+                <View style={styles.errorBannerWrapper} accessibilityRole="alert">
+                  <InfoBanner
+                    tone="error"
+                    glyph="alert"
+                    title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
+                    body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
                   />
                 </View>
               )}
 
               {currentMeal !== null && (
                 <>
-                  <Text style={[styles.title, banner !== null && styles.titleAfterBanner]}>
+                  <Text
+                    style={[
+                      styles.title,
+                      (bannerSlot === 'aboveTitle' || showsForeignHoldNotice) && styles.titleAfterBanner
+                    ]}>
                     {buildSwapTitle(currentMeal.slot)}
                   </Text>
 
@@ -430,7 +752,13 @@ const SwapMealScreen = (): React.JSX.Element => {
 
               {blocks.length > 0 && (
                 <View style={styles.sectionRow}>
-                  <SectionOverline text={SWAP_ALTERNATIVES_HEADER} />
+                  {/* The overline speaks the result count, as a live region, so the end of the wait a screen
+                      reader was told about ("Loading", 13c) is announced instead of leaving the user to sweep
+                      the screen for it. The hint stays a sibling rather than being folded into this name,
+                      which keeps it readable on its own; nothing else here is announced. */}
+                  <View accessible accessibilityLabel={resultsAccessibilityLabel} accessibilityLiveRegion="polite">
+                    <SectionOverline text={SWAP_ALTERNATIVES_HEADER} />
+                  </View>
 
                   {showsGuidance && <Text style={styles.sectionHint}>{SWAP_FITS_TARGETS_LABEL}</Text>}
                 </View>
@@ -439,6 +767,41 @@ const SwapMealScreen = (): React.JSX.Element => {
           }
           ListEmptyComponent={
             <>
+              {banner !== null && bannerSlot === 'alternatives' && (
+                // The alternatives area, below the title and the current-meal card that both stay (0.2.5): a
+                // read failed, not the plan. It is announced as a failure and as a live region, because it
+                // replaces content the user was waiting on rather than arriving with the screen.
+                <View
+                  style={styles.alternativesBannerWrapper}
+                  accessibilityRole="alert"
+                  accessibilityLiveRegion="polite">
+                  <InfoBanner
+                    tone={banner.tone}
+                    glyph={banner.glyph}
+                    title={banner.title}
+                    body={banner.body}
+                    actionLabel={banner.actionLabel}
+                    onAction={onBannerAction}
+                    isActionPending={isRetryPending}
+                  />
+                </View>
+              )}
+
+              {showsCommitBusyState && (
+                // A commit is unresolved while nothing on screen states it — the silent replay is still on the
+                // wire, or its banner has been dismissed — and the alternatives are withheld until its key is
+                // answered, so this is what keeps the slot from reading as "nothing to show". It carries no
+                // visible label because the copy this release ships here ("Finding alternatives") describes the
+                // list rather than the commit being reconciled.
+                <View
+                  style={styles.loadingRow}
+                  accessible
+                  accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}
+                  accessibilityState={{busy: true}}>
+                  <IndeterminateSpinner size="sm" />
+                </View>
+              )}
+
               {view.kind === 'loading' && (
                 <>
                   <View
@@ -459,7 +822,9 @@ const SwapMealScreen = (): React.JSX.Element => {
 
               {view.kind === 'empty' && currentMeal !== null && (
                 <>
-                  <View style={styles.emptyCardWrapper}>
+                  {/* 13d replaces the same spinner the list does, so its headline and body are announced the
+                      same way rather than waiting for the user to sweep the screen again. */}
+                  <View style={styles.emptyCardWrapper} accessibilityLiveRegion="polite">
                     <View style={styles.emptyCard}>
                       <EmptyState
                         icon={

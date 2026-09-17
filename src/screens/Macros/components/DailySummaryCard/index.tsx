@@ -1,14 +1,14 @@
-import React, {useState} from 'react'
+import React, {useEffect, useState} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
 import {MacroTotals} from '@data/models/Macros'
 import {Navigation} from '@navigation/types'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {isLegacyTargetEditorOpen, resolveTargetAuthority} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useNavigation} from '@react-navigation/native'
+import useAuthStore from '@store/auth/useAuthStore'
 import {Theme} from '@styles/theme'
-import {hasAnyTargetValue} from '@utility/NutritionFormatUtility'
 import Svg, {Circle} from 'react-native-svg'
 
 import TargetCaloriesModal from '@components/dialog/TargetCaloriesModal'
@@ -32,23 +32,31 @@ interface Props {
 const DailySummaryCard = ({totals, targets}: Props) => {
   const [isTargetModalVisible, setIsTargetModalVisible] = useState(false)
   const navigation = useNavigation<Navigation>()
+  const isAuthed = useAuthStore(state => state.isAuthed)
   const nutritionTargetsRead = useNutritionTargetsQuery()
 
-  const hasServerTargets = hasAnyTargetValue(selectNutritionTargets(nutritionTargetsRead))
+  const targetAuthority = resolveTargetAuthority({read: nutritionTargetsRead, isAuthed})
   const radius = (RING_SIZE - RING_STROKE_WIDTH) / 2
   const circumference = 2 * Math.PI * radius
   const fraction = progressFraction(totals.calories, targets.calories)
   const balance = calorieBalance(totals.calories, targets.calories)
 
-  const onEditTargetsPressed = () => {
-    if (!hasServerTargets) {
-      setIsTargetModalVisible(true)
-
-      return
+  // Keeps the request from outliving the answer it was made under: while the modal is open the targets read can
+  // resolve to server authority, and a request left standing would reopen the local-only writer the next time
+  // the device owns the target.
+  useEffect(() => {
+    if (targetAuthority.editor !== 'legacy') {
+      setIsTargetModalVisible(false)
     }
+  }, [targetAuthority.editor])
 
-    // RootStackParamList has no MacrosStack member, so AAP 0.7.4's nested navigate cannot type from inside it
-    navigation.navigate(Screens.MEAL_PLAN_EDIT_TARGETS, {mode: 'edit', returnTo: {kind: 'tab', tab: 'MacrosStack'}})
+  const onEditTargetsPressed = () => {
+    if (targetAuthority.editor === 'legacy') {
+      setIsTargetModalVisible(true)
+    } else if (targetAuthority.editor === 'canonical') {
+      // RootStackParamList has no MacrosStack member, so AAP 0.7.4's nested navigate cannot type from inside it
+      navigation.navigate(Screens.MEAL_PLAN_EDIT_TARGETS, {mode: 'edit', returnTo: {kind: 'tab', tab: 'MacrosStack'}})
+    }
   }
 
   return (
@@ -80,7 +88,11 @@ const DailySummaryCard = ({totals, targets}: Props) => {
           )}
         </Svg>
 
-        <TouchableOpacity style={styles.ringCenter} activeOpacity={0.6} onPress={onEditTargetsPressed}>
+        <TouchableOpacity
+          style={styles.ringCenter}
+          activeOpacity={0.6}
+          disabled={!targetAuthority.isEditable}
+          onPress={onEditTargetsPressed}>
           <Text style={styles.balanceValue}>{formatCalories(balance.amount)}</Text>
 
           <Text style={[styles.balanceLabel, balance.isOver && styles.balanceLabelOver]}>
@@ -97,7 +109,10 @@ const DailySummaryCard = ({totals, targets}: Props) => {
         <MacroGramRow label={FAT_LABEL} grams={totals.fat} dotColor={Theme.colors.lime} isLast />
       </View>
 
-      <TargetCaloriesModal isVisible={isTargetModalVisible} onDismissed={() => setIsTargetModalVisible(false)} />
+      <TargetCaloriesModal
+        isVisible={isLegacyTargetEditorOpen(targetAuthority, isTargetModalVisible)}
+        onDismissed={() => setIsTargetModalVisible(false)}
+      />
     </View>
   )
 }

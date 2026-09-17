@@ -1,7 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
-import {Stroke} from '@styles/sizes'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -18,7 +18,7 @@ export default StyleSheet.create({
   },
   textColumn: {
     flex: 1,
-    rowGap: Spacing.MICRO
+    rowGap: Sizes.ROW_VALUE_INSET_T
   },
   label: {
     fontSize: FontSize.LABEL,

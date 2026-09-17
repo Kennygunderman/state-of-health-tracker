@@ -1,4 +1,6 @@
-import type {SegmentedControlVariant} from './index'
+// Declared here rather than in `index.tsx` because `index.styled.ts` derives the control's envelope
+// geometry from the helpers below, so the util must not import back from the component.
+export type SegmentedControlVariant = 'large' | 'small' | 'unit'
 
 /**
  * The segments divide what the track's leading and trailing insets leave behind.
@@ -47,13 +49,5 @@ export const optionBoxHeightFor = (segmentHeight: number, envelopeInset: number,
 
   return segmentHeight + inset + inset
 }
-
-/**
- * What the envelope occupies in layout once its negative vertical margin gives both insets back —
- * which must equal the drawn track's height, at every text size, for the control to sit exactly
- * where it sat before it gained a press envelope.
- */
-export const envelopeFootprintFor = (optionBoxHeight: number, envelopeInset: number): number =>
-  optionBoxHeight - envelopeInset - envelopeInset
 
 export const isFlexSegments = (variant: SegmentedControlVariant): boolean => variant === 'large'

@@ -34,7 +34,7 @@ import MacrosSkeleton from './components/MacrosSkeleton'
 import MealCard from './components/MealCard'
 import MealPlanTab from './components/MealPlanTab'
 import styles from './index.styled'
-import {resolveMacroTargets} from './index.util'
+import {resolveMacroTargets, resolveMacrosBodyKey} from './index.util'
 
 const listSwipeItemManager = new ListSwipeItemManager()
 
@@ -57,7 +57,6 @@ const MacrosScreen = () => {
 
   const {isSegmentedControlVisible} = useMealPlanEntitlement()
 
-  const {data: dailyMacros, isLoading, isError, refetch} = useDailyMacrosQuery(dateIso)
   const {mutateAsync: deleteMealEntry} = useDeleteMealEntryMutation(dateIso)
 
   const eyebrowDate = formatIsoDayMonthDay(dateIso)
@@ -65,6 +64,10 @@ const MacrosScreen = () => {
   // Forcing the diary body while the control is hidden keeps a segment the user can no longer see from
   // stranding them on it if the feature is turned off mid-session
   const isDiarySegment = !isSegmentedControlVisible || macrosSegment === 'diary'
+
+  // Gated on the segment so the hidden diary is not refetched behind the plan body; the cache entry survives,
+  // so switching back renders the cached day and only the first uncached read shows the skeleton
+  const {data: dailyMacros, isLoading, isError, refetch} = useDailyMacrosQuery(dateIso, isDiarySegment)
 
   const isDiaryLoading = isDiarySegment && isLoading
 
@@ -154,7 +157,13 @@ const MacrosScreen = () => {
     <SafeAreaView style={styles.root} edges={['top']}>
       {!isDiaryLoading && (
         <Animated.View style={styles.root} entering={FadeIn.duration(CROSS_DISSOLVE_DURATION_MS)}>
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* The key is the segment isolation: without it both bodies share one native scroll view and
+              the incoming segment opens at the outgoing segment's offset, below its own header. Distinct
+              keys remount the container per segment, which is what resets the offset to the top. */}
+          <ScrollView
+            key={resolveMacrosBodyKey(isDiarySegment)}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}>
             {isDiarySegment ? (
               <>
                 {renderHeader()}

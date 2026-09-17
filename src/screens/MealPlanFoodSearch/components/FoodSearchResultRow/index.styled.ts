@@ -75,10 +75,5 @@ export default StyleSheet.create({
     justifyContent: 'center',
     borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.inset
-  },
-  addGlyph: {
-    fontSize: FontSize.CARD_TITLE,
-    fontWeight: FontWeight.REGULAR,
-    color: Theme.colors.textSecondary
   }
 })

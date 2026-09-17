@@ -6,27 +6,49 @@ import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
+import {optionBoxHeightFor, segmentEnvelopeInsetFor, visualTrackHeightFor} from './index.util'
+
+// The envelope geometry is derived here, from the pill heights and the minimum touch target, rather
+// than written out as arithmetic over the pre-computed `SEGMENT_*_ENVELOPE_INSET_V` tokens: the
+// derivation is what `__tests__/index.util.test.ts` pins, and the tokens are what it pins it against,
+// so a change to a pill height, the track inset or the target cannot move the rendered envelope
+// without failing a test. The values are unchanged — 36/29 drawn tracks, 4/7.5 insets, 44 targets.
+const LARGE_TRACK_H = visualTrackHeightFor(Sizes.SEGMENT_H, Sizes.SEGMENT_TRACK_INSET)
+const COMPACT_TRACK_H = visualTrackHeightFor(Sizes.SEGMENT_COMPACT_H, Sizes.SEGMENT_TRACK_INSET)
+const LARGE_ENVELOPE_INSET_V = segmentEnvelopeInsetFor(LARGE_TRACK_H, Sizes.TOUCH_TARGET)
+const COMPACT_ENVELOPE_INSET_V = segmentEnvelopeInsetFor(COMPACT_TRACK_H, Sizes.TOUCH_TARGET)
+const LARGE_OPTION_BOX_H = optionBoxHeightFor(Sizes.SEGMENT_H, LARGE_ENVELOPE_INSET_V, Sizes.SEGMENT_TRACK_INSET)
+const COMPACT_OPTION_BOX_H = optionBoxHeightFor(
+  Sizes.SEGMENT_COMPACT_H,
+  COMPACT_ENVELOPE_INSET_V,
+  Sizes.SEGMENT_TRACK_INSET
+)
+// From the envelope's edge to the drawn pill: across the envelope inset and then the track inset.
+const LARGE_PILL_INSET_V = LARGE_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET
+const COMPACT_PILL_INSET_V = COMPACT_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET
+
 export const indicatorWidth = (width: number): ViewStyle => ({
   width
 })
 
 export default StyleSheet.create({
-  // The press envelope, not a drawn surface: it is the minimum touch target tall and gives both of
-  // its insets back as a negative margin, so it occupies the drawn track's height in layout while
-  // each option inside it is a full-height target that nothing clips.
+  // The press envelope, not a drawn surface: it is one option box tall and gives both of its insets
+  // back as a negative margin, so it occupies the drawn track's height in layout while each option
+  // inside it is a full-height target that nothing clips.
   envelope: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    minHeight: Sizes.TOUCH_TARGET,
     paddingHorizontal: Sizes.SEGMENT_TRACK_INSET
   },
   envelopeLarge: {
     alignSelf: 'stretch',
-    marginVertical: -Sizes.SEGMENT_ENVELOPE_INSET_V
+    minHeight: LARGE_OPTION_BOX_H,
+    marginVertical: -LARGE_ENVELOPE_INSET_V
   },
   envelopeCompact: {
     alignSelf: 'flex-start',
-    marginVertical: -Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V
+    minHeight: COMPACT_OPTION_BOX_H,
+    marginVertical: -COMPACT_ENVELOPE_INSET_V
   },
   trackSurface: {
     position: 'absolute',
@@ -36,17 +58,17 @@ export default StyleSheet.create({
     borderRadius: BorderRadius.PILL
   },
   trackSurfaceLarge: {
-    top: Sizes.SEGMENT_ENVELOPE_INSET_V,
-    bottom: Sizes.SEGMENT_ENVELOPE_INSET_V
+    top: LARGE_ENVELOPE_INSET_V,
+    bottom: LARGE_ENVELOPE_INSET_V
   },
   trackSurfaceCompact: {
-    top: Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V,
-    bottom: Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V
+    top: COMPACT_ENVELOPE_INSET_V,
+    bottom: COMPACT_ENVELOPE_INSET_V
   },
   indicator: {
     position: 'absolute',
-    top: Sizes.SEGMENT_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET,
-    bottom: Sizes.SEGMENT_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET,
+    top: LARGE_PILL_INSET_V,
+    bottom: LARGE_PILL_INSET_V,
     left: Sizes.SEGMENT_TRACK_INSET,
     borderRadius: BorderRadius.PILL,
     backgroundColor: Theme.colors.card
@@ -54,11 +76,11 @@ export default StyleSheet.create({
   option: {
     flex: 1,
     justifyContent: 'center',
-    paddingVertical: Sizes.SEGMENT_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET
+    paddingVertical: LARGE_PILL_INSET_V
   },
   optionCompact: {
     flex: 0,
-    paddingVertical: Sizes.SEGMENT_COMPACT_ENVELOPE_INSET_V + Sizes.SEGMENT_TRACK_INSET
+    paddingVertical: COMPACT_PILL_INSET_V
   },
   segment: {
     minHeight: Sizes.SEGMENT_H,

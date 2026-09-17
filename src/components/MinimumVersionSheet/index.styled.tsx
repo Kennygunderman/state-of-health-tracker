@@ -1,6 +1,7 @@
 import {StyleSheet} from 'react-native'
 
 import FontSize from '@styles/fontSize'
+import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
   backdrop: {
@@ -13,6 +14,11 @@ export default StyleSheet.create({
   },
   backdropTouchableArea: {
     flex: 1
+  },
+  // The sheet's own surface, passed to BottomSheet's backgroundStyle. Named here rather than written inline at
+  // the call site so the component carries no style object of its own.
+  sheetBackground: {
+    backgroundColor: Theme.colors.background
   },
   sheetShadow: {
     shadowColor: '#000',
