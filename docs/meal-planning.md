@@ -615,14 +615,18 @@ These are recorded, not closed. Do not read them as resolved.
    `ContentColumn` is the only layout component it adds. Introducing a general primitive would mean
    touching every shipped screen to stay consistent, which is outside this scope.
 2. **The typeface** — section 5.
-3. **Colour contrast.** `src/styles/theme.ts` carries an accessible-colour register marked
-   `STATUS: OPEN, BLOCKED ON A DESIGN DECISION`: eight colour pairs ship below their WCAG 2.1
+3. **Colour contrast.** `src/styles/theme.ts` carries an accessible-colour register whose status it
+   records in two parts, because they have different owners: **engineering, complete** — every pair
+   implements the value Figma draws, and the accessibility work that needs no ruling (roles, labels,
+   44px targets) is applied — and **design, open**. Eight colour pairs ship below their WCAG 2.1
    thresholds, from `white` on `green` at 2.45:1 to `inputBorder` on `inset` at 1.12:1. Each entry
    names the Figma nodes that draw it, the measured ratio, the threshold and a pre-computed remedy
    using existing palette tokens. They were not changed unilaterally because Figma draws them
    exactly as the app renders them and the constants are read across the app, well beyond this
    feature. This is accepted, tracked accessibility debt awaiting a design ruling — the register
-   records the decision, it does not make the palette compliant.
+   records the decision, it does not make the palette compliant. The same disposition is stated for
+   a reviewer in the API repository's acceptance document, under "Dispositions awaiting a human
+   ruling".
 
 ---
 
@@ -669,12 +673,17 @@ npx eslint --no-fix -f json . -o /tmp/lint-after.json || true
 node scripts/lint-baseline-compare.mjs docs/lint-baseline.json /tmp/lint-after.json
 ```
 
-Step 1 exits `0` over the 441 changed source files, with `master` resolving to the feature's
+Step 1 exits `0` over the 469 changed source files, with `master` resolving to the feature's
 reference commit `788a36f` (`origin/master` in a fresh clone) — touched files are clean, per the
-styling rule's migrate-on-touch clause. It also exits `0` against the branch's own base `603718ee`
-(443 files), which is the base that pulls the root JavaScript configs into the list; see the next
-paragraph for why that no longer matters. Step 2 exits `0`: `0 new findings`, and all 487 baseline
-paths still on disk are covered by the after report's 886 results.
+styling rule's migrate-on-touch clause. That reference commit is also the branch's own merge base:
+AAP §0.1.4 requires the feature branch to sit on it, and it was brought into this branch's history
+by merge rather than rebase so that the commit shas the acceptance documentation provenances its
+measurements to stay valid — `git merge-base HEAD master` answers `788a36f`, and the reconciliation
+of the one template file both sides rewrote is in that merge's own message. Running step 1 against
+`603718ee`, the reference's parent, widens the list to 471 by adding `babel.config.js` and
+`env.d.ts` — the two files the reference itself changed and this branch matches byte for byte — and
+that run exits `0` as well. Step 2 exits `0`: `0 new findings`, and all 487 baseline paths still on
+disk are covered by the after report's 886 results.
 
 Count the list with everything committed. `git diff` against a commit never lists an untracked file,
 so running step 1 over a change that has added files but not staged them silently lints fewer paths
