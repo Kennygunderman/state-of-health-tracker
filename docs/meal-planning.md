@@ -674,7 +674,7 @@ reference commit `788a36f` (`origin/master` in a fresh clone) — touched files 
 styling rule's migrate-on-touch clause. It also exits `0` against the branch's own base `603718ee`
 (443 files), which is the base that pulls the root JavaScript configs into the list; see the next
 paragraph for why that no longer matters. Step 2 exits `0`: `0 new findings`, and all 487 baseline
-paths still on disk are covered by the after report's 863 results.
+paths still on disk are covered by the after report's 886 results.
 
 Count the list with everything committed. `git diff` against a commit never lists an untracked file,
 so running step 1 over a change that has added files but not staged them silently lints fewer paths
@@ -726,22 +726,26 @@ by `scripts/__tests__/lint-baseline-compare.test.ts`.
 
 ### State after this feature
 
-The measured after-run: **863 files linted, 41 findings in 23 files — 28 errors and 13 warnings**,
-and the comparator reports **0 new findings**. The count fell from 49 by eight. Five baseline
-findings sat in files this feature touched and were fixed there: `src/constants/endpoints.ts`,
-`src/constants/strings.ts`, `src/navigation/HomeTabs.tsx`,
-`src/screens/Macros/components/DailySummaryCard/index.tsx` and
-`src/screens/FoodDetail/index.util.ts`. The other three are the parse errors of `.eslintrc.js`,
-`babel.config.js` and `jest.config.js`, which the scoped override above replaced with a normal lint
-of those files — and they report nothing.
+The measured after-run: **886 files linted, 38 findings in 20 files — 26 errors and 12 warnings**,
+and the comparator reports **0 new findings**. The count fell from 49 by eleven, and each of the
+eleven is accounted for rather than left to the total. Eight sat in files this feature touched and
+were fixed there: `src/constants/endpoints.ts`, `src/constants/strings.ts`,
+`src/navigation/HomeTabs.tsx`, `src/screens/Macros/components/DailySummaryCard/index.tsx`,
+`src/screens/FoodDetail/index.util.ts`, `App.tsx` (its `<GestureHandlerRootView style={{flex: 1}}>`,
+now `styles.gestureRoot` from the `App.styled` module the migrate-on-touch clause required),
+`src/service/http/httpRequest.ts` and
+`src/utility/CrashUtility.ts` (a `no-explicit-any` each, gone with the types those files now
+declare). The other three are the parse errors of `.eslintrc.js`, `babel.config.js` and
+`jest.config.js`, which the scoped override above replaced with a normal lint of those files — and
+they report nothing.
 
-Two findings the baseline records are deliberately still here. `App.tsx`'s `{flex: 1}` inline style
-and `metro.config.js`'s project-aware parse error are the baseline's, in files this feature does not
-touch, left where they are rather than fixed by editing them: `metro.config.js` in particular is
-outside the parser override for the reason given above. The comparator is unmoved — a baseline
-finding is not a new one — which is why the count is read beside this note and not on its own.
+One finding the baseline records is deliberately still here: `metro.config.js`'s project-aware parse
+error, in a file this feature does not touch, left where it is rather than fixed by editing it —
+`metro.config.js` is outside the parser override for the reason given above. The comparator is
+unmoved — a baseline finding is not a new one — which is why the count is read beside this note and
+not on its own.
 
-The 41 that remain, in full, so a later run can be compared file by file rather than by total:
+The 38 that remain, in full, so a later run can be compared file by file rather than by total:
 
 | File                                                              | Findings | Rule(s)                                                                         |
 | ----------------------------------------------------------------- | -------: | ------------------------------------------------------------------------------- |
@@ -754,7 +758,6 @@ The 41 that remain, in full, so a later run can be compared file by file rather 
 | `src/components/Skeleton/index.tsx`                               | 2        | `@typescript-eslint/no-explicit-any`, `react-hooks/exhaustive-deps`             |
 | `src/service/http/httpUtil.ts`                                    | 2        | `@typescript-eslint/no-explicit-any` ×2                                         |
 | `src/utility/ListSwipeItemManager.ts`                             | 2        | `@typescript-eslint/no-explicit-any` ×2                                         |
-| `App.tsx`                                                         | 1        | `react-native/no-inline-styles`                                                 |
 | `metro.config.js`                                                 | 1        | fatal parsing error                                                             |
 | `src/components/GlobalBottomSheet/index.tsx`                      | 1        | `@typescript-eslint/no-shadow`                                                  |
 | `src/components/MinimumVersionSheet/__tests__/index.util.test.ts` | 1        | `jest/no-identical-title`                                                       |
@@ -765,17 +768,23 @@ The 41 that remain, in full, so a later run can be compared file by file rather 
 | `src/screens/Auth/index.tsx`                                      | 1        | `react-hooks/exhaustive-deps`                                                   |
 | `src/screens/PreviousWorkoutEntries/index.tsx`                    | 1        | `react/no-unstable-nested-components`                                           |
 | `src/screens/Workouts/index.tsx`                                  | 1        | `react-hooks/exhaustive-deps`                                                   |
-| `src/service/http/httpRequest.ts`                                 | 1        | `@typescript-eslint/no-explicit-any`                                            |
 | `src/service/workouts/__tests__/syncWorkoutDay.test.ts`           | 1        | `jest/no-identical-title`                                                       |
-| `src/utility/CrashUtility.ts`                                     | 1        | `@typescript-eslint/no-explicit-any`                                            |
 
-By rule: `@typescript-eslint/no-explicit-any` 13, `@typescript-eslint/no-var-requires` 8,
-`react-native/no-inline-styles` 4, `react-hooks/exhaustive-deps` 4, `prettier/prettier` 4,
+By rule: `@typescript-eslint/no-explicit-any` 11, `@typescript-eslint/no-var-requires` 8,
+`react-hooks/exhaustive-deps` 4, `prettier/prettier` 4, `react-native/no-inline-styles` 3,
 `jest/no-identical-title` 2, `@typescript-eslint/ban-ts-comment` 2,
 `react/no-unstable-nested-components` 2, fatal parsing error 1, `@typescript-eslint/no-shadow` 1.
 
-Every one of those 23 files is byte-identical to the reference commit `788a36f`, so no finding here
-belongs to anything this feature wrote. One file needs a word of explanation even though it now
+Nineteen of those 20 files are byte-identical to the reference commit `788a36f`, so no finding in
+them belongs to anything this feature wrote. The twentieth is named rather than folded into that
+claim: `src/components/SearchBar/index.tsx` **was** touched — it gained the optional `maxLength`
+prop the catalogue search passes — and it still carries the baseline's
+`react-hooks/exhaustive-deps` warning at line 32. That warning is the baseline's own and not
+something the touch introduced: the comparator keys a finding by file, rule and message and reports
+zero new ones, and the `useEffect` it names is outside every line the diff changes. It survives
+because it is a warning, so the changed-file step lints the file and still exits `0`; fixing it
+would mean changing that effect's dependency array, which is a behavioural edit to a shipped shared
+component and no finding asks for it. One further file needs a word of explanation even though it now
 carries no finding: `babel.config.js` matches the reference commit but differs from the branch's own
 base `603718ee`, which predates the commit that trimmed the `react-native-dotenv` allowlist — so it
 does appear in the changed-lintable set the comparator derives against `603718ee`, and it is in the
