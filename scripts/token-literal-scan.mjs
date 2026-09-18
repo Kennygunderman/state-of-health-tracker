@@ -8,12 +8,16 @@ import process from 'node:process'
 //
 // Two scans run, selected per file by its name, because a design value can be written in two places:
 //   * the style-object scan classifies the value of a `property:` and applies to every non-.tsx file and to
-//     every `*.styled.*` module — the gate passes it each `index.styled.ts` a change touches;
+//     every `*.styled.*` module — the gate passes it each styled module a change touches, `.ts` or `.tsx`;
 //   * the attribute scan classifies the value of a JSX attribute — `activeOpacity={0.5}`,
-//     `strokeWidth={1.6}`, `color="#16BC85"` — and applies to every `.tsx` file. The gate passes it each
-//     component `.tsx` a change adds; a literal on a shipped line of an otherwise-modified component is
-//     left where it is, since the design-system rules refactor a shipped value only in the styled module
-//     the change actually touches.
+//     `strokeWidth={1.6}`, `color="#16BC85"` — and applies to every `.tsx` file. The gate passes it every
+//     component `.tsx` a change touches, not only the ones it adds: the styling rule's migrate-on-touch
+//     clause covers a literal on a shipped line of a touched component exactly as it covers one in that
+//     component's stylesheet, so a hit there is migrated rather than left in place.
+// Both classes have to be selected by the invocation or one of the two scans never runs, which is why the
+// documented pathspec is `'src/**/*.styled.*' 'src/**/*.tsx'` with `__tests__` excluded — a stylesheet test
+// asserts the number its stylesheet resolves to, and that expectation is not a design value (see
+// "The literal scan" in docs/meal-planning.md).
 // Applying the style-object scan to component source would misread ordinary arithmetic (`length - 1`) as a
 // style value, which is why the attribute scan works from the numeric allowlist below and the colour-name
 // predicate instead: a prop carrying a numeric design value is listed, a prop carrying behaviour

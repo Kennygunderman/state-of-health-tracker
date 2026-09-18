@@ -1,7 +1,13 @@
 import {createEmptyMacroTotals} from '@data/models/Macros'
 import {Meal} from '@data/models/Meal'
 import {MealSlot} from '@data/models/Recipe'
-import {buildPendingIntent, MealPlanStore, PENDING_INTENT_TTL_MS, PendingIntent} from '@store/mealPlan/useMealPlanStore'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PENDING_INTENT_TTL_MS,
+  PendingIntent,
+  PendingIntentReservation
+} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {MIN_SERVINGS, PerServingMacros} from '@utility/ServingsUtility'
 
@@ -51,10 +57,12 @@ import {
   planStoredLogReplay,
   planUnconfirmedRefetch,
   resolveDiaryBucket,
+  resolveLogAttemptDispatch,
   resolveLogCacheScope,
   resolveLogDiaryDestination,
   resolveLogFormValues,
   resolveLogLaunch,
+  resolveLogReservationRecord,
   resolveLogSubmitAffordance,
   resolveRestoredLogDraft,
   resolveUnresolvedLogIntent,
@@ -1242,6 +1250,131 @@ describe('planLogAttempt', () => {
     sentAttempt(planLogAttempt(attemptInputs({launch: replayLaunch(), mintFreshKey})))
 
     expect(mintFreshKey).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Which record has to be confirmed on the device before this attempt's key may leave. A mint carries its own;
+ * a replay's is the one the store already holds, which is what lets the reservation be re-attempted for a key
+ * whose write was refused — the state in which the record exists in memory alone (0.7.2).
+ */
+describe('resolveLogReservationRecord', () => {
+  const storedRecord = (key: string = STORED_KEY): PendingIntent =>
+    buildPendingIntent(storedLogIntent().request, key, USER_ID, ATTEMPTED_AT)
+
+  it('reserves the record a mint built beside its key', () => {
+    const attempt = sentAttempt(planLogAttempt(attemptInputs()))
+
+    expect(resolveLogReservationRecord(attempt, {})).toBe(attempt.intent)
+  })
+
+  it('reserves the store-held record for a replay, which carries none of its own', () => {
+    const attempt = sentAttempt(planLogAttempt(attemptInputs({launch: replayLaunch()})))
+    const record = storedRecord()
+
+    // The store's own object, so the write restates the record under its original `createdAt` instead of
+    // extending the 7-day life of a key the user pressed once.
+    expect(resolveLogReservationRecord(attempt, {log: record})).toBe(record)
+  })
+
+  it('reserves nothing when the slot holds a different key', () => {
+    // Reserving one key and sending another would report durability the sent key never had.
+    const attempt = sentAttempt(planLogAttempt(attemptInputs({launch: replayLaunch()})))
+
+    expect(resolveLogReservationRecord(attempt, {log: storedRecord('another-key')})).toBeNull()
+  })
+
+  it('reserves nothing when the slot is empty, which is the signed-out attempt', () => {
+    const attempt = sentAttempt(planLogAttempt(attemptInputs({userId: null})))
+
+    expect(attempt.intent).toBeNull()
+    expect(resolveLogReservationRecord(attempt, {})).toBeNull()
+  })
+})
+
+/**
+ * The gate between the reservation and the wire. Without it the log left while its key existed only in this
+ * process: a kill in that window lost the key, the cold-start replay never happened, and the user's retry
+ * minted a second key and wrote a second diary entry for one meal (F01, AAP 0.7.2).
+ */
+describe('resolveLogAttemptDispatch', () => {
+  it('sends on a device that confirmed the record, minted or replayed', () => {
+    expect(resolveLogAttemptDispatch({kind: 'durable'}, false)).toEqual({kind: 'send'})
+    expect(resolveLogAttemptDispatch({kind: 'durable'}, true)).toEqual({kind: 'send'})
+  })
+
+  it('sends when there was no record to write, which is the signed-out attempt', () => {
+    expect(resolveLogAttemptDispatch(null, false)).toEqual({kind: 'send'})
+  })
+
+  it('refuses both unavailable reasons, and retires the never-sent key it was minted for', () => {
+    // The reasons differ only in which storage call failed — an unread slice or an unconfirmed write — and in
+    // both the key would exist in this process alone.
+    expect(resolveLogAttemptDispatch({kind: 'unavailable', reason: 'storage_failed'}, false)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: false,
+      toast: TOAST_GENERIC_ERROR
+    })
+
+    expect(resolveLogAttemptDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, false)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: false,
+      toast: TOAST_GENERIC_ERROR
+    })
+  })
+
+  it('keeps the record of a REPLAYED key, whose write may already have committed', () => {
+    expect(resolveLogAttemptDispatch({kind: 'unavailable', reason: 'storage_failed'}, true)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: true,
+      toast: TOAST_GENERIC_ERROR
+    })
+
+    expect(resolveLogAttemptDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, true)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: true,
+      toast: TOAST_GENERIC_ERROR
+    })
+  })
+
+  /**
+   * The ordering F01 asks to pin, and the half a value-only assertion cannot reach: the mutation is dispatched
+   * after the reservation has RESOLVED, never beside it. No renderer is installed (AAP 0.4.1), so the
+   * handler's own order is reproduced against a deferred reservation rather than rendered.
+   */
+  describe('ordering of the dispatch against the reservation', () => {
+    const logAfterReservation = (reservation: Promise<PendingIntentReservation>, log: () => void): Promise<void> =>
+      reservation.then(settled => {
+        if (resolveLogAttemptDispatch(settled, false).kind === 'send') {
+          log()
+        }
+      })
+
+    it('does not dispatch while the storage write is still out', async () => {
+      const log = jest.fn()
+      let confirm = (_reservation: PendingIntentReservation): void => undefined
+      const reservation = new Promise<PendingIntentReservation>(resolve => {
+        confirm = resolve
+      })
+      const attempt = logAfterReservation(reservation, log)
+
+      await Promise.resolve()
+
+      expect(log).not.toHaveBeenCalled()
+
+      confirm({kind: 'durable'})
+      await attempt
+
+      expect(log).toHaveBeenCalledTimes(1)
+    })
+
+    it('never dispatches when the reservation resolves unavailable', async () => {
+      const log = jest.fn()
+
+      await logAfterReservation(Promise.resolve({kind: 'unavailable', reason: 'storage_failed'}), log)
+
+      expect(log).not.toHaveBeenCalled()
+    })
   })
 })
 

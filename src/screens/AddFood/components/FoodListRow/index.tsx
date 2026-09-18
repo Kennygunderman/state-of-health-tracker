@@ -2,6 +2,8 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import {Opacity} from '@styles/sizes'
+
 import BadgePill from '@components/BadgePill'
 import Text from '@components/Text'
 
@@ -29,7 +31,7 @@ const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props):
   return (
     <TouchableOpacity
       style={styles.card}
-      activeOpacity={0.7}
+      activeOpacity={Opacity.PRESSED_SUBTLE}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={ADD_FOOD_ROW_ACCESSIBILITY_HINT}

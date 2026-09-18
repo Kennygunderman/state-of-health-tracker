@@ -3,6 +3,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AccessibilityInfo, FlatList, ListRenderItemInfo, Platform, View} from 'react-native'
 
 import type {SwapAlternative, SwapMealPayload} from '@data/models/SwapAlternative'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {Navigation, SwapMealRouteProp} from '@navigation/types'
 import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -74,7 +75,9 @@ import {
   resolveOutcomeMemory,
   resolveReplayableSwap,
   resolveSwapInteraction,
+  resolveSwapAttemptDispatch,
   resolveSwapMountReplay,
+  resolveSwapReservationRecord,
   resolveSwapRetryPlan,
   resolveSwapSlotOwnership,
   resolveSwapView,
@@ -130,8 +133,17 @@ const SwapMealScreen = (): React.JSX.Element => {
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or the keyed commit the
+  // preview fired — is terminal for a gated screen: no recovery that stays here can succeed, so the guard
+  // leaves for the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure,
+  // including a lost response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const dayQuery = useMealPlanDayQuery(params.planId, params.date)
-  const {refetch: refetchCurrentPlan} = useCurrentMealPlanQuery()
+  // Gated like every other reader of `/meal-planning/plans/current`: no gated request may be issued once the
+  // capability latch has flipped, and a mounted observer would otherwise keep asking on every remount, focus
+  // and reconnect (AAP 0.2.5, 0.7.5).
+  const {refetch: refetchCurrentPlanRoute} = useCurrentMealPlanQuery(isGatedRequestAllowed)
 
   const envelope = dayQuery.data ?? null
   const currentMeal = envelope?.day.meals.find(candidate => candidate.id === params.mealId) ?? null
@@ -143,6 +155,17 @@ const SwapMealScreen = (): React.JSX.Element => {
 
   const alternativesQuery = useSwapAlternativesQuery(params.planId, params.mealId, planRevision)
   const swapMutation = useSwapMealMutation(params.planId, params.mealId)
+
+  // The recovery re-read is itself a gated request, so `enabled` does not cover it: `refetch` fetches whatever
+  // the option says, which is how an already-open screen kept probing a route that had just refused it. It is
+  // skipped once the latch has flipped and everything else each recovery does is unchanged (AAP 0.2.5, 0.7.5).
+  const refetchCurrentPlan = useCallback((): void => {
+    if (!isGatedRequestAllowed) {
+      return
+    }
+
+    refetchCurrentPlanRoute()
+  }, [isGatedRequestAllowed, refetchCurrentPlanRoute])
 
   // TanStack keeps refetch and mutateAsync stable while replacing the observer object on every status change,
   // so the callbacks and effects below depend on these rather than on the observers they hang off.
@@ -177,6 +200,11 @@ const SwapMealScreen = (): React.JSX.Element => {
   // Every key this screen has sent, however it sent it — the mount replay below and "Try again" both latch here,
   // because a key the mount effect cannot see as already sent is a key it would send again.
   const replayedCommitKey = useRef<string | null>(null)
+
+  // Whether a retry is between its decision and its answer. It closes the window the awaited storage write
+  // opens: in it no request is pending, so every render value the banner draws its pending state from reads as
+  // idle and a second press would record and send beside the first.
+  const isRetryDispatching = useRef(false)
 
   // The unresolved commit for this user, plan and meal — its stored request, which a replay has to re-send, and
   // the key it was minted for, which is what finds its outcome below. The alternative and the portion the
@@ -331,6 +359,19 @@ const SwapMealScreen = (): React.JSX.Element => {
    */
   const replayPendingSwap = useCallback(
     async (payload: SwapMealPayload): Promise<void> => {
+      // Reserved before the replay leaves, exactly as the retry below reserves. The record this replay was
+      // reconstructed from is normally already at rest — it came off the device — so the reservation answers
+      // from the confirmed slice and writes nothing; the case it exists for is the record a refused write left
+      // in memory alone, which must not be sent under a key nothing on disk describes (0.7.2). A refusal sends
+      // nothing and says nothing: the mount replay is silent by design, and the key stays latched below, so the
+      // user's own "Try again" is what asks again.
+      const record = resolveSwapReservationRecord({pendingIntents}, payload.idempotencyKey)
+      const dispatch = resolveSwapAttemptDispatch(record === null ? null : await recordPendingIntent(record), true)
+
+      if (dispatch.kind === 'refused') {
+        return
+      }
+
       const guards = guardsForNewAttempt()
 
       recoveredTerminalKey.current = guards.recoveredTerminalKey
@@ -346,7 +387,7 @@ const SwapMealScreen = (): React.JSX.Element => {
         // refusal from it. The intent stays pending unless that answer resolves it.
       }
     },
-    [onSwapCommitted, swapMutation]
+    [onSwapCommitted, pendingIntents, recordPendingIntent, swapMutation]
   )
 
   // 13e's retry sits inside the error banner rather than navigating. The key and the body it sends are
@@ -357,6 +398,14 @@ const SwapMealScreen = (): React.JSX.Element => {
   // server answer to its own key can settle that — a read reporting the plan inactive cannot. Replaying returns
   // the stored result, or the confirmed refusal that finally retires the intent.
   const onRetrySwap = useCallback(async (): Promise<void> => {
+    // The retry now awaits its own storage write before sending, so the press has to hold the door until it
+    // has either sent or refused: nothing is pending anywhere in that window, so `isAttemptPending` and the
+    // banner's own pending treatment — both render values — would let a second press mint and record beside
+    // this one.
+    if (isRetryDispatching.current) {
+      return
+    }
+
     if (attempt === null || userId === null) {
       // Nothing replayable is on record — the intent was retired or belongs to another user — so the only
       // honest move is back to the alternatives, where the next attempt is built from a fresh preview.
@@ -373,26 +422,51 @@ const SwapMealScreen = (): React.JSX.Element => {
       freshKey: mintKey(uuidv4)
     })
 
-    // Re-recorded before the request leaves: the key may be the stored one or the fresh one, and either way the
-    // record has to describe the request that is actually in flight — including for the selector above, which
-    // finds this attempt's outcome by that very key.
-    recordPendingIntent(plan.intent)
-
-    // This attempt is the one being drawn from now on, and it is on record again, so the answered attempt held
-    // across a retirement is no longer what the screen reads.
-    setAnsweredAttempt(null)
-
-    // Latched here as well as in the mount effect, because the latch is about what this screen has SENT, not
-    // about which path sent it: a freshly minted key recorded by this press would otherwise look to the mount
-    // effect like an intent nobody had replayed, and be sent a second time.
-    replayedCommitKey.current = plan.idempotencyKey
-
-    const guards = guardsForNewAttempt()
-
-    recoveredTerminalKey.current = guards.recoveredTerminalKey
-    refetchedUnconfirmedKey.current = guards.refetchedUnconfirmedKey
+    isRetryDispatching.current = true
 
     try {
+      // Awaited, not fired and forgotten: the record is what makes a response lost in flight replayable at
+      // all, so it has to be ON THE DEVICE before the request leaves. Recording it and sending in the same
+      // tick raced the storage write, and a kill in that window left the key nowhere — the next attempt minted
+      // a second one and swapped the meal twice (0.7.2). The record has to describe the request that is
+      // actually in flight, including for the selector above, which finds this attempt's outcome by its key.
+      const dispatch = resolveSwapAttemptDispatch(await recordPendingIntent(plan.intent), plan.isReplay)
+
+      if (dispatch.kind === 'refused') {
+        // Nothing is sent: a key the device never confirmed cannot reconcile a swap the server may already
+        // have committed. A freshly minted key — which is what 13e's retry carries, its refused key having
+        // been retired by the answer that refused it — has been on no wire at all, so its record goes rather
+        // than holding the one `swap` slot behind a request that never left; a replayed key's record stays.
+        if (!dispatch.retainsPendingIntent) {
+          clearPendingIntent('swap')
+        }
+
+        // Latched even though nothing was sent, so the mount effect cannot take this very key off the record
+        // and send it a tick later without a confirmed write of its own.
+        replayedCommitKey.current = plan.idempotencyKey
+
+        // Said once, in place: the banner the press came from is still on screen with its "Try again", and the
+        // storage write is safe to ask for again.
+        showToast('error', dispatch.toast)
+
+        return
+      }
+
+      // This attempt is the one being drawn from now on, and it is on record again, so the answered attempt
+      // held across a retirement is no longer what the screen reads. Applied only once the key is durable —
+      // an attempt that never left must leave the outcome it was retrying exactly as it was drawn.
+      setAnsweredAttempt(null)
+
+      // Latched here as well as in the mount effect, because the latch is about what this screen has SENT, not
+      // about which path sent it: a freshly minted key recorded by this press would otherwise look to the mount
+      // effect like an intent nobody had replayed, and be sent a second time.
+      replayedCommitKey.current = plan.idempotencyKey
+
+      const guards = guardsForNewAttempt()
+
+      recoveredTerminalKey.current = guards.recoveredTerminalKey
+      refetchedUnconfirmedKey.current = guards.refetchedUnconfirmedKey
+
       await commitSwap(plan.variables.payload)
 
       onSwapCommitted()
@@ -404,8 +478,10 @@ const SwapMealScreen = (): React.JSX.Element => {
       // Nothing imperative belongs in this catch. A failure is drawn, not announced — `resolveSwapView` reads
       // this attempt's outcome straight from the mutation cache and returns 13e or the unconfirmed variant,
       // and a terminal code is retired by the effect above. Toasting here would report the same failure twice.
+    } finally {
+      isRetryDispatching.current = false
     }
-  }, [attempt, commitSwap, onSwapCommitted, pendingIntents, recordPendingIntent, swapState, userId])
+  }, [attempt, clearPendingIntent, commitSwap, onSwapCommitted, pendingIntents, recordPendingIntent, swapState, userId])
 
   const onBannerAction = useCallback(async (): Promise<void> => {
     if (view.kind === 'error') {

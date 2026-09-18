@@ -2,6 +2,8 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import {ScrollView, View} from 'react-native'
 
+import type {CurrentMealPlans} from '@data/models/MealPlan'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import type {RootStackParamList, StepMode} from '@navigation/types'
 import {MealPlanGeneratingRouteProp, Navigation} from '@navigation/types'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -70,9 +72,29 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
   const intentsHydration = useMealPlanStore(state => state.intentsHydration)
   const retryIntentsHydration = useMealPlanStore(state => state.retryIntentsHydration)
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or the keyed generation
+  // it sends — is terminal for a gated screen: no recovery that stays here can succeed, so the guard leaves
+  // for the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure, including a
+  // lost response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const preferencesQuery = useMealPlanPreferencesQuery()
   const targetsQuery = useNutritionTargetsQuery()
-  const {refetch: refetchCurrentPlan} = useCurrentMealPlanQuery()
+  // Gated like every other reader of `/meal-planning/plans/current`: no gated request may be issued once the
+  // capability latch has flipped, and a mounted observer would otherwise keep asking on every remount, focus
+  // and reconnect (AAP 0.2.5, 0.7.5).
+  const {data: currentPlans, refetch: refetchCurrentPlanRoute} = useCurrentMealPlanQuery(isGatedRequestAllowed)
+
+  // The re-read both recoveries below depend on, and the one thing `enabled` does not cover: `refetch` fetches
+  // whatever the option says, which is how an already-open screen kept probing a route that had just refused
+  // it. Once the latch has flipped this answers from the entry already in hand instead — a recovery still has
+  // to resolve against whatever answer exists, and the unavailable family's own recovery leaves for the tab
+  // that explains the refusal either way (AAP 0.2.5, 0.7.5).
+  const readCurrentPlans = useCallback(
+    async (): Promise<CurrentMealPlans | undefined> =>
+      isGatedRequestAllowed ? (await refetchCurrentPlanRoute()).data : currentPlans,
+    [currentPlans, isGatedRequestAllowed, refetchCurrentPlanRoute]
+  )
 
   const generateMutation = useGeneratePlanMutation()
   // The regeneration hook closes over the plan it regenerates, so that id travels here rather than in the
@@ -343,8 +365,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
       }
 
       if (recovery.selectsUpcomingPlan) {
-        const answer = await refetchCurrentPlan()
-        const upcomingPlanId = resolveUpcomingPlanId(answer.data)
+        const upcomingPlanId = resolveUpcomingPlanId(await readCurrentPlans())
 
         if (upcomingPlanId !== null) {
           setSelectedPlanId(upcomingPlanId)
@@ -352,14 +373,17 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
 
         setMacrosSegment('mealPlan')
       } else if (recovery.refetchesCurrentPlan) {
-        refetchCurrentPlan()
+        // Warms the tab this recovery leaves for, so its answer is fresh by the time the user arrives. Not
+        // awaited and needs no rejection handler: `refetch` resolves with the query's own result, and a read
+        // the capability latch skips leaves the entry as it stands.
+        readCurrentPlans()
       }
 
       if (recovery.route !== null) {
         leaveTo(recovery.route)
       }
     },
-    [clearPendingIntent, generationRequest.action, leaveTo, refetchCurrentPlan, setMacrosSegment, setSelectedPlanId]
+    [clearPendingIntent, generationRequest.action, leaveTo, readCurrentPlans, setMacrosSegment, setSelectedPlanId]
   )
 
   useEffect(() => {
@@ -386,10 +410,9 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
    * this request was about to replace (AAP 0.2.5, 0.7.2).
    */
   const reconcileUnconfirmedOutcome = useCallback(async (): Promise<void> => {
-    const answer = await refetchCurrentPlan()
     const planId = resolveSettledGenerationPlanId({
       kind: 'refetched',
-      plans: answer.data,
+      plans: await readCurrentPlans(),
       sentKey: sentIdempotencyKey.current
     })
 
@@ -401,7 +424,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
     setSelectedPlanId(planId)
     setMacrosSegment('mealPlan')
     leaveTo(Screens.MACROS)
-  }, [clearPendingIntent, generationRequest.action, leaveTo, refetchCurrentPlan, setMacrosSegment, setSelectedPlanId])
+  }, [clearPendingIntent, generationRequest.action, leaveTo, readCurrentPlans, setMacrosSegment, setSelectedPlanId])
 
   useEffect(() => {
     if (view.kind !== 'unconfirmed' || hasRefetchedUnconfirmed.current) {

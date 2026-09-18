@@ -6,6 +6,7 @@ import {
   IntentsHydration,
   MealPlanStore,
   PendingIntent,
+  PendingIntentReservation,
   resolveReplayableIntent,
   resolveSlotOwnership
 } from '@store/mealPlan/useMealPlanStore'
@@ -542,6 +543,70 @@ export function planLogAttempt(inputs: LogAttemptInputs): LogAttemptPlan {
       intent: inputs.userId === null ? null : buildPendingIntent(request, freshKey, inputs.userId, inputs.attemptedAt)
     }
   }
+}
+
+/**
+ * The record that must be confirmed on the device before this attempt's key may leave (AAP 0.7.2), or null
+ * when there is no record to confirm at all.
+ *
+ * A MINT carries its own: `planLogAttempt` built it beside the key it minted, and it has never been offered to
+ * storage. A REPLAY carries none, because its record is normally already at rest — it came off the device in
+ * the first place. "Normally" is what this function exists for: a reservation the device refuses leaves the
+ * record in memory alone (the store never rolls one back, so that the key a press may already have sent is not
+ * lost), and every later attempt of that key is a replay. Without this the retry would send a key nothing on
+ * disk describes — the very window F01 closes — so the record the store holds is handed back to be RESTATED.
+ *
+ * Restated, not refiled: the object is the store's own, so it keeps its original `createdAt` and the write
+ * cannot extend the 7-day life of a key the user pressed once. It also costs nothing when the record is
+ * already at rest, because an identical write is skipped by the persist adapter and the reservation answers
+ * from the confirmed slice.
+ *
+ * The key is compared rather than trusted: `pendingIntents.log` holds exactly one record, and a record filed
+ * for a different key is not this attempt's authority to send — answering null then is what keeps the caller
+ * from reserving one key and sending another.
+ */
+export function resolveLogReservationRecord(
+  attempt: LogAttempt,
+  pendingIntents: MealPlanStore['pendingIntents']
+): PendingIntent | null {
+  if (attempt.intent !== null) {
+    return attempt.intent
+  }
+
+  const stored = pendingIntents.log
+
+  return stored !== undefined && stored.key === attempt.payload.idempotencyKey ? stored : null
+}
+
+/**
+ * What the attempt does once `recordPendingIntent` has answered: send the log, or refuse it and say so.
+ *
+ * Both 'unavailable' reasons refuse identically — the slice is unread, or the write was not confirmed — because
+ * either way the key this request would carry exists only in this process: a kill between sending it and its
+ * answer would leave the next launch nothing to replay, and the user's retry would mint a SECOND key and write
+ * a second diary entry for one meal.
+ *
+ * `retainsPendingIntent` turns on whether that key has ever been on the wire. A REPLAYED key has, and its
+ * record is the only thing that could reconcile a write that may have committed, so it stays. A FRESHLY MINTED
+ * key has not — this attempt is the only thing that has ever named it — so keeping it would lock this screen's
+ * portion, day and bucket (`resolveLogFormValues` shows a stored request read-only) behind a request that
+ * never left, and would leave a never-sent key for the Meal Plan tab to replay silently on the next open.
+ * Retiring it is not a rollback of a sent request: nothing carried it, so the next press is free to mint again.
+ *
+ * A null reservation is the signed-out attempt: `pendingIntents` is user-scoped, so nothing was recorded and
+ * there is nothing about the device to learn — the log leaves exactly as it did before.
+ */
+export type LogAttemptDispatch = {kind: 'send'} | {kind: 'refused'; retainsPendingIntent: boolean; toast: string}
+
+export function resolveLogAttemptDispatch(
+  reservation: PendingIntentReservation | null,
+  isReplay: boolean
+): LogAttemptDispatch {
+  if (reservation === null || reservation.kind === 'durable') {
+    return {kind: 'send'}
+  }
+
+  return {kind: 'refused', retainsPendingIntent: isReplay, toast: TOAST_GENERIC_ERROR}
 }
 
 /**

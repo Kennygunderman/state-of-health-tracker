@@ -1,7 +1,13 @@
 import {MacroTotals} from '@data/models/Macros'
 import {MealSlot, RecipeIngredient} from '@data/models/Recipe'
 import {SwapPreview} from '@data/models/SwapAlternative'
-import {buildPendingIntent, MealPlanStore, PendingIntent, PENDING_INTENT_TTL_MS} from '@store/mealPlan/useMealPlanStore'
+import {
+  buildPendingIntent,
+  MealPlanStore,
+  PendingIntent,
+  PendingIntentReservation,
+  PENDING_INTENT_TTL_MS
+} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {matchesFingerprint, requestBody, SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {AxiosError, AxiosResponse} from 'axios'
@@ -16,7 +22,8 @@ import {
   stringWithNamedParameters,
   SWAP_PREVIEW_REPLACING_TEMPLATE,
   SWAP_PREVIEW_SUBTITLE_SEPARATOR,
-  SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE
+  SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 import {
@@ -29,6 +36,7 @@ import {
   isOutcomeOwnedBySwapMeal,
   resolveCommitFailureDisposition,
   resolvePreviewIngredients,
+  resolveSwapCommitDispatch,
   resolveSwapCommitGate,
   resolveSwapCommitLaunch,
   resolveSwapSlotOwnership,
@@ -613,6 +621,116 @@ describe('resolveSwapCommitLaunch', () => {
     launchFor({state})
 
     expect(JSON.stringify(state)).toBe(snapshot)
+  })
+})
+/**
+ * The gate between the reservation and the wire. It is what stops the commit from leaving while its key exists
+ * only in this process — the window in which a kill loses the key, the cold-start replay AAP 0.7.2 relies on
+ * never happens, and the user's retry mints a second key that swaps the meal twice.
+ */
+describe('resolveSwapCommitDispatch', () => {
+  describe('a device that confirmed the record', () => {
+    it('sends a freshly minted key', () => {
+      expect(resolveSwapCommitDispatch({kind: 'durable'}, false)).toEqual({kind: 'send'})
+    })
+
+    it('sends a replayed key', () => {
+      expect(resolveSwapCommitDispatch({kind: 'durable'}, true)).toEqual({kind: 'send'})
+    })
+  })
+
+  describe('nothing to make durable', () => {
+    it('sends when there was no record to write, which is the signed-out attempt', () => {
+      // `pendingIntents` is user-scoped, so a signed-out press records nothing and learns nothing about the
+      // device — the commit leaves under its minted key exactly as it did before.
+      expect(resolveSwapCommitDispatch(null, false)).toEqual({kind: 'send'})
+    })
+  })
+
+  describe('a reservation the device would not confirm', () => {
+    it('refuses a write that was not confirmed, and retires the never-sent key it was minted for', () => {
+      expect(resolveSwapCommitDispatch({kind: 'unavailable', reason: 'storage_failed'}, false)).toEqual({
+        kind: 'refused',
+        retainsPendingIntent: false,
+        toast: TOAST_GENERIC_ERROR
+      })
+    })
+
+    it('refuses just as firmly while the persisted slice is unread', () => {
+      // The two reasons differ only in which storage call failed; either way the key would exist in this
+      // process alone.
+      expect(resolveSwapCommitDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, false)).toEqual({
+        kind: 'refused',
+        retainsPendingIntent: false,
+        toast: TOAST_GENERIC_ERROR
+      })
+    })
+
+    it('keeps the record of a REPLAYED key, whose request may already have committed', () => {
+      expect(resolveSwapCommitDispatch({kind: 'unavailable', reason: 'storage_failed'}, true)).toEqual({
+        kind: 'refused',
+        retainsPendingIntent: true,
+        toast: TOAST_GENERIC_ERROR
+      })
+
+      expect(resolveSwapCommitDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, true)).toEqual({
+        kind: 'refused',
+        retainsPendingIntent: true,
+        toast: TOAST_GENERIC_ERROR
+      })
+    })
+
+    it('never answers with a payload to send', () => {
+      const dispatch = resolveSwapCommitDispatch({kind: 'unavailable', reason: 'storage_failed'}, false)
+
+      expect(dispatch.kind).not.toBe('send')
+    })
+  })
+
+  /**
+   * The ordering F01 asks to pin, and the half a value-only assertion cannot reach: the commit is dispatched
+   * after the reservation has RESOLVED, never beside it. The reservation is left pending here to stand for the
+   * storage write the press now waits on, which is exactly the window in which the old fire-and-forget call
+   * had already put the request on the wire. No renderer is installed (AAP 0.4.1), so the handler's own order
+   * is reproduced against a deferred reservation rather than rendered.
+   */
+  describe('ordering of the dispatch against the reservation', () => {
+    const commitAfterReservation = (
+      reservation: Promise<PendingIntentReservation>,
+      commit: () => void
+    ): Promise<void> =>
+      reservation.then(settled => {
+        if (resolveSwapCommitDispatch(settled, false).kind === 'send') {
+          commit()
+        }
+      })
+
+    it('does not dispatch while the reservation is still out', async () => {
+      const commit = jest.fn()
+      let confirm = (_reservation: PendingIntentReservation): void => undefined
+      const reservation = new Promise<PendingIntentReservation>(resolve => {
+        confirm = resolve
+      })
+      const attempt = commitAfterReservation(reservation, commit)
+
+      // A turn of the microtask queue with the write unanswered: nothing may have left yet.
+      await Promise.resolve()
+
+      expect(commit).not.toHaveBeenCalled()
+
+      confirm({kind: 'durable'})
+      await attempt
+
+      expect(commit).toHaveBeenCalledTimes(1)
+    })
+
+    it('never dispatches when the reservation resolves unavailable', async () => {
+      const commit = jest.fn()
+
+      await commitAfterReservation(Promise.resolve({kind: 'unavailable', reason: 'storage_failed'}), commit)
+
+      expect(commit).not.toHaveBeenCalled()
+    })
   })
 })
 

@@ -159,7 +159,7 @@ const ActivityTab = () => {
       )}
 
       <View style={styles.card}>
-        <TouchableOpacity style={styles.labelRow} activeOpacity={0.6} onPress={onBurnInfoPressed}>
+        <TouchableOpacity style={styles.labelRow} activeOpacity={Opacity.PRESSED} onPress={onBurnInfoPressed}>
           <Text style={styles.label}>{ACTIVITY_CALORIE_BURN_LABEL}</Text>
 
           <Ionicons name="information-circle-outline" size={INFO_ICON_SIZE} color={Theme.colors.textMuted} />
@@ -172,7 +172,7 @@ const ActivityTab = () => {
         </View>
 
         {segments.length > 0 && (
-          <TouchableOpacity activeOpacity={0.6} onPress={onBurnInfoPressed}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED} onPress={onBurnInfoPressed}>
             <View style={styles.segmentBar}>
               {segments.map(segment => (
                 <View
@@ -203,7 +203,7 @@ const ActivityTab = () => {
         <Text style={styles.label}>{ACTIVITY_TARGETS_LABEL}</Text>
 
         <View style={styles.targetsValues}>
-          <TouchableOpacity activeOpacity={0.5} onPress={() => setIsStepGoalModalVisible(true)}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED_TARGET_ROW} onPress={() => setIsStepGoalModalVisible(true)}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_STEPS_LABEL} `}
 

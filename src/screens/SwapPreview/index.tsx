@@ -2,6 +2,8 @@ import React, {useCallback, useEffect, useMemo, useRef} from 'react'
 
 import {ScrollView, useWindowDimensions, View} from 'react-native'
 
+import type {SwapMealPayload} from '@data/models/SwapAlternative'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {Navigation, SwapPreviewRouteProp} from '@navigation/types'
 import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -86,6 +88,7 @@ import {
   formatReplacingContext,
   isOutcomeOwnedBySwapMeal,
   resolveCommitFailureDisposition,
+  resolveSwapCommitDispatch,
   resolvePreviewIngredients,
   resolveSwapCommitGate,
   resolveSwapCommitLaunch,
@@ -129,17 +132,38 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or the keyed commit it
+  // fires — is terminal for a gated screen: no recovery that stays here can succeed, so the guard leaves for
+  // the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure, including a lost
+  // response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const previewQuery = useSwapPreviewQuery(params.planId, params.mealId, params.recipeVersionId, params.planRevision)
   const dayQuery = useMealPlanDayQuery(params.planId, params.date)
-  const currentPlanQuery = useCurrentMealPlanQuery()
+  // Gated like every other reader of `/meal-planning/plans/current`: no gated request may be issued once the
+  // capability latch has flipped, and a mounted observer would otherwise keep asking on every remount, focus
+  // and reconnect (AAP 0.2.5, 0.7.5).
+  const currentPlanQuery = useCurrentMealPlanQuery(isGatedRequestAllowed)
   const swapMutation = useSwapMealMutation(params.planId, params.mealId)
 
   // TanStack keeps refetch and mutateAsync stable while replacing the observer object on every status change,
   // so the callbacks and effects below depend on these rather than on the observers they hang off.
   const {refetch: refetchPreview} = previewQuery
   const {refetch: refetchDay} = dayQuery
-  const {refetch: refetchCurrentPlan} = currentPlanQuery
+  const {refetch: refetchCurrentPlanRoute} = currentPlanQuery
   const {mutateAsync: commitSwap} = swapMutation
+
+  // The recovery re-read is itself a gated request, so `enabled` does not cover it: `refetch` fetches whatever
+  // the option says, which is how an already-open screen kept probing a route that had just refused it — the
+  // `feature_disabled` branch below being the plainest case. It is skipped once the latch has flipped, and
+  // everything else each recovery does is unchanged (AAP 0.2.5, 0.7.5).
+  const refetchCurrentPlan = useCallback((): void => {
+    if (!isGatedRequestAllowed) {
+      return
+    }
+
+    refetchCurrentPlanRoute()
+  }, [isGatedRequestAllowed, refetchCurrentPlanRoute])
 
   const preview = previewQuery.data ?? null
   const meal = dayQuery.data?.day.meals.find(candidate => candidate.id === params.mealId) ?? null
@@ -182,6 +206,11 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   })
 
   const {isCommitDisabled, isCommitPending, showsForeignHoldNotice} = commitGate
+
+  // Whether a press is between its decision and its answer. The in-flight count above is a render value and the
+  // press now awaits its own storage write before sending, so this is what closes the window in which two
+  // presses would both read a free slot and both reach the wire.
+  const isCommitDispatching = useRef(false)
 
   // The hero names the meal being replaced and the card states the candidate's figures, so nothing is drawn
   // until both are in hand. Memoised because the commit handler closes over it.
@@ -395,15 +424,41 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   )
 
   /**
-   * The snapshot is built here because this screen is the only place holding all five members of the 0.5.2 wire
-   * request: the route's plan and meal, the alternative it is previewing, and the portion and revision the
-   * preview envelope bound.
+   * Sends the commit itself, once the launch decision has named it and its key is on the device.
+   *
+   * Separate from the press below so the order is visible: a keyed write may only leave AFTER its record is
+   * durable, and this function knows nothing about that — it is handed the body to send.
    *
    * Awaited rather than handed callbacks so the toast, the navigation and the intent's fate stay at the call
    * site: the mutation's own options own the cache, and nothing else.
    */
+  const sendCommit = useCallback(
+    async (payload: SwapMealPayload): Promise<void> => {
+      try {
+        // The portion goes back exactly as the preview bound it, and on a replay every member comes from the
+        // STORED snapshot. Recomputing either here is what earns `preview_stale` or `409 idempotency_conflict`:
+        // the server derives the same number from the same function and compares the fingerprint.
+        await commitSwap(payload)
+
+        onSwapCommitted()
+      } catch (error) {
+        onCommitFailed(error)
+      }
+    },
+    [commitSwap, onCommitFailed, onSwapCommitted]
+  )
+
+  /**
+   * The snapshot is built here because this screen is the only place holding all five members of the 0.5.2 wire
+   * request: the route's plan and meal, the alternative it is previewing, and the portion and revision the
+   * preview envelope bound.
+   *
+   * Nothing leaves before its record is on the device (AAP 0.7.2), and nothing leaves twice: the reservation is
+   * awaited, so this handler owns both the latch that refuses a second press in that window and the refusal the
+   * user is told about when the device will not confirm the key.
+   */
   const onUseThisMealPressed = useCallback(async (): Promise<void> => {
-    if (ready === null) {
+    if (ready === null || isCommitDispatching.current) {
       return
     }
 
@@ -437,32 +492,50 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       return
     }
 
-    if (launch.intent !== null) {
-      recordPendingIntent(launch.intent)
-    }
+    // Taken before the first await and released in `finally`: the reservation below suspends this handler while
+    // no request is pending anywhere, so `isCommitInFlight` — a render value counted from the mutation cache —
+    // reports false for that whole window and a second press would reach `commitSwap` with a key of its own.
+    isCommitDispatching.current = true
 
     try {
-      // The portion goes back exactly as the preview bound it, and on a replay every member comes from the
-      // STORED snapshot. Recomputing either here is what earns `preview_stale` or `409 idempotency_conflict`:
-      // the server derives the same number from the same function and compares the fingerprint.
-      await commitSwap(launch.payload)
+      // Awaited, because the record is the whole reason a response lost in flight can be replayed: it has to be
+      // ON THE DEVICE before the request leaves. Recording it and sending immediately — what this screen did —
+      // raced its own storage write, and a kill in that window left the key nowhere, so the retry minted a
+      // second one and swapped the meal twice (0.7.2).
+      const reservation = launch.intent === null ? null : await recordPendingIntent(launch.intent)
+      const dispatch = resolveSwapCommitDispatch(reservation, launch.isReplay)
 
-      onSwapCommitted()
-    } catch (error) {
-      onCommitFailed(error)
+      if (dispatch.kind === 'refused') {
+        // Nothing is sent and nothing is navigated: a key the device never confirmed cannot reconcile a swap
+        // the server may already have committed. A freshly minted key has been on no wire at all, so its record
+        // goes rather than holding the one `swap` slot — and with it this meal's alternatives — behind an
+        // attempt that never happened; a replayed key's record stays, because that request may have landed.
+        if (!dispatch.retainsPendingIntent) {
+          clearPendingIntent('swap')
+        }
+
+        // The CTA is still offered and the candidate is still on screen, so the refusal is reported the way
+        // every other failure of this press is: said once, in place, and pressable again.
+        showToast('error', dispatch.toast)
+
+        return
+      }
+
+      await sendCommit(launch.payload)
+    } finally {
+      isCommitDispatching.current = false
     }
   }, [
-    commitSwap,
+    clearPendingIntent,
     hasHydratedIntents,
     isCommitInFlight,
-    onCommitFailed,
-    onSwapCommitted,
     params.mealId,
     params.planId,
     params.recipeVersionId,
     pendingIntents,
     ready,
     recordPendingIntent,
+    sendCommit,
     userId
   ])
 

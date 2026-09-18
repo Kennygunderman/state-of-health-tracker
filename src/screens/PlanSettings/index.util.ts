@@ -16,6 +16,7 @@ import {
   IntentsHydration,
   MealPlanStore,
   PendingIntent,
+  PendingIntentReservation,
   resolveKeyedRequest,
   resolveReplayableIntent
 } from '@store/mealPlan/useMealPlanStore'
@@ -85,7 +86,8 @@ import {
   PLAN_SETTINGS_NOT_SET_VALUE,
   PLAN_SETTINGS_NUTRITION_TARGETS_LABEL,
   PLAN_SETTINGS_REVIEW_AFFECTED_BUTTON_TEXT,
-  stringWithNamedParameters
+  stringWithNamedParameters,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 export type PlanSettingsRowKey =
@@ -183,11 +185,12 @@ export type RegenerateLaunchIgnoredReason = 'latched' | 'incompletePins' | 'unhy
 
 /**
  * What just happened to the regeneration launch this screen guards: one confirmation dispatched a launch, or
- * one of the two moments at which a further confirmation is a new user intent rather than a repeat of the one
- * already sent — the dialog being reopened, and this screen being returned to once the generating screen it
- * pushed is gone.
+ * one of the three moments at which a further confirmation is a new user intent rather than a repeat of the
+ * one already sent — the dialog being reopened, this screen being returned to once the generating screen it
+ * pushed is gone, and a launch that was refused before it left, which is a launch nothing is guarding against
+ * because nothing was dispatched.
  */
-export type RegenerateLatchEvent = 'launchDispatched' | 'confirmReopened' | 'screenFocused'
+export type RegenerateLatchEvent = 'launchDispatched' | 'launchRefused' | 'confirmReopened' | 'screenFocused'
 
 /**
  * Why the 16b confirm action reads as it does. `ready` is the only state a press decides from; the two
@@ -706,6 +709,9 @@ export const buildRegenerateDialogBody = (startDate: string, endDate: string): s
 // being made for it: releasing the latch at the wrong moment is what lets one intent file two keys.
 const REGENERATE_LATCH_BY_EVENT: Record<RegenerateLatchEvent, boolean> = {
   launchDispatched: true,
+  // The launch never left: its key was not confirmed on the device, so no request was issued and no screen was
+  // pushed. Holding the latch would leave the confirm button dead with nothing to be dead for.
+  launchRefused: false,
   confirmReopened: false,
   screenFocused: false
 }
@@ -717,6 +723,50 @@ const REGENERATE_LATCH_BY_EVENT: Record<RegenerateLatchEvent, boolean> = {
  * unresolved is replayed by `resolveRegenerateLaunch` under its own key rather than minted over.
  */
 export const resolveRegenerateLatch = (event: RegenerateLatchEvent): boolean => REGENERATE_LATCH_BY_EVENT[event]
+
+/**
+ * What a confirmed launch does once `recordPendingIntent` has answered: hand the regeneration to the
+ * generating screen, or refuse it and say so (AAP 0.7.2).
+ *
+ * THE RECORD IS WRITTEN HERE AND THE REQUEST IS SENT THERE, which is exactly why this gate matters: this
+ * screen navigates and `MealPlanGenerating` sends on mount, so a record still on its way to storage when the
+ * navigation happened raced a request that was already leaving. A kill in that window left the key nowhere,
+ * the cold-start replay never happened, and the next confirmation minted a SECOND key — a second plan for one
+ * user intent.
+ *
+ * Both 'unavailable' reasons refuse identically, because they differ only in which storage call failed: the
+ * slice is unread, or the write was not confirmed. `latchEvent` is the release the caller applies, so the
+ * dialog's confirm goes back to being pressable in the same decision that refuses this press.
+ *
+ * `retainsPendingIntent` turns on whether the key has ever been on the wire. A REPLAYED key has — an
+ * unresolved regeneration of this plan was already sent — so its record is the only thing that could reconcile
+ * a write that may have committed and it stays. A FRESHLY MINTED key has not, and nothing here sent it, so
+ * keeping it would hold the one `regenerate` slot: the next confirmation would be handed off to the Meal Plan
+ * tab as a stranded generation, which would replay a key the server has never seen and generate the plan the
+ * user was just told had failed.
+ *
+ * A null reservation is the signed-out launch: `pendingIntents` is user-scoped, so there was no record to
+ * write and nothing about the device to learn.
+ */
+export type RegenerateDispatch =
+  | {kind: 'launch'}
+  | {kind: 'refused'; latchEvent: RegenerateLatchEvent; retainsPendingIntent: boolean; toast: string}
+
+export const resolveRegenerateDispatch = (
+  reservation: PendingIntentReservation | null,
+  isReplay: boolean
+): RegenerateDispatch => {
+  if (reservation === null || reservation.kind === 'durable') {
+    return {kind: 'launch'}
+  }
+
+  return {
+    kind: 'refused',
+    latchEvent: 'launchRefused',
+    retainsPendingIntent: isReplay,
+    toast: TOAST_GENERIC_ERROR
+  }
+}
 
 /**
  * The two refusals a confirmation has to show for, in the shape the dialog renders them: the latch a

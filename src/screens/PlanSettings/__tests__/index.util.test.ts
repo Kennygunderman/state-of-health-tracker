@@ -6,6 +6,7 @@ import {
   IntentsHydration,
   MealPlanStore,
   PendingIntent,
+  PendingIntentReservation,
   PENDING_INTENT_TTL_MS
 } from '@store/mealPlan/useMealPlanStore'
 import {Theme} from '@styles/theme'
@@ -14,6 +15,7 @@ import {matchesFingerprint, RegenerateRequestSnapshot} from '@utility/Idempotenc
 import {RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
 
 import Screens from '@constants/screens'
+import {TOAST_GENERIC_ERROR} from '@constants/strings'
 
 import {regenerateSummaryValueColor} from '../index.styled'
 import {
@@ -33,6 +35,7 @@ import {
   RegenerateLaunchInput,
   RegeneratePlanPin,
   resolvePlanSettingsReadState,
+  resolveRegenerateDispatch,
   resolveRegenerateLatch,
   resolveRegenerateLaunch,
   shouldRecalculateTargets,
@@ -1420,17 +1423,24 @@ describe('resolveRegenerateLaunch — the launch latch', () => {
     expect(resolveRegenerateLatch('launchDispatched')).toBe(true)
   })
 
-  it.each<RegenerateLatchEvent>(['confirmReopened', 'screenFocused'])(
+  it.each<RegenerateLatchEvent>(['launchRefused', 'confirmReopened', 'screenFocused'])(
     'releases the latch on %s, so the control does not die for the session',
     event => {
       expect(resolveRegenerateLatch(event)).toBe(false)
     }
   )
 
-  it('releases on nothing but a reopened dialog and a returned-to screen', () => {
-    const events: RegenerateLatchEvent[] = ['launchDispatched', 'confirmReopened', 'screenFocused']
+  it('holds the latch for the dispatch alone, and releases it for every event that dispatched nothing', () => {
+    // A refused launch belongs with the two releases rather than with the dispatch: its key was never
+    // confirmed on the device, so no request was issued and no screen was pushed — there is nothing for the
+    // latch to guard, and holding it would leave the confirm button dead (0.7.2).
+    const events: RegenerateLatchEvent[] = ['launchDispatched', 'launchRefused', 'confirmReopened', 'screenFocused']
 
-    expect(events.filter(event => !resolveRegenerateLatch(event))).toEqual(['confirmReopened', 'screenFocused'])
+    expect(events.filter(event => !resolveRegenerateLatch(event))).toEqual([
+      'launchRefused',
+      'confirmReopened',
+      'screenFocused'
+    ])
   })
 
   it('launches again once a release has happened', () => {
@@ -1449,6 +1459,100 @@ describe('resolveRegenerateLaunch — the launch latch', () => {
       idempotencyKey: FRESH_KEY
     })
     expect(mintFreshKey).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * The gate between the reservation and the handoff. This screen records the key and `MealPlanGenerating` sends
+ * it, so navigating on the strength of a storage write nobody waited for is what let the request leave under a
+ * key that existed only in memory: a kill in that window lost it, the cold-start replay never happened, and
+ * the next confirmation minted a second key — a second plan for one user intent (F01, AAP 0.7.2).
+ */
+describe('resolveRegenerateDispatch', () => {
+  it('launches on a device that confirmed the record, minted or replayed', () => {
+    expect(resolveRegenerateDispatch({kind: 'durable'}, false)).toEqual({kind: 'launch'})
+    expect(resolveRegenerateDispatch({kind: 'durable'}, true)).toEqual({kind: 'launch'})
+  })
+
+  it('launches when there was no record to write, which is the signed-out press', () => {
+    expect(resolveRegenerateDispatch(null, false)).toEqual({kind: 'launch'})
+  })
+
+  it('refuses both unavailable reasons, releasing the latch and retiring the never-sent key', () => {
+    // The reasons differ only in which storage call failed — an unread slice or an unconfirmed write — and in
+    // both the key would exist in this process alone.
+    const reasons = ['storage_failed', 'hydration_unknown'] as const
+
+    reasons.forEach(reason => {
+      expect(resolveRegenerateDispatch({kind: 'unavailable', reason}, false)).toEqual({
+        kind: 'refused',
+        latchEvent: 'launchRefused',
+        retainsPendingIntent: false,
+        toast: TOAST_GENERIC_ERROR
+      })
+    })
+  })
+
+  it('keeps the record of a REPLAYED key, whose regeneration may already have committed', () => {
+    expect(resolveRegenerateDispatch({kind: 'unavailable', reason: 'storage_failed'}, true)).toEqual({
+      kind: 'refused',
+      latchEvent: 'launchRefused',
+      retainsPendingIntent: true,
+      toast: TOAST_GENERIC_ERROR
+    })
+  })
+
+  it('answers a refusal with a latch event that releases, so the confirmation can be made again', () => {
+    const dispatch = resolveRegenerateDispatch({kind: 'unavailable', reason: 'storage_failed'}, false)
+
+    if (dispatch.kind !== 'refused') {
+      throw new Error(`expected a refusal, but the dispatch was: ${dispatch.kind}`)
+    }
+
+    expect(resolveRegenerateLatch(dispatch.latchEvent)).toBe(false)
+  })
+
+  /**
+   * The ordering F01 asks to pin, and the half a value-only assertion cannot reach: the generating screen is
+   * navigated to after the reservation has RESOLVED, never beside it. No renderer is installed (AAP 0.4.1), so
+   * the handler's own order is reproduced against a deferred reservation rather than rendered.
+   */
+  describe('ordering of the handoff against the reservation', () => {
+    const navigateAfterReservation = (
+      reservation: Promise<PendingIntentReservation>,
+      navigate: () => void
+    ): Promise<void> =>
+      reservation.then(settled => {
+        if (resolveRegenerateDispatch(settled, false).kind === 'launch') {
+          navigate()
+        }
+      })
+
+    it('does not navigate while the storage write is still out', async () => {
+      const navigate = jest.fn()
+      let confirm = (_reservation: PendingIntentReservation): void => undefined
+      const reservation = new Promise<PendingIntentReservation>(resolve => {
+        confirm = resolve
+      })
+      const press = navigateAfterReservation(reservation, navigate)
+
+      await Promise.resolve()
+
+      expect(navigate).not.toHaveBeenCalled()
+
+      confirm({kind: 'durable'})
+      await press
+
+      expect(navigate).toHaveBeenCalledTimes(1)
+    })
+
+    it('never navigates when the reservation resolves unavailable', async () => {
+      const navigate = jest.fn()
+
+      await navigateAfterReservation(Promise.resolve({kind: 'unavailable', reason: 'storage_failed'}), navigate)
+
+      expect(navigate).not.toHaveBeenCalled()
+    })
   })
 })
 

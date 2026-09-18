@@ -87,10 +87,12 @@ import {
   planLogAttempt,
   planStoredLogReplay,
   planUnconfirmedRefetch,
+  resolveLogAttemptDispatch,
   resolveLogCacheScope,
   resolveLogDiaryDestination,
   resolveLogFormValues,
   resolveLogLaunch,
+  resolveLogReservationRecord,
   resolveLogSubmitAffordance,
   resolveRestoredLogDraft,
   resolveUnresolvedLogIntent,
@@ -431,9 +433,10 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
    * is genuinely free is a key minted, at the press rather than at render, so an edited portion, a stepped
    * date or a different bucket earns its own.
    *
-   * Every refusal is the launch verdict's, not this handler's: an unread persisted slice, another meal's
-   * unresolved key and a request already on the wire all end here with no request sent, no key minted and the
-   * slot untouched.
+   * Every refusal before the request is somebody else's decision, not this handler's: an unread persisted
+   * slice, another meal's unresolved key and a request already on the wire all end here with no request sent,
+   * no key minted and the slot untouched — and so does a reservation the device would not confirm, because a
+   * key that is not at rest cannot reconcile a write the server may already have made (0.7.2).
    */
   const submitLogAttempt = useCallback(async (): Promise<void> => {
     // The synchronous half of the in-flight guard. `useIsMutating` and the launch verdict it feeds are render
@@ -466,23 +469,43 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
     isAttemptDispatching.current = true
 
-    if (attempt.intent !== null) {
-      // Recorded before the request leaves, which is what makes a response lost in flight replayable at all.
-      // A replay has nothing to record: its record is already on disk, and re-filing it would extend the
-      // 7-day life of a key the user pressed once.
-      recordPendingIntent(attempt.intent)
-    }
-
-    // Latched before the request leaves, so the open replay cannot send this key again — including the key
-    // this very press just minted.
+    // Latched before anything is awaited, so the open replay cannot send this key again — including the key
+    // this very attempt just minted, and including across the storage write below.
     sentKey.current = attempt.payload.idempotencyKey
     hasRefetchedUnconfirmed.current = false
 
-    // Awaited here rather than handed to per-call callbacks: the mutation's own options own the cache
-    // invalidations and this screen owns every consequence the user meets. Per-call callbacks are also dropped
-    // when the screen unmounts mid-flight, which would leave a committed write's intent unresolved and the
-    // next mount stating an outcome the server had already confirmed.
     try {
+      // Awaited before the request leaves, which is what makes a response lost in flight replayable at all: a
+      // record written in memory and a request sent in the same tick raced the storage write, and a kill in
+      // that window left the key nowhere — the next launch minted a second one and wrote a second diary entry
+      // for one meal (0.7.2). A replay's record is normally already at rest and the reservation then answers
+      // from the confirmed slice without touching the device; `resolveLogReservationRecord` is what finds it,
+      // and restates it under its own `createdAt` rather than refiling a key the user pressed once.
+      const record = resolveLogReservationRecord(attempt, pendingIntents)
+      const dispatch = resolveLogAttemptDispatch(
+        record === null ? null : await recordPendingIntent(record),
+        attempt.isReplay
+      )
+
+      if (dispatch.kind === 'refused') {
+        // Nothing is sent: a key the device never confirmed cannot reconcile a write the server may already
+        // have committed. A never-sent key's record goes rather than locking the portion, the day and the
+        // bucket behind a request that never left; a replayed key's record stays, because that request may
+        // have landed. The CTA is offered again either way, and the refusal is reported the way every other
+        // confirmed refusal of this write is.
+        if (!dispatch.retainsPendingIntent) {
+          clearPendingIntent('log')
+        }
+
+        showToast('error', dispatch.toast)
+
+        return
+      }
+
+      // Awaited here rather than handed to per-call callbacks: the mutation's own options own the cache
+      // invalidations and this screen owns every consequence the user meets. Per-call callbacks are also
+      // dropped when the screen unmounts mid-flight, which would leave a committed write's intent unresolved
+      // and the next mount stating an outcome the server had already confirmed.
       const result = await logMutation.mutateAsync(attempt.payload)
 
       onLogged(result, ready)
@@ -493,12 +516,14 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     }
   }, [
     cacheScope.planId,
+    clearPendingIntent,
     form.servings,
     launch,
     logMutation,
     onLogFailed,
     onLogged,
     params.mealId,
+    pendingIntents,
     ready,
     recordPendingIntent,
     userId

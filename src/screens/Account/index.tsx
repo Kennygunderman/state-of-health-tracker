@@ -14,6 +14,7 @@ import {useWorkoutSummariesInfiniteQuery} from '@queries/workouts/useWorkoutSumm
 import {NavigationProp, useNavigation} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
 import useUserData from '@store/userData/useUserData'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import {useIsMutating} from '@tanstack/react-query'
 import LinearGradient from 'react-native-linear-gradient'
@@ -127,7 +128,7 @@ const AccountScreen = () => {
   const header = () => (
     <View style={styles.headerRow}>
       <TouchableOpacity
-        activeOpacity={0.7}
+        activeOpacity={Opacity.PRESSED_SUBTLE}
         disabled={!isAuthed || isUploadingAvatar}
         onPress={() => openGlobalBottomSheet(<ProfilePhotoBottomSheet />)}>
         <LinearGradient

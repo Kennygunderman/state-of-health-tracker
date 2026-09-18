@@ -103,14 +103,14 @@ const MacrosScreen = () => {
 
   const renderHeader = () => (
     <>
-      <TouchableOpacity style={styles.dateOverlineTouchable} activeOpacity={0.6} onPress={goToHistory}>
+      <TouchableOpacity style={styles.dateOverlineTouchable} activeOpacity={Opacity.PRESSED} onPress={goToHistory}>
         <Text style={styles.dateOverline}>{eyebrowDate}</Text>
       </TouchableOpacity>
 
       <View style={styles.titleRow}>
         <Text style={styles.screenTitle}>{MACROS_TITLE}</Text>
 
-        <TouchableOpacity style={styles.historyButton} activeOpacity={0.6} onPress={goToHistory}>
+        <TouchableOpacity style={styles.historyButton} activeOpacity={Opacity.PRESSED} onPress={goToHistory}>
           <HistoryIcon
             color={Theme.colors.accentGreen}
             size={HISTORY_ICON_SIZE}

@@ -70,6 +70,7 @@ import {
   RegenerateLatchEvent,
   reconcilePreferencesTimeZone,
   resolvePlanSettingsReadState,
+  resolveRegenerateDispatch,
   resolveRegenerateLatch,
   resolveRegenerateLaunch,
   shouldRecalculateTargets,
@@ -105,6 +106,7 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const userId = useAuthStore(state => state.userId)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
   const recordPendingIntent = useMealPlanStore(state => state.recordPendingIntent)
+  const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
   // Subscribed, not read at the press: a confirmation decided before the persisted slice arrived would
   // conclude that no regeneration was pending, and this is what re-renders the screen when it does arrive.
@@ -434,7 +436,7 @@ const PlanSettingsScreen = (): React.JSX.Element => {
     }
   }, [navigation, setMacrosSegment])
 
-  const onConfirmRegeneratePressed = useCallback(() => {
+  const onConfirmRegeneratePressed = useCallback(async (): Promise<void> => {
     const decision = resolveRegenerateLaunch({
       isLaunchLatched: isLaunchLatched.current,
       hasHydratedIntents,
@@ -455,34 +457,54 @@ const PlanSettingsScreen = (): React.JSX.Element => {
       return
     }
 
-    // Latched synchronously, ahead of every record and every dispatch: `setIsConfirmVisible(false)` is a state
-    // write React applies on a later render, so a second queued press would otherwise run this body again and
-    // file a second key for one user intent. The same call puts the confirm button into its pending state,
-    // which is the user-visible half of that refusal rather than the guarantee behind it.
+    // Latched synchronously, ahead of every record and every dispatch: the reservation below is awaited, so a
+    // second queued press would otherwise run this body again and file a second key for one user intent. The
+    // same call puts the confirm button into its pending state, which is the user-visible half of that
+    // refusal rather than the guarantee behind it.
     applyRegenerateLatch('launchDispatched')
-    setIsConfirmVisible(false)
 
     // An unresolved regeneration of another plan holds the one slot this screen could record into. It is not
     // this week's to replay and not this press's to overwrite, so the press goes to the plan tab, which owns
     // reconstructing a generation from a persisted intent.
     if (decision.kind === 'handOff') {
+      setIsConfirmVisible(false)
       setMacrosSegment('mealPlan')
       navigation.popTo(Screens.MACROS)
 
       return
     }
 
-    // Recorded before the screen that sends it has even mounted, so a launch killed in between still finds
-    // this key and asks again under it rather than committing a second plan (0.7.2). The record is the
-    // decision's own, which is what ties the stored fingerprint to the request below: the generating screen
-    // rebuilds that snapshot from these params and recognises the key as its own instead of minting.
-    if (decision.intent !== null) {
-      recordPendingIntent(decision.intent)
+    // Recorded — and AWAITED — before the screen that sends it is navigated to, so a launch killed in between
+    // still finds this key and asks again under it rather than committing a second plan (0.7.2). Navigating on
+    // the strength of a storage write nobody had waited for is what left the generating screen sending a key
+    // that existed only in memory. The record is the decision's own, which is what ties the stored fingerprint
+    // to the request: the generating screen rebuilds that snapshot from these params and recognises the key as
+    // its own instead of minting.
+    const reservation = decision.intent === null ? null : await recordPendingIntent(decision.intent)
+    const dispatch = resolveRegenerateDispatch(reservation, decision.isReplay)
+
+    if (dispatch.kind === 'refused') {
+      // Nothing is navigated, so nothing is sent: the generating screen is this key's sender, and a key the
+      // device never confirmed cannot reconcile a regeneration the server may already have made. The dialog
+      // stays up and its confirm becomes pressable again through the latch release, which is the only way a
+      // storage write can be asked for a second time.
+      if (!dispatch.retainsPendingIntent) {
+        clearPendingIntent('regenerate')
+      }
+
+      applyRegenerateLatch(dispatch.latchEvent)
+      showToast('error', dispatch.toast)
+
+      return
     }
 
+    // Closed only once the key is durable: a dialog dismissed by a launch that never left would take the one
+    // control that can ask again with it.
+    setIsConfirmVisible(false)
     navigation.navigate(Screens.MEAL_PLAN_GENERATING, decision.params)
   }, [
     applyRegenerateLatch,
+    clearPendingIntent,
     hasHydratedIntents,
     navigation,
     plan,

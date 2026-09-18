@@ -5,6 +5,7 @@ import {
   buildPendingIntent,
   MealPlanStore,
   PendingIntent,
+  PendingIntentReservation,
   resolveKeyedRequest,
   resolveReplayableIntent,
   resolveSlotOwnership
@@ -41,7 +42,8 @@ import {
   SWAP_NO_ALTERNATIVES_TITLE,
   SWAP_RECIPE_INELIGIBLE_TOAST,
   SWAP_STILL_YOURS_TEMPLATE,
-  SWAP_TITLE_TEMPLATE
+  SWAP_TITLE_TEMPLATE,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 export type CurrentMealCardVariant = 'default' | 'unchanged' | 'stillYours'
@@ -1011,6 +1013,63 @@ export function resolveSwapRetryPlan(input: SwapRetryInput): SwapRetryPlan {
     },
     intent: buildPendingIntent(sent, plan.idempotencyKey, input.userId, input.attemptedAt)
   }
+}
+
+/**
+ * The record that must be confirmed on the device before `key` may go on the wire from this screen (AAP
+ * 0.7.2), or null when the slot holds no record answering to it.
+ *
+ * The mount replay carries a `SwapAttempt` — a key and a body — rather than a record, because the record it
+ * was reconstructed from belongs to the store. This hands that record back so the same reservation the retry
+ * makes can be made for a replay: normally it is already at rest and the reservation answers from the
+ * confirmed slice without touching the device, and when it is not — a write the device refused leaves the
+ * record in memory alone, since the store never rolls one back — the write is attempted again before anything
+ * is sent.
+ *
+ * The record is returned as the store holds it, so it keeps its original `createdAt` and restating it cannot
+ * extend the 7-day life of a key the user pressed once. The key is compared rather than trusted:
+ * `pendingIntents.swap` holds exactly one record, and one filed for a different key is not this attempt's
+ * authority to send.
+ */
+export function resolveSwapReservationRecord(
+  state: Pick<MealPlanStore, 'pendingIntents'>,
+  key: string
+): PendingIntent | null {
+  const stored = state.pendingIntents.swap
+
+  return stored !== undefined && stored.key === key ? stored : null
+}
+
+/**
+ * What an attempt does once `recordPendingIntent` has answered: send it, or refuse it and say so.
+ *
+ * Both 'unavailable' reasons refuse identically — the persisted slice is unread, or the write was not
+ * confirmed — because either way the key this request would carry exists only in this process: a kill between
+ * sending it and its answer would leave the next launch nothing to replay, and the user's retry would mint a
+ * SECOND key and swap the meal twice.
+ *
+ * `retainsPendingIntent` turns on whether that key has ever been on the wire. A REPLAYED key has, so its
+ * record is the only thing that could reconcile a write that may have committed and it stays exactly as the
+ * store leaves it. A FRESHLY MINTED key has not — 13e's retry mints one, because the refused key it is
+ * retrying was retired by the answer that refused it — so keeping it would hold the one `swap` slot, and with
+ * it this meal's alternatives, behind a request that never left, and would leave a never-sent key for the
+ * mount replay to send silently on the next open. Retiring it is not a rollback of a sent request: nothing
+ * carried it, so the next press mints again.
+ *
+ * A null reservation is the attempt that had no record to write — no account to scope one to — and it sends
+ * exactly as it did before.
+ */
+export type SwapAttemptDispatch = {kind: 'send'} | {kind: 'refused'; retainsPendingIntent: boolean; toast: string}
+
+export function resolveSwapAttemptDispatch(
+  reservation: PendingIntentReservation | null,
+  isReplay: boolean
+): SwapAttemptDispatch {
+  if (reservation === null || reservation.kind === 'durable') {
+    return {kind: 'send'}
+  }
+
+  return {kind: 'refused', retainsPendingIntent: isReplay, toast: TOAST_GENERIC_ERROR}
 }
 
 export interface SwapMountReplayInput {

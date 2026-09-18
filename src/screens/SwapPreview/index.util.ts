@@ -4,6 +4,7 @@ import {
   buildPendingIntent,
   MealPlanStore,
   PendingIntent,
+  PendingIntentReservation,
   resolveKeyedRequest,
   resolveSlotOwnership
 } from '@store/mealPlan/useMealPlanStore'
@@ -30,7 +31,8 @@ import {
   stringWithNamedParameters,
   SWAP_PREVIEW_REPLACING_TEMPLATE,
   SWAP_PREVIEW_SUBTITLE_SEPARATOR,
-  SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE
+  SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 export interface SwapCalorieDelta {
@@ -126,6 +128,44 @@ export type SwapCommitLaunch =
    */
   | {kind: 'send'; isReplay: boolean; payload: SwapMealPayload; intent: PendingIntent | null}
   | {kind: 'blocked'; reason: SwapCommitBlockedReason}
+
+/**
+ * What the press does once `recordPendingIntent` has answered: send the commit, or refuse it and say so.
+ *
+ * `retainsPendingIntent` is the half that is easy to get wrong, and it turns on whether the refused key has
+ * ever been on the wire. A REPLAYED key has: it was sent before and its write may have committed, so the
+ * record is the only thing that could ever reconcile it and it is kept exactly as the store leaves it. A
+ * FRESHLY MINTED key has not — this press is the only thing that has ever named it — so keeping it would hold
+ * the single `swap` slot (and with it this meal's alternatives, which `SwapMeal` withholds while a key is
+ * unresolved) behind an attempt that never happened, and would leave that never-sent key to be replayed
+ * silently by the screens that own a cold start. Retiring it is not a rollback of a sent request: nothing
+ * carried it, so the next press is free to mint again (0.7.2).
+ */
+export type SwapCommitDispatch = {kind: 'send'} | {kind: 'refused'; retainsPendingIntent: boolean; toast: string}
+
+/**
+ * Whether the reservation the device answered with permits this commit to leave (AAP 0.7.2).
+ *
+ * A null reservation is the signed-out attempt: `pendingIntents` is user-scoped, so there was no record to
+ * write and nothing about durability to learn — the commit leaves under its minted key exactly as it did
+ * before, which is the same case `SwapCommitLaunch.intent === null` names.
+ *
+ * Both 'unavailable' reasons refuse identically, because they differ only in which storage call failed: the
+ * slice is unread (a read still out would overwrite the record, a read that rejected makes the adapter refuse
+ * every write) or the write itself was not confirmed. Either way the key this request would travel under
+ * exists only in this process, so a kill between sending it and its answer would leave nothing to replay and
+ * the user's next attempt would mint a SECOND key — a second swap of the same meal.
+ */
+export function resolveSwapCommitDispatch(
+  reservation: PendingIntentReservation | null,
+  isReplay: boolean
+): SwapCommitDispatch {
+  if (reservation === null || reservation.kind === 'durable') {
+    return {kind: 'send'}
+  }
+
+  return {kind: 'refused', retainsPendingIntent: isReplay, toast: TOAST_GENERIC_ERROR}
+}
 
 // Declared by @utility/ServingsUtility, which owns the scaling and formatting this screen shares with recipe
 // detail, and re-exported so the screen takes its row shape from its own util

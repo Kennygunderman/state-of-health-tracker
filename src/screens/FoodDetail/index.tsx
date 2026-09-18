@@ -11,6 +11,7 @@ import {useLogMealEntryMutation} from '@queries/macros/useLogMealEntryMutation'
 import {useUpdateMealEntryMutation} from '@queries/macros/useUpdateMealEntryMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {Opacity} from '@styles/sizes'
 import {
   applyFractionPart,
   formatServingsDisplay,
@@ -234,7 +235,7 @@ const FoodDetailScreen = () => {
           <View style={styles.stepper}>
             <TouchableOpacity
               style={styles.stepperButton}
-              activeOpacity={0.7}
+              activeOpacity={Opacity.PRESSED_SUBTLE}
               onPress={() => setServings(current => stepServings(current, -1))}>
               <Text style={styles.stepperButtonText}>−</Text>
             </TouchableOpacity>
@@ -243,7 +244,7 @@ const FoodDetailScreen = () => {
 
             <TouchableOpacity
               style={styles.stepperButton}
-              activeOpacity={0.7}
+              activeOpacity={Opacity.PRESSED_SUBTLE}
               onPress={() => setServings(current => stepServings(current, 1))}>
               <Text style={styles.stepperButtonText}>+</Text>
             </TouchableOpacity>
@@ -258,7 +259,7 @@ const FoodDetailScreen = () => {
               <TouchableOpacity
                 key={fraction.glyph}
                 style={[styles.fractionChip, isSelected && styles.fractionChipSelected]}
-                activeOpacity={0.7}
+                activeOpacity={Opacity.PRESSED_SUBTLE}
                 onPress={() => setServings(current => applyFractionPart(current, fraction.value))}>
                 <Text style={[styles.fractionChipText, isSelected && styles.fractionChipTextSelected]}>
                   {fraction.glyph}

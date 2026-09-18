@@ -8,6 +8,7 @@ import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTarget
 import {isLegacyTargetEditorOpen, resolveTargetAuthority} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useNavigation} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import Svg, {Circle} from 'react-native-svg'
 
@@ -92,7 +93,7 @@ const DailySummaryCard = ({totals, targets}: Props) => {
 
         <TouchableOpacity
           style={styles.ringCenter}
-          activeOpacity={0.6}
+          activeOpacity={Opacity.PRESSED}
           disabled={!targetAuthority.isEditable}
           onPress={onEditTargetsPressed}>
           <Text style={styles.balanceValue}>{formatCalories(balance.amount)}</Text>

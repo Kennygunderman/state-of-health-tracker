@@ -519,8 +519,9 @@ for its value, so equal numbers used for different things never share a token.**
 entries over 38 distinct numbers — `Sizes.RING` and `Sizes.EMPTY_TILE` are both `104`, and four
 separate entries are `2` because a banner's body inset, an option card's sub-copy gap, a day chip's
 number inset and the segmented control's track inset are four unrelated surfaces — and
-`Opacity` holds 10 over 7, with `PRESSED` and `LOGGED_TILE` both `0.6`. `Stroke`'s 17 entries happen
-to be 17 distinct Figma-confirmed widths, from `THIN: 1` to `SPINNER_TRACK: 5.3`, several of them
+`Opacity` holds 12 over 7, with `PRESSED` and `LOGGED_TILE` both `0.6` and `PRESSED_SUBTLE` and
+`PRESSED_SEGMENT` both `0.7`. `Stroke`'s 17 entries happen to be 17 distinct Figma-confirmed widths,
+from `THIN: 1` to `SPINNER_TRACK: 5.3`, several of them
 per-glyph (`WARNING_TRIANGLE: 1.53`, `CART_HEADER: 1.275`). Collapsing a duplicated pair would
 couple two unrelated surfaces to one number, and the next design change would move both. Do not
 deduplicate them.
@@ -549,7 +550,8 @@ numeric weight as a hit.
 ### The literal scan
 
 ```bash
-node scripts/token-literal-scan.mjs $(git diff --name-only --diff-filter=ACMR master -- 'src/**/index.styled.ts')
+node scripts/token-literal-scan.mjs $(git diff --name-only --diff-filter=ACMR master \
+  -- 'src/**/*.styled.*' 'src/**/*.tsx' ':(exclude)src/**/__tests__/**')
 ```
 
 `master` is the base your branch forked from — substitute another if yours did not.
@@ -566,6 +568,23 @@ It runs two scans, chosen per file by name: a style-object scan that classifies 
 transcribed artwork is not a token. Colour literals are flagged in both scans — `#hex` and
 `rgb(`/`rgba(`/`hsl(`/`hsla(` — because the rule forbids hardcoded hex.
 
+**The pathspec has to select both file classes, or one of the two scans never runs.** That is why it
+reads `'src/**/*.styled.*'` and `'src/**/*.tsx'` rather than `'src/**/index.styled.ts'`:
+
+- `*.styled.*` and not `index.styled.ts`, because a styled module may be `.tsx` when it holds JSX —
+  `src/components/MinimumVersionSheet/index.styled.tsx` is the one that does, and a pathspec fixed on
+  `.ts` silently skips it.
+- `*.tsx` at all, because the attribute scan only ever sees a file the pathspec selects. Restricted
+  to styled modules, the gate could not see an `activeOpacity={0.7}` or a `color="#16BC85"` written
+  straight onto a component, which is exactly where the literals this widening surfaced lived — every
+  one on a shipped line of a screen this feature touched, so the migrate-on-touch clause below covers
+  them.
+- `:(exclude)src/**/__tests__/**`, because a stylesheet test's numbers are the expectation it pins,
+  not design values a token could replace — and replacing them with the very tokens under test would
+  make the assertion compare the source with itself. Three exist today: `BadgePill`'s WCAG AA
+  minimum `4.5`, `MetricGrid4`'s `393` reference device width, and the `* 2` factor in `InfoBanner`'s
+  derived height. Without the exclusion all three fail the gate while nothing is wrong.
+
 **A hit is fixed by adding a named token and referencing it — never by widening the exemption list,
 and never by an ignore comment, which the scanner does not honour.** The exemptions are keywords and
 structural factors only: `0`, `'auto'`, `undefined`, `'transparent'`, `'currentColor'`, the layout
@@ -578,6 +597,14 @@ untouched files were left alone while these were migrated to tokens: `Macros/ind
 `FoodDetail/index.styled.ts`, and the stylesheets of `PrimaryButton`, `SecondaryButton`,
 `SegmentedControl` and `FoodListRow`. If you touch another shipped stylesheet, do the same there —
 that is also why the scan is fed a diff rather than a fixed file list.
+
+The clause covers a design value written onto a component's props just as it covers one written in a
+stylesheet, so the `activeOpacity` literals on the shipped lines of the seven touched components were
+migrated with them: `Account`, `FoodListRow`, `FoodDetail` (stepper and fraction chips), `Macros`,
+`Macros/components/DailySummaryCard`, `Macros/components/MealEntryRow` and
+`Progress/components/ActivityTab` now press through `Opacity.PRESSED` (`0.6`), the added
+`Opacity.PRESSED_SUBTLE` (`0.7`) and `Opacity.PRESSED_TARGET_ROW` (`0.5`). **No rendered value
+changed** — each site kept the number it shipped; only the literal became a named entry.
 
 ### Three gaps left open
 

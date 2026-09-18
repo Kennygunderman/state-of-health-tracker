@@ -112,6 +112,11 @@ export const Opacity = {
 
   LOGGED_TILE: 0.6,
   PRESSED: 0.6,
+  // The shipped screens' subtler press, kept at the value those screens already render so tokenising them
+  // changes nothing on screen: the Account avatar, a food list row card, and FoodDetail's servings stepper
+  // and fraction chips. `PRESSED_SEGMENT` stays the segmented control's own entry rather than absorbing
+  // these — equal numbers on different purposes are not collapsed here.
+  PRESSED_SUBTLE: 0.7,
   PRESSED_SEGMENT: 0.7,
   PRESSED_CTA: 0.5,
   // Progress's targets-card rows, which press harder than the `PRESSED` default because the whole row is

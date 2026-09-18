@@ -7,13 +7,14 @@ import {
   PENDING_INTENT_TTL_MS,
   PendingIntent,
   PendingIntentAction,
+  PendingIntentReservation,
   resolvePendingIntent
 } from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {matchesFingerprint, requestBody, SwapRequestSnapshot} from '@utility/IdempotencyUtility'
 import {AxiosError, AxiosResponse} from 'axios'
 
-import {stringWithNamedParameters, SWAP_TITLE_TEMPLATE} from '@constants/strings'
+import {stringWithNamedParameters, SWAP_TITLE_TEMPLATE, TOAST_GENERIC_ERROR} from '@constants/strings'
 
 import {
   AlternativesAnnouncementInput,
@@ -39,9 +40,11 @@ import {
   resolveBannerSlot,
   resolveOutcomeMemory,
   resolveReplayableSwap,
+  resolveSwapAttemptDispatch,
   resolveSwapCommitPayload,
   resolveSwapInteraction,
   resolveSwapMountReplay,
+  resolveSwapReservationRecord,
   resolveSwapRetryPlan,
   resolveSwapSlotOwnership,
   resolveSwapView,
@@ -2257,6 +2260,130 @@ describe('resolveSwapRetryPlan', () => {
     expect(plan.intent.createdAt).toBe(attemptedAt)
     expect(plan.intent.request).toEqual(plan.request)
     expect(matchesFingerprint(plan.request, plan.intent.fingerprint)).toBe(true)
+  })
+})
+
+/**
+ * Which record has to be confirmed on the device before a key may leave this screen. The retry carries its own
+ * record; the mount replay carries a key and a body, so the record it needs is the one the store holds —
+ * which is what lets a write the device refused be attempted again instead of sending a key nothing on disk
+ * describes (0.7.2).
+ */
+describe('resolveSwapReservationRecord', () => {
+  it('answers with the store-held record for the key about to be sent', () => {
+    const intent = storedIntent()
+
+    // The store's own object, so restating it keeps its original `createdAt` and cannot extend the 7-day life
+    // of a key the user pressed once.
+    expect(resolveSwapReservationRecord(stateWith(intent), STORED_KEY)).toBe(intent)
+  })
+
+  it('answers null for a record filed under a different key', () => {
+    // Reserving one key and sending another would report durability the sent key never had.
+    expect(resolveSwapReservationRecord(stateWith(storedIntent()), FRESH_KEY)).toBeNull()
+  })
+
+  it('answers null when the slot is empty', () => {
+    expect(resolveSwapReservationRecord(stateWith(null), STORED_KEY)).toBeNull()
+  })
+
+  it('leaves the state it was given untouched', () => {
+    const state = stateWith(storedIntent())
+    const snapshot = JSON.stringify(state)
+
+    resolveSwapReservationRecord(state, STORED_KEY)
+
+    expect(JSON.stringify(state)).toBe(snapshot)
+  })
+})
+
+/**
+ * The gate between the reservation and the wire. Without it the retry left while its key existed only in this
+ * process: a kill in that window lost the key, the cold-start replay never happened, and the next attempt
+ * minted a second key that swapped the meal twice (F01, AAP 0.7.2).
+ */
+describe('resolveSwapAttemptDispatch', () => {
+  it('sends on a device that confirmed the record, minted or replayed', () => {
+    expect(resolveSwapAttemptDispatch({kind: 'durable'}, false)).toEqual({kind: 'send'})
+    expect(resolveSwapAttemptDispatch({kind: 'durable'}, true)).toEqual({kind: 'send'})
+  })
+
+  it('sends when there was no record to write at all', () => {
+    expect(resolveSwapAttemptDispatch(null, false)).toEqual({kind: 'send'})
+  })
+
+  it('refuses both unavailable reasons, and retires the never-sent key it was minted for', () => {
+    // The reasons differ only in which storage call failed — an unread slice or an unconfirmed write — and in
+    // both the key would exist in this process alone. 13e's retry is the minted case: the key it is retrying
+    // was retired by the answer that refused it.
+    expect(resolveSwapAttemptDispatch({kind: 'unavailable', reason: 'storage_failed'}, false)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: false,
+      toast: TOAST_GENERIC_ERROR
+    })
+
+    expect(resolveSwapAttemptDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, false)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: false,
+      toast: TOAST_GENERIC_ERROR
+    })
+  })
+
+  it('keeps the record of a REPLAYED key, whose write may already have committed', () => {
+    expect(resolveSwapAttemptDispatch({kind: 'unavailable', reason: 'storage_failed'}, true)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: true,
+      toast: TOAST_GENERIC_ERROR
+    })
+
+    expect(resolveSwapAttemptDispatch({kind: 'unavailable', reason: 'hydration_unknown'}, true)).toEqual({
+      kind: 'refused',
+      retainsPendingIntent: true,
+      toast: TOAST_GENERIC_ERROR
+    })
+  })
+
+  /**
+   * The ordering F01 asks to pin, and the half a value-only assertion cannot reach: the commit is dispatched
+   * after the reservation has RESOLVED, never beside it. No renderer is installed (AAP 0.4.1), so the
+   * handler's own order is reproduced against a deferred reservation rather than rendered.
+   */
+  describe('ordering of the dispatch against the reservation', () => {
+    const commitAfterReservation = (
+      reservation: Promise<PendingIntentReservation>,
+      commit: () => void
+    ): Promise<void> =>
+      reservation.then(settled => {
+        if (resolveSwapAttemptDispatch(settled, false).kind === 'send') {
+          commit()
+        }
+      })
+
+    it('does not dispatch while the storage write is still out', async () => {
+      const commit = jest.fn()
+      let confirm = (_reservation: PendingIntentReservation): void => undefined
+      const reservation = new Promise<PendingIntentReservation>(resolve => {
+        confirm = resolve
+      })
+      const attempt = commitAfterReservation(reservation, commit)
+
+      await Promise.resolve()
+
+      expect(commit).not.toHaveBeenCalled()
+
+      confirm({kind: 'durable'})
+      await attempt
+
+      expect(commit).toHaveBeenCalledTimes(1)
+    })
+
+    it('never dispatches when the reservation resolves unavailable', async () => {
+      const commit = jest.fn()
+
+      await commitAfterReservation(Promise.resolve({kind: 'unavailable', reason: 'storage_failed'}), commit)
+
+      expect(commit).not.toHaveBeenCalled()
+    })
   })
 })
 
