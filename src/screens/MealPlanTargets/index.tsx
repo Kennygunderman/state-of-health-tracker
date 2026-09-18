@@ -3,14 +3,12 @@ import React, {useCallback, useMemo, useRef, useState} from 'react'
 import {TouchableOpacity, View} from 'react-native'
 
 import type {MealPlanPreferences} from '@data/models/MealPlanPreferences'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import type {StepMode} from '@navigation/types'
 import {MealPlanTargetsRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {
-  isNutritionTargetsReadFailure,
-  selectNutritionTargets
-} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSaveNutritionTargetsMutation} from '@queries/mealPlanning/useSaveNutritionTargetsMutation'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQuery'
@@ -19,7 +17,6 @@ import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
-import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {addDaysToDayKey, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
@@ -59,6 +56,7 @@ import {
   MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+  MEAL_PLAN_UNAVAILABLE_TEXT,
   MEAL_PLAN_YOUR_ANSWERS_OVERLINE,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
@@ -71,11 +69,14 @@ import {
   buildAnswerRows,
   GenerateRevisionConflict,
   GenerateSequenceCommitments,
+  authoritativeEstimate,
+  isConfirmedEstimateUnavailableError,
   NO_GENERATE_COMMITMENTS,
   planGenerateSequence,
   resolveDisplayedTargets,
   resolveGenerateCtaState,
   resolveInitialStartDate,
+  resolveReviewReadState,
   resolveStartDateStepState,
   runGenerateSequence
 } from './index.util'
@@ -93,7 +94,13 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<MealPlanTargetsRouteProp>()
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const preferencesQuery = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const targetsQuery = useNutritionTargetsQuery()
   const estimateQuery = useTargetEstimateQuery()
   const saveTargetsMutation = useSaveNutritionTargetsMutation()
@@ -127,7 +134,10 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   // A targets read that did not answer — no server targets, a failure, or a rolled-back backend whose route
   // is gone (AAP 0.7.5) — means fall back to the local target, never clear it.
   const targets = selectNutritionTargets(targetsQuery)
-  const estimate = estimateQuery.data ?? null
+  // Only a successful estimate read is an estimate: a retained one from before a confirmed
+  // `estimate_unavailable` would otherwise render as the card's figures with a Generate path that confirms
+  // them — see `authoritativeEstimate`.
+  const estimate = authoritativeEstimate(estimateQuery)
 
   const paramStartDate = params.mode === 'nextWeek' ? params.startDate : null
 
@@ -148,27 +158,54 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   // stays closed until the sequence has actually settled.
   const isSubmitting = saveTargetsMutation.isPending || saveStepMutation.isPending || isSequenceRunning
 
-  const estimateErrorCode = getApiErrorCode(estimateQuery.error)
-  const isEstimateUnavailable = estimateErrorCode === API_ERROR_CODES.estimateUnavailable
+  // The card's own estimate answer: the server's confirmed verdict that no estimate can be calculated, whose
+  // recovery is manual entry (0.2.5). `isError` is part of the test because TanStack keeps the last error
+  // object on a result that has since succeeded.
+  const isEstimateUnavailable = estimateQuery.isError && isConfirmedEstimateUnavailableError(estimateQuery.error)
 
-  // A route-missing targets answer is deliberately not a read failure: it cannot come back on a retry, so
-  // drawing the retry card for it would offer a dead control. The card still renders and the local target
-  // stands, exactly as it does for a user who never opted in (AAP 0.7.5).
-  const hasTargetsReadFailure = isNutritionTargetsReadFailure(targetsQuery)
-  const hasReadFailure = !preferencesQuery.isLoading && (preferences === null || hasTargetsReadFailure)
+  // The press is planned before the reads are composed, because whether the estimate can still decide the
+  // press is the plan's own answer (`dependsOnEstimate`) — and with no preferences row there is no plan to ask.
+  const plan = preferences === null ? null : planGenerateSequence({targets, estimate, preferences, startDate})
 
-  // Retries whichever read failed, never both blindly: a targets read that never answered is what leaves the
+  // One derivation for the whole body, keyed on what each read answered rather than on the data it left
+  // behind: a refetch that failed keeps its last row in the cache, and reading that row as an answer is what
+  // let this screen hide its own retry card and generate against revisions nothing reported.
+  const readState = resolveReviewReadState({
+    preferences: preferencesQuery,
+    targets: targetsQuery,
+    estimate: estimateQuery,
+    dependsOnEstimate: plan?.dependsOnEstimate ?? false
+  })
+
+  // Both states withhold the press. Every revision it pins comes from these reads, and neither a failure nor
+  // an absent capability reported one; what separates them is that only the failure has a retry to offer.
+  const hasReadFailure = readState.status === 'failed' || readState.status === 'unavailable'
+
+  // Refetches exactly the reads that failed, each keyed on its own read rather than on the data it left
+  // behind: a failed refetch keeps its last row, so a retry keyed on that row's absence would re-request
+  // nothing and stand there as a dead control. A targets read that never answered is what leaves the
   // confirmation save with no revision to pin, so resolving it here is what keeps a later Generate from
   // arguing with the server about a conflict the user never had.
   const onRetryReadsPressed = useCallback(() => {
-    if (preferences === null) {
+    if (readState.retryPreferences) {
       refetchPreferences()
     }
 
-    if (hasTargetsReadFailure) {
+    if (readState.retryTargets) {
       refetchTargets()
     }
-  }, [hasTargetsReadFailure, preferences, refetchPreferences, refetchTargets])
+
+    if (readState.retryEstimate) {
+      refetchEstimate()
+    }
+  }, [
+    readState.retryEstimate,
+    readState.retryPreferences,
+    readState.retryTargets,
+    refetchEstimate,
+    refetchPreferences,
+    refetchTargets
+  ])
 
   const openEditTargets = useCallback(
     (mode: 'edit' | 'manual', intent?: 'confirm_estimate' | 'edit_saved' | 'manual_entry') => {
@@ -288,10 +325,10 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   const displayed = preferences === null ? null : resolveDisplayedTargets({targets, estimate, preferences})
 
   const ctaState =
-    preferences === null
+    plan === null
       ? null
       : resolveGenerateCtaState({
-          plan: planGenerateSequence({targets, estimate, preferences, startDate}),
+          plan,
           isEstimateLoading: estimateQuery.isLoading,
           isPending: isSubmitting,
           hasReadFailure
@@ -526,15 +563,24 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
           <Text style={styles.headline}>{MEAL_PLAN_REVIEW_TITLE}</Text>
 
-          {preferencesQuery.isLoading && loadingBlock()}
+          {readState.status === 'loading' && loadingBlock()}
 
-          {hasReadFailure && errorBlock(onRetryReadsPressed)}
+          {readState.status === 'failed' && errorBlock(onRetryReadsPressed)}
+
+          {/* No retry for this one. A capability the server has switched off, or a route a rolled-back backend
+              no longer mounts, answers a repeat probe identically until it is put back, so the state says so
+              and offers no control that cannot change it (0.2.5). */}
+          {readState.status === 'unavailable' && (
+            <View style={styles.bannerWrapper}>
+              <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_UNAVAILABLE_TEXT} />
+            </View>
+          )}
 
           {/* The retry card replaces the review rather than sitting above it. Every revision the press pins
-              comes from these two reads, so a review rendered without one of them offers a Generate that
-              cannot name what it is generating against — and answer rows, a start date and a targets card
-              drawn from a partial read read as settled state the server never confirmed. */}
-          {!hasReadFailure && preferences !== null && reviewBody(preferences)}
+              comes from these reads, so a review rendered without one of them offers a Generate that cannot
+              name what it is generating against — and answer rows, a start date and a targets card drawn from
+              a partial read read as settled state the server never confirmed. */}
+          {readState.status === 'ready' && preferences !== null && reviewBody(preferences)}
         </KeyboardAwareScrollView>
       </ContentColumn>
 

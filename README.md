@@ -64,7 +64,7 @@ npx expo run:ios
 
 The `--legacy-peer-deps` flag is required, not optional: plain `npm ci` fails on a pre-existing peer conflict between `jest-expo` and the React Native jest preset. It is documented rather than fixed — [`docs/meal-planning.md`](docs/meal-planning.md) explains why, and there is deliberately no `.npmrc` carrying the flag.
 
-Copy `.env` from `.env.dist` and point `SOH_API_BASE_URL` at your own API — it holds a localhost placeholder, and debug builds and test runs refuse a production origin outright, so a copied template can't quietly read live data. On launch, the packager console prints the origin it accepted, so you can see which API the build is talking to.
+Copy `.env` from `.env.dist` and point `SOH_API_BASE_URL` at your own API — it holds a localhost placeholder, and debug builds and test runs refuse a production origin outright, so a copied template can't quietly read live data. On launch, the packager console prints the origin it accepted, so you can see which API the build is talking to. Every request is then held to that origin at runtime: a URL outside it is refused before a bearer token is attached, and a response the transport reports as having come from elsewhere — after a redirect — is refused and recorded rather than decoded, including on the failure path, so a redirected `401` can't trigger a token refresh and a replay. [`docs/meal-planning.md`](docs/meal-planning.md) section 4 has the detail and the one residual this cannot close without native transport work.
 
 ## Meal planning
 

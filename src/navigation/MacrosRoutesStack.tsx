@@ -15,6 +15,8 @@ import {useMealPlanSetupActions} from '@components/MealPlanSetupProvider'
 
 import Screens from '@constants/screens'
 
+import styles from './MacrosRoutesStack.styled'
+
 // The 18 meal-planning routes are registered through React Navigation's `getComponent` boundary, which
 // defers a screen's module until that route is first rendered. Deferring is the whole point, so the module
 // has to be fetched at call time — a static import would put all 18 feature screens (and everything they
@@ -38,7 +40,7 @@ const MacrosRoutesStack = (): React.JSX.Element => {
     <Stack.Navigator
       screenOptions={{
         headerBackButtonDisplayMode: 'minimal',
-        headerStyle: {backgroundColor: Theme.colors.background},
+        headerStyle: styles.header,
         headerTintColor: Theme.colors.white,
         headerShadowVisible: false
       }}>

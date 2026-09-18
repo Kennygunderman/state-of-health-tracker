@@ -4,6 +4,7 @@ import {View} from 'react-native'
 
 import type {Goal, MealPlanPreferences, PaceLbPerWeek, WeightUnitPref} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import type {StepMode} from '@navigation/types'
 import {MealPlanGoalRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
@@ -13,7 +14,7 @@ import useUserData from '@store/userData/useUserData'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {kilogramsToPounds, weightUnitPrefFor} from '@utility/UnitConversionUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -94,7 +95,13 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const {params} = useRoute<MealPlanGoalRouteProp>()
 
-  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, stepsForRoute} = useMealPlanSetupDraft()
   // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
@@ -228,7 +235,7 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
       // A rejected revision is never retried blindly (0.7.2): equal values mean this client's own lost write, or
       // the identical edit from another device, already landed, so it resolves silently rather than writing again.
       const refetched = await refetchPreferences()
-      const fresh = refetched.data ?? null
+      const fresh = authoritativeRefetch(refetched)
 
       if (fresh === null) {
         showToast('error', TOAST_GENERIC_ERROR)
@@ -317,7 +324,9 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
 
           {!isPaceScope && isGoalWeightVisible(draft.goal) && (
             <View style={styles.fieldWrapper}>
-              {/* The frame draws this field filled with sample data; an optional field opens empty, so the
+              {/* Frame 02 draws this field filled — its goal-weight input `46:197` carries the value "170" and a
+                  "lb" suffix — but AAP 0.1.2 forbids treating the mockup's selected values as answers a user
+                  already chose, and AAP 0.7.4's first-entry state for 02 opens the goal weight empty, so the
                   header doubles as the placeholder exactly as the body step's fields do. */}
               <TextField
                 value={goalWeightText}

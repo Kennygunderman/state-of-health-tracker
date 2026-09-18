@@ -3,7 +3,9 @@ import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import {GenerationContext} from '@navigation/types'
+import {buildPendingIntent, MealPlanStore, PENDING_INTENT_TTL_MS, PendingIntent} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {ONE_DAY_MS} from '@utility/DateUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 
 import {StatusBadgeVariant} from '@components/StatusBadgeCircle'
@@ -31,6 +33,7 @@ import {
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
   MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY,
   MEAL_PLAN_LIMITING_CONSTRAINT_LABELS,
+  MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_MEALS_PER_DAY_VALUES,
   MEAL_PLAN_NO_MATCH_BODY,
   MEAL_PLAN_NO_MATCH_TITLE,
@@ -44,27 +47,41 @@ import {
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
-  stringWithNamedParameters
+  stringWithNamedParameters,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 import {
   buildGenerationRequest,
   buildLimitingConstraintRows,
   extractLimitingConstraints,
+  GenerationLaunchDecision,
+  GenerationLaunchInput,
+  GenerationRequestSnapshot,
   GenerationRequestStatus,
   GenerationViewKind,
   resolveActionRoute,
   resolveConstraintEditRoute,
   resolveConstraintReturnTo,
+  resolveGenerationLaunch,
   resolveGenerationSummary,
   resolveGenerationView,
+  resolveIntentRefusal,
   resolveSettledGenerationPlanId,
-  resolveTerminalRecovery
+  resolveTerminalRecovery,
+  resolveUpcomingPlanId
 } from '../index.util'
 
-// The seven refusals that carry card copy of their own. Declared here rather than imported so the suite pins
-// the intended membership instead of restating the module's.
-const TERMINAL_COPY_CODES: readonly string[] = [
+// `index.util` reaches the store module for the shared keyed-request rule, which pulls the persist adapter's
+// AsyncStorage import in with it. Mocking the adapter — as `useMealPlanStore.test.ts` and the log screen's
+// suite do — keeps this suite free of native modules; none of these decisions reads or writes persisted state.
+jest.mock('@store/zustandAsyncStorage', () => ({
+  zustandAsyncStorage: {getItem: jest.fn(async () => null), setItem: jest.fn(), removeItem: jest.fn()}
+}))
+
+// The seven refusals that carry copy of their own, in the order the constant declares them. Declared here
+// rather than imported so the suite pins the intended membership instead of restating the module's.
+const TERMINAL_COPY_OWNER_CODES: readonly string[] = [
   API_ERROR_CODES.staleRevision,
   API_ERROR_CODES.planOverlap,
   API_ERROR_CODES.upcomingExists,
@@ -74,13 +91,26 @@ const TERMINAL_COPY_CODES: readonly string[] = [
   API_ERROR_CODES.idempotencyConflict
 ]
 
-// The refusals whose recovery leaves the screen rather than drawing a card: the plan has moved on, or the
-// capability is off and the Macros tab says so.
+// The six of them that state their next move on a card the user reads and leaves through the footer.
+const TERMINAL_CARD_CODES: readonly string[] = TERMINAL_COPY_OWNER_CODES.filter(
+  code => code !== API_ERROR_CODES.upcomingExists
+)
+
+// The refusals whose recovery leaves the screen rather than drawing a card: the plan has moved on, the
+// capability is off and the Macros tab says so, or the week asked for is a week the user already has.
 const PLAN_STATE_TERMINAL_CODES: readonly string[] = [API_ERROR_CODES.stalePlan, API_ERROR_CODES.planNotActive]
 
 const UNAVAILABLE_TERMINAL_CODES: readonly string[] = [API_ERROR_CODES.featureDisabled]
 
-const LEAVING_TERMINAL_CODES: readonly string[] = [...PLAN_STATE_TERMINAL_CODES, ...UNAVAILABLE_TERMINAL_CODES]
+// The one family that owns copy AND leaves: its title is said once as a toast on the way to the plan it is
+// about, rather than drawn on a card whose only move led back to the screen that earns the same refusal.
+const UPCOMING_PLAN_TERMINAL_CODES: readonly string[] = [API_ERROR_CODES.upcomingExists]
+
+const LEAVING_TERMINAL_CODES: readonly string[] = [
+  ...PLAN_STATE_TERMINAL_CODES,
+  ...UNAVAILABLE_TERMINAL_CODES,
+  ...UPCOMING_PLAN_TERMINAL_CODES
+]
 
 // Confirmed refusals this release ships no copy for: a validation error the parser produced, and whatever a
 // later server release introduces. They are terminal all the same — that is the point of stating retryability
@@ -95,7 +125,7 @@ const GENERIC_TERMINAL_CODES: readonly string[] = [
 // ones.
 const RETRYABLE_CODES: readonly string[] = [API_ERROR_CODES.planGenerationFailed, API_ERROR_CODES.noMatchingMeals]
 
-const TERMINAL_CODES: readonly string[] = [...TERMINAL_COPY_CODES, ...LEAVING_TERMINAL_CODES, ...GENERIC_TERMINAL_CODES]
+const TERMINAL_CODES: readonly string[] = [...TERMINAL_CARD_CODES, ...LEAVING_TERMINAL_CODES, ...GENERIC_TERMINAL_CODES]
 
 const VIEW_KINDS: readonly GenerationViewKind[] = ['pending', 'failed', 'noMatch', 'unconfirmed', 'terminal']
 
@@ -182,6 +212,59 @@ const constraint = (overrides: Partial<LimitingConstraint> = {}): LimitingConstr
   editStep: 'cooking',
   ...overrides
 })
+
+const CURRENT_PLAN_ID = 'plan-current'
+
+const UPCOMING_PLAN_ID = 'plan-upcoming'
+
+// The generation key is attached structurally rather than declared in the literal below, and it is the one
+// member these factories treat that way: AAP 0.5.2's `MealPlanResponse` never promised it, so these cases —
+// and the settlement rule they exercise — have to hold whether the model declares it required, nullable, or
+// not at all. `undefined` removes the member, which is the "no key on the plan" case.
+const withGenerationKey = (
+  plan: Omit<MealPlan, 'generationKey'>,
+  generationKey: string | null | undefined
+): MealPlan => {
+  const bearer: Record<string, unknown> = {...plan}
+
+  if (generationKey === undefined) {
+    delete bearer.generationKey
+  } else {
+    bearer.generationKey = generationKey
+  }
+
+  return bearer as unknown as MealPlan
+}
+
+const makePlan = (overrides: Partial<Omit<MealPlan, 'generationKey'>> = {}): MealPlan =>
+  withGenerationKey(
+    {
+      id: CURRENT_PLAN_ID,
+      revision: 1,
+      generationAttempt: 1,
+      startDate: '2026-07-05',
+      endDate: '2026-07-11',
+      status: 'active',
+      targets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
+      generationTargets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
+      targetsStale: false,
+      preferencesRevision: 7,
+      targetsRevision: 4,
+      hasIncompatibilities: false,
+      summary: {plannedMeals: 21, groceryItemCount: 14, loggedEntryCount: 0},
+      days: [],
+      ...overrides
+    },
+    'gen-key-current'
+  )
+
+const makeUpcomingPlan = (overrides: Partial<Omit<MealPlan, 'generationKey'>> = {}): MealPlan =>
+  withGenerationKey(
+    makePlan({id: UPCOMING_PLAN_ID, startDate: '2026-07-12', endDate: '2026-07-18', ...overrides}),
+    'gen-key-upcoming'
+  )
+
+const makePlans = (current: MealPlan | null, upcoming: MealPlan | null): CurrentMealPlans => ({current, upcoming})
 
 const kcalValue = (calories: number): string =>
   stringWithNamedParameters(MEAL_PLAN_TARGETS_KCAL_TEMPLATE, {calories: formatCalories(calories)})
@@ -350,7 +433,7 @@ describe('resolveGenerationView', () => {
     // This screen draws no back button and the tab bar is hidden on it, so a card with no footer would be a
     // dead end. Retry is absent because the key has been retired: the same request would earn the same answer.
     it('offers the edit as the only way off a terminal card during setup', () => {
-      TERMINAL_COPY_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
+      TERMINAL_CARD_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
         expect(resolveGenerationView('error', apiError(409, code), SETUP).actions).toEqual({
           primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
           secondary: null
@@ -359,7 +442,7 @@ describe('resolveGenerationView', () => {
     })
 
     it('adds the way back to the retained plan when a regeneration is refused', () => {
-      TERMINAL_COPY_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
+      TERMINAL_CARD_CODES.concat(GENERIC_TERMINAL_CODES).forEach(code => {
         expect(resolveGenerationView('error', apiError(409, code), REGENERATE).actions).toEqual({
           primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
           secondary: {kind: 'backToPlan', label: MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT}
@@ -383,7 +466,7 @@ describe('resolveGenerationView', () => {
       })
     })
 
-    TERMINAL_COPY_CODES.forEach(code => {
+    TERMINAL_CARD_CODES.forEach(code => {
       it(`reads the card copy of ${code} from the terminal copy constants`, () => {
         const view = resolveGenerationView('error', apiError(409, code), SETUP)
 
@@ -568,6 +651,7 @@ describe('resolveTerminalRecovery', () => {
       expect(resolveTerminalRecovery(code, REGENERATE)).toEqual({
         clearsPendingIntent: true,
         refetchesCurrentPlan: false,
+        selectsUpcomingPlan: false,
         toast: null,
         route: null
       })
@@ -580,6 +664,7 @@ describe('resolveTerminalRecovery', () => {
         expect(resolveTerminalRecovery(code, context)).toEqual({
           clearsPendingIntent: true,
           refetchesCurrentPlan: true,
+          selectsUpcomingPlan: false,
           toast: null,
           route: Screens.MACROS
         })
@@ -592,6 +677,7 @@ describe('resolveTerminalRecovery', () => {
       expect(resolveTerminalRecovery(code, SETUP)).toEqual({
         clearsPendingIntent: true,
         refetchesCurrentPlan: true,
+        selectsUpcomingPlan: false,
         toast: MEAL_PLAN_STALE_PLAN_TOAST,
         route: Screens.MEAL_PLAN_TARGETS
       })
@@ -601,6 +687,7 @@ describe('resolveTerminalRecovery', () => {
       expect(resolveTerminalRecovery(code, REGENERATE)).toEqual({
         clearsPendingIntent: true,
         refetchesCurrentPlan: true,
+        selectsUpcomingPlan: false,
         toast: MEAL_PLAN_STALE_PLAN_TOAST,
         route: Screens.MACROS
       })
@@ -611,14 +698,58 @@ describe('resolveTerminalRecovery', () => {
     })
   })
 
-  TERMINAL_COPY_CODES.forEach(code => {
+  TERMINAL_CARD_CODES.forEach(code => {
     it(`resolves the intent for ${code} without a toast or a route, because the card carries the next move`, () => {
       expect(resolveTerminalRecovery(code, SETUP)).toEqual({
         clearsPendingIntent: true,
         refetchesCurrentPlan: false,
+        selectsUpcomingPlan: false,
         toast: null,
         route: null
       })
+    })
+  })
+
+  UPCOMING_PLAN_TERMINAL_CODES.forEach(code => {
+    // AAP 0.7.4: an upcoming plan that already exists is OPENED. The generic card's only move was
+    // "Edit preferences", which pops back to Review — the one screen from which every further Generate earns
+    // this very refusal again.
+    it(`opens the plan the user already has on ${code}, in every context`, () => {
+      ;[SETUP, NEXT_WEEK, REGENERATE].forEach(context => {
+        expect(resolveTerminalRecovery(code, context)).toEqual({
+          clearsPendingIntent: true,
+          refetchesCurrentPlan: true,
+          selectsUpcomingPlan: true,
+          toast: MEAL_PLAN_GENERATION_TERMINAL_COPY[code].title,
+          route: Screens.MACROS
+        })
+      })
+    })
+
+    it(`never returns ${code} to the screen that would earn the same refusal`, () => {
+      ;[SETUP, NEXT_WEEK, REGENERATE].forEach(context => {
+        expect(resolveTerminalRecovery(code, context)?.route).not.toBe(Screens.MEAL_PLAN_TARGETS)
+      })
+    })
+
+    // The selection is named by the refetch's answer, so the flag without the read would select nothing.
+    it(`reads the plan list before selecting from it on ${code}`, () => {
+      const recovery = resolveTerminalRecovery(code, SETUP)
+
+      expect(recovery?.selectsUpcomingPlan).toBe(true)
+      expect(recovery?.refetchesCurrentPlan).toBe(true)
+    })
+
+    it(`draws neither copy nor a footer for ${code}, because its recovery navigates away`, () => {
+      const view = resolveGenerationView('error', apiError(409, code), SETUP)
+
+      expect(view.headline).toBe('')
+      expect(view.body).toBe('')
+      expect(view.actions).toBeNull()
+    })
+
+    it(`says the refusal once, through the copy the code already owns on ${code}`, () => {
+      expect(resolveTerminalRecovery(code, SETUP)?.toast).toBe(MEAL_PLAN_GENERATION_TERMINAL_COPY[code].title)
     })
   })
 
@@ -638,8 +769,16 @@ describe('resolveTerminalRecovery', () => {
         }
       })
 
-      expect(classified).toHaveLength(TERMINAL_COPY_CODES.length + LEAVING_TERMINAL_CODES.length + 3)
+      expect(classified).toHaveLength(TERMINAL_CARD_CODES.length + LEAVING_TERMINAL_CODES.length + 3)
       expect(classified.filter(entry => entry.drawsCard === entry.leaves)).toEqual([])
+    })
+
+    it('selects a plan on the one family whose refusal already has one, and on no other', () => {
+      const selecting = TERMINAL_CODES.filter(
+        code => resolveTerminalRecovery(code, SETUP)?.selectsUpcomingPlan === true
+      )
+
+      expect(selecting).toEqual([...UPCOMING_PLAN_TERMINAL_CODES])
     })
 
     it('retires the key for every terminal code, in every context', () => {
@@ -662,16 +801,28 @@ describe('resolveTerminalRecovery', () => {
       const copyCodes = Object.keys(MEAL_PLAN_GENERATION_TERMINAL_COPY)
       const kinds = copyCodes.map(code => resolveGenerationView('error', apiError(409, code), SETUP).kind)
 
-      expect(copyCodes).toEqual(TERMINAL_COPY_CODES)
+      expect(copyCodes).toEqual(TERMINAL_COPY_OWNER_CODES)
       expect(kinds).toEqual(copyCodes.map(() => 'terminal'))
     })
 
-    it('holds no card copy for a code whose recovery leaves the screen, so nothing competes with it', () => {
-      const copied = LEAVING_TERMINAL_CODES.filter(code =>
+    it('holds no copy at all for the two refusals that leave with nothing to say', () => {
+      const copied = PLAN_STATE_TERMINAL_CODES.concat(UNAVAILABLE_TERMINAL_CODES).filter(code =>
         Object.prototype.hasOwnProperty.call(MEAL_PLAN_GENERATION_TERMINAL_COPY, code)
       )
 
       expect(copied).toEqual([])
+    })
+
+    // The one family that owns copy and still leaves. Its wording reaches the user as the toast the recovery
+    // names, never as a card — which is what keeps a card from competing with the plan being opened.
+    it('spends the upcoming-plan copy on the toast rather than on a card', () => {
+      UPCOMING_PLAN_TERMINAL_CODES.forEach(code => {
+        const view = resolveGenerationView('error', apiError(409, code), SETUP)
+
+        expect(Object.prototype.hasOwnProperty.call(MEAL_PLAN_GENERATION_TERMINAL_COPY, code)).toBe(true)
+        expect(resolveTerminalRecovery(code, SETUP)?.toast).toBe(MEAL_PLAN_GENERATION_TERMINAL_COPY[code].title)
+        expect(view.headline).toBe('')
+      })
     })
   })
 })
@@ -1414,6 +1565,306 @@ describe('buildGenerationRequest', () => {
   })
 })
 
+// The gate the screen's mount attempt passes through: what may be sent, under which key, once the persisted
+// intent slice has actually been read. Every case fixes its own clock, because the 7-day life of a stored
+// record and the boundary cases around it must not depend on when the suite runs (AAP 0.7.2).
+describe('resolveGenerationLaunch', () => {
+  const USER_ID = 'user-3f2a'
+  const OTHER_USER_ID = 'user-9b1c'
+  const ROUTE_KEY = 'idem-route-9f31'
+  const STORED_KEY = 'idem-stored-41ba'
+  const ATTEMPTED_AT = Date.UTC(2026, 6, 5, 12, 0, 0)
+  const AN_HOUR_MS = ONE_DAY_MS / 24
+  const RECORDED_AT = ATTEMPTED_AT - AN_HOUR_MS
+  const REVISIONS = {expectedPreferencesRevision: 4, expectedTargetsRevision: 2}
+
+  const setupRequest = (startDate = '2026-07-06'): GenerationRequestSnapshot =>
+    buildGenerationRequest({context: SETUP, startDate, ...REVISIONS})
+
+  const regenerateRequest = (context: GenerationContext = REGENERATE): GenerationRequestSnapshot =>
+    buildGenerationRequest({context, startDate: '2026-07-06', ...REVISIONS})
+
+  const storedIntent = (
+    request: GenerationRequestSnapshot,
+    overrides: {key?: string; userId?: string; createdAt?: number} = {}
+  ): PendingIntent =>
+    buildPendingIntent(
+      request,
+      overrides.key ?? STORED_KEY,
+      overrides.userId ?? USER_ID,
+      overrides.createdAt ?? RECORDED_AT
+    )
+
+  const sliceHolding = (intent: PendingIntent): MealPlanStore['pendingIntents'] => ({[intent.request.action]: intent})
+
+  const launchInput = (overrides: Partial<GenerationLaunchInput> = {}): GenerationLaunchInput => ({
+    pendingIntents: {},
+    userId: USER_ID,
+    request: setupRequest(),
+    hasHydratedIntents: true,
+    intentsHydration: 'succeeded',
+    idempotencyKey: ROUTE_KEY,
+    attemptedAt: ATTEMPTED_AT,
+    ...overrides
+  })
+
+  describe('the persisted read, which precedes every other answer', () => {
+    it('sends nothing while the read is still out', () => {
+      const decision = resolveGenerationLaunch(launchInput({hasHydratedIntents: false, intentsHydration: 'pending'}))
+
+      expect(decision).toEqual({kind: 'waiting'})
+    })
+
+    // The whole point of keeping the third state: a read that rejected leaves the slot's contents unknown,
+    // which is not the same as empty, so the screen refuses rather than minting beside a key it cannot see.
+    it('refuses to send when the read failed, rather than reading an unread slice as an empty one', () => {
+      const decision = resolveGenerationLaunch(launchInput({hasHydratedIntents: false, intentsHydration: 'failed'}))
+
+      expect(decision).toEqual({kind: 'unreadable'})
+    })
+
+    it('answers a failed read as refused even if the boolean disagrees, because the refusal is the stricter fact', () => {
+      expect(resolveGenerationLaunch(launchInput({intentsHydration: 'failed'}))).toEqual({kind: 'unreadable'})
+    })
+
+    it('never answers with a key until the read has succeeded', () => {
+      const answers = [
+        resolveGenerationLaunch(launchInput({hasHydratedIntents: false, intentsHydration: 'pending'})),
+        resolveGenerationLaunch(launchInput({hasHydratedIntents: false, intentsHydration: 'failed'}))
+      ]
+
+      expect(answers.map(answer => answer.kind)).toEqual(['waiting', 'unreadable'])
+      expect(answers.filter(answer => answer.kind === 'send')).toEqual([])
+    })
+  })
+
+  describe('a slot nothing holds', () => {
+    it('sends the route key and records the intent the attempt is about to rely on', () => {
+      const request = setupRequest()
+
+      expect(resolveGenerationLaunch(launchInput({request}))).toEqual({
+        kind: 'send',
+        idempotencyKey: ROUTE_KEY,
+        isReplay: false,
+        request,
+        intent: buildPendingIntent(request, ROUTE_KEY, USER_ID, ATTEMPTED_AT)
+      })
+    })
+
+    it('is not blocked by the other generation slot, which answers a different write', () => {
+      const decision = resolveGenerationLaunch(
+        launchInput({pendingIntents: sliceHolding(storedIntent(regenerateRequest()))})
+      )
+
+      expect(decision).toMatchObject({kind: 'send', idempotencyKey: ROUTE_KEY, isReplay: false})
+    })
+
+    it('is not blocked by another account own record, which this session may never replay', () => {
+      const foreign = storedIntent(setupRequest(), {userId: OTHER_USER_ID})
+
+      expect(resolveGenerationLaunch(launchInput({pendingIntents: sliceHolding(foreign)}))).toMatchObject({
+        kind: 'send',
+        idempotencyKey: ROUTE_KEY,
+        isReplay: false
+      })
+    })
+
+    it('is not blocked by a record that has aged out of its replayable life', () => {
+      const expired = storedIntent(setupRequest(), {createdAt: ATTEMPTED_AT - PENDING_INTENT_TTL_MS})
+
+      expect(resolveGenerationLaunch(launchInput({pendingIntents: sliceHolding(expired)}))).toMatchObject({
+        kind: 'send',
+        idempotencyKey: ROUTE_KEY,
+        isReplay: false
+      })
+    })
+
+    // A record this release cannot parse can never be replayed, so it is not a key worth protecting — which
+    // is the store's own rule (`parsePendingIntent`), applied here rather than restated.
+    it('is not blocked by a stored value this release cannot read as an intent', () => {
+      const corrupt = {generate: {key: STORED_KEY}} as unknown as MealPlanStore['pendingIntents']
+
+      expect(resolveGenerationLaunch(launchInput({pendingIntents: corrupt}))).toMatchObject({
+        kind: 'send',
+        idempotencyKey: ROUTE_KEY,
+        isReplay: false
+      })
+    })
+  })
+
+  describe('this screen own unresolved generation', () => {
+    it('replays the stored key carrying the stored request, and re-records it at its own age', () => {
+      const request = setupRequest()
+      const intent = storedIntent(request)
+
+      expect(resolveGenerationLaunch(launchInput({request, pendingIntents: sliceHolding(intent)}))).toEqual({
+        kind: 'send',
+        idempotencyKey: STORED_KEY,
+        isReplay: true,
+        request,
+        intent: buildPendingIntent(request, STORED_KEY, USER_ID, RECORDED_AT)
+      })
+    })
+
+    // The re-record restates the record rather than renewing it: a key minted six days ago must still expire
+    // on its seventh day rather than living another week because the screen was reopened.
+    it('never extends the life of the key it replays', () => {
+      const intent = storedIntent(setupRequest(), {createdAt: ATTEMPTED_AT - PENDING_INTENT_TTL_MS + AN_HOUR_MS})
+      const decision = resolveGenerationLaunch(launchInput({pendingIntents: sliceHolding(intent)}))
+
+      expect(decision.kind === 'send' ? decision.intent?.createdAt : null).toBe(intent.createdAt)
+      expect(decision.kind === 'send' ? decision.intent?.createdAt : null).not.toBe(ATTEMPTED_AT)
+    })
+
+    // A moved preferences or targets revision is the same user intent under a key the server may already have
+    // answered, so the STORED body is what goes out — a reused key carrying a changed body is answered
+    // `409 idempotency_conflict`, and that refusal is what retires the key and frees the slot.
+    it('sends the stored body, not the freshly built one, when a revision has moved since', () => {
+      const stored = buildGenerationRequest({
+        context: SETUP,
+        startDate: '2026-07-06',
+        expectedPreferencesRevision: 4,
+        expectedTargetsRevision: 2
+      })
+      const rebuilt = buildGenerationRequest({
+        context: SETUP,
+        startDate: '2026-07-06',
+        expectedPreferencesRevision: 5,
+        expectedTargetsRevision: 3
+      })
+
+      expect(
+        resolveGenerationLaunch(launchInput({request: rebuilt, pendingIntents: sliceHolding(storedIntent(stored))}))
+      ).toMatchObject({kind: 'send', idempotencyKey: STORED_KEY, isReplay: true, request: stored})
+    })
+
+    it('replays a regeneration of the plan this screen was opened for, at the revision it was recorded with', () => {
+      const stored = regenerateRequest({kind: 'regenerate', planId: 'plan-7c9f', planRevision: 2})
+      const rebuilt = regenerateRequest()
+
+      expect(
+        resolveGenerationLaunch(launchInput({request: rebuilt, pendingIntents: sliceHolding(storedIntent(stored))}))
+      ).toMatchObject({kind: 'send', idempotencyKey: STORED_KEY, isReplay: true, request: stored})
+    })
+  })
+
+  describe('an unresolved generation that belongs elsewhere', () => {
+    // The single slot per action is what forces this: the record cannot be replayed from here (this screen
+    // describes another week) and cannot be written over either, because its write may have committed.
+    it('hands off a generation of another week rather than minting over it', () => {
+      const intent = storedIntent(setupRequest('2026-07-13'))
+
+      expect(
+        resolveGenerationLaunch(launchInput({request: setupRequest(), pendingIntents: sliceHolding(intent)}))
+      ).toEqual({kind: 'handOff', intent})
+    })
+
+    it('hands off a regeneration of another plan rather than minting over it', () => {
+      const intent = storedIntent(regenerateRequest({kind: 'regenerate', planId: 'plan-other', planRevision: 1}))
+
+      expect(
+        resolveGenerationLaunch(launchInput({request: regenerateRequest(), pendingIntents: sliceHolding(intent)}))
+      ).toEqual({kind: 'handOff', intent})
+    })
+
+    it('carries the record itself, so the hand-off names the key it is passing on', () => {
+      const intent = storedIntent(setupRequest('2026-07-20'), {key: 'idem-stranded-77c2'})
+      const decision = resolveGenerationLaunch(launchInput({pendingIntents: sliceHolding(intent)}))
+
+      expect(decision.kind === 'handOff' ? decision.intent.key : null).toBe('idem-stranded-77c2')
+    })
+  })
+
+  describe('no signed-in account', () => {
+    // Intents are scoped by account, so there is nothing to replay and nothing that could be overwritten: the
+    // attempt leaves under the route key with no record to write.
+    it('sends the route key and records nothing', () => {
+      const request = setupRequest()
+
+      expect(resolveGenerationLaunch(launchInput({request, userId: null}))).toEqual({
+        kind: 'send',
+        idempotencyKey: ROUTE_KEY,
+        isReplay: false,
+        request,
+        intent: null
+      })
+    })
+
+    it('is unaffected by the persisted read, which can hold nothing this session owns', () => {
+      const decision = resolveGenerationLaunch(
+        launchInput({userId: null, hasHydratedIntents: false, intentsHydration: 'pending'})
+      )
+
+      expect(decision).toMatchObject({kind: 'send', intent: null})
+    })
+  })
+})
+
+// The two ways the persisted intent layer can refuse before a request leaves, as the screen draws them. Both
+// mean the same thing — the record that makes a lost response replayable is not on the device — so the suite
+// pins that neither is ever drawn as progress and that each retries the call that actually failed (0.7.2).
+describe('resolveIntentRefusal', () => {
+  const LAUNCH_KINDS: readonly GenerationLaunchDecision['kind'][] = ['waiting', 'unreadable', 'handOff', 'send']
+
+  describe('a rehydration that rejected', () => {
+    it('is drawn as a refusal the read itself is asked again for', () => {
+      expect(resolveIntentRefusal('unreadable', false)).toEqual({
+        kind: 'read',
+        body: MEAL_PLAN_LOAD_ERROR_TITLE,
+        actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT
+      })
+    })
+
+    // The stricter state wins: a launch that never reached 'send' reserved nothing, so a write refusal left
+    // over from an earlier attempt must not be what the screen says while the slot is unreadable.
+    it('outranks a reservation refusal, because an unreadable slot cannot have been reserved against', () => {
+      expect(resolveIntentRefusal('unreadable', true)).toMatchObject({kind: 'read'})
+    })
+  })
+
+  describe('a reservation the device would not confirm', () => {
+    it('is drawn as a refusal of the attempt that was permitted', () => {
+      expect(resolveIntentRefusal('send', true)).toEqual({
+        kind: 'write',
+        body: TOAST_GENERIC_ERROR,
+        actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT
+      })
+    })
+
+    // 'waiting' and 'handOff' send nothing and reserve nothing, so a refusal flag surviving from an earlier
+    // attempt cannot describe them — each is already showing its own state.
+    it('says nothing for a launch that never reached the reservation', () => {
+      const refusals = LAUNCH_KINDS.filter(kind => kind !== 'unreadable' && kind !== 'send').map(kind =>
+        resolveIntentRefusal(kind, true)
+      )
+
+      expect(refusals).toEqual([null, null])
+    })
+  })
+
+  describe('nothing about the layer refusing', () => {
+    it('answers null for a permitted attempt whose record is on the device', () => {
+      expect(resolveIntentRefusal('send', false)).toBeNull()
+    })
+
+    it('answers only the unreadable read when no reservation has been refused', () => {
+      const answered = LAUNCH_KINDS.filter(kind => resolveIntentRefusal(kind, false) !== null)
+
+      expect(answered).toEqual(['unreadable'])
+    })
+  })
+
+  // One way out of both: neither the read nor the reservation changed anything, so repeating the call is the
+  // whole recovery and the label says the same thing in each case.
+  it('offers the same retry for either refusal', () => {
+    const labels = [resolveIntentRefusal('unreadable', false), resolveIntentRefusal('send', true)].map(
+      refusal => refusal?.actionLabel ?? null
+    )
+
+    expect(labels).toEqual([MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT, MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT])
+  })
+})
+
 // The seam between the request a key was minted for and the outcomes that end its life. A refusal the screen
 // classifies as terminal has to retire the intent, or the next cold start rebuilds the same request, finds the
 // key still pending and replays a request the server has already refused — for as long as the record survives.
@@ -1457,43 +1908,47 @@ describe('the keyed intent lifecycle', () => {
   })
 })
 
+// The plan an `upcoming_exists` refusal is answered by. A refusal names no id, so the answer has to come from
+// the read that follows it — and a read that carries no upcoming week is a real answer, not a failure: the
+// recovery still leaves for the Meal Plan tab (AAP 0.7.4).
+describe('resolveUpcomingPlanId', () => {
+  it('names the upcoming plan the read reported', () => {
+    expect(resolveUpcomingPlanId(makePlans(makePlan(), makeUpcomingPlan()))).toBe(UPCOMING_PLAN_ID)
+  })
+
+  it('names it even when it is the only plan in hand', () => {
+    expect(resolveUpcomingPlanId(makePlans(null, makeUpcomingPlan()))).toBe(UPCOMING_PLAN_ID)
+  })
+
+  // The week that rolled over is not the week the refusal was about, and selecting it would open a plan the
+  // user was not asking for. The tab resolves `current ?? upcoming` for itself.
+  it('never falls back to the current plan', () => {
+    const answer = resolveUpcomingPlanId(makePlans(makePlan(), null))
+
+    expect(answer).toBeNull()
+    expect(answer).not.toBe(CURRENT_PLAN_ID)
+  })
+
+  it('answers nothing when the read carried no plan at all', () => {
+    expect(resolveUpcomingPlanId(makePlans(null, null))).toBeNull()
+  })
+
+  it('answers nothing when the read could not answer', () => {
+    expect(resolveUpcomingPlanId(null)).toBeNull()
+    expect(resolveUpcomingPlanId(undefined)).toBeNull()
+  })
+
+  // An empty id is not an identity: selecting it would put the tab into a selection nothing matches.
+  it('answers nothing for a plan carrying no id', () => {
+    expect(resolveUpcomingPlanId(makePlans(null, makeUpcomingPlan({id: ''})))).toBeNull()
+  })
+})
+
 // The identity that settles a generation, which is the only thing that may resolve its key: the plan a
 // confirmed commit returned, or a refetched plan carrying that very key. Everything else about a refetch is
 // display-only (AAP 0.2.5, 0.7.2).
 describe('resolveSettledGenerationPlanId', () => {
-  const CURRENT_PLAN_ID = 'plan-current'
-  const UPCOMING_PLAN_ID = 'plan-upcoming'
   const SENT_KEY = 'idem-generate-1'
-
-  const makePlan = (overrides: Partial<MealPlan> = {}): MealPlan => ({
-    id: CURRENT_PLAN_ID,
-    revision: 1,
-    generationAttempt: 1,
-    generationKey: 'gen-key-current',
-    startDate: '2026-07-05',
-    endDate: '2026-07-11',
-    status: 'active',
-    targets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
-    generationTargets: {calories: TARGET_CALORIES, protein: 146, carbs: 194, fat: 65},
-    targetsStale: false,
-    preferencesRevision: 7,
-    targetsRevision: 4,
-    hasIncompatibilities: false,
-    summary: {plannedMeals: 21, groceryItemCount: 14, loggedEntryCount: 0},
-    days: [],
-    ...overrides
-  })
-
-  const makeUpcomingPlan = (overrides: Partial<MealPlan> = {}): MealPlan =>
-    makePlan({
-      id: UPCOMING_PLAN_ID,
-      generationKey: 'gen-key-upcoming',
-      startDate: '2026-07-12',
-      endDate: '2026-07-18',
-      ...overrides
-    })
-
-  const makePlans = (current: MealPlan | null, upcoming: MealPlan | null): CurrentMealPlans => ({current, upcoming})
 
   describe('a confirmed commit', () => {
     it('selects the plan the server returned', () => {
@@ -1514,13 +1969,13 @@ describe('resolveSettledGenerationPlanId', () => {
 
   describe('a refetch after a lost response', () => {
     it('settles on the current plan carrying the key this attempt sent', () => {
-      const plans = makePlans(makePlan({generationKey: SENT_KEY}), null)
+      const plans = makePlans(withGenerationKey(makePlan(), SENT_KEY), null)
 
       expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBe(CURRENT_PLAN_ID)
     })
 
     it('settles on the upcoming plan carrying the key, with the current week still in hand', () => {
-      const plans = makePlans(makePlan(), makeUpcomingPlan({generationKey: SENT_KEY}))
+      const plans = makePlans(makePlan(), withGenerationKey(makeUpcomingPlan(), SENT_KEY))
 
       expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBe(UPCOMING_PLAN_ID)
     })
@@ -1543,14 +1998,38 @@ describe('resolveSettledGenerationPlanId', () => {
     })
 
     it('settles nothing while no key has been sent', () => {
-      const plans = makePlans(makePlan({generationKey: SENT_KEY}), null)
+      const plans = makePlans(withGenerationKey(makePlan(), SENT_KEY), null)
 
       expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: null})).toBeNull()
     })
 
+    // The member the wire contract never promised (AAP 0.5.2). A plan that carries no key proves nothing about
+    // a lost response, so the refetch stays display-only and the intent stays pending.
+    it('settles nothing when neither plan carries a generation key at all', () => {
+      const plans = makePlans(
+        withGenerationKey(makePlan(), undefined),
+        withGenerationKey(makeUpcomingPlan(), undefined)
+      )
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBeNull()
+    })
+
+    it('settles nothing when a plan carries a null generation key', () => {
+      const plans = makePlans(withGenerationKey(makePlan(), null), null)
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBeNull()
+    })
+
+    // One plan without the member must not hide the other: the scan reads past it rather than stopping there.
+    it('reads past a plan with no key to the week that carries the key sent', () => {
+      const plans = makePlans(withGenerationKey(makePlan(), undefined), withGenerationKey(makeUpcomingPlan(), SENT_KEY))
+
+      expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: SENT_KEY})).toBe(UPCOMING_PLAN_ID)
+    })
+
     // A plan whose own key failed to decode to anything must never be matched by an attempt that has none.
     it('never matches an empty key against an empty generation key', () => {
-      const plans = makePlans(makePlan({generationKey: ''}), null)
+      const plans = makePlans(withGenerationKey(makePlan(), ''), null)
 
       expect(resolveSettledGenerationPlanId({kind: 'refetched', plans, sentKey: ''})).toBeNull()
     })

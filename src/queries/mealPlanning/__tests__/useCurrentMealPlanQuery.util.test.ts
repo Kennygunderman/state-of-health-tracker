@@ -9,6 +9,7 @@ import {
   applyCurrentMealPlanRollover,
   buildCurrentMealPlanQueryOptions,
   isAnswerBeforeSessionDay,
+  refetchCurrentMealPlan,
   shouldInvalidateForSessionDayChange,
   shouldRefetchCurrentMealPlan
 } from '../useCurrentMealPlanQuery.util'
@@ -31,6 +32,10 @@ const NEVER_FETCHED = 0
 
 const PLAN_ID = 'plan-1'
 const PLAN_END_DATE = '2026-07-11'
+
+// A cached entry from a domain the current-plan actions have nothing to do with, seeded to prove they narrow
+// to their own key rather than reaching the whole cache.
+const UNRELATED_ENTRY = [{id: 'exercise-1'}]
 
 type CurrentMealPlanOptions = ReturnType<typeof buildCurrentMealPlanQueryOptions>
 
@@ -326,5 +331,77 @@ describe('applyCurrentMealPlanRollover', () => {
 
     expect(invalidateQueries).not.toHaveBeenCalled()
     expect(isQueryInvalidated(queryClient, queryKeys.mealPlanCurrent)).toBe(false)
+  })
+})
+
+describe('refetchCurrentMealPlan', () => {
+  const seedPlanDayAndUnrelatedEntries = (client: QueryClient): CurrentMealPlans => {
+    const plans = makePlans()
+
+    client.setQueryData(queryKeys.mealPlanCurrent, plans)
+    client.setQueryData(queryKeys.mealPlanDay(PLAN_ID, TODAY), {seeded: true})
+    client.setQueryData(queryKeys.exercises, UNRELATED_ENTRY)
+
+    return plans
+  }
+
+  it('re-reads the current-plan answer once, which is the recovery a stale plan asks for', () => {
+    seedPlanDayAndUnrelatedEntries(queryClient)
+    const refetchQueries = jest.spyOn(queryClient, 'refetchQueries')
+
+    refetchCurrentMealPlan(queryClient)
+
+    expect(refetchQueries).toHaveBeenCalledTimes(1)
+    expect(refetchQueries).toHaveBeenCalledWith({queryKey: queryKeys.mealPlanCurrent})
+    // Identity, not equality, for the same reason the options factory is held to it: this key is the
+    // persisted read and the root plan mutations invalidate by prefix, so a matching literal would not do.
+    expect(refetchQueries.mock.calls[0][0]?.queryKey).toBe(queryKeys.mealPlanCurrent)
+  })
+
+  it('declares nothing beyond the key, so no filter narrows which current-plan entry is re-read', () => {
+    const refetchQueries = jest.spyOn(queryClient, 'refetchQueries')
+
+    refetchCurrentMealPlan(queryClient)
+
+    expect(Object.keys(refetchQueries.mock.calls[0][0] ?? {})).toStrictEqual(['queryKey'])
+  })
+
+  it('refetches rather than invalidates, because the caller mounts no observer to act on a stale mark', () => {
+    seedPlanDayAndUnrelatedEntries(queryClient)
+    const invalidateQueries = jest.spyOn(queryClient, 'invalidateQueries')
+
+    refetchCurrentMealPlan(queryClient)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+    expect(isQueryInvalidated(queryClient, queryKeys.mealPlanCurrent)).toBe(false)
+  })
+
+  it('writes no cache entry itself, so the recovery renders the answer the server gives', () => {
+    const plans = seedPlanDayAndUnrelatedEntries(queryClient)
+    const setQueryData = jest.spyOn(queryClient, 'setQueryData')
+
+    refetchCurrentMealPlan(queryClient)
+
+    expect(setQueryData).not.toHaveBeenCalled()
+    expect(queryClient.getQueryData(queryKeys.mealPlanCurrent)).toStrictEqual(plans)
+  })
+
+  it('touches neither the day reads built on the plan nor an unrelated domain', () => {
+    seedPlanDayAndUnrelatedEntries(queryClient)
+
+    refetchCurrentMealPlan(queryClient)
+
+    expect(queryClient.getQueryData(queryKeys.mealPlanDay(PLAN_ID, TODAY))).toStrictEqual({seeded: true})
+    expect(isQueryInvalidated(queryClient, queryKeys.mealPlanDay(PLAN_ID, TODAY))).toBe(false)
+    expect(queryClient.getQueryData(queryKeys.exercises)).toStrictEqual(UNRELATED_ENTRY)
+    expect(isQueryInvalidated(queryClient, queryKeys.exercises)).toBe(false)
+  })
+
+  it('does not throw against an empty cache, the state a cold start recovers from', () => {
+    const refetchQueries = jest.spyOn(queryClient, 'refetchQueries')
+
+    expect(() => refetchCurrentMealPlan(queryClient)).not.toThrow()
+    expect(refetchQueries).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryData(queryKeys.mealPlanCurrent)).toBeUndefined()
   })
 })

@@ -10,9 +10,9 @@ export const PRODUCTION_API_FALLBACK_ORIGIN = 'https://stateofhealthapi.com'
 export const resolveApiOrigin = (configuredOrigin: string | undefined): string =>
   configuredOrigin || PRODUCTION_API_FALLBACK_ORIGIN
 
-const resolvedApiOrigin = resolveApiOrigin(SOH_API_BASE_URL)
+export const CONFIGURED_API_ORIGIN = resolveApiOrigin(SOH_API_BASE_URL)
 
-const baseApiUrl = `${resolvedApiOrigin}/api`
+const baseApiUrl = `${CONFIGURED_API_ORIGIN}/api`
 
 // react-native-dotenv only exposes the names allowlisted in babel.config.js, so
 // an extra development host is added here rather than to the environment.
@@ -24,8 +24,9 @@ const NGROK_HOST_SUFFIXES = ['.ngrok.io', '.ngrok-free.app', '.ngrok.app', '.ngr
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1']
 
 const PRINTABLE_ASCII_ONLY = /^[\x21-\x7e]+$/
-const HTTP_SCHEME = /^https?:\/\//i
+const HTTP_SCHEME = /^(https?):\/\//i
 const BARE_AUTHORITY = /^([a-z0-9._-]+)(?::(\d{1,5}))?$/i
+const AUTHORITY_TERMINATOR = /[/?#]/
 const TRAILING_DOT = /\.$/
 const DNS_LABEL = /^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/
 const NUMERIC_LABEL = /^(?:\d+|0x[0-9a-f]*)$/i
@@ -40,11 +41,20 @@ const IPV4_LABEL_COUNT = 4
 const MAX_HOST_LENGTH = 253
 const MAX_LABEL_LENGTH = 63
 
+const HTTPS_SCHEME_NAME = 'https'
+const HTTP_DEFAULT_PORT = 80
+const HTTPS_DEFAULT_PORT = 443
+
 type Ipv4Octets = [number, number, number, number]
 
-interface ParsedOrigin {
+interface ParsedHost {
   host: string
   octets: Ipv4Octets | null
+}
+
+interface ParsedOrigin extends ParsedHost {
+  scheme: string
+  port: number
 }
 
 const parseIpv4Octets = (labels: string[]): Ipv4Octets | null => {
@@ -61,7 +71,7 @@ const parseIpv4Octets = (labels: string[]): Ipv4Octets | null => {
   return [octets[0], octets[1], octets[2], octets[3]]
 }
 
-const parseHost = (host: string): ParsedOrigin | null => {
+const parseHost = (host: string): ParsedHost | null => {
   const labels = host.split('.')
 
   // A host whose last label is numeric is an IPv4 address to every URL parser,
@@ -88,28 +98,43 @@ const parseHost = (host: string): ParsedOrigin | null => {
 // whitespace is rejected for the same reason and never trimmed — baseApiUrl is
 // built from the raw value, and String.trim() strips more (U+00A0, U+2028) than
 // a URL parser does, so trimming here would approve a string no request can use.
-const parseOrigin = (origin: string): ParsedOrigin | null => {
-  if (!PRINTABLE_ASCII_ONLY.test(origin) || !HTTP_SCHEME.test(origin)) {
+// An absent port is the scheme's default, so https://h and https://h:443 are one
+// origin while http://h:443 and https://h:443 are two. A configured origin must
+// be bare; a request or response URL ends its authority at the first / ? or #.
+const parseHttpUrl = (value: string, allowPathAfterAuthority: boolean): ParsedOrigin | null => {
+  const scheme = HTTP_SCHEME.exec(value)
+
+  if (!PRINTABLE_ASCII_ONLY.test(value) || !scheme) {
     return null
   }
 
-  const authority = BARE_AUTHORITY.exec(origin.replace(HTTP_SCHEME, ''))
+  const afterScheme = value.slice(scheme[0].length)
+  const authorityEnd = afterScheme.search(AUTHORITY_TERMINATOR)
+  const authority = allowPathAfterAuthority && authorityEnd !== -1 ? afterScheme.slice(0, authorityEnd) : afterScheme
+  const matchedAuthority = BARE_AUTHORITY.exec(authority)
 
-  if (!authority) {
+  if (!matchedAuthority) {
     return null
   }
 
-  const [, hostPart, portPart] = authority
-  const port = portPart ? Number(portPart) : MIN_PORT
+  const [, hostPart, portPart] = matchedAuthority
+  const normalizedScheme = scheme[1].toLowerCase()
+  const defaultPort = normalizedScheme === HTTPS_SCHEME_NAME ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT
+  const port = portPart ? Number(portPart) : defaultPort
 
   if (port < MIN_PORT || port > MAX_PORT) {
     return null
   }
 
   const host = hostPart.toLowerCase().replace(TRAILING_DOT, '')
+  const parsedHost = host === '' ? null : parseHost(host)
 
-  return host === '' ? null : parseHost(host)
+  return parsedHost ? {...parsedHost, scheme: normalizedScheme, port} : null
 }
+
+const parseOrigin = (origin: string): ParsedOrigin | null => parseHttpUrl(origin, false)
+
+const parseRequestUrl = (url: string): ParsedOrigin | null => parseHttpUrl(url, true)
 
 // RFC 1918: 10/8, 172.16/12 and 192.168/16.
 const isPrivateIpv4 = ([first, second]: Ipv4Octets): boolean =>
@@ -135,6 +160,33 @@ export const isNonProductionApiOrigin = (
   }
 
   return NGROK_HOST_SUFFIXES.some(suffix => parsed.host.endsWith(suffix))
+}
+
+// Deliberately compared against the CONFIGURED origin and never against the
+// non-production allowlist: a release build legitimately runs on the production
+// origin, so an `isNonProductionApiOrigin` guard here would reject every request
+// it makes. The preflight below decides which origin a debug or test build may
+// be pointed at; this decides that a request must not leave whichever origin was
+// configured, which is what constrains a redirect the native HTTP stack followed.
+export const isConfiguredApiOriginUrl = (url: string, configuredOrigin: string = CONFIGURED_API_ORIGIN): boolean => {
+  const expected = parseRequestUrl(configuredOrigin)
+
+  // Inert rather than closed when the configured origin is unreadable here:
+  // there is no authority to compare against, and a stricter parser than the
+  // platform's refusing an origin the platform accepts would fail every request
+  // in a release build. Development and Jest cannot reach this branch — the
+  // preflight below throws at module load on an origin this cannot parse.
+  if (!expected) {
+    return true
+  }
+
+  const requested = parseRequestUrl(url)
+
+  if (!requested) {
+    return false
+  }
+
+  return requested.scheme === expected.scheme && requested.host === expected.host && requested.port === expected.port
 }
 
 const MALFORMED_ORIGIN_MESSAGE =

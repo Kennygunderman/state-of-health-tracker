@@ -1,11 +1,16 @@
 import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {FoodSourceEnum, formatServingText} from '@data/models/Food'
-import {resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
+import {
+  CATALOG_SEARCH_MAX_QUERY_LENGTH,
+  isCatalogQuerySearchable,
+  resolveCatalogSearchState
+} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
 import {
+  ADD_FOOD_SEARCH_MAX_QUERY_LENGTH,
   CATALOG_SKELETON_ROWS,
   catalogProvenanceBadge,
   catalogServingPresentation,
@@ -49,6 +54,22 @@ const makeCatalogFood = (overrides: Partial<CatalogFood> = {}): CatalogFood => (
   allergenStatus: 'known',
   foodGroup: 'rice',
   ...overrides
+})
+
+// The field drives three searches and takes the strictest of their bounds, so this is the catalog's bound
+// rather than a length the screen chose for itself.
+describe('ADD_FOOD_SEARCH_MAX_QUERY_LENGTH', () => {
+  it('is the catalog search bound the server enforces', () => {
+    expect(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH).toBe(CATALOG_SEARCH_MAX_QUERY_LENGTH)
+  })
+
+  it('is sixty characters', () => {
+    expect(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH).toBe(60)
+  })
+
+  it('accepts what it caps the field at, so a full-length field cannot produce a refused request', () => {
+    expect(isCatalogQuerySearchable('c'.repeat(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH))).toBe(true)
+  })
 })
 
 describe('formatMacroSummary', () => {

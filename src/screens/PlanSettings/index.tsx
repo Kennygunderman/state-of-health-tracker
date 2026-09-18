@@ -4,16 +4,14 @@ import {AccessibilityInfo, Platform, ScrollView, View} from 'react-native'
 
 import type {MealPlan, MealPlanSummary} from '@data/models/MealPlan'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import type {RootStackParamList, StepMode} from '@navigation/types'
 import {Navigation, PlanSettingsRouteProp} from '@navigation/types'
 import {useAffectedMealsQuery} from '@queries/mealPlanning/useAffectedMealsQuery'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {
-  isNutritionTargetsReadFailure,
-  selectNutritionTargets
-} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {selectNutritionTargets} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useSavePreferencesMutation} from '@queries/mealPlanning/useSavePreferencesMutation'
 import {useFocusEffect, useNavigation, useRoute} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
@@ -21,6 +19,7 @@ import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
 import {mintKey} from '@utility/IdempotencyUtility'
+import {authoritativeRefetch} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
 
@@ -33,13 +32,16 @@ import SetupFooter from '@components/SetupFooter'
 import SkeletonBlock from '@components/Skeleton'
 import {SummaryRow} from '@components/SummaryRows'
 import Text from '@components/Text'
+import {showToast} from '@components/toast/util/ShowToast'
 
 import Screens from '@constants/screens'
 import {
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
   MEAL_PLAN_LOAD_ERROR_TITLE,
+  MEAL_PLAN_STALE_PLAN_TOAST,
   MEAL_PLAN_TITLE,
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+  MEAL_PLAN_UNAVAILABLE_TEXT,
   PLAN_REGENERATE_CONFIRM_BUTTON_TEXT,
   PLAN_REGENERATE_DIALOG_TITLE,
   PLAN_REGENERATE_DISMISS_BUTTON_TEXT,
@@ -67,6 +69,7 @@ import {
   PlanSettingsRow,
   RegenerateLatchEvent,
   reconcilePreferencesTimeZone,
+  resolvePlanSettingsReadState,
   resolveRegenerateLatch,
   resolveRegenerateLaunch,
   shouldRecalculateTargets,
@@ -112,9 +115,15 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   const intentsHydration = useMealPlanStore(state => state.intentsHydration)
   const retryIntentsHydration = useMealPlanStore(state => state.retryIntentsHydration)
 
-  const preferencesQuery = useMealPlanPreferencesQuery()
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or a keyed write it
+  // issued — is terminal for a gated screen: no recovery that stays here can succeed, so the guard leaves for
+  // the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure, including a lost
+  // response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const preferencesQuery = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const targetsQuery = useNutritionTargetsQuery()
-  const currentPlanQuery = useCurrentMealPlanQuery()
+  const currentPlanQuery = useCurrentMealPlanQuery(isGatedRequestAllowed)
   const affectedMealsQuery = useAffectedMealsQuery(params.planId)
   const {mutateAsync: savePreferences} = useSavePreferencesMutation()
 
@@ -152,6 +161,48 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   // names which of them by id, so a settings screen opened for next week never reads this week's counts.
   const plan: MealPlan | null =
     plans === null ? null : ([plans.current, plans.upcoming].find(candidate => candidate?.id === params.planId) ?? null)
+
+  // One derivation for the whole body, keyed on what each of the three reads answered rather than on the data
+  // it left behind: a refetch that failed keeps its last row in the cache, and reading that row as an answer is
+  // what let this screen render settled rows and a live "Regenerate this week" over a revision nothing
+  // reported. The current-plan read is in it because the plan identity, revision, dates and the 16b counts all
+  // come from that read alone.
+  const readState = resolvePlanSettingsReadState({
+    preferences: preferencesQuery,
+    targets: targetsQuery,
+    currentPlan: currentPlanQuery,
+    hasRoutedPlan: plan !== null
+  })
+
+  /**
+   * The plan this screen exists for is gone: the current-plan read answered, and neither the current nor the
+   * upcoming slot holds `params.planId` — it was superseded by a regeneration (here or on another device), it
+   * ended, or the week rolled over while the screen sat open.
+   *
+   * Leaving is the only honest outcome. Every plan-scoped thing on this screen addresses that one plan, so
+   * there is nothing to recover to and no retry that could bring it back; staying would leave a visible
+   * "Regenerate this week" that can never be pressed, next to counts for a plan that no longer exists. So this
+   * takes the treatment the rest of the feature already gives a plan that has moved on (AAP 0.2.5) — the
+   * stale-plan toast, then back to the Meal Plan surface, where the same already-fresh `mealPlanCurrent`
+   * answer renders whichever plan is now live. The preference rows are not lost with it: every row edit is
+   * saved by its own "Save changes" and reopening settings from the live plan shows them.
+   *
+   * Guarded by a ref rather than by state so it dispatches once: the read can settle again behind the
+   * navigation, and a second toast would report the same thing twice.
+   */
+  const hasLeftStalePlan = useRef(false)
+
+  useEffect(() => {
+    if (!readState.isRoutedPlanMissing || hasLeftStalePlan.current) {
+      return
+    }
+
+    hasLeftStalePlan.current = true
+
+    showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
+    setMacrosSegment('mealPlan')
+    navigation.popTo(Screens.MACROS)
+  }, [navigation, readState.isRoutedPlanMissing, setMacrosSegment])
 
   const banner = derivePlanSettingsBanner(affectedMealsQuery.data, affectedMealsQuery.isError)
 
@@ -193,9 +244,12 @@ const PlanSettingsScreen = (): React.JSX.Element => {
   // A read that has not answered is not silently disabling: the card below explains it and offers the retry
   // that makes this control available again. The zone reconciliation below is the fourth term, because it
   // moves the revisions a regeneration pins — see `canSubmitRegeneration`.
+  //
+  // `hasPreferences` is the preferences read's own verdict, not `preferences !== null`: the revision this
+  // control sends is a pin, and a retained row from a read that has stopped working is not one.
   const canRegenerate = canSubmitRegeneration({
     hasPlan: plan !== null,
-    hasPreferences: preferences !== null,
+    hasPreferences: readState.isPreferencesAuthoritative,
     hasTargetsRevision: targetsRevision !== null,
     isReconcilingTimeZone
   })
@@ -211,7 +265,10 @@ const PlanSettingsScreen = (): React.JSX.Element => {
    * the zone rather than set once.
    */
   useEffect(() => {
-    if (preferences === null || preferences.timeZone === null) {
+    // The authority term is what keeps this write off a retained row: the revision it pins comes from the
+    // preferences read, so a read that has stopped working has no revision to send — and this save is silent,
+    // so the `409` it would earn has no user watching to make sense of it.
+    if (!readState.isPreferencesAuthoritative || preferences === null || preferences.timeZone === null) {
       return
     }
 
@@ -229,7 +286,11 @@ const PlanSettingsScreen = (): React.JSX.Element => {
       deviceTimeZone,
       expectedRevision: preferences.revision,
       savePreferences,
-      refetchPreferences: async () => (await preferencesQuery.refetch()).data ?? null
+      // The refetch's own verdict, never just the row it left in the cache: a failed refetch retains the
+      // pre-save row, and `reconcilePreferencesTimeZone` compares that row with the zone it just tried to
+      // write — matching it would report the refused save as already applied and leave the stored zone stale
+      // until the next open, with nothing recording that it failed (AAP 0.7.2).
+      refetchPreferences: async () => authoritativeRefetch(await preferencesQuery.refetch())
     })
       .then(outcome => {
         if (outcome === 'failed') {
@@ -240,9 +301,10 @@ const PlanSettingsScreen = (): React.JSX.Element => {
         setIsReconcilingTimeZone(false)
       })
     // `preferencesQuery` is read for its stable `refetch` only; listing the query object itself would retrigger
-    // this on every render, because TanStack rebuilds that result each time.
+    // this on every render, because TanStack rebuilds that result each time. The authority flag is listed so a
+    // retry that finally answers runs the reconciliation the failed read held back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preferences, savePreferences])
+  }, [preferences, readState.isPreferencesAuthoritative, savePreferences])
 
   /**
    * A row descriptor's route, dispatched as a push. Every step route takes a `StepMode`, but `navigate` types
@@ -448,22 +510,24 @@ const PlanSettingsScreen = (): React.JSX.Element => {
         }
       : undefined
 
-  // Both reads feed the rows and the regenerate pin, so the card waits for both rather than rendering rows
-  // that read 'Not set' for a target the server has not answered for yet (0.2.5).
-  const isSettingsLoading = preferencesQuery.isLoading || targetsQuery.isLoading
+  // Every read feeds the rows or a pin the footer sends, so the card waits for all of them rather than
+  // rendering rows that read 'Not set' for a target the server has not answered for yet (0.2.5).
+  const isSettingsLoading = readState.status === 'loading'
 
-  // A route-missing targets answer is deliberately not a read failure here: it cannot come back on a retry, so
-  // drawing the retry card for it would offer a dead control. The rows still render from preferences, and
-  // regeneration stays disabled because `targetsRevision` has no answer to pin (AAP 0.7.5).
-  const hasReadFailure = !isSettingsLoading && (preferences === null || isNutritionTargetsReadFailure(targetsQuery))
-
+  // Refetches exactly the reads that failed, each keyed on its own read rather than on the data it left
+  // behind: a failed refetch keeps its last row, so a retry keyed on that row's absence would re-request
+  // nothing and stand there as a dead control.
   const onRetryReadsPressed = (): void => {
-    if (preferences === null) {
+    if (readState.retryPreferences) {
       preferencesQuery.refetch()
     }
 
-    if (isNutritionTargetsReadFailure(targetsQuery)) {
+    if (readState.retryTargets) {
       targetsQuery.refetch()
+    }
+
+    if (readState.retryCurrentPlan) {
+      currentPlanQuery.refetch()
     }
   }
 
@@ -493,8 +557,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
     </View>
   )
 
-  // The card is also what explains a disabled "Regenerate this week": a failed targets read leaves no revision
-  // to pin, and its retry is how the control becomes available again (0.2.5).
+  // The card is also what explains a disabled "Regenerate this week": any read that failed leaves one of the
+  // pins the request carries — the preferences revision, the targets revision, the plan id and its revision —
+  // without an answer, and its retry is how the control becomes available again (0.2.5).
   const errorBlock = (): React.JSX.Element => (
     <View style={styles.errorCard}>
       <InfoBanner
@@ -504,6 +569,14 @@ const PlanSettingsScreen = (): React.JSX.Element => {
         actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
         onAction={onRetryReadsPressed}
       />
+    </View>
+  )
+
+  // A capability refusal carries no retry affordance: the routes are not mounted or the server flag is off, so
+  // a retry cannot change the answer and offering one would be a dead control (0.2.5).
+  const unavailableBlock = (): React.JSX.Element => (
+    <View style={styles.bannerWrapper}>
+      <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_UNAVAILABLE_TEXT} />
     </View>
   )
 
@@ -568,11 +641,20 @@ const PlanSettingsScreen = (): React.JSX.Element => {
               </View>
             )}
 
+            {/* One status drives the body, so a read that failed can never leave the rows standing beside it
+                looking authoritative: only a 'ready' status renders them, and 'failed'/'unavailable' withhold
+                every row edit until the reads answer (AAP 0.2.5). */}
             {isSettingsLoading && loadingBlock()}
 
-            {hasReadFailure && errorBlock()}
+            {readState.status === 'failed' && errorBlock()}
 
-            {!isSettingsLoading && settingsBlock()}
+            {readState.status === 'unavailable' && unavailableBlock()}
+
+            {/* A 'ready' status whose plan is nonetheless absent — this screen was opened for a plan that has
+                since been superseded — needs nothing here: the rows are preference rows and stay editable
+                because a preference edit is plan-independent, while both plan-bound footer controls are
+                already keyed on `plan !== null`, so neither invites a press it cannot honour. */}
+            {readState.status === 'ready' && settingsBlock()}
           </ScrollView>
         </ContentColumn>
 

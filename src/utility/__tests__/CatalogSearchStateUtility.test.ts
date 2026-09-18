@@ -1,4 +1,5 @@
 import {
+  CATALOG_SEARCH_MAX_QUERY_LENGTH,
   CATALOG_SEARCH_MIN_QUERY_LENGTH,
   CatalogSearchStateInput,
   isCatalogQuerySearchable,
@@ -20,6 +21,12 @@ const makeInput = (overrides: Partial<CatalogSearchStateInput> = {}): CatalogSea
 describe('CATALOG_SEARCH_MIN_QUERY_LENGTH', () => {
   it('is the two characters the catalog query hook enables itself on', () => {
     expect(CATALOG_SEARCH_MIN_QUERY_LENGTH).toBe(2)
+  })
+})
+
+describe('CATALOG_SEARCH_MAX_QUERY_LENGTH', () => {
+  it('is the sixty characters the search endpoint accepts', () => {
+    expect(CATALOG_SEARCH_MAX_QUERY_LENGTH).toBe(60)
   })
 })
 
@@ -50,6 +57,36 @@ describe('isCatalogQuerySearchable', () => {
 
   it('accepts a longer query', () => {
     expect(isCatalogQuerySearchable('brown rice')).toBe(true)
+  })
+
+  it('accepts the maximum length exactly', () => {
+    expect(isCatalogQuerySearchable('c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH))).toBe(true)
+  })
+
+  it('rejects one character past the maximum, which the server refuses with 400 invalid_request', () => {
+    expect(isCatalogQuerySearchable('c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH + 1))).toBe(false)
+  })
+
+  it('accepts an over-length query whose trimmed value is within the maximum', () => {
+    expect(isCatalogQuerySearchable(` ${'c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH)} `)).toBe(true)
+  })
+
+  // The server refuses C0 and DEL before it measures the length, because a null byte cannot even be bound as
+  // a PostgreSQL text parameter — so the client must not send one either.
+  it('rejects a query carrying a control character', () => {
+    expect(isCatalogQuerySearchable('chick\u0000en')).toBe(false)
+  })
+
+  it('rejects a query carrying a tab', () => {
+    expect(isCatalogQuerySearchable('chick\ten')).toBe(false)
+  })
+
+  it('rejects a query carrying DEL', () => {
+    expect(isCatalogQuerySearchable('chick\u007Fen')).toBe(false)
+  })
+
+  it('ignores a control character that trimming removes', () => {
+    expect(isCatalogQuerySearchable('\nchicken\n')).toBe(true)
   })
 })
 

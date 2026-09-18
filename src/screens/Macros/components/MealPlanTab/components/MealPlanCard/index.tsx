@@ -32,6 +32,7 @@ import {
 import {MealLoggedState, resolveMealFlagReason} from '../../index.util'
 import LoggedBadge from '../LoggedBadge'
 import styles from './index.styled'
+import {resolveWritePillAccessibility} from './index.util'
 
 const ACTION_PILL_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.PILL_SM) / 2
 
@@ -47,6 +48,8 @@ interface Props {
   // Whether this day's plan currently accepts writes. The controls are still drawn and still pressable when it
   // is false, so a refusal the caller can explain is not swallowed by a disabled button.
   areWriteActionsEnabled: boolean
+  // Whether a press while the write actions are dimmed performs the caller's stale-plan recovery.
+  offersStalePlanRecovery?: boolean
   onOpen: (meal: MealPlanMeal) => void
   onSwap: (meal: MealPlanMeal) => void
   onLog: (meal: MealPlanMeal) => void
@@ -57,6 +60,7 @@ const MealPlanCard = ({
   meal,
   loggedState,
   areWriteActionsEnabled,
+  offersStalePlanRecovery = false,
   onOpen,
   onSwap,
   onLog,
@@ -71,6 +75,10 @@ const MealPlanCard = ({
   const isPrimaryWrite = !isLogged
   const isSwapDimmed = !areWriteActionsEnabled
   const isPrimaryDimmed = isPrimaryWrite && !areWriteActionsEnabled
+  // A dimmed pill that recovers the stale plan on press is announced enabled and carries the hint: it is the
+  // only way back to the current plan, and "disabled" would hide it from assistive users entirely.
+  const swapAccessibility = resolveWritePillAccessibility(isSwapDimmed, offersStalePlanRecovery)
+  const primaryAccessibility = resolveWritePillAccessibility(isPrimaryDimmed, offersStalePlanRecovery)
 
   const onOpenPressed = useCallback((): void => onOpen(meal), [meal, onOpen])
 
@@ -184,7 +192,9 @@ const MealPlanCard = ({
           accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE, {
             recipe: meal.recipe.name
           })}
-          accessibilityState={{disabled: isSwapDimmed}}
+          accessibilityHint={swapAccessibility.accessibilityHint}
+          accessibilityState={{disabled: swapAccessibility.isDisabled}}
+          disabled={swapAccessibility.isDisabled}
           hitSlop={ACTION_PILL_HIT_SLOP}
           onPress={onSwapPressed}>
           <Text style={styles.pillLabelSecondary}>{MEAL_PLAN_SWAP_BUTTON_TEXT}</Text>
@@ -195,7 +205,9 @@ const MealPlanCard = ({
           activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
           accessibilityLabel={primaryAccessibilityLabel}
-          accessibilityState={{disabled: isPrimaryDimmed}}
+          accessibilityHint={primaryAccessibility.accessibilityHint}
+          accessibilityState={{disabled: primaryAccessibility.isDisabled}}
+          disabled={primaryAccessibility.isDisabled}
           hitSlop={ACTION_PILL_HIT_SLOP}
           onPress={isLogged ? onViewEntryPressed : onLogPressed}>
           <Text style={styles.pillLabelPrimary}>{primaryLabel}</Text>

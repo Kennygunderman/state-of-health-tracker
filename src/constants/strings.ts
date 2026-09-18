@@ -1009,10 +1009,12 @@ export const MEAL_PLAN_PACE_LABELS: Record<string, string> = {
 }
 
 // One message per way the optional goal weight can fail, because the three have different remedies and a
-// shared sentence would send the user to the wrong one. Frame 02 draws the field filled and error-free, so
-// none of the three is drawn copy: the first follows the pattern the file's own targets screen authors
-// ('Enter a carb target above 0 g', 09b `34:251`) with the unit left off because this field's unit toggles
-// between lb and kg, and the two below are this implementation's copy, flagged for designer review.
+// shared sentence would send the user to the wrong one. Frame 02's goal-weight input `46:197` is drawn filled
+// and error-free, so none of the three is drawn copy: under AAP 0.7.4's copy inventory and AAP 0.2.5's
+// inferred-copy rule, a state Figma never draws takes its copy from the file's own vocabulary, so the first
+// follows the pattern the file's own targets screen authors ('Enter a carb target above 0 g', 09b `34:251`) with
+// the unit left off because this field's unit toggles between lb and kg, and the two below are this
+// implementation's copy, flagged for designer review.
 export const MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT = 'Enter a goal weight above 0'
 
 // The supported body-weight envelope is 30-300 kg (66-661 lb). The bounds are deliberately not quoted: they
@@ -1076,6 +1078,12 @@ export const MEAL_PLAN_ACTIVITY_TITLE = 'How active are you?'
 
 export const MEAL_PLAN_ACTIVITY_SUBTITLE = 'Outside of workouts you log in the app.'
 
+// The 04 info-card body, and a deliberate divergence from the drawn copy: AAP 0.1.4 replaces the info-card
+// sentence it cites at node `47:95` ("Outside of workouts you log in the app.") because that sentence
+// contradicts the model the feature implements — the level is the user's habitual overall activity INCLUDING
+// their usual training, so its factor multiplies BMR exactly once and the workouts and runs the user logs are
+// tracked separately, never added to the targets (AAP 0.7.3). The divergence is recorded in AAP 0.7.4's copy
+// inventory, so the drawn body is not restored. The sub-copy above (node `47:44`) is untouched drawn copy.
 export const MEAL_PLAN_ACTIVITY_INFO_BODY =
   'Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.'
 
@@ -1174,6 +1182,11 @@ export const MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER = 'Results'
 export const MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT = 'Clear all'
 
 export const MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT = 'Adding here only affects recipe suggestions.'
+
+// The selection has reached the most the server stores (100 distinct ids, AAP 0.5.2). No frame draws this
+// state — it is an inferred state in the 0.2.5 sense — so the sentence states the limit and the way out
+// rather than claiming a design, and is flagged for designer review.
+export const MEAL_PLAN_DISLIKES_CAP_TEMPLATE = 'You can add up to {count} foods. Remove one to add another.'
 
 export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query}'"
 
@@ -1841,6 +1854,10 @@ export function catalogCategoryLabel(category: string): string {
   return lookupLabel(CATALOG_CATEGORY_LABELS, category) ?? CATALOG_CATEGORY_FALLBACK_LABEL
 }
 
+// AAP 0.1.4 settles the prompt's `Diary entries use "From meal plan."`: the trailing period there is sentence
+// punctuation, and the label drawn at `38:267` (frame 15b) carries none, so this constant is deliberately
+// periodless and every screenshot and assertion uses this exact string. It is the origin label only, independent
+// of the nutrition-provenance labels below, which answer a different question about the same row.
 export const MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'
 
 export const MEAL_ENTRY_SOURCE_BACKED_LABEL = 'Source-backed'
@@ -1919,6 +1936,12 @@ export const MEAL_PLAN_SUMMARY_ROW_ACCESSIBILITY_HINT = 'Opens this answer so yo
 // actually reaches — the row's own label only says which food it is.
 export const ADD_FOOD_ROW_ACCESSIBILITY_HINT = 'Opens this food to choose a serving and add it'
 
+// A meal card's Swap and Log pills stay pressable on a plan the server will no longer write to, because the
+// press is the user's way to ask for the current plan (the stale-plan toast plus a re-read). Drawn dimmed, they
+// would otherwise be announced as unavailable and that recovery would be reachable by sighted users only, so
+// the hint states the outcome rather than the gesture, as VoiceOver hints are written.
+export const MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT = 'Your plan changed. This loads the current plan.'
+
 // Joins the parts of a food row's accessible name. A row drops any part it has no value for — a library food
 // carries no provenance pill, a branded result no serving line — so the separator is a join separator rather
 // than punctuation baked into a fixed template.
@@ -1970,6 +1993,13 @@ export const MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE = '{value} {caption}'
 // Same characters as MEAL_PLAN_LIST_SEPARATOR, kept separate because spoken-only copy and a visible list are
 // different surfaces: a comma that reads well on screen is a pause a screen reader may be reworded around.
 export const MEAL_PLAN_ANNOUNCEMENT_SEPARATOR = ', '
+
+// Spoken form of any status that draws a title above a body — the banners `InfoBanner` announces and the
+// alternatives empty state. A title and a body are two text nodes on screen and arrive as two unrelated
+// fragments when read that way, so the pair is spoken as one sentence. Same value as
+// PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE and deliberately not shared with it: that constant is one
+// screen's flagged-meals alert, and a change to its wording must not silently reword every status in the app.
+export const STATUS_ANNOUNCEMENT_TEMPLATE = '{title}. {body}'
 
 // Spoken form of 15's 'This adds' card after a serving change. `accessibilityLiveRegion` is Android-only in
 // RN 0.86, so VoiceOver is given the four figures as one sentence led by the label they belong to — the

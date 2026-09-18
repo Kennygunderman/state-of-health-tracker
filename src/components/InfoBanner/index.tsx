@@ -1,6 +1,6 @@
-import React from 'react'
+import React, {useEffect, useRef} from 'react'
 
-import {TouchableOpacity, View} from 'react-native'
+import {AccessibilityInfo, Platform, TouchableOpacity, View} from 'react-native'
 
 import FontSize from '@styles/fontSize'
 import {Opacity, Sizes, Stroke} from '@styles/sizes'
@@ -15,6 +15,7 @@ import WarningTriangleIcon from '@components/icons/WarningTriangleIcon'
 import Text from '@components/Text'
 
 import styles from './index.styled'
+import {composeStatusMessage, resolveStatusSemantics, StatusRole} from './index.util'
 
 const LINK_ACTION_HIT_SLOP_V = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
 
@@ -34,6 +35,7 @@ interface Props {
   glyph?: 'info' | 'tick' | 'disc' | 'warning' | 'alert'
   title?: string
   body: string
+  statusRole?: StatusRole
   actionLabel?: string
   onAction?: () => void
   isActionPending?: boolean
@@ -47,6 +49,7 @@ const InfoBanner = ({
   glyph,
   title,
   body,
+  statusRole,
   actionLabel,
   onAction,
   isActionPending = false,
@@ -56,9 +59,11 @@ const InfoBanner = ({
 }: Props): React.JSX.Element => {
   const resolvedGlyph = glyph ?? (tone === 'error' ? 'alert' : 'info')
   const isError = tone === 'error'
+  const drawnTitle = isError ? title : undefined
   const isCentered = resolvedGlyph === 'tick' || resolvedGlyph === 'disc'
   const hasPrimaryAction = actionLabel !== undefined && onAction !== undefined
   const hasSecondaryAction = secondaryActionLabel !== undefined && onSecondaryAction !== undefined
+  const hasErrorActionRow = isError && (hasPrimaryAction || hasSecondaryAction)
   const infoColor = tone === 'neutral' ? Theme.colors.textSecondary : Theme.colors.greenOnTint
   const glyphElement =
     resolvedGlyph === 'disc' ? (
@@ -102,6 +107,33 @@ const InfoBanner = ({
           ? styles.successBody
           : styles.neutralBody
   const bodyElement = <Text style={bodyStyle}>{body}</Text>
+  const textBlock = (
+    <>
+      {drawnTitle !== undefined && <Text style={styles.errorTitle}>{drawnTitle}</Text>}
+
+      {isError ? <View style={styles.errorBodyWrapper}>{bodyElement}</View> : bodyElement}
+    </>
+  )
+  const statusSemantics = resolveStatusSemantics(statusRole)
+  const statusMessage = composeStatusMessage({title: drawnTitle, body})
+  const announcedStatus = statusSemantics === null ? null : statusMessage
+  const lastAnnouncedStatus = useRef<string | null>(null)
+
+  useEffect(() => {
+    // `accessibilityLiveRegion` on the group below is Android-only in RN 0.86, so the appearing status is
+    // announced here for VoiceOver and only there — Android is left to its live region rather than told
+    // twice. Guarded by the message announced, so a re-render carrying the same status does not repeat it.
+    if (announcedStatus === null || announcedStatus === lastAnnouncedStatus.current) {
+      return
+    }
+
+    lastAnnouncedStatus.current = announcedStatus
+
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(announcedStatus)
+    }
+  }, [announcedStatus])
+
   const handleAction = () => {
     if (!isActionPending) {
       onAction?.()
@@ -119,42 +151,58 @@ const InfoBanner = ({
         styles.container,
         toneStyle,
         isCentered ? styles.containerCentered : styles.containerTopAligned,
-        resolvedGlyph === 'disc' && styles.containerDisc
+        resolvedGlyph === 'disc' && styles.containerDisc,
+        hasErrorActionRow && styles.containerActionRow
       ]}>
       <View style={[styles.iconWrapper, isCentered && styles.iconWrapperCentered]}>{glyphElement}</View>
 
       <View style={[styles.textWrapper, (isCentered || isError) && styles.textWrapperFlush]}>
-        {isError && title !== undefined && <Text style={styles.errorTitle}>{title}</Text>}
+        {statusSemantics === null ? (
+          textBlock
+        ) : (
+          // The role is declared through the ARIA `role` prop rather than `accessibilityRole`: RN 0.86's
+          // `accessibilityRole` has no 'status' — Android throws `Invalid accessibility role value` on one it
+          // does not know — while `role` accepts both and is mapped to the native role on each platform.
+          <View
+            accessible
+            accessibilityLabel={statusMessage}
+            role={statusSemantics.role}
+            accessibilityLiveRegion={statusSemantics.liveRegion}>
+            {textBlock}
+          </View>
+        )}
 
-        {isError ? <View style={styles.errorBodyWrapper}>{bodyElement}</View> : bodyElement}
-
-        {isError && (hasPrimaryAction || hasSecondaryAction) && (
+        {hasErrorActionRow && (
           <View style={styles.actionRow}>
             {hasPrimaryAction && (
+              // The pressable is the touch-target envelope and the pill inside it is only paint: `hitSlop`
+              // cannot reach past this row, so a slopped pill on its edge was clipped to 38 pt.
               <TouchableOpacity
-                style={[styles.primaryAction, isActionPending && styles.actionPending]}
+                style={styles.actionEnvelope}
                 activeOpacity={Opacity.PRESSED}
-                hitSlop={{top: Spacing.TIGHT, bottom: Spacing.TIGHT}}
                 disabled={isActionPending}
                 accessibilityRole="button"
                 accessibilityLabel={actionLabel}
                 accessibilityState={{disabled: isActionPending, busy: isActionPending}}
                 onPress={handleAction}>
-                <Text style={styles.primaryActionLabel}>{actionLabel}</Text>
+                <View style={[styles.primaryAction, isActionPending && styles.actionPending]}>
+                  <Text style={styles.primaryActionLabel}>{actionLabel}</Text>
+                </View>
               </TouchableOpacity>
             )}
 
             {hasSecondaryAction && (
               <TouchableOpacity
-                style={[styles.secondaryAction, isSecondaryActionPending && styles.actionPending]}
+                style={styles.actionEnvelope}
                 activeOpacity={Opacity.PRESSED}
-                hitSlop={{top: Spacing.TIGHT, bottom: Spacing.TIGHT}}
                 disabled={isSecondaryActionPending}
                 accessibilityRole="button"
                 accessibilityLabel={secondaryActionLabel}
                 accessibilityState={{disabled: isSecondaryActionPending, busy: isSecondaryActionPending}}
                 onPress={handleSecondaryAction}>
-                <Text style={styles.secondaryActionLabel}>{secondaryActionLabel}</Text>
+                <View style={[styles.secondaryAction, isSecondaryActionPending && styles.actionPending]}>
+                  <Text style={styles.secondaryActionLabel}>{secondaryActionLabel}</Text>
+                </View>
               </TouchableOpacity>
             )}
           </View>

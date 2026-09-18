@@ -3,12 +3,11 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {SectionList, SectionListData, SectionListRenderItem, useWindowDimensions, View} from 'react-native'
 
 import {Navigation, RecipeDetailRouteProp} from '@navigation/types'
-import {queryKeys} from '@queries/keys'
+import {useCurrentMealPlanRecovery} from '@queries/mealPlanning/useCurrentMealPlanRecovery'
 import {useMealPlanDayQuery} from '@queries/mealPlanning/useMealPlanDayQuery'
 import {useRecipeDetailQuery} from '@queries/mealPlanning/useRecipeDetailQuery'
 import {useSwapPreviewQuery} from '@queries/mealPlanning/useSwapPreviewQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
-import {useQueryClient} from '@tanstack/react-query'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
 
 import BadgePill from '@components/BadgePill'
@@ -96,7 +95,7 @@ const RecipeDetail = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
   const insets = useSafeAreaInsets()
   const {width: windowWidth} = useWindowDimensions()
-  const queryClient = useQueryClient()
+  const recoverCurrentPlan = useCurrentMealPlanRecovery()
 
   // The toggle is a display preference of this one screen and writes nothing — not the plan, not the grocery
   // list, not the server (Figma note 49:679). Editing the planned portion happens when the meal is logged.
@@ -169,9 +168,17 @@ const RecipeDetail = (): React.JSX.Element => {
       : read.failure?.recovery === 'previewIneligible'
         ? SWAP_RECIPE_INELIGIBLE_TOAST
         : null
+  // The third departure, and the one that is about the feature rather than about this recipe or this plan: a
+  // gated route has confirmed meal planning is switched off behind a mounted backend.
+  const needsPlanTabDeparture = read.failure?.recovery === 'exitToPlanTab'
   // One recovery for both ways a plan stops being the plan this screen holds — a plan route that contradicted
   // it, and a verdict that refused writes on it — so the user is told once and the current plan is re-read once.
-  const needsPlanRecovery = read.failure?.recovery === 'planRecovery' || isPlanWriteRefused
+  //
+  // It yields to the capability departure, which can coincide with it: a seeded day envelope that answered
+  // `isWritable: false` refuses writes while a gated read reports the capability off, and a plan that is simply
+  // out of reach must not be announced as one the server has contradicted (AAP 0.2.5 — the capability answer is
+  // the one that governs). The departure re-reads the current plan itself, so nothing is lost by standing down.
+  const needsPlanRecovery = !needsPlanTabDeparture && (read.failure?.recovery === 'planRecovery' || isPlanWriteRefused)
 
   const planRevision = envelope?.planRevision
   const {refetch: refetchRecipe} = recipeQuery
@@ -191,6 +198,24 @@ const RecipeDetail = (): React.JSX.Element => {
   }, [departureToast, navigation])
 
   useEffect(() => {
+    if (!needsPlanTabDeparture) {
+      return
+    }
+
+    // Nothing this screen reads can answer again while the capability is off, so there is nothing here to
+    // retry and no copy to carry: the refusal is stated once, by the Meal Plan segment's neutral unavailable
+    // card (AAP 0.2.5), which is why this departure is silent — the treatment `SwapMeal` and `SwapPreview`
+    // already give this answer.
+    //
+    // NO refetch goes out with it. The error that produced this departure is already in the query cache, and
+    // the entitlement recorder reads the whole cache, so the signal that raises that card is recorded without
+    // another request. Re-reading the current plan here would be a gated request issued *after* a confirmed
+    // refusal — the one thing AAP 0.2.5 says a latched client must not do — against the route that has just
+    // refused, which is the recovery this very screen classifies as the one that cannot succeed.
+    navigation.popTo(Screens.MACROS)
+  }, [navigation, needsPlanTabDeparture])
+
+  useEffect(() => {
     if (!needsPlanRecovery) {
       return
     }
@@ -198,9 +223,9 @@ const RecipeDetail = (): React.JSX.Element => {
     showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
     // Refetched on demand rather than through a mounted observer: this screen never renders the current plan,
     // and a normal observer would keep `/plans/current` live behind every stacked route for a recovery that
-    // rarely happens.
-    queryClient.refetchQueries({queryKey: queryKeys.mealPlanCurrent})
-  }, [needsPlanRecovery, queryClient])
+    // rarely happens. Which entry that is, and how it is re-read, belongs to the query layer.
+    recoverCurrentPlan()
+  }, [needsPlanRecovery, recoverCurrentPlan])
 
   const onBack = useCallback((): void => {
     navigation.goBack()
@@ -376,7 +401,14 @@ const RecipeDetail = (): React.JSX.Element => {
   const listPlaceholder =
     read.placeholder === 'loading' ? (
       <ContentColumn>
-        <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL} style={styles.skeletonBlock}>
+        {/* One accessible element reporting busy, the same shape `SwapPreview`'s loading shell takes: the bars
+            under it say nothing a screen reader can use, and the status it is given while the strip is up is
+            the one the error placeholder below then replaces. */}
+        <View
+          accessible
+          accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}
+          accessibilityState={{busy: true}}
+          style={styles.skeletonBlock}>
           {PLACEHOLDER_ROW_HEIGHTS.map(height => (
             <Skeleton
               key={height}
@@ -389,12 +421,16 @@ const RecipeDetail = (): React.JSX.Element => {
       </ContentColumn>
     ) : read.placeholder === 'error' ? (
       <ContentColumn>
+        {/* `statusRole` because this arrives in place of the busy strip above rather than with the screen:
+            the banner groups its own title and body into one alert and speaks the pair on both platforms,
+            leaving "Try again" and the back action separately reachable. */}
         <View style={styles.errorBlock}>
           <InfoBanner
             tone="error"
             glyph="alert"
             title={MEAL_PLAN_LOAD_ERROR_TITLE}
             body={MEAL_PLAN_LOAD_ERROR_BODY}
+            statusRole="alert"
             actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
             onAction={onRetry}
             isActionPending={isRetryPending}

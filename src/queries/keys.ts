@@ -47,7 +47,17 @@ export const queryKeys = {
   affectedMeals: (planId: string) => ['affectedMeals', planId] as const,
   recipeVersion: (recipeVersionId: string) => ['recipeVersion', recipeVersionId] as const,
   catalogSearch: (query: string) => ['catalogSearch', query] as const,
-  catalogSuggestions: ['catalogSuggestions'] as const
+  catalogSuggestions: ['catalogSuggestions'] as const,
+  // The meal-planning capability verdict the whole session shares: which of AAP 0.2.5's two unavailability
+  // signals have been seen, and the Remote Config activation they were seen under. It is server-derived truth —
+  // read out of the errors of the gated requests themselves — so it belongs in the query cache beside them
+  // rather than in a client store or a module global.
+  //
+  // Deliberately absent from PERSISTED_QUERY_KEYS: the verdict is session-scoped, so a cold start probes the
+  // gated routes once again, which is the forward-recovery path an operator re-enable needs (AAP 0.7.5). The
+  // logout path's `queryClient.clear()` drops it with everything else, so no account inherits another's verdict.
+  // Nothing fetches this entry — it has no queryFn and is written only by the entitlement recorder.
+  mealPlanCapability: ['mealPlanCapability'] as const
 }
 
 export const mutationKeys = {

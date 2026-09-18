@@ -28,14 +28,17 @@ import {
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_PLAN_WEEKDAY_DATE_TEMPLATE,
   MEAL_SLOT_SENTENCE_LABELS,
+  STATUS_ANNOUNCEMENT_TEMPLATE,
   stringWithNamedParameters,
   SWAP_ALTERNATIVES_ERROR_TEXT,
+  SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE,
   SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT,
   SWAP_CURRENT_MEAL_LABEL,
   SWAP_CURRENT_MEAL_UNCHANGED_LABEL,
   SWAP_FAILED_BODY_TEMPLATE,
   SWAP_FAILED_TITLE,
   SWAP_NO_ALTERNATIVES_BODY_TEMPLATE,
+  SWAP_NO_ALTERNATIVES_TITLE,
   SWAP_RECIPE_INELIGIBLE_TOAST,
   SWAP_STILL_YOURS_TEMPLATE,
   SWAP_TITLE_TEMPLATE
@@ -625,6 +628,81 @@ export function buildNoAlternativesBody(slot: MealSlot): string {
   return stringWithNamedParameters(SWAP_NO_ALTERNATIVES_BODY_TEMPLATE, {slot: slotWord(slot)})
 }
 
+export interface AlternativesAnnouncementInput {
+  viewKind: SwapView['kind']
+  // The rows ACTUALLY drawn, not the rows the view carries: an unresolved commit holds the swap slot and
+  // withholds every row, which leaves the list view's own array irrelevant to what is on screen.
+  listedCount: number
+  // The meal being replaced, or null while the day has not decoded it — which is also when 13d is not drawn.
+  slot: MealSlot | null
+}
+
+/**
+ * How the alternatives area's resolution is spoken, or null when there is nothing new to say.
+ *
+ * `accessibilityLiveRegion` is Android-only in RN 0.86, so the two resolutions that are NOT banners — the
+ * results overline and frame 13d's empty card — are announced by the screen for VoiceOver; this resolves what
+ * it announces. It covers those two and nothing else: every banner state announces itself from inside
+ * `InfoBanner`, and speaking here as well would say the same failure twice.
+ *
+ * Driven by what is rendered rather than by `viewKind` alone. The overline is drawn only once rows are, so a
+ * list view whose rows are withheld — `allowsAlternativeSelection` false while an unresolved commit owns the
+ * swap slot — announces nothing: "Alternatives, 4 found" over an empty area would be a lie. 13d is drawn only
+ * with the meal known, so a null slot has no headline to speak either.
+ */
+export function resolveAlternativesAnnouncement(input: AlternativesAnnouncementInput): string | null {
+  if (input.viewKind === 'list') {
+    return input.listedCount > 0
+      ? stringWithNamedParameters(SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE, {count: input.listedCount})
+      : null
+  }
+
+  if (input.viewKind === 'empty' && input.slot !== null) {
+    // The card's own headline and body, joined as one sentence: on screen they are two text nodes, and a
+    // headline announced without the body that qualifies it says nothing about why nothing matched.
+    return stringWithNamedParameters(STATUS_ANNOUNCEMENT_TEMPLATE, {
+      title: SWAP_NO_ALTERNATIVES_TITLE,
+      body: buildNoAlternativesBody(input.slot)
+    })
+  }
+
+  return null
+}
+
+export interface AnnouncementGuardDecision {
+  // The message to speak on this render, or null when this render has nothing new to say.
+  announces: string | null
+  // What the guard holds afterwards, which the caller writes back to its ref.
+  lastAnnounced: string | null
+}
+
+/**
+ * Whether a resolved announcement is new, given what was last spoken.
+ *
+ * The guard exists because the message is recomputed every render while the resolution stays on screen, and
+ * VoiceOver must not repeat it. Comparing against the last message alone is not enough: the alternatives area
+ * genuinely returns to its unresolved wait — the query key changes with the authoritative plan revision and
+ * nothing is retained, and an unresolved commit withholds every row — and the copy it resolves to the second
+ * time is routinely identical to the first ("Alternatives, 4 found" again, or 13d's card for the same slot).
+ * Leaving the last message in place across that wait silences the second resolution, so a null clears it: null
+ * is precisely the signal that the resolved view is gone, and the next resolution is a new event however its
+ * copy reads. Equal copy while the view never left is still a repeat, and stays silent.
+ */
+export function resolveAnnouncementGuard(
+  message: string | null,
+  lastAnnounced: string | null
+): AnnouncementGuardDecision {
+  if (message === null) {
+    return {announces: null, lastAnnounced: null}
+  }
+
+  if (message === lastAnnounced) {
+    return {announces: null, lastAnnounced}
+  }
+
+  return {announces: message, lastAnnounced: message}
+}
+
 export function buildSwapDateLabel(dayKey: string): string {
   const {weekday} = dayStripLabel(dayKey)
 
@@ -749,6 +827,12 @@ export interface SwapRetryInput {
   freshKey: string
 }
 
+/**
+ * What `selectSwapAttemptState` needs of a mutation-cache entry, declared structurally rather than imported so
+ * the selector stays a pure function of its arguments and is testable without a query client. TanStack's
+ * `MutationState` satisfies it, and the selector is generic over the entry type so the caller keeps its own
+ * typed `status` and `error` instead of a widened pair.
+ */
 export interface KeyedMutationState {
   submittedAt: number
   variables: unknown
@@ -864,15 +948,15 @@ export function resolveReplayableSwap(input: ReplayableSwapInput): SwapAttempt |
 }
 
 /**
- * Who holds the single `swap` intent slot, told apart into the three cases this screen has to treat
- * differently: empty, this plan and meal's own unresolved commit, and another plan or meal's.
+ * The mutation-cache entry that belongs to `attemptKey`, or null when the cache holds none. This is how the
+ * drawn failure states are reached at all: the commit is fired by the preview screen under a key the preview
+ * records beside its pending intent, so the attempt is identified by that key and by nothing else. Matching on
+ * the meal cannot work — `useSwapMealMutation(planId, mealId)` closes over both and its wire body carries
+ * neither, so every entry's variables are a bare `SwapMealPayload`.
  *
- * `resolveReplayableSwap` cannot answer this. It returns null for a slot held by another meal just as it does
- * for an empty one, and the two are not interchangeable — an empty slot may be minted into, while a slot held
- * elsewhere may not, because `pendingIntents.swap` holds exactly one record and overwriting it abandons the
- * only key that could reconcile a swap the server may already have committed (0.7.2). A cold start on meal B
- * while meal A's commit is unresolved is precisely that case: the mutation cache is empty, so nothing else on
- * this screen knows that a key is outstanding.
+ * A null key means there is no unresolved attempt on record, which is the resolved case and draws no banner. The
+ * latest submission wins where a key appears twice, because a replay re-sends the same key and the newer entry
+ * is the outcome now on screen.
  */
 export function selectSwapAttemptState<TState extends KeyedMutationState>(
   states: readonly TState[],
@@ -978,13 +1062,6 @@ export interface SwapInteractionDecision {
 }
 
 /**
- * What `selectSwapAttemptState` needs of a mutation-cache entry, declared structurally rather than imported so
- * the selector stays a pure function of its arguments and is testable without a query client. TanStack's
- * `MutationState` satisfies it, and the selector is generic over the entry type so the caller keeps its own
- * typed `status` and `error` instead of a widened pair.
- */
-
-/**
  * Who holds the single `swap` intent slot, told apart into the three cases this screen has to treat
  * differently: empty, this plan and meal's own unresolved commit, and another plan or meal's.
  *
@@ -1008,13 +1085,6 @@ export function resolveSwapSlotOwnership(input: ReplayableSwapInput): SlotOwners
  * replay is answered with the stored result only while it reproduces the request the key was minted for
  * (0.7.2) — the same four members `IdempotencyUtility.requestBody` assembles for a swap.
  */
-
-/**
- * The 0.5.2 swap body of an unresolved commit, taken from the stored snapshot and sent under the stored key.
- * Every member is read from `attempt.request`, never from the route or from the alternatives list, because a
- * replay is answered with the stored result only while it reproduces the request the key was minted for
- * (0.7.2) — the same four members `IdempotencyUtility.requestBody` assembles for a swap.
- */
 export function resolveSwapCommitPayload(attempt: SwapAttempt): SwapMealPayload {
   return {
     recipeVersionId: attempt.request.recipeVersionId,
@@ -1023,19 +1093,6 @@ export function resolveSwapCommitPayload(attempt: SwapAttempt): SwapMealPayload 
     idempotencyKey: attempt.key
   }
 }
-
-/**
- * Whether this screen still owes the unresolved commit its one silent same-key attempt as it opens, and the
- * body that attempt must carry (0.7.2).
- *
- * This is the owner of the swap intent on a cold start: the commit is fired from the preview screen, so after
- * a process death the mutation cache holds nothing, the persisted record is the only trace of what the user
- * asked for, and without a replay the screen would draw ordinary alternatives over a key whose write may
- * already have committed. Readiness is `hasHydratedIntents` AND a known account, because "no intent" and "not
- * yet known" are different answers and deciding early is what mints a second key; the rest of the decision —
- * one replay per key, never while a request is in flight — is `resolveMountReplay`, shared with the other
- * three keyed writes so they cannot answer it differently.
- */
 
 /**
  * Whether this screen still owes the unresolved commit its one silent same-key attempt as it opens, and the
@@ -1092,35 +1149,6 @@ export function resolveSwapMountReplay(input: SwapMountReplayInput): SwapMountRe
  * here to draw. The two are mutually exclusive by construction: one slot cannot be both this meal's and
  * another's.
  */
-
-/**
- * Whether the alternatives may be opened, and what the screen owes the user instead when they are withheld.
- *
- * An unresolved intent must not be replaceable: the preview screen records its own intent in the single `swap`
- * slot, so opening another candidate while a key is still unanswered would overwrite the only record capable
- * of reconciling that write (0.7.2). Selection is therefore withheld until the key resolves — and also until
- * the persisted slice has arrived, since before that the screen does not yet know whether a key is pending.
- *
- * THE SLOT IS GLOBAL, so the suppression is too. `resolveKeyedLaunch` reads the ownership verdict, which
- * distinguishes an empty slot from one held by another plan or meal; anything but a mint or this screen's own
- * replay closes the rows. Judging the slot by this screen's own scope alone — which is what reading the
- * scoped attempt did — made a cold start on meal B see an empty slot while meal A's commit was still
- * unresolved, draw ordinary rows, and let its preview record a fresh key over meal A's. A foreign holder is
- * handed off to its own owner (the Meal Plan tab, or that meal's own swap screen) rather than overwritten.
- *
- * A confirmed `swap_failed` is the one unresolved-looking state that keeps its rows: the server has answered
- * that nothing was written, which is what frame 13e draws the list under, and the answer retires the record in
- * the same pass. A `terminal` answer to the swap itself retires the record too, so its suppression lifts with
- * the write that clears it, while a `terminal` answer from the day or alternatives READ leaves the commit
- * unresolved and keeps the rows away.
- *
- * `showsCommitBusyState` covers the window the view says nothing about — a replay still on the wire, or an
- * outcome the user dismissed while its key stayed unanswered — where the rows are withheld and no banner is
- * drawn. The loading and empty views state themselves, so they are left to it. `showsForeignHoldNotice` is its
- * counterpart for the slot being held elsewhere, which is not this screen's own attempt and has no outcome
- * here to draw. The two are mutually exclusive by construction: one slot cannot be both this meal's and
- * another's.
- */
 export function resolveSwapInteraction(input: SwapInteractionInput): SwapInteractionDecision {
   const launch = resolveKeyedLaunch({
     ownership: input.ownership,
@@ -1148,15 +1176,3 @@ const readIdempotencyKey = (variables: unknown): string | null => {
 
   return typeof idempotencyKey === 'string' ? idempotencyKey : null
 }
-
-/**
- * The mutation-cache entry that belongs to `attemptKey`, or null when the cache holds none. This is how the
- * drawn failure states are reached at all: the commit is fired by the preview screen under a key the preview
- * records beside its pending intent, so the attempt is identified by that key and by nothing else. Matching on
- * the meal cannot work — `useSwapMealMutation(planId, mealId)` closes over both and its wire body carries
- * neither, so every entry's variables are a bare `SwapMealPayload`.
- *
- * A null key means there is no unresolved attempt on record, which is the resolved case and draws no banner. The
- * latest submission wins where a key appears twice, because a replay re-sends the same key and the newer entry
- * is the outcome now on screen.
- */

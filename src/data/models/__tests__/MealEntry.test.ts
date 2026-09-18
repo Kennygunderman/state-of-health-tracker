@@ -6,6 +6,7 @@ import {
   entryServingText,
   InputMethodEnum,
   isFromMealPlan,
+  LogCatalogMealEntryPayload,
   LogMealEntryPayload,
   MealEntry
 } from '../MealEntry'
@@ -234,6 +235,127 @@ describe('InputMethodEnum', () => {
 
       expect(plannedEntry.inputMethod).toBe(InputMethodEnum.MEAL_PLAN)
       expect(isFromMealPlan(plannedEntry)).toBe(true)
+    })
+  })
+})
+
+describe('the legacy-or-catalog request body', () => {
+  // The union logMealEntry and useLogMealEntryMutation accept, so every case below is
+  // checked against the exact target a caller assigns its body to.
+  type LogEntryRequestBody = LogMealEntryPayload | LogCatalogMealEntryPayload
+
+  const LEGACY_MACROS = {calories: 187, protein: 35, carbs: 0, fat: 4}
+
+  describe('the two shapes the endpoint accepts', () => {
+    it('types a legacy body that names a personal food and carries its own snapshot', () => {
+      const legacy: LogEntryRequestBody = {
+        foodId: 'food-1',
+        name: 'Chicken Breast',
+        servingText: '4 oz',
+        servings: 1,
+        ...LEGACY_MACROS,
+        inputMethod: InputMethodEnum.LIBRARY
+      }
+
+      expect(Object.keys(legacy).sort()).toEqual([
+        'calories',
+        'carbs',
+        'fat',
+        'foodId',
+        'inputMethod',
+        'name',
+        'protein',
+        'servingText',
+        'servings'
+      ])
+    })
+
+    it('types a catalog body that names a published catalog food and a portion', () => {
+      const catalog: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        servingText: '1 cup',
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect(Object.keys(catalog).sort()).toEqual(['catalogFoodId', 'inputMethod', 'servingText', 'servings'])
+    })
+
+    it('types a catalog body that names no portion, leaving the server the default one', () => {
+      const catalog: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-2',
+        servings: 1,
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect('servingText' in catalog).toBe(false)
+    })
+  })
+
+  // A union target reports one assignability error for the whole declaration, so each
+  // directive below sits on the annotation line rather than on the offending member. It
+  // fails the build the day the assignment stops being an error, which is the regression
+  // these three cases guard.
+  describe('the bodies the server refuses, refused here by the compiler', () => {
+    it('refuses a body naming both a personal and a catalog food', () => {
+      // @ts-expect-error both ids in one body is 400 invalid_payload with two
+      // conflicting_food_reference details, so it must never compile
+      const bothFoods: LogEntryRequestBody = {
+        name: 'Chicken Breast',
+        ...LEGACY_MACROS,
+        foodId: 'food-1',
+        catalogFoodId: 'catalog-food-1'
+      }
+
+      expect(bothFoods).toHaveProperty('foodId')
+      expect(bothFoods).toHaveProperty('catalogFoodId')
+    })
+
+    it('refuses a catalog body that also claims a snapshot of its own', () => {
+      // @ts-expect-error the server derives every number from the catalog row and discards
+      // these, so a caller sending them would believe values the entry never carries
+      const catalogWithMacros: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        inputMethod: InputMethodEnum.SEARCH,
+        name: 'Chicken Breast',
+        ...LEGACY_MACROS
+      }
+
+      expect(catalogWithMacros).toHaveProperty('calories')
+    })
+
+    it('refuses a catalog body that carries the legacy raw-input member', () => {
+      // @ts-expect-error rawInput is a legacy-shape member — the text an AI estimate was
+      // made from — which a catalog log by id has none of
+      const catalogWithRawInput: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        inputMethod: InputMethodEnum.SEARCH,
+        rawInput: 'chicken breast 4oz'
+      }
+
+      expect(catalogWithRawInput).toHaveProperty('rawInput')
+    })
+  })
+
+  describe('the members both shapes share', () => {
+    it('keeps servings and servingText on either shape, so neither acts as a shape signal', () => {
+      const legacy: LogMealEntryPayload = {
+        name: 'Chicken Breast',
+        servingText: '4 oz',
+        servings: 2,
+        ...LEGACY_MACROS
+      }
+      const catalog: LogCatalogMealEntryPayload = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 2,
+        servingText: '1 cup',
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect([legacy.servings, catalog.servings]).toEqual([2, 2])
+      expect([legacy.servingText, catalog.servingText]).toEqual(['4 oz', '1 cup'])
     })
   })
 })

@@ -148,18 +148,29 @@ describe('buildSelectedDislikes', () => {
 describe('resolveFoodPreferencesControls', () => {
   const READY = {isPreferencesPending: false, isSavePending: false, suggestionsState: 'ready' as const}
 
-  it('holds Continue back only until the row its save must carry a revision of has arrived', () => {
+  // 0.7.4 gives setup one validation rule: the CTA stays enabled and validates on press, and only a pending
+  // write suppresses it. A read still in flight is therefore not allowed to reach the button at all — the
+  // press path is what asks for the revision the save must name.
+  it('leaves Continue live while the preferences read is still in flight', () => {
     expect(resolveFoodPreferencesControls({...READY, isPreferencesPending: true})).toEqual({
-      isContinueDisabled: true,
       isContinueLoading: false
     })
   })
 
-  it('reports the save in flight without disabling the button, so the press shows its spinner', () => {
-    expect(resolveFoodPreferencesControls({...READY, isSavePending: true})).toEqual({
-      isContinueDisabled: false,
-      isContinueLoading: true
+  it('reports the save in flight, so the press shows its spinner', () => {
+    expect(resolveFoodPreferencesControls({...READY, isSavePending: true})).toEqual({isContinueLoading: true})
+  })
+
+  // The read flag and the suggestions state are inputs so that this can be asserted: no combination of them
+  // resolves to anything that holds the press back.
+  it('never withholds the press for a read, however the read and the suggestions combine', () => {
+    const controls = resolveFoodPreferencesControls({
+      isPreferencesPending: true,
+      isSavePending: false,
+      suggestionsState: 'unavailable'
     })
+
+    expect(controls).toEqual({isContinueLoading: false})
   })
 
   // Nothing on this step is required (47:338) and the search field reaches the same selection, so losing the
@@ -168,10 +179,7 @@ describe('resolveFoodPreferencesControls', () => {
   it.each<SuggestionsViewState>(['loading', 'unavailable', 'ready'])(
     'leaves the step continuable whatever the suggestions query reports (%s)',
     suggestionsState => {
-      expect(resolveFoodPreferencesControls({...READY, suggestionsState})).toEqual({
-        isContinueDisabled: false,
-        isContinueLoading: false
-      })
+      expect(resolveFoodPreferencesControls({...READY, suggestionsState})).toEqual({isContinueLoading: false})
     }
   )
 })

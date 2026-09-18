@@ -12,6 +12,7 @@ import {BottomTabNavigationProp} from '@react-navigation/bottom-tabs'
 import {CompositeNavigationProp, useNavigation} from '@react-navigation/native'
 import useAuthStore from '@store/auth/useAuthStore'
 import useUserData from '@store/userData/useUserData'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import StepGoalModal from '@components/dialog/StepGoalModal'
@@ -210,7 +211,10 @@ const ActivityTab = () => {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity activeOpacity={0.5} disabled={!targetAuthority.isEditable} onPress={onIntakeTargetPressed}>
+          <TouchableOpacity
+            activeOpacity={Opacity.PRESSED_TARGET_ROW}
+            disabled={!targetAuthority.isEditable}
+            onPress={onIntakeTargetPressed}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_INTAKE_LABEL} `}
 

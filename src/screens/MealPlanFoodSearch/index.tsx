@@ -16,6 +16,9 @@ import {useCatalogSearchInfiniteQuery} from '@queries/catalog/useCatalogSearchIn
 import {useNavigation} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
+// The bound the provider's reducers refuse an addition past, read from the module that owns it so this
+// screen cannot restate the server's number and drift from it.
+import {isDislikeSelectionAtCap, MAX_DISLIKED_FOOD_IDS} from '@utility/DislikeSelectionUtility'
 
 import CatalogSearchField from '@components/CatalogSearchField'
 import ContentColumn from '@components/ContentColumn'
@@ -29,6 +32,7 @@ import Text from '@components/Text'
 
 import {
   CATALOG_SEARCH_ERROR_TEXT,
+  MEAL_PLAN_DISLIKES_CAP_TEMPLATE,
   MEAL_PLAN_DONE_BUTTON_TEXT,
   MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT,
   MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT,
@@ -99,6 +103,10 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
   // The staged selection is the truth of what Done would keep, so the count is its length whether or not
   // every entry can be named.
   const selectedCount = stagedDislikes.selection.length
+
+  // At the cap the reducer refuses a tap on an unselected row, and no frame draws that state (AAP 0.2.5):
+  // the caption below is what tells the user why the row did not take and how to make room.
+  const isSelectionAtCap = isDislikeSelectionAtCap(stagedDislikes.selection)
 
   const selectedFoods = useMemo(
     () =>
@@ -331,9 +339,15 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
         )}
 
         <Text style={styles.helperText}>{MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT}</Text>
+
+        {isSelectionAtCap && (
+          <Text style={styles.helperText} accessibilityLiveRegion="polite">
+            {stringWithNamedParameters(MEAL_PLAN_DISLIKES_CAP_TEMPLATE, {count: MAX_DISLIKED_FOOD_IDS})}
+          </Text>
+        )}
       </View>
     ),
-    [onChipRemoved, onClearAllPressed, selectedCount, selectedFoods]
+    [isSelectionAtCap, onChipRemoved, onClearAllPressed, selectedCount, selectedFoods]
   )
 
   return (

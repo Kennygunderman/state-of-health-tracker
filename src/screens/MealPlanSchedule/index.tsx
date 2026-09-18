@@ -5,6 +5,7 @@ import {ScrollView, View} from 'react-native'
 import type {MealPlanPreferences, MealSchedule} from '@data/models/MealPlanPreferences'
 import type {MealSlot} from '@data/models/Recipe'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {MealPlanScheduleRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
@@ -12,7 +13,7 @@ import {useNavigation, useRoute} from '@react-navigation/native'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {formatSlotTime} from '@utility/MealPlanDateUtility'
-import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ContentColumn from '@components/ContentColumn'
@@ -72,7 +73,13 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanScheduleRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, selectMealSchedule, setMealTime, stepsForRoute} = useMealPlanSetupDraft()
   // In edit mode the header back button is Cancel (0.7.4), so this step's unsaved edits are discarded by
@@ -164,7 +171,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
       // step's own answers with it. Equal values mean the write whose response was lost, or the identical
       // edit from another device, already landed — so it resolves silently instead of writing twice.
       const refetched = await refetchPreferences()
-      const fresh = refetched.data ?? null
+      const fresh = authoritativeRefetch(refetched)
 
       if (fresh === null) {
         showToast('error', TOAST_GENERIC_ERROR)

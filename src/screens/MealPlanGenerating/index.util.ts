@@ -5,8 +5,10 @@ import type {NutritionTargets} from '@data/models/NutritionTargets'
 import type {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import type {MealSlot} from '@data/models/Recipe'
 import type {GenerationContext, RootStackParamList} from '@navigation/types'
+import type {IntentsHydration, MealPlanStore, PendingIntent} from '@store/mealPlan/useMealPlanStore'
+import {buildPendingIntent, resolveKeyedRequest, resolveSlotOwnership} from '@store/mealPlan/useMealPlanStore'
 import {API_ERROR_CODES, classifyOutcome, getApiErrorCode, terminalErrorCode} from '@utility/ApiErrorUtility'
-import {MealPlanRequestSnapshot} from '@utility/IdempotencyUtility'
+import {MealPlanRequestSnapshot, requestPlanId, RequestScope} from '@utility/IdempotencyUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 
 import type {StatusBadgeVariant} from '@components/StatusBadgeCircle'
@@ -34,6 +36,7 @@ import {
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
   MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY,
   MEAL_PLAN_LIMITING_CONSTRAINT_LABELS,
+  MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_MEALS_PER_DAY_VALUES,
   MEAL_PLAN_NO_MATCH_BODY,
   MEAL_PLAN_NO_MATCH_TITLE,
@@ -48,7 +51,8 @@ import {
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
   stringWithNamedParameters,
-  TerminalOutcomeCopy
+  TerminalOutcomeCopy,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 export type GenerationViewKind = 'pending' | 'failed' | 'noMatch' | 'unconfirmed' | 'terminal'
@@ -114,6 +118,12 @@ export interface GenerationView {
 export interface GenerationTerminalRecovery {
   clearsPendingIntent: boolean
   refetchesCurrentPlan: boolean
+  /**
+   * Whether the refusal is answered by OPENING the plan the user already has, which is the one recovery that
+   * has to wait for the refetch: the plan it selects is named by that answer rather than by anything the
+   * screen holds (AAP 0.7.4). Implies `refetchesCurrentPlan`, and it is the refetch this flag makes awaited.
+   */
+  selectsUpcomingPlan: boolean
   toast: string | null
   route: keyof RootStackParamList | null
 }
@@ -126,6 +136,61 @@ export interface GenerationRequestInputs {
   expectedPreferencesRevision: number
   expectedTargetsRevision: number
 }
+
+/**
+ * The two requests this screen can send: a generation names the week it builds, a regeneration the plan it
+ * replaces. Narrower than `MealPlanRequestSnapshot` so the mutation call narrows on the action alone — a swap
+ * or a log is never what this screen sends, not even when one is read back out of the persisted slot.
+ */
+export type GenerationRequestSnapshot = Extract<MealPlanRequestSnapshot, {action: 'generate' | 'regenerate'}>
+
+/**
+ * Everything the launch decision below is taken from. The persisted read arrives in both of its shapes
+ * because they answer different questions: `hasHydratedIntents` is `'succeeded'` alone and is what the gate
+ * fails closed on, while `intentsHydration` keeps the third case the screen has to SAY — a read that rejected,
+ * whose contents are unknown rather than empty.
+ */
+export interface GenerationLaunchInput {
+  pendingIntents: MealPlanStore['pendingIntents']
+  userId: string | null
+  /** The request this screen rebuilt from its route params (`buildGenerationRequest`). */
+  request: GenerationRequestSnapshot
+  hasHydratedIntents: boolean
+  intentsHydration: IntentsHydration
+  /** The key the route carries. Sent only where the action's slot is genuinely free. */
+  idempotencyKey: string
+  attemptedAt: number
+}
+
+/**
+ * Whether this screen's attempt may leave, and under which key (0.7.2).
+ *
+ * `waiting` and `unreadable` are the two states of the persisted read that precede every other answer: until
+ * the slice has come back, whether a generation is already pending is UNKNOWN, and a read that REJECTED
+ * leaves it unknown rather than empty. Both send nothing; only the second is a state the user can act on, and
+ * only through the re-read.
+ *
+ * `handOff` is the case the single `pendingIntents[action]` slot creates: it holds an unresolved request this
+ * screen can neither replay (it is not the generation this route describes) nor overwrite (that would abandon
+ * the only key able to reconcile a write the server may already have committed), so the Meal Plan tab — the
+ * cold-start owner of a stranded generation — is given it instead.
+ *
+ * `send` carries the key the request must travel under and the request it must send: the STORED pair when this
+ * screen's own generation is unresolved, the freshly routed pair otherwise. `intent` is the record to write
+ * before the request leaves, and is null only where there is no account to scope it to.
+ */
+export type GenerationLaunchDecision =
+  | {kind: 'waiting'}
+  | {kind: 'unreadable'}
+  | {kind: 'handOff'; intent: PendingIntent}
+  | {
+      kind: 'send'
+      idempotencyKey: string
+      /** True when the key is one the server may already have answered, so its reply can be a stored result. */
+      isReplay: boolean
+      request: GenerationRequestSnapshot
+      intent: PendingIntent | null
+    }
 
 /**
  * What is known about the outcome of this screen's own attempt, and nothing more: either the server answered
@@ -164,11 +229,19 @@ const PLAN_STATE_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([
 // the entitlement router turns the very same signal into the unavailable card (0.2.5).
 const UNAVAILABLE_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([API_ERROR_CODES.featureDisabled])
 
-// Whether a terminal outcome draws a card at all. The two families above answer with a destination instead,
+// The refusal that already has its answer on the server: a second plan may not start after today because one
+// already does, and AAP 0.7.4 says that plan is OPENED rather than described. A card whose only move was
+// "Edit preferences" led back to Review, where every further Generate earns this very refusal again — so this
+// family leaves too, selecting the upcoming plan on the way.
+const UPCOMING_PLAN_TERMINAL_CODES: ReadonlySet<string> = new Set<string>([API_ERROR_CODES.upcomingExists])
+
+// Whether a terminal outcome draws a card at all. The three families above answer with a destination instead,
 // so they render no copy and no footer; every other terminal code states what moved on a card the user can
 // read and leave from.
 const leavesScreenWithoutCard = (terminalCode: string): boolean =>
-  PLAN_STATE_TERMINAL_CODES.has(terminalCode) || UNAVAILABLE_TERMINAL_CODES.has(terminalCode)
+  PLAN_STATE_TERMINAL_CODES.has(terminalCode) ||
+  UNAVAILABLE_TERMINAL_CODES.has(terminalCode) ||
+  UPCOMING_PLAN_TERMINAL_CODES.has(terminalCode)
 
 const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
   'cooking_time',
@@ -444,6 +517,10 @@ export const resolveGenerationView = (
 //   the plan the attempt named is no longer the one the user has;
 // - the capability being off leaves for the Macros tab and refetches, so the entitlement router draws the
 //   unavailable card from the same signal — a toast would only repeat what that card says;
+// - an upcoming plan already existing is answered by opening that plan: the refetch names it, the selection
+//   follows it and the segment switches, because the week the user asked for is a week they already have
+//   (0.7.4). Its toast is the card copy this code already owns, said once on the way out instead of drawn on
+//   a card whose only move led back to the screen that earns the same refusal;
 // - every other refusal states its next move on a card the user reads and leaves through the footer, so it
 //   neither toasts nor routes.
 //
@@ -461,16 +538,114 @@ export const resolveTerminalRecovery = (
     return {
       clearsPendingIntent: true,
       refetchesCurrentPlan: true,
+      selectsUpcomingPlan: false,
       toast: MEAL_PLAN_STALE_PLAN_TOAST,
       route: context.kind === 'regenerate' ? Screens.MACROS : Screens.MEAL_PLAN_TARGETS
     }
   }
 
   if (UNAVAILABLE_TERMINAL_CODES.has(terminalCode)) {
-    return {clearsPendingIntent: true, refetchesCurrentPlan: true, toast: null, route: Screens.MACROS}
+    return {
+      clearsPendingIntent: true,
+      refetchesCurrentPlan: true,
+      selectsUpcomingPlan: false,
+      toast: null,
+      route: Screens.MACROS
+    }
   }
 
-  return {clearsPendingIntent: true, refetchesCurrentPlan: false, toast: null, route: null}
+  if (UPCOMING_PLAN_TERMINAL_CODES.has(terminalCode)) {
+    return {
+      clearsPendingIntent: true,
+      refetchesCurrentPlan: true,
+      selectsUpcomingPlan: true,
+      // The code's own card title, read through the same own-property lookup every copy read goes through, so
+      // this recovery cannot state something the copy inventory does not hold. A release that ever drops the
+      // entry leaves for the plan without a toast rather than toasting a machine code.
+      toast: ownEntry(TERMINAL_COPY, terminalCode)?.title ?? null,
+      route: Screens.MACROS
+    }
+  }
+
+  return {
+    clearsPendingIntent: true,
+    refetchesCurrentPlan: false,
+    selectsUpcomingPlan: false,
+    toast: null,
+    route: null
+  }
+}
+
+/**
+ * Which refusal of the PERSISTED INTENT layer the screen is standing on, and the copy it says it with — or
+ * null when nothing about that layer is refusing.
+ *
+ * Both members refuse for the same reason and are kept as one derivation so the screen cannot say it two
+ * ways: the record that makes a lost response replayable is not on the device, so no keyed request may leave
+ * (0.7.2). They differ only in which call failed and therefore in which one the action retries — `read` is a
+ * rehydration that rejected, so what the slot holds is unknown; `write` is a reservation the device did not
+ * confirm, so the key about to be sent would exist only in this process.
+ *
+ * `read` is answered first because it is the stricter state: a launch that never reached `send` has nothing
+ * to reserve, so a stale write refusal must not outrank it.
+ */
+export type IntentRefusalKind = 'read' | 'write'
+
+export interface IntentRefusal {
+  kind: IntentRefusalKind
+  body: string
+  actionLabel: string
+}
+
+export const resolveIntentRefusal = (
+  launchKind: GenerationLaunchDecision['kind'],
+  isReservationRefused: boolean
+): IntentRefusal | null => {
+  if (launchKind === 'unreadable') {
+    return {kind: 'read', body: MEAL_PLAN_LOAD_ERROR_TITLE, actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
+  }
+
+  // A refused reservation only means anything for an attempt the launch permitted: any other decision has
+  // already sent nothing, and its own state is what the screen is showing.
+  return launchKind === 'send' && isReservationRefused
+    ? {kind: 'write', body: TOAST_GENERIC_ERROR, actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
+    : null
+}
+
+/**
+ * The plan an `upcoming_exists` refusal is answered by: the upcoming week the refetch reported, or null when
+ * the answer carries none.
+ *
+ * Null is a real answer rather than an error. The plan may have rolled into `current` between the refusal and
+ * the refetch, or another client may have replaced it, and in both cases the recovery still leaves for the
+ * Meal Plan tab — which reads `current ?? upcoming` on its own (0.7.4) — instead of stranding the user on a
+ * screen whose outcome has no card. An empty id is not an identity, for the same reason a key is not.
+ */
+export const resolveUpcomingPlanId = (plans: CurrentMealPlans | null | undefined): string | null => {
+  const upcoming = plans?.upcoming ?? null
+
+  return upcoming !== null && upcoming.id.length > 0 ? upcoming.id : null
+}
+
+/**
+ * A plan as this settlement reads it: its id, and the generation key it MAY carry.
+ *
+ * Declared here rather than taken from the model because the wire contract does not promise the member — AAP
+ * 0.5.2's `MealPlanResponse` has no `generationKey` — so a conforming server may omit it and the model may
+ * declare it required, nullable, or not at all. The rule below must answer identically in all three cases, and
+ * `id` is required in the shape so a plan stays assignable to it however the key is declared.
+ */
+interface PlanGenerationKeyBearer {
+  id: string
+  generationKey?: string | null
+}
+
+// Only a key that is actually there can prove a plan belongs to this attempt, so an absent, null or empty
+// value answers null — which can never equal the non-empty key the caller has already checked for.
+const planGenerationKey = (plan: PlanGenerationKeyBearer): string | null => {
+  const key = plan.generationKey ?? null
+
+  return typeof key === 'string' && key.length > 0 ? key : null
 }
 
 /**
@@ -500,11 +675,13 @@ export const resolveSettledGenerationPlanId = (settlement: GenerationSettlement)
     return null
   }
 
-  if (plans.current !== null && plans.current.generationKey === sentKey) {
-    return plans.current.id
+  const {current, upcoming} = plans
+
+  if (current !== null && planGenerationKey(current) === sentKey) {
+    return current.id
   }
 
-  return plans.upcoming !== null && plans.upcoming.generationKey === sentKey ? plans.upcoming.id : null
+  return upcoming !== null && planGenerationKey(upcoming) === sentKey ? upcoming.id : null
 }
 
 /**
@@ -517,7 +694,7 @@ export const resolveSettledGenerationPlanId = (settlement: GenerationSettlement)
  * the same request, so the stored key is replayed byte-identically instead of a second plan being generated
  * under a new one (0.7.2).
  */
-export const buildGenerationRequest = (inputs: GenerationRequestInputs): MealPlanRequestSnapshot => {
+export const buildGenerationRequest = (inputs: GenerationRequestInputs): GenerationRequestSnapshot => {
   if (inputs.context.kind === 'regenerate') {
     return {
       action: 'regenerate',
@@ -534,6 +711,115 @@ export const buildGenerationRequest = (inputs: GenerationRequestInputs): MealPla
     expectedPreferencesRevision: inputs.expectedPreferencesRevision,
     expectedTargetsRevision: inputs.expectedTargetsRevision
   }
+}
+
+// One send, assembled from the request it carries so the recorded snapshot, the key and the body cannot
+// describe three different generations.
+const generationSend = (
+  request: GenerationRequestSnapshot,
+  idempotencyKey: string,
+  isReplay: boolean,
+  intent: PendingIntent | null
+): GenerationLaunchDecision => ({kind: 'send', idempotencyKey, isReplay, request, intent})
+
+// A record filed under the generate or regenerate slot carries one of those two snapshots, so this narrows the
+// union rather than guarding a reachable case. It answers null instead of throwing because the slot's contents
+// come from device storage: a record a future release filed differently is one this screen may not act on, and
+// null routes it to the hand-off rather than to a mint.
+const asGenerationSnapshot = (snapshot: MealPlanRequestSnapshot): GenerationRequestSnapshot | null =>
+  snapshot.action === 'generate' || snapshot.action === 'regenerate' ? snapshot : null
+
+/**
+ * Whether a stored snapshot describes the generation this screen was opened for. A regeneration is identified
+ * by the plan it replaces, a generation by the week it builds.
+ *
+ * The revisions each request pins are deliberately NOT compared. A moved preferences or targets revision is
+ * the same user intent under a key that may already have committed, so the stored request is replayed under
+ * its stored key — the byte-identical replay a lost response requires — and it is a confirmed refusal
+ * (`409 stale_revision`) that retires it and frees the slot for a fresh key (0.7.2).
+ */
+const namesSameGeneration = (stored: GenerationRequestSnapshot, request: GenerationRequestSnapshot): boolean => {
+  if (stored.action === 'regenerate' && request.action === 'regenerate') {
+    return stored.planId === request.planId
+  }
+
+  return stored.action === 'generate' && request.action === 'generate' && stored.startDate === request.startDate
+}
+
+/**
+ * Which generation this screen launches as it opens, and under which key (0.7.2).
+ *
+ * The rule the single `pendingIntents[action]` slot forces: a key is minted only when no unresolved
+ * generation is on record. An unresolved one is a request whose answer was lost, so it may have committed —
+ * recording a new key over it would abandon the only key that could ever reconcile that write and would ask
+ * the server for a second plan. So an unresolved generation of *this* week (or of *this* plan) is replayed
+ * instead, under its stored key and carrying its stored request, which the server answers with the stored
+ * result when the write landed and re-runs under the same key when it did not.
+ *
+ * The persisted read gates all of it, because "nothing is pending" and "the answer has not arrived" are
+ * different answers and only the first permits a fresh key. A read that REJECTED is the stricter case: the
+ * slice may hold a key for a generation the server committed, so it is refused rather than treated as empty —
+ * which is what the screen offers `retryIntentsHydration` for.
+ */
+export const resolveGenerationLaunch = (input: GenerationLaunchInput): GenerationLaunchDecision => {
+  // Intents are scoped by account, so with no signed-in id there is nothing on disk this session may replay
+  // and nothing it could overwrite: the attempt leaves under the route's key with no record to write. Reached
+  // only if identity is somehow absent inside the signed-in tree — `isAuthed` and `userId` are published
+  // together — and it is ordered first for that reason: it is the absence of the account the rest reasons about.
+  if (input.userId === null) {
+    return generationSend(input.request, input.idempotencyKey, false, null)
+  }
+
+  if (input.intentsHydration === 'failed') {
+    return {kind: 'unreadable'}
+  }
+
+  // The boolean, not the third state: it is 'succeeded' alone, so a read that has not answered — or answered
+  // in a way this release has no word for — still refuses the mint.
+  if (!input.hasHydratedIntents) {
+    return {kind: 'waiting'}
+  }
+
+  const state: Pick<MealPlanStore, 'pendingIntents'> = {pendingIntents: input.pendingIntents}
+  const planId = requestPlanId(input.request)
+  // A regeneration names the plan it replaces, so the slot is read against it and another plan's record comes
+  // back as 'foreign'. A generation names no plan, so every unresolved generation is this action's own record
+  // and `namesSameGeneration` is what tells this week's from another's.
+  const scope: RequestScope = planId === null ? {} : {planId}
+  const ownership = resolveSlotOwnership(state, input.request.action, input.userId, input.attemptedAt, scope)
+
+  if (ownership.kind === 'foreign') {
+    return {kind: 'handOff', intent: ownership.intent}
+  }
+
+  if (ownership.kind === 'mine') {
+    const stored = asGenerationSnapshot(ownership.intent.request)
+
+    if (stored === null || !namesSameGeneration(stored, input.request)) {
+      return {kind: 'handOff', intent: ownership.intent}
+    }
+
+    // Re-recorded with the intent's own `createdAt`, so the write restates the record rather than extending
+    // the 7-day life of a key that was minted a week ago.
+    return generationSend(
+      stored,
+      ownership.intent.key,
+      true,
+      buildPendingIntent(stored, ownership.intent.key, input.userId, ownership.intent.createdAt)
+    )
+  }
+
+  // The slot is free, so this launch is a new intent and may mint. The key it travels under still comes from
+  // the decision all four keyed writes share rather than from a second rule living here.
+  const keyed = resolveKeyedRequest(state, input.request, input.userId, input.attemptedAt, input.idempotencyKey)
+  const sent = asGenerationSnapshot(keyed.request) ?? input.request
+
+  return generationSend(
+    sent,
+    keyed.idempotencyKey,
+    keyed.isReplay,
+    buildPendingIntent(sent, keyed.idempotencyKey, input.userId, input.attemptedAt)
+  )
 }
 
 const dietValue = (preferences: MealPlanPreferences): string =>

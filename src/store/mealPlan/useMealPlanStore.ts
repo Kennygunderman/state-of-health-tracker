@@ -28,6 +28,39 @@ export type PostLogResult = {
 export type PendingIntentAction = MealPlanActionType
 
 /**
+ * The persisted slice's storage key, named once so the persist option and `clearPersistedPendingIntents`
+ * cannot drift apart: a removal aimed at a different key would leave the record it was meant to erase on the
+ * device.
+ */
+const MEAL_PLAN_STORE_NAME = 'meal-plan-store'
+
+/**
+ * What `recordPendingIntent` can promise its caller about the device.
+ *
+ * 'durable' means the device has CONFIRMED a slice holding this intent, so the keyed request may be sent: a
+ * kill between sending it and its response is reconcilable under the same key on the next launch.
+ * 'unavailable' means the memory record exists but nothing on disk backs it: `storage_failed` when the write
+ * was refused or rejected, and
+ * `hydration_unknown` while the slice has not come back (a read still out would overwrite the record, and a
+ * read that REJECTED makes the adapter refuse every write). The reservation only reports durability —
+ * whether to send without it is the caller's decision, because only the caller knows whether its request is
+ * safe to duplicate (0.7.2).
+ */
+export type PendingIntentReservation =
+  | {kind: 'durable'}
+  | {kind: 'unavailable'; reason: 'hydration_unknown' | 'storage_failed'}
+
+/**
+ * What `clearPersistedPendingIntents` can promise about the device after an account boundary.
+ *
+ * 'erased' means no intent of the outgoing session is at rest any more — the item was deleted, or an empty
+ * slice was written over it. 'failed' means one is still there: every erasure path was refused or rejected.
+ * The distinction is reported rather than swallowed so the caller can act on it, and so the sign-in discard
+ * below is a stated part of the boundary rather than a hope (0.7.2).
+ */
+export type PendingIntentErasure = {kind: 'erased'} | {kind: 'failed'}
+
+/**
  * How the persisted intent slice came back, kept as three states rather than two because the third one is the
  * dangerous one: a read that REJECTED leaves the contents unknown, which is not the same as empty.
  */
@@ -106,9 +139,10 @@ export type MealPlanStore = {
   dismissSuccessBanner: (entryId: string) => void
   setPostLogResult: (result: PostLogResult) => void
   clearPostLogResult: () => void
-  recordPendingIntent: (intent: PendingIntent) => void
+  recordPendingIntent: (intent: PendingIntent) => Promise<PendingIntentReservation>
   clearPendingIntent: (action: PendingIntentAction) => void
   prunePendingIntents: (now: number, userId: string | null) => void
+  discardPendingIntents: () => void
   markIntentsHydrated: (outcome: IntentsHydrationOutcome) => void
   retryIntentsHydration: () => void
   reset: () => void
@@ -149,6 +183,17 @@ const defaultState: Pick<
  * store does; `removeItem` clears the entry so a later write of the same value is not mistaken for a duplicate
  * of one that is no longer on disk.
  */
+/**
+ * The value the fallback erasure writes: the persisted slice with no intents in it, at this release's persist
+ * version. Built from `defaultState` rather than written out again so the erasure cannot drift from what the
+ * store considers an empty slice, and declared once so the write and the confirmation compare the same bytes.
+ * `version` is the persist middleware's default, which these options do not override.
+ */
+const EMPTY_PERSISTED_SLICE: StorageValue<MealPlanPersistedState> = {
+  state: {pendingIntents: defaultState.pendingIntents},
+  version: 0
+}
+
 const lastWrittenByName = new Map<string, string>()
 
 /**
@@ -169,6 +214,137 @@ const inFlightWriteByName = new Map<string, string>()
  * again.
  */
 const failedReadByName = new Set<string>()
+
+/**
+ * The promise of the device write currently on its way out, per store name — the newest one when several are
+ * queued. `inFlightWriteByName` says WHAT is on its way; this says when it has landed, which is the only
+ * thing a caller that must not send before its key is on disk can wait for. Registered only for a write that
+ * actually reaches the device, so a skipped duplicate can never stand in for an unresolved one.
+ */
+const inFlightWritePromiseByName = new Map<string, Promise<void>>()
+
+/**
+ * The two codes a persistence failure is reported as, and the whole of what is logged. An AsyncStorage
+ * rejection carries native paths, module internals and, through its message, fragments of the value being
+ * written — here that value is an idempotency key and a request body, so logging the error itself would copy
+ * user request data into device and crash logs (CWE-532). The code names the path that failed, which is all
+ * any reader of these logs can act on.
+ */
+const PERSIST_WRITE_FAILURE_CODE = 'meal_plan_intent_persist_write_failed'
+
+const PERSIST_REMOVE_FAILURE_CODE = 'meal_plan_intent_persist_remove_failed'
+
+/**
+ * Resolves once every device write already on its way out for `name` has settled.
+ *
+ * A write queued while an earlier one was being awaited is a write this caller still has to wait for, so the
+ * loop re-reads the map rather than sampling it once. Termination comes from the identities already awaited,
+ * not from a cap: each pass either finds a promise it has never seen — real progress, one more write on its
+ * way to the device — or finds the one it just awaited and stops.
+ */
+const awaitOutstandingPersistWrites = async (name: string): Promise<void> => {
+  const awaited = new Set<Promise<void>>()
+  let outstanding = inFlightWritePromiseByName.get(name)
+
+  while (outstanding !== undefined && !awaited.has(outstanding)) {
+    awaited.add(outstanding)
+
+    await outstanding
+
+    outstanding = inFlightWritePromiseByName.get(name)
+  }
+}
+
+/**
+ * Whether the slice the device has CONFIRMED holds this very intent, decided from the adapter's memo of the
+ * last confirmed serialized value rather than from a fresh `getItem`.
+ *
+ * Re-reading the device would be the obvious check and is the wrong one twice over: it answers about a moment
+ * later than the write it is verifying, and the memo already holds exactly the value storage acknowledged.
+ * The stored record is put through `parsePendingIntent` — the same validation a cold start applies — so a
+ * value that survived serialisation but could never be replayed does not count as durable, and the key and
+ * fingerprint are compared so a confirmed slice describing a DIFFERENT request cannot pass for this one.
+ */
+const confirmedSliceHoldsIntent = (name: string, intent: PendingIntent): boolean => {
+  const confirmed = lastWrittenByName.get(name)
+
+  if (confirmed === undefined) {
+    return false
+  }
+
+  let state: unknown
+
+  try {
+    state = JSON.parse(confirmed)
+  } catch {
+    // The memo is written from `JSON.stringify`, so this cannot happen through the adapter — but a value that
+    // will not parse is not a slice this intent can be read out of, and reporting durability from it would be
+    // the one lie this function exists to prevent.
+    return false
+  }
+
+  if (state === null || typeof state !== 'object') {
+    return false
+  }
+
+  const slice: unknown = (state as {pendingIntents?: unknown}).pendingIntents
+
+  if (slice === null || typeof slice !== 'object' || Array.isArray(slice)) {
+    return false
+  }
+
+  const action = intent.request.action
+  const stored = parsePendingIntent((slice as Record<string, unknown>)[action], action)
+
+  return stored !== null && stored.key === intent.key && stored.fingerprint === intent.fingerprint
+}
+
+/**
+ * The device half of one non-duplicate write, and the memo bookkeeping that decides what the next comparison
+ * sees. Separate from `setItem` only so the promise of the write itself can be registered before it is
+ * awaited; the order of the steps inside is unchanged and load-bearing.
+ */
+const persistSliceToDevice = async (
+  name: string,
+  value: StorageValue<MealPlanPersistedState>,
+  serialized: string,
+  confirmed: string | undefined
+): Promise<void> => {
+  try {
+    await zustandAsyncStorage.setItem(name, value)
+  } catch {
+    // The last CONFIRMED value is left in place rather than being replaced by the one that failed, so an
+    // identical later write is still a write and gets its own attempt at the device. This is the whole
+    // durability guarantee: the slice holds idempotency keys, and a key that silently never reached storage
+    // is a key the next launch mints again — committing the same action twice (0.7.2).
+    if (inFlightWriteByName.get(name) === serialized) {
+      inFlightWriteByName.delete(name)
+
+      if (confirmed === undefined) {
+        lastWrittenByName.delete(name)
+      } else {
+        lastWrittenByName.set(name, confirmed)
+      }
+    }
+
+    // Reported rather than rethrown, following the convention the other persisted stores already use for a
+    // storage failure. The persist middleware calls `setItem` without handling its rejection, so rethrowing
+    // surfaces as an unhandled rejection rather than reaching anything that could act on it — while the memo
+    // above has already been restored, which is what actually makes the next attempt retry. The rejection
+    // itself is deliberately not logged: see `PERSIST_WRITE_FAILURE_CODE`.
+    console.error(PERSIST_WRITE_FAILURE_CODE)
+
+    return
+  }
+
+  // Only the newest write may claim the memo. Two `set` calls in one tick queue two writes here, and the
+  // first may resolve last; letting it record its own value would tell the next comparison that the older
+  // state is what sits on disk, and the newer state would then be skipped forever.
+  if (inFlightWriteByName.get(name) === serialized) {
+    inFlightWriteByName.delete(name)
+    lastWrittenByName.set(name, serialized)
+  }
+}
 
 /**
  * `zustandAsyncStorage`, minus the writes that would change nothing on disk.
@@ -239,45 +415,34 @@ const dedupedPersistStorage: PersistStorage<MealPlanPersistedState> = {
 
     inFlightWriteByName.set(name, serialized)
 
-    try {
-      await zustandAsyncStorage.setItem(name, value)
-    } catch (error) {
-      // The last CONFIRMED value is left in place rather than being replaced by the one that failed, so an
-      // identical later write is still a write and gets its own attempt at the device. This is the whole
-      // durability guarantee: the slice holds idempotency keys, and a key that silently never reached storage
-      // is a key the next launch mints again — committing the same action twice (0.7.2).
-      if (inFlightWriteByName.get(name) === serialized) {
-        inFlightWriteByName.delete(name)
+    // Held as a value so it can be registered before it is awaited: a caller that must not send its keyed
+    // request until the key is on disk has to be able to find this promise, and the persist middleware
+    // discards the one it gets from `setItem`.
+    const write = persistSliceToDevice(name, value, serialized, confirmed)
 
-        if (confirmed === undefined) {
-          lastWrittenByName.delete(name)
-        } else {
-          lastWrittenByName.set(name, confirmed)
-        }
-      }
+    inFlightWritePromiseByName.set(name, write)
 
-      // Reported rather than rethrown, following the convention the other persisted stores already use for a
-      // storage failure. The persist middleware calls `setItem` without handling its rejection, so rethrowing
-      // surfaces as an unhandled rejection rather than reaching anything that could act on it — while the
-      // memo above has already been restored, which is what actually makes the next attempt retry.
-      console.error('Failed to persist the meal-plan pending-intent slice; the next identical write will retry:', error)
-    }
+    await write
 
-    // Only the newest write may claim the memo. Two `set` calls in one tick queue two writes here, and the
-    // first may resolve last; letting it record its own value would tell the next comparison that the older
-    // state is what sits on disk, and the newer state would then be skipped forever.
-    if (inFlightWriteByName.get(name) === serialized) {
-      inFlightWriteByName.delete(name)
-      lastWrittenByName.set(name, serialized)
+    if (inFlightWritePromiseByName.get(name) === write) {
+      inFlightWritePromiseByName.delete(name)
     }
   },
   removeItem: async name => {
+    // Nothing is published until the device has confirmed the deletion, and a rejection therefore leaves
+    // every memo and the quarantine exactly as they were. Clearing them first — the order this adapter used
+    // to take — announced a slice as known-empty on the strength of a call that then failed: after a read
+    // that had rejected, that is the one state in which the next write is allowed to overwrite contents
+    // nobody has ever seen, which is precisely what `failedReadByName` exists to prevent. Leaving the state
+    // intact is also what lets `clearPersistedPendingIntents` tell a completed erasure from a failed one.
+    await zustandAsyncStorage.removeItem(name)
+
     lastWrittenByName.delete(name)
     inFlightWriteByName.delete(name)
     // Deliberate removal makes the contents known again — empty — so writes may resume.
     failedReadByName.delete(name)
-
-    await zustandAsyncStorage.removeItem(name)
+    // `inFlightWritePromiseByName` is deliberately left alone: a write already on its way to the device is
+    // still on its way after this, and dropping the handle would let the next reservation stop waiting for it.
   }
 }
 
@@ -326,14 +491,37 @@ const useMealPlanStore = create<MealPlanStore>()(
        *
        * The slot is read from the intent's own `request.action` rather than passed alongside it, so a record
        * can never be filed under an action it would not reconstruct.
+       *
+       * Awaitable because the memory record alone is worth nothing to the operation this key protects: the
+       * persist middleware writes after `set` without awaiting, so a caller that sent its request as soon as
+       * `set` returned raced its own storage write, and a kill in that window lost the only key that could
+       * reconcile an action the server may already have committed — the next launch minted a second key and
+       * committed it twice (0.7.2). The returned reservation says whether the device has confirmed the
+       * record; the in-memory record is never rolled back when it has not, because a caller that has already
+       * pressed must keep the key it is about to send under — dropping it would make the next press mint a
+       * SECOND key for a request that may have committed under the first.
        */
-      recordPendingIntent: intent =>
+      recordPendingIntent: async intent => {
         set(state => ({
           pendingIntents: {
             ...selectPrunedPendingIntents(state.pendingIntents, intent.createdAt, intent.userId),
             [intent.request.action]: intent
           }
-        })),
+        }))
+
+        // Durability cannot be claimed while what is on disk is unknown, and neither unsettled state is a
+        // write worth waiting for: a read still in flight will overwrite this record when it lands, and a
+        // read that rejected makes the adapter refuse the write outright.
+        if (get().intentsHydration !== 'succeeded') {
+          return {kind: 'unavailable', reason: 'hydration_unknown'}
+        }
+
+        await awaitOutstandingPersistWrites(MEAL_PLAN_STORE_NAME)
+
+        return confirmedSliceHoldsIntent(MEAL_PLAN_STORE_NAME, intent)
+          ? {kind: 'durable'}
+          : {kind: 'unavailable', reason: 'storage_failed'}
+      },
 
       clearPendingIntent: action =>
         set(state => {
@@ -349,6 +537,18 @@ const useMealPlanStore = create<MealPlanStore>()(
        * persist middleware writes storage after every `set` call, no-op or not: a launch with a
        * clean slice would otherwise cost a pointless serialise-and-write round trip.
        */
+      /**
+       * Drops every record, owner and age irrelevant, and only writes when there was something to drop so a
+       * sign-in with a clean slice costs no storage round trip. Separate from `reset()` because it is not a
+       * session teardown: the ephemeral view state of the session being STARTED must not be thrown away with
+       * the records of the one that ended.
+       */
+      discardPendingIntents: () => {
+        if (Object.keys(get().pendingIntents).length > 0) {
+          set({pendingIntents: {}})
+        }
+      },
+
       prunePendingIntents: (now, userId) => {
         const current = get().pendingIntents
         const pruned = selectPrunedPendingIntents(current, now, userId)
@@ -407,7 +607,7 @@ const useMealPlanStore = create<MealPlanStore>()(
       }
     }),
     {
-      name: 'meal-plan-store',
+      name: MEAL_PLAN_STORE_NAME,
       storage: dedupedPersistStorage,
       partialize: selectPersistedState,
       /**
@@ -443,6 +643,63 @@ const useMealPlanStore = create<MealPlanStore>()(
     }
   )
 )
+
+/**
+ * Takes the outgoing account's unresolved intents off the device, and waits for the device to say so.
+ *
+ * `reset()` alone cannot do this. It writes the default state through the persisting setter, and that write
+ * is (a) not awaited by the middleware, so a sign-out can complete before it lands, and (b) REFUSED outright
+ * while the store's last read failed — precisely the state in which the slice still holds the previous
+ * account's request snapshot and idempotency key. `removeItem` is the only path that erases a slice whose
+ * contents are unknown, because it also clears the failed-read latch and both write memos, and awaiting it
+ * is what makes the erasure a fact rather than an intention.
+ *
+ * Memory is cleared first because that step is synchronous and infallible: the boundary the user just asked
+ * for must not depend on a filesystem call succeeding. The failure of the removal is reported as a fixed code
+ * and swallowed, following the sign-out convention that a storage failure must not surface as a failed
+ * sign-out — the record left behind is still unreachable by the next account, which never matches its
+ * `userId` (`resolvePendingIntent`), and the ownership sweep at the next login removes it.
+ */
+export const clearPersistedPendingIntents = async (): Promise<PendingIntentErasure> => {
+  useMealPlanStore.getState().reset()
+
+  // A write queued before the reset carries the intents the reset just dropped, so it has to land before the
+  // erasure rather than after it — otherwise it resurrects on disk the very record being taken off the device.
+  await awaitOutstandingPersistWrites(MEAL_PLAN_STORE_NAME)
+
+  try {
+    await dedupedPersistStorage.removeItem(MEAL_PLAN_STORE_NAME)
+
+    return {kind: 'erased'}
+  } catch {
+    console.error(PERSIST_REMOVE_FAILURE_CODE)
+  }
+
+  // A second, independent attempt at the same erasure. `removeItem` and `setItem` are different storage
+  // calls, so a rejection of the first says nothing about the second, and a slice holding no intents erases
+  // the record as surely as deleting the item would have.
+  //
+  // It goes to the shared adapter directly, bypassing the write quarantine, and this is the only write in the
+  // app that may. The quarantine stops a PARTIAL slice from overwriting contents nobody has read; here the
+  // value is the empty slice and the whole purpose is to destroy whatever is there, so unknown contents have
+  // nothing to lose — while refusing this write is how the outgoing account's request snapshot stayed at rest
+  // after a failed read (0.7.2). Every other write path still fails closed.
+  try {
+    await zustandAsyncStorage.setItem(MEAL_PLAN_STORE_NAME, EMPTY_PERSISTED_SLICE)
+  } catch {
+    console.error(PERSIST_WRITE_FAILURE_CODE)
+
+    return {kind: 'failed'}
+  }
+
+  // Written deliberately and confirmed, so the contents are known again — empty — and the adapter's own
+  // bookkeeping is brought level with the device the way a successful `removeItem` would have left it.
+  lastWrittenByName.set(MEAL_PLAN_STORE_NAME, JSON.stringify(EMPTY_PERSISTED_SLICE.state))
+  inFlightWriteByName.delete(MEAL_PLAN_STORE_NAME)
+  failedReadByName.delete(MEAL_PLAN_STORE_NAME)
+
+  return {kind: 'erased'}
+}
 
 /**
  * An intent nobody resolved must not stay replayable forever: after a week the plan it was minted
@@ -572,6 +829,49 @@ export const selectPrunedPendingIntents = (
 }
 
 /**
+ * Runs one sweep of the persisted slice, now if the read has already answered and otherwise as soon as it
+ * does. Shared by the two sweeps the account boundary needs — the ownership prune and the sign-in discard —
+ * so they cannot disagree about when the slice is knowable.
+ *
+ * Two things can end the wait, and only both together cover it. The middleware's own listener reports a read
+ * that succeeded, including a re-read already in flight, which must overwrite nothing the sweep has done. The
+ * store subscription reports the same success through `hasHydratedIntents`, which is also what a
+ * `retryIntentsHydration` after a failed read eventually flips — so a sweep deferred by a refused read still
+ * happens once the retry lands, rather than being abandoned for the session.
+ *
+ * A read that FAILED deliberately ends neither: the contents are unknown, and a sweep would decide the fate of
+ * records nobody has seen. The adapter refuses writes in that state, so nothing is stranded on disk that a
+ * successful retry will not then sweep.
+ */
+const afterIntentsHydrated = (sweepSlice: () => void): void => {
+  if (useMealPlanStore.persist.hasHydrated()) {
+    sweepSlice()
+
+    return
+  }
+
+  let hasSwept = false
+
+  const sweep = (): void => {
+    if (hasSwept) {
+      return
+    }
+
+    hasSwept = true
+    stopWaiting()
+    unsubscribe()
+    sweepSlice()
+  }
+
+  const stopWaiting = useMealPlanStore.persist.onFinishHydration(sweep)
+  const unsubscribe = useMealPlanStore.subscribe(state => {
+    if (state.hasHydratedIntents) {
+      sweep()
+    }
+  })
+}
+
+/**
  * The ownership sweep, scheduled rather than fired. Which account is signed in is knowable only in
  * the auth layer, and at launch the persisted slice may still be on its way out of AsyncStorage — a
  * prune that landed first would be replaced by hydration, so this waits for it. Once it runs, the
@@ -584,39 +884,34 @@ export const selectPrunedPendingIntents = (
  * cannot disagree about when the slice is knowable.
  */
 export const prunePendingIntentsForUser = (userId: string, now: () => number): void => {
-  if (useMealPlanStore.persist.hasHydrated()) {
+  afterIntentsHydrated(() => {
     useMealPlanStore.getState().prunePendingIntents(now(), userId)
+  })
+}
 
-    return
-  }
-
-  // Two things can end the wait, and only both together cover it. The middleware's own listener reports a read
-  // that succeeded, including a re-read already in flight, which must overwrite nothing this sweep has done.
-  // The store subscription reports the same success through `hasHydratedIntents`, which is also what a
-  // `retryIntentsHydration` after a failed read eventually flips — so a sweep deferred by a refused read still
-  // happens once the retry lands, rather than being abandoned for the session.
-  //
-  // A read that FAILED deliberately ends neither: the contents are unknown, and a sweep would decide the fate
-  // of records nobody has seen. The adapter refuses writes in that state, so nothing is stranded on disk that a
-  // successful retry will not then sweep.
-  let hasSwept = false
-
-  const sweep = (): void => {
-    if (hasSwept) {
-      return
-    }
-
-    hasSwept = true
-    stopWaiting()
-    unsubscribe()
-    useMealPlanStore.getState().prunePendingIntents(now(), userId)
-  }
-
-  const stopWaiting = useMealPlanStore.persist.onFinishHydration(sweep)
-  const unsubscribe = useMealPlanStore.subscribe(state => {
-    if (state.hasHydratedIntents) {
-      sweep()
-    }
+/**
+ * The account boundary's enforcement half: an explicit sign-in discards EVERY persisted intent.
+ *
+ * Signing in with credentials means the previous session ended, and an intent is only ever replayable inside
+ * the session that minted it. Logout already drops the record and takes it off the device
+ * (`clearPersistedPendingIntents`), but both of those can fail — a rejected write, a kill between the two —
+ * and the ownership sweep deliberately KEEPS a record whose `userId` matches the user now signing in. Without
+ * this, the one request a user abandoned by signing out is the one that replays when they sign back in.
+ *
+ * Distinguishing a sign-in from a cold-start RESTORE is what makes this safe to do. A restore continues the
+ * same session, which is exactly the case AAP 0.7.2 requires a replay for ("replays it silently on next open
+ * or cold start"), and it keeps the owner-and-age prune instead. A sign-in cannot be that case, because the
+ * session it is starting is a new one.
+ *
+ * The trade-off, stated: a user whose session is revoked while a keyed write is unresolved has to sign in
+ * again, and this discards that key. The write may have committed, and the client then will not replay it —
+ * but the plan, swap or diary entry it produced is still what the next refetch shows, whereas keeping the key
+ * would let a request the user abandoned at sign-out commit days later. The AAP's own account boundary
+ * requires the record not to survive a logout; this is how that holds when storage does not cooperate.
+ */
+export const discardPendingIntentsForSignIn = (): void => {
+  afterIntentsHydrated(() => {
+    useMealPlanStore.getState().discardPendingIntents()
   })
 }
 

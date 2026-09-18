@@ -9,6 +9,18 @@ export default {
     shadowRadius: 4,
     elevation: 5
   },
+  // The bottom sheet's lift. Its offset is the only negative one here because a sheet rises from the bottom
+  // edge, so its shadow falls upward onto the content it covers.
+  SHEET: {
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 10
+  },
   CARD: {
     shadowColor: '#000',
     shadowOffset: {

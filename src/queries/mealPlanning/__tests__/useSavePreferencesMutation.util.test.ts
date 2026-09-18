@@ -5,6 +5,7 @@ import {
 } from '@data/models/MealPlanPreferences'
 import {mutationKeys, queryKeys} from '@queries/keys'
 import {MutationFunctionContext, QueryClient, QueryKey} from '@tanstack/react-query'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import {buildSavePreferencesMutationOptions} from '../useSavePreferencesMutation.util'
 
@@ -130,6 +131,34 @@ const invokeOnSuccess = async (
   return onSuccess(result, variables, onMutateResult, makeFunctionContext())
 }
 
+// Thrown Errors carrying a response shape, which is what the axios transport rejects with: classification
+// reads only `response.status` and `response.data.error`, so this suite owes the transport no dependency.
+const makeApiError = (status: number, code?: string): Error =>
+  Object.assign(new Error(`Request failed with status code ${status}`), {
+    response: {status, data: code === undefined ? {} : {error: code}}
+  })
+
+const STALE_REVISION_ERROR = makeApiError(409, API_ERROR_CODES.staleRevision)
+const READ_ONLY_FIELD_ERROR = makeApiError(409, API_ERROR_CODES.readOnlyField)
+const INVALID_REQUEST_ERROR = makeApiError(400, API_ERROR_CODES.invalidRequest)
+const FEATURE_DISABLED_ERROR = makeApiError(503, API_ERROR_CODES.featureDisabled)
+const TRANSPORT_LOSS_ERROR = new Error('Network Error')
+const SERVER_ERROR_WITHOUT_CODE = makeApiError(500)
+
+const runOnError = (
+  options: SavePreferencesOptions,
+  error: Error,
+  variables: SaveMealPlanPreferencesPayload = SAVE_PREFERENCES_PAYLOAD
+): void => {
+  const {onError} = options
+
+  if (!onError) {
+    throw new Error('buildSavePreferencesMutationOptions must declare onError')
+  }
+
+  onError(error, variables, undefined, makeFunctionContext())
+}
+
 const isQueryInvalidated = (queryKey: QueryKey): boolean | undefined =>
   queryClient.getQueryState(queryKey)?.isInvalidated
 
@@ -152,10 +181,10 @@ describe('buildSavePreferencesMutationOptions', () => {
       expect(options.mutationKey).toBe(mutationKeys.savePreferences)
     })
 
-    it('declares the cache handler only, leaving the request function to the hook', () => {
+    it('declares both cache handlers only, leaving the request function to the hook', () => {
       const options = buildSavePreferencesMutationOptions(queryClient)
 
-      expect(Object.keys(options).sort()).toEqual(['mutationKey', 'onSuccess'])
+      expect(Object.keys(options).sort()).toEqual(['mutationKey', 'onError', 'onSuccess'])
     })
 
     it('declares no retry, because a revisioned save recovers through 409 stale_revision rather than a replay', () => {
@@ -361,6 +390,179 @@ describe('buildSavePreferencesMutationOptions', () => {
         serialize(EXPECTED_INVALIDATED_KEYS)
       )
       expect(isQueryInvalidated(queryKeys.mealPlanPreferences)).toBe(true)
+    })
+  })
+
+  describe('onError cache contract', () => {
+    it('applies the whole set after commit-response-loss, the 409 stale_revision the equality recovery resolves silently', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
+        serialize(EXPECTED_INVALIDATED_KEYS)
+      )
+      expect(invalidateSpy).toHaveBeenCalledTimes(EXPECTED_INVALIDATED_KEYS.length)
+    })
+
+    it('issues them in the same order the success path does, so the two cannot drift', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+
+      expect(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(EXPECTED_INVALIDATED_KEYS)
+    })
+
+    it('removes the swap previews exactly once on that recovery, rather than invalidating a bound preview', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+      expect(removeSpy).toHaveBeenCalledWith({queryKey: queryKeys.swapPreviewAll})
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).not.toContain(
+        JSON.stringify(queryKeys.swapPreviewAll)
+      )
+      expect(
+        queryClient.getQueryData(queryKeys.swapPreview(PLAN_ID, MEAL_ID, RECIPE_VERSION_ID, PLAN_REVISION))
+      ).toBeUndefined()
+    })
+
+    it('reaches every cached plan day, affected-meal set and alternatives set through their family roots', () => {
+      seedCache()
+
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+
+      expect(isQueryInvalidated(queryKeys.mealPlanDay(PLAN_ID, DATE))).toBe(true)
+      expect(isQueryInvalidated(queryKeys.mealPlanDay(OTHER_PLAN_ID, OTHER_DATE))).toBe(true)
+      expect(isQueryInvalidated(queryKeys.affectedMeals(PLAN_ID))).toBe(true)
+      expect(isQueryInvalidated(queryKeys.swapAlternatives(PLAN_ID, MEAL_ID, PLAN_REVISION))).toBe(true)
+      expect(isQueryInvalidated(queryKeys.mealPlanPreferences)).toBe(true)
+      expect(isQueryInvalidated(queryKeys.targetEstimate)).toBe(true)
+      expect(isQueryInvalidated(queryKeys.nutritionTargets)).toBe(true)
+      expect(isQueryInvalidated(queryKeys.mealPlanCurrent)).toBe(true)
+    })
+
+    it('leaves the diary, the grocery list and unrelated domains valid on that recovery too', () => {
+      seedCache()
+
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+
+      expect(isQueryInvalidated(queryKeys.dailyMacros(DATE))).toBe(false)
+      expect(isQueryInvalidated(queryKeys.groceryList(PLAN_ID))).toBe(false)
+      expect(isQueryInvalidated(queryKeys.exercises)).toBe(false)
+      expect(isQueryInvalidated(queryKeys.foods)).toBe(false)
+    })
+
+    it('applies the whole set for a rejection that carries no response at all, which may still have committed', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, TRANSPORT_LOSS_ERROR)
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
+        serialize(EXPECTED_INVALIDATED_KEYS)
+      )
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('applies the whole set for a 500 carrying no recognised code, the other unknown outcome', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, SERVER_ERROR_WITHOUT_CODE)
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
+        serialize(EXPECTED_INVALIDATED_KEYS)
+      )
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('issues no cache operation for a confirmed answer that wrote nothing', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, INVALID_REQUEST_ERROR)
+      runOnError(options, READ_ONLY_FIELD_ERROR)
+      runOnError(options, FEATURE_DISABLED_ERROR)
+
+      expect(invalidateSpy).not.toHaveBeenCalled()
+      expect(removeSpy).not.toHaveBeenCalled()
+      expect(isQueryInvalidated(queryKeys.mealPlanPreferences)).toBe(false)
+      expect(
+        queryClient.getQueryData(queryKeys.swapPreview(PLAN_ID, MEAL_ID, RECIPE_VERSION_ID, PLAN_REVISION))
+      ).toEqual({seeded: true})
+    })
+
+    it('issues every operation against a completely empty cache without throwing', () => {
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      expect(() => runOnError(options, STALE_REVISION_ERROR)).not.toThrow()
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(
+        serialize(EXPECTED_INVALIDATED_KEYS)
+      )
+      expect(removeSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('writes nothing optimistically on any failure', () => {
+      seedCache()
+
+      const writeSpy = jest.spyOn(queryClient, 'setQueryData')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR)
+      runOnError(options, TRANSPORT_LOSS_ERROR)
+      runOnError(options, INVALID_REQUEST_ERROR)
+
+      expect(writeSpy).not.toHaveBeenCalled()
+    })
+
+    it('does the same cache work for a single-field payload as for a multi-field one', () => {
+      seedCache()
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries')
+      const removeSpy = jest.spyOn(queryClient, 'removeQueries')
+      const options = buildSavePreferencesMutationOptions(queryClient)
+
+      runOnError(options, STALE_REVISION_ERROR, SAVE_PREFERENCES_PAYLOAD)
+
+      const multiFieldKeys = serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))
+      const multiFieldRemovals = removeSpy.mock.calls.map(([filters]) => filters?.queryKey)
+
+      invalidateSpy.mockClear()
+      removeSpy.mockClear()
+
+      runOnError(options, STALE_REVISION_ERROR, SINGLE_FIELD_SAVE_PREFERENCES_PAYLOAD)
+
+      expect(serialize(invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey))).toEqual(multiFieldKeys)
+      expect(removeSpy.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(multiFieldRemovals)
+      expect(multiFieldKeys).toEqual(serialize(EXPECTED_INVALIDATED_KEYS))
     })
   })
 })

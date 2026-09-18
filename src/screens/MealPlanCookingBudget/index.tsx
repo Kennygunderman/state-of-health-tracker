@@ -4,6 +4,7 @@ import {TouchableOpacity, View} from 'react-native'
 
 import type {CookingTimeLimitMin, MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {MealPlanCookingBudgetRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
@@ -13,7 +14,7 @@ import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {weightUnitPrefFor} from '@utility/UnitConversionUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -87,7 +88,13 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanCookingBudgetRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
-  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery()
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const {data: preferencesData, refetch: refetchPreferences} = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, dirty, seeded, seedFromPreferences, setStepFields, setBudgetAmount, setNoBudgetPreference} =
     useMealPlanSetupDraft()
@@ -210,7 +217,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
       // step's own answers with it. Equal values mean the write whose response was lost, or the identical
       // edit from another device, already landed — so it resolves silently instead of writing twice.
       const refetched = await refetchPreferences()
-      const fresh = refetched.data ?? null
+      const fresh = authoritativeRefetch(refetched)
 
       if (fresh === null) {
         showToast('error', TOAST_GENERIC_ERROR)

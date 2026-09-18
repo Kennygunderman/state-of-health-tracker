@@ -2,11 +2,10 @@ import React, {useCallback} from 'react'
 
 import {FlatList, ListRenderItemInfo} from 'react-native'
 
-import type {SelectedFoodChip} from '../../index.util'
-
 import SelectableChip from '@components/SelectableChip'
 
 import styles from './index.styled'
+import {SelectedFoodChip} from '../../index.util'
 
 interface Props {
   foods: readonly SelectedFoodChip[]

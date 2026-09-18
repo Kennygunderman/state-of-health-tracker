@@ -1,14 +1,53 @@
-// Plain JS on purpose: Jest's default testMatch collects .js but matches .mjs with neither pattern, so a suite for
-// the .mjs lint gate can only be picked up in this form. The break is confined to scripts/ tooling.
+// Both gates in scripts/ run under bare `node`, outside Babel, Metro and the TypeScript program, so they are
+// written as `.mjs` and a test can only reach them the way a CI step does: by spawning them as child processes
+// and reading the exit code and output. That is what this suite does. The suite itself is ordinary TypeScript,
+// collected by the same `**/__tests__/**` pattern that collects every other one, and the two ESLint report
+// shapes its fixtures build are declared below instead of being assumed field by field.
 //
 // Both scripts/ gates are covered here rather than in one suite each: the token scan's own specification gives it
 // no suite file, so its classification rules are pinned in the one suite the plan tracks for this folder.
-import {spawnSync} from 'node:child_process'
+import {spawnSync, type SpawnSyncReturns} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+
+// One message as both reports carry it. `ruleId` is null on a fatal parse error, and a message reported at no
+// position carries neither `line` nor `column` — the comparator treats both as ordinary findings, so the type
+// has to admit them rather than force a fixture to invent values.
+interface LintMessage {
+  ruleId: string | null
+  severity: number
+  message: string
+  line?: number
+  column?: number
+}
+
+// One result entry. `errorCount`, `warningCount` and `suppressedMessages` are optional because several fixtures
+// below deliberately omit them to prove the gate never assumes a field it was not given.
+interface LintResult {
+  filePath: string
+  messages: LintMessage[]
+  errorCount?: number
+  warningCount?: number
+  suppressedMessages?: LintMessage[]
+}
+
+// A result before it is rooted: the fixtures pair a repo-relative path with the messages it should carry, and
+// `makeReport` prefixes one of the two absolute roots.
+interface FileFixture {
+  relativePath: string
+  messages: LintMessage[]
+}
+
+interface ReportTotals {
+  lintedFiles: number
+  filesWithFindings: number
+  findings: number
+  errors: number
+  warnings: number
+}
 
 const SCRIPT_PATH = path.resolve(process.cwd(), 'scripts', 'lint-baseline-compare.mjs')
 const TOKEN_SCAN_PATH = path.resolve(process.cwd(), 'scripts', 'token-literal-scan.mjs')
@@ -52,7 +91,7 @@ const SHAPE_FILE_PATH = `${CI_ROOT}/${STYLE_FILE}`
 const DROPPED_RESULT_FIELDS = ['source', 'output']
 const DROPPED_MESSAGE_FIELDS = ['fix', 'suggestions']
 
-const CONFIG_ERROR = {
+const CONFIG_ERROR: LintMessage = {
   ruleId: '@typescript-eslint/no-var-requires',
   severity: 2,
   message: 'Require statement not part of import statement.',
@@ -60,7 +99,7 @@ const CONFIG_ERROR = {
   column: 14
 }
 
-const CONFIG_WARNING = {
+const CONFIG_WARNING: LintMessage = {
   ruleId: 'padding-line-between-statements',
   severity: 1,
   message: 'Expected blank line before this statement.',
@@ -68,7 +107,7 @@ const CONFIG_WARNING = {
   column: 3
 }
 
-const SCRIPT_ERROR = {
+const SCRIPT_ERROR: LintMessage = {
   ruleId: '@typescript-eslint/no-var-requires',
   severity: 2,
   message: 'Require statement not part of import statement.',
@@ -76,9 +115,15 @@ const SCRIPT_ERROR = {
   column: 12
 }
 
-const STYLE_FATAL = {ruleId: null, severity: 2, message: 'Parsing error: Unexpected token', line: 42, column: 3}
+const STYLE_FATAL: LintMessage = {
+  ruleId: null,
+  severity: 2,
+  message: 'Parsing error: Unexpected token',
+  line: 42,
+  column: 3
+}
 
-const ADDED_STYLE_ERROR = {
+const ADDED_STYLE_ERROR: LintMessage = {
   ruleId: 'prettier/prettier',
   severity: 2,
   message: 'Delete trailing whitespace',
@@ -86,7 +131,7 @@ const ADDED_STYLE_ERROR = {
   column: 5
 }
 
-const ADDED_SCRIPT_FATAL = {
+const ADDED_SCRIPT_FATAL: LintMessage = {
   ruleId: null,
   severity: 2,
   message: 'Parsing error: Unexpected end of input',
@@ -94,21 +139,22 @@ const ADDED_SCRIPT_FATAL = {
   column: 1
 }
 
-const BASELINE_FILES = [
+const BASELINE_FILES: FileFixture[] = [
   {relativePath: ESLINTRC, messages: [CONFIG_ERROR]},
   {relativePath: BABEL_CONFIG, messages: [CONFIG_WARNING]},
   {relativePath: SCRIPT_FILE, messages: [SCRIPT_ERROR]},
   {relativePath: STYLE_FILE, messages: [STYLE_FATAL]}
 ]
 
-const CLEAN_FILES = BASELINE_FILES.map(file => ({relativePath: file.relativePath, messages: []}))
+const CLEAN_FILES: FileFixture[] = BASELINE_FILES.map(file => ({relativePath: file.relativePath, messages: []}))
 
 let fixtureDir = ''
-const isolatedDirs = []
+const isolatedDirs: string[] = []
 
-const countSeverity = (messages, severity) => messages.filter(message => message.severity === severity).length
+const countSeverity = (messages: LintMessage[], severity: number): number =>
+  messages.filter(message => message.severity === severity).length
 
-const makeReport = (root, files) =>
+const makeReport = (root: string, files: FileFixture[]): LintResult[] =>
   files.map(file => ({
     filePath: `${root}/${file.relativePath}`,
     messages: file.messages,
@@ -117,20 +163,29 @@ const makeReport = (root, files) =>
     suppressedMessages: []
   }))
 
-const withMessages = (relativePath, messages) =>
+const withMessages = (relativePath: string, messages: LintMessage[]): FileFixture[] =>
   BASELINE_FILES.map(file => (file.relativePath === relativePath ? {relativePath, messages} : file))
 
-const withoutFile = relativePath => BASELINE_FILES.filter(file => file.relativePath !== relativePath)
+const withoutFile = (relativePath: string): FileFixture[] =>
+  BASELINE_FILES.filter(file => file.relativePath !== relativePath)
 
-const positionOf = (relativePath, message) => `${relativePath}:${message.line}:${message.column}`
+const positionOf = (relativePath: string, message: LintMessage): string =>
+  `${relativePath}:${message.line}:${message.column}`
 
-const withoutFields = (record, fields) =>
+// Returns a plain record rather than a `LintMessage` or `LintResult`: every caller uses it to build a fixture
+// that is deliberately missing a field the gate requires, so the result is JSON to be written, not a report
+// entry to be read.
+const withoutFields = (record: object, fields: string[]): Record<string, unknown> =>
   Object.fromEntries(Object.entries(record).filter(([field]) => !fields.includes(field)))
 
-const formatFinding = (relativePath, message) =>
+// Dropping `line` and `column` leaves a message the gate accepts — they are optional — so this one keeps the
+// message type instead of degrading to a record
+const withoutPosition = ({ruleId, severity, message}: LintMessage): LintMessage => ({ruleId, severity, message})
+
+const formatFinding = (relativePath: string, message: LintMessage): string =>
   [positionOf(relativePath, message), message.ruleId, message.message].join('  ')
 
-const totalsOf = results => {
+const totalsOf = (results: LintResult[]): ReportTotals => {
   const totals = {lintedFiles: results.length, filesWithFindings: 0, findings: 0, errors: 0, warnings: 0}
 
   for (const result of results) {
@@ -148,9 +203,9 @@ const totalsOf = results => {
   return totals
 }
 
-const digestOf = results => createHash('sha256').update(JSON.stringify(results)).digest('hex')
+const digestOf = (results: LintResult[]): string => createHash('sha256').update(JSON.stringify(results)).digest('hex')
 
-const writeFixture = (name, contents) => {
+const writeFixture = (name: string, contents: string): string => {
   const filePath = path.join(fixtureDir, name)
 
   writeFileSync(filePath, contents, 'utf8')
@@ -158,9 +213,10 @@ const writeFixture = (name, contents) => {
   return filePath
 }
 
-const writeReport = (name, root, files) => writeFixture(name, JSON.stringify(makeReport(root, files)))
+const writeReport = (name: string, root: string, files: FileFixture[]): string =>
+  writeFixture(name, JSON.stringify(makeReport(root, files)))
 
-const makeIsolatedDir = () => {
+const makeIsolatedDir = (): string => {
   const directory = mkdtempSync(path.join(tmpdir(), 'lint-baseline-isolated-'))
 
   isolatedDirs.push(directory)
@@ -168,16 +224,19 @@ const makeIsolatedDir = () => {
   return directory
 }
 
-const writeStyleFixture = (name, lines) => writeFixture(name, `${lines.join('\n')}\n`)
+const writeStyleFixture = (name: string, lines: string[]): string => writeFixture(name, `${lines.join('\n')}\n`)
 
-const runComparator = (...args) => spawnSync(process.execPath, [SCRIPT_PATH, ...args], {encoding: 'utf8'})
+const runComparator = (...args: string[]): SpawnSyncReturns<string> =>
+  spawnSync(process.execPath, [SCRIPT_PATH, ...args], {encoding: 'utf8'})
 
-const runTokenScan = (...args) => spawnSync(process.execPath, [TOKEN_SCAN_PATH, ...args], {encoding: 'utf8'})
+const runTokenScan = (...args: string[]): SpawnSyncReturns<string> =>
+  spawnSync(process.execPath, [TOKEN_SCAN_PATH, ...args], {encoding: 'utf8'})
 
-const scanStyleValue = (name, declaration) =>
+const scanStyleValue = (name: string, declaration: string): SpawnSyncReturns<string> =>
   runTokenScan(writeStyleFixture(name, ['export default {', '  block: {', `    ${declaration}`, '  }', '}']))
 
-const runComparatorIn = (cwd, ...args) => spawnSync(process.execPath, [SCRIPT_PATH, ...args], {cwd, encoding: 'utf8'})
+const runComparatorIn = (cwd: string, ...args: string[]): SpawnSyncReturns<string> =>
+  spawnSync(process.execPath, [SCRIPT_PATH, ...args], {cwd, encoding: 'utf8'})
 
 beforeAll(() => {
   fixtureDir = mkdtempSync(path.join(tmpdir(), 'lint-baseline-compare-'))
@@ -291,7 +350,7 @@ describe('findings matched against the baseline', () => {
 })
 
 describe("the two reports as the gate's only inputs", () => {
-  const writeIsolatedPair = (directory, afterFiles) => {
+  const writeIsolatedPair = (directory: string, afterFiles: FileFixture[]): void => {
     writeFileSync(path.join(directory, 'baseline.json'), JSON.stringify(makeReport(CI_ROOT, BASELINE_FILES)), 'utf8')
     writeFileSync(path.join(directory, 'after.json'), JSON.stringify(makeReport(LAPTOP_ROOT, afterFiles)), 'utf8')
   }
@@ -518,7 +577,7 @@ describe('result and message fields the gate refuses to assume', () => {
   // The reproduction behind the finding: an after report that keeps all 487 tracked paths and omits every message
   // array tallied zero findings and passed as "0 new findings".
   it('exits 2 on an after report holding every tracked baseline path with no messages array at all', () => {
-    const tracked = JSON.parse(readFileSync(TRACKED_BASELINE, 'utf8'))
+    const tracked: LintResult[] = JSON.parse(readFileSync(TRACKED_BASELINE, 'utf8'))
     const stripped = tracked.map(result => withoutFields(result, ['messages']))
     const after = writeFixture('tracked-stripped-after.json', JSON.stringify(stripped))
     const {status, stderr, stdout} = runComparator(TRACKED_BASELINE, after)
@@ -582,7 +641,7 @@ describe('result and message fields the gate refuses to assume', () => {
   })
 
   it('accepts a fatal message stating ruleId null, and a message without line or column', () => {
-    const positionless = withoutFields(STYLE_FATAL, ['line', 'column'])
+    const positionless = withoutPosition(STYLE_FATAL)
     const files = withMessages(STYLE_FILE, [STYLE_FATAL, positionless])
     const baseline = writeReport('rule-id-null-baseline.json', CI_ROOT, files)
     const after = writeReport('rule-id-null-after.json', LAPTOP_ROOT, files)
@@ -594,11 +653,11 @@ describe('result and message fields the gate refuses to assume', () => {
 })
 
 describe('the tracked baseline artifact', () => {
-  const artifact = () => JSON.parse(readFileSync(TRACKED_BASELINE, 'utf8'))
+  const artifact = (): LintResult[] => JSON.parse(readFileSync(TRACKED_BASELINE, 'utf8'))
 
   // The tracked artifact was captured under another root, so an after report built from it is re-rooted first —
   // which is also what proves the comparison survives two unrelated checkout roots at full size.
-  const rerootedArtifact = () => {
+  const rerootedArtifact = (): LintResult[] => {
     const results = artifact()
     const capturedRoot = results[0].filePath.slice(0, results[0].filePath.indexOf(`/${ESLINTRC}`))
 

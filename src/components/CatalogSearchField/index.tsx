@@ -4,6 +4,7 @@ import {TouchableOpacity, View} from 'react-native'
 
 import {Opacity, Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
+import {CATALOG_SEARCH_MAX_QUERY_LENGTH} from '@utility/CatalogSearchStateUtility'
 
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
 import SearchMagnifierIcon from '@components/icons/SearchMagnifierIcon'
@@ -21,7 +22,9 @@ import styles from './index.styled'
 
 const ACTION_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.ICON) / 2
 
-const CATALOG_QUERY_MAX_LENGTH = 60
+// Read from the shared catalog rule rather than restated here: the field must not be able to hold a query
+// the search endpoint refuses, and one declaration of that bound is what keeps the two from drifting.
+const CATALOG_QUERY_MAX_LENGTH = CATALOG_SEARCH_MAX_QUERY_LENGTH
 
 interface SharedProps {
   value: string

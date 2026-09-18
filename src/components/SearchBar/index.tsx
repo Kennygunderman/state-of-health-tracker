@@ -11,14 +11,19 @@ import styles from './index.styled'
 
 export {SEARCH_BAR_HEIGHT} from './index.styled'
 
+// What every caller that states no bound of its own keeps: the three exercise searches filter a local list,
+// so nothing refuses a long term. A caller whose search reaches an endpoint with a shorter bound passes it.
+const DEFAULT_SEARCH_MAX_LENGTH = 100
+
 interface Props {
   placeholder?: string
   isLoading?: boolean
+  maxLength?: number
   onSearchTextChanged: (text: string) => void
 }
 
 const SearchBar = (props: Props) => {
-  const {onSearchTextChanged, placeholder, isLoading} = props
+  const {onSearchTextChanged, placeholder, isLoading, maxLength = DEFAULT_SEARCH_MAX_LENGTH} = props
 
   const [searchText, setSearchText] = useState('')
 
@@ -39,7 +44,7 @@ const SearchBar = (props: Props) => {
         <Ionicons style={styles.searchIcon} name="search" size={20} color={Theme.colors.textSecondary} />
 
         <TextInput
-          maxLength={100}
+          maxLength={maxLength}
           style={styles.input}
           value={searchText}
           onChangeText={setSearchText}

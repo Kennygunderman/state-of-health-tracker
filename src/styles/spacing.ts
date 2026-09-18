@@ -6,5 +6,6 @@ export default {
   MEDIUM: 16,
   GUTTER: 20,
   LARGE: 24,
-  X_LARGE: 32
+  X_LARGE: 32,
+  XX_LARGE: 48
 }

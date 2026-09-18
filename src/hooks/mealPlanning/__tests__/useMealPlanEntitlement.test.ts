@@ -1,21 +1,22 @@
 import {CurrentMealPlans, MealPlan} from '@data/models/MealPlan'
+import {mutationKeys, queryKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {QueryClient} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import {
   defaultMealPlanEntitlementHooks,
   MealPlanEntitlementHooks,
-  resetMealPlanCapabilityLatch,
+  observeMealPlanCapabilitySignals,
+  readMealPlanCapabilityLatch,
+  recordMealPlanCapability,
   useMealPlanEntitlement
 } from '../useMealPlanEntitlement'
 import {
-  createMealPlanEntitlementSessionStore,
-  deriveMealPlanCapabilitySignals,
-  MealPlanCapabilityErrors,
   MealPlanCapabilityLatch,
-  MealPlanEntitlementSessionStore,
+  MealPlanCapabilityRecord,
   NO_MEAL_PLAN_CAPABILITY_LATCH,
   RoutesMissingError
 } from '../useMealPlanEntitlement.util'
@@ -52,17 +53,23 @@ jest.mock('@react-native-firebase/remote-config', () => {
 
 /**
  * The hook's wiring, which the re-export contract beside this file cannot see: whether the session day key
- * reaches the current-plan read, whether the ungated targets read stays ungated, which reads a follower or a
- * latched session is allowed to issue, and whether the errors it classifies are the ones it was given.
+ * reaches the current-plan read, whether the ungated targets read stays ungated, which reads a latched session
+ * is allowed to issue, and whether the errors it classifies are the ones it was given — and, below that, the
+ * capability mechanism itself against a real `QueryClient`.
  *
- * It is exercised through the hook's injectable `MealPlanEntitlementHooks` rather than a renderer, because no
+ * The shell is exercised through its injectable `MealPlanEntitlementHooks` rather than a renderer, because no
  * renderer or Testing Library is installed and AAP 0.4.1 keeps it that way. Every member of that object is a
  * `jest.fn`, so the shell runs with no React dispatcher and each read's arguments are recorded exactly as the
- * shell passed them.
+ * shell passed them. The three `QueryClient`-injected functions need no dispatcher at all, which is what lets
+ * the cache scan, the write guard and the activation release be proven directly.
  */
 const SESSION_DAY_KEY = '2026-07-05'
 
 const TARGETS_PATH = '/meal-planning/targets'
+
+const RECIPE_VERSION_ID = 'recipe-version-1'
+
+const PLAN_ID = 'plan-current'
 
 const makeApiError = (status: number, code?: string): unknown => ({
   response: {status, data: code === undefined ? {} : {error: code}}
@@ -72,8 +79,12 @@ const featureDisabledError = makeApiError(503, API_ERROR_CODES.featureDisabled)
 
 const bareNotFoundError = makeApiError(404)
 
+const featureDisabledLatch: MealPlanCapabilityLatch = {isFeatureDisabled: true, areRoutesMissing: false}
+
+const routesMissingLatch: MealPlanCapabilityLatch = {isFeatureDisabled: false, areRoutesMissing: true}
+
 const makePlan = (): MealPlan => ({
-  id: 'plan-current',
+  id: PLAN_ID,
   revision: 1,
   generationKey: 'idem-generate-entitlement',
   generationAttempt: 1,
@@ -92,7 +103,6 @@ const makePlan = (): MealPlan => ({
 
 interface FakeOptions {
   isFlagEnabled?: boolean
-  isLead?: boolean
   capabilityLatch?: MealPlanCapabilityLatch
   sessionDayKey?: string
   plans?: CurrentMealPlans
@@ -104,6 +114,7 @@ interface FakeOptions {
 interface Fakes {
   hooks: MealPlanEntitlementHooks
   useFlagEnabled: jest.Mock
+  useCapabilityLatch: jest.Mock
   useSessionDayKey: jest.Mock
   usePreferencesRead: jest.Mock
   useCurrentPlanRead: jest.Mock
@@ -114,7 +125,6 @@ interface Fakes {
 const makeFakes = (options: FakeOptions = {}): Fakes => {
   const {
     isFlagEnabled = true,
-    isLead = true,
     capabilityLatch = NO_MEAL_PLAN_CAPABILITY_LATCH,
     sessionDayKey = SESSION_DAY_KEY,
     plans,
@@ -124,7 +134,7 @@ const makeFakes = (options: FakeOptions = {}): Fakes => {
   } = options
 
   const useFlagEnabled = jest.fn(() => isFlagEnabled)
-  const useSessionParticipation = jest.fn(() => ({isLead, capabilityLatch}))
+  const useCapabilityLatch = jest.fn(() => capabilityLatch)
   const useSessionDayKey = jest.fn(() => sessionDayKey)
   const usePreferencesRead = jest.fn(() => ({error: preferencesError}))
   const useCurrentPlanRead = jest.fn(() => ({data: plans, error: currentPlanError}))
@@ -134,7 +144,7 @@ const makeFakes = (options: FakeOptions = {}): Fakes => {
   return {
     hooks: {
       useFlagEnabled,
-      useSessionParticipation,
+      useCapabilityLatch,
       useSessionDayKey,
       usePreferencesRead,
       useCurrentPlanRead,
@@ -142,6 +152,7 @@ const makeFakes = (options: FakeOptions = {}): Fakes => {
       useRecordedCapabilitySignals
     },
     useFlagEnabled,
+    useCapabilityLatch,
     useSessionDayKey,
     usePreferencesRead,
     useCurrentPlanRead,
@@ -150,11 +161,64 @@ const makeFakes = (options: FakeOptions = {}): Fakes => {
   }
 }
 
-// The production default hooks share one process-wide session store, so a case that ever reaches them starts
-// from a clean session rather than from whatever an earlier import recorded.
-beforeEach(() => {
-  resetMealPlanCapabilityLatch()
+const activeQueryClients: QueryClient[] = []
+
+/**
+ * A client for one case, remembered so it can be emptied afterwards.
+ *
+ * `gcTime: Infinity` is not a convenience: every query and mutation otherwise schedules a real
+ * garbage-collection timeout for its whole `gcTime`, `MutationCache.clear()` does not cancel it, and one such
+ * timer keeps the Jest worker alive long after the run reports green. `Infinity` makes the entries live exactly
+ * as long as the client, which is one case.
+ */
+const makeQueryClient = (): QueryClient => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {gcTime: Infinity, retry: false},
+      mutations: {gcTime: Infinity, retry: false}
+    }
+  })
+
+  activeQueryClients.push(queryClient)
+
+  return queryClient
+}
+
+afterEach(() => {
+  activeQueryClients.forEach(queryClient => {
+    queryClient.getMutationCache().clear()
+    queryClient.clear()
+  })
+
+  activeQueryClients.length = 0
 })
+
+const FIRST_EPOCH = 1
+
+/** Fails one query for real, through TanStack's own error channel, so the cache holds what a screen would see. */
+const failQuery = async (queryClient: QueryClient, queryKey: readonly unknown[], error: unknown): Promise<void> => {
+  await queryClient
+    .fetchQuery({queryKey: [...queryKey], queryFn: () => Promise.reject(error), retry: false})
+    .catch(() => undefined)
+}
+
+/** The same for a mutation, so `mutation.options.mutationKey` and `mutation.state.error` are the real ones. */
+const failMutation = async (
+  queryClient: QueryClient,
+  mutationKey: readonly unknown[],
+  error: unknown
+): Promise<void> => {
+  const mutation = queryClient.getMutationCache().build(queryClient, {
+    mutationKey: [...mutationKey],
+    mutationFn: () => Promise.reject(error),
+    retry: false
+  })
+
+  await mutation.execute(undefined).catch(() => undefined)
+}
+
+const recordFrom = (queryClient: QueryClient): MealPlanCapabilityLatch =>
+  recordMealPlanCapability(queryClient, FIRST_EPOCH, observeMealPlanCapabilitySignals(queryClient))
 
 describe('defaultMealPlanEntitlementHooks', () => {
   // The production wiring reuses the three existing query hooks: no second observer is built for a key that
@@ -196,7 +260,7 @@ describe('useMealPlanEntitlement query wiring', () => {
     expect(fakes.useCurrentPlanRead).toHaveBeenCalledWith(false, SESSION_DAY_KEY)
   })
 
-  it('enables both gated reads for the lead while the flag is on and nothing is latched', () => {
+  it('enables both gated reads while the flag is on and nothing is latched', () => {
     const fakes = makeFakes()
 
     useMealPlanEntitlement(fakes.hooks)
@@ -214,17 +278,8 @@ describe('useMealPlanEntitlement query wiring', () => {
     expect(fakes.useCurrentPlanRead).toHaveBeenCalledWith(false, SESSION_DAY_KEY)
   })
 
-  it('disables both gated reads for a follower instance', () => {
-    const fakes = makeFakes({isLead: false})
-
-    useMealPlanEntitlement(fakes.hooks)
-
-    expect(fakes.usePreferencesRead).toHaveBeenCalledWith(false)
-    expect(fakes.useCurrentPlanRead).toHaveBeenCalledWith(false, SESSION_DAY_KEY)
-  })
-
   it('disables both gated reads once feature_disabled is latched', () => {
-    const fakes = makeFakes({capabilityLatch: {isFeatureDisabled: true, areRoutesMissing: false}})
+    const fakes = makeFakes({capabilityLatch: featureDisabledLatch})
 
     useMealPlanEntitlement(fakes.hooks)
 
@@ -233,7 +288,7 @@ describe('useMealPlanEntitlement query wiring', () => {
   })
 
   it('disables both gated reads once routes-missing is latched', () => {
-    const fakes = makeFakes({capabilityLatch: {isFeatureDisabled: false, areRoutesMissing: true}})
+    const fakes = makeFakes({capabilityLatch: routesMissingLatch})
 
     useMealPlanEntitlement(fakes.hooks)
 
@@ -243,14 +298,13 @@ describe('useMealPlanEntitlement query wiring', () => {
 
   // The targets read carries the local-target fallback of AAP 0.7.5, so it is called with no gate at all — not
   // with `true`, which a later change could flip.
-  it('calls the targets read with no argument in every flag, lead and latch state', () => {
+  it('calls the targets read with no argument in every flag and latch state', () => {
     const states: FakeOptions[] = [
       {},
       {isFlagEnabled: false},
-      {isLead: false},
-      {capabilityLatch: {isFeatureDisabled: true, areRoutesMissing: false}},
-      {capabilityLatch: {isFeatureDisabled: false, areRoutesMissing: true}},
-      {isFlagEnabled: false, isLead: false, capabilityLatch: {isFeatureDisabled: true, areRoutesMissing: true}}
+      {capabilityLatch: featureDisabledLatch},
+      {capabilityLatch: routesMissingLatch},
+      {isFlagEnabled: false, capabilityLatch: {isFeatureDisabled: true, areRoutesMissing: true}}
     ]
 
     states.forEach(state => {
@@ -263,12 +317,14 @@ describe('useMealPlanEntitlement query wiring', () => {
     })
   })
 
-  it('reads the flag once per invocation', () => {
+  it('reads the flag and the session verdict once per invocation', () => {
     const fakes = makeFakes()
 
     useMealPlanEntitlement(fakes.hooks)
 
     expect(fakes.useFlagEnabled).toHaveBeenCalledTimes(1)
+    expect(fakes.useCapabilityLatch).toHaveBeenCalledTimes(1)
+    expect(fakes.useCapabilityLatch.mock.calls[0]).toEqual([])
   })
 })
 
@@ -381,9 +437,8 @@ describe('useMealPlanEntitlement error classification', () => {
     })
   })
 
-  it('is unavailable from the latch alone, with no live error to read', () => {
-    const fakes = makeFakes({capabilityLatch: {isFeatureDisabled: false, areRoutesMissing: true}})
-    const entitlement = useMealPlanEntitlement(fakes.hooks)
+  it('is unavailable from the session verdict alone, with no live error to read', () => {
+    const entitlement = useMealPlanEntitlement(makeFakes({capabilityLatch: routesMissingLatch}).hooks)
 
     expect(entitlement.availability).toBe('unavailable')
     expect(entitlement.isCatalogVisible).toBe(false)
@@ -392,41 +447,45 @@ describe('useMealPlanEntitlement error classification', () => {
 })
 
 describe('useMealPlanEntitlement capability recording', () => {
-  it('hands the three reads errors to the recorder exactly as it read them', () => {
+  // The recorder is invoked once per render and is handed NOTHING. Its input is the request caches, so there is
+  // no per-render error payload to forward — which is what stops a verdict from being rebuilt out of a render
+  // whose cache has already been cleared. Asserted as an argument count rather than as an absence of a call, so
+  // a payload reintroduced later fails here.
+  it('invokes the recorder once per render, with no error payload to forward', () => {
     const targetsError = new RoutesMissingError(TARGETS_PATH)
     const fakes = makeFakes({preferencesError: featureDisabledError, targetsError})
 
     useMealPlanEntitlement(fakes.hooks)
 
-    const expected: MealPlanCapabilityErrors = {
-      preferencesError: featureDisabledError,
-      currentPlanError: undefined,
-      targetsError
-    }
-
     expect(fakes.useRecordedCapabilitySignals).toHaveBeenCalledTimes(1)
-    expect(fakes.useRecordedCapabilitySignals).toHaveBeenCalledWith(expected)
+    expect(fakes.useRecordedCapabilitySignals).toHaveBeenCalledWith()
   })
 
-  // The whole loop, with the real session store and the real classifier standing in for the production effect:
-  // a terminal 503 seen on one invocation must be latched and must disable the gated reads on the next one, so a
-  // remount, a focus or a reconnect issues no further probe.
-  it('latches a terminal signal so the next invocation issues no gated read', () => {
-    const store = createMealPlanEntitlementSessionStore()
+  // The whole loop, with the real capability functions and a real `QueryClient` standing in for the production
+  // effect: a terminal 503 seen on one invocation must be recorded and must disable the gated reads on the next
+  // one, so a remount, a focus or a reconnect issues no further probe.
+  it('records a terminal signal so the next invocation issues no gated read', async () => {
+    const queryClient = makeQueryClient()
     const hooksFor = (preferencesError: unknown): Fakes => {
-      const fakes = makeFakes({preferencesError, capabilityLatch: store.getSnapshot().capabilityLatch})
+      const fakes = makeFakes({preferencesError, capabilityLatch: readMealPlanCapabilityLatch(queryClient)})
 
-      fakes.hooks.useRecordedCapabilitySignals = errors =>
-        store.recordCapabilitySignals(deriveMealPlanCapabilitySignals(errors))
+      fakes.hooks.useRecordedCapabilitySignals = () => {
+        recordFrom(queryClient)
+      }
 
       return fakes
     }
+
+    // The refusal is staged in the cache, because that is the recorder's only input: the live error the read
+    // hands back is what the entitlement answers *this* render from, and the cache entry is what the verdict is
+    // recorded from. A production render has both, and so does this one.
+    await failQuery(queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
 
     const first = hooksFor(featureDisabledError)
 
     expect(useMealPlanEntitlement(first.hooks).isGatedRequestAllowed).toBe(false)
     expect(first.usePreferencesRead).toHaveBeenCalledWith(true)
-    expect(store.getSnapshot().capabilityLatch).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+    expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
 
     const second = hooksFor(undefined)
     const entitlement = useMealPlanEntitlement(second.hooks)
@@ -439,187 +498,403 @@ describe('useMealPlanEntitlement capability recording', () => {
   })
 })
 
-// The activation release, and what the retention rule requires of it. A terminal `503` can be reached before the
-// launch activation settles — the SDK serves a cached activated value straight away, so the gated reads run and
-// fail first — so the activation that confirms the feature is on is allowed to release the latch it produced. A
-// release is not a promise that the feature came back, and these cases pin the loop the production effects run:
-// release, at most one probe, and a re-latch from whatever terminal error is still the current answer, with
-// nothing left enabled for the remount, focus or reconnect that follows.
-describe('useMealPlanEntitlement activation release', () => {
-  interface Pass {
-    entitlement: ReturnType<typeof useMealPlanEntitlement>
-    usePreferencesRead: jest.Mock
-    useCurrentPlanRead: jest.Mock
-    useTargetsRead: jest.Mock
-  }
+/**
+ * The capability mechanism itself, against a real `QueryClient` and with no renderer: the cache scan that makes
+ * every gated request a producer of the verdict, the write guard that keeps the recorder from notifying itself,
+ * and the activation release now that it is data rather than a module `let`.
+ */
+describe('readMealPlanCapabilityLatch', () => {
+  it('reads the empty verdict from a client that holds none, by reference', () => {
+    expect(readMealPlanCapabilityLatch(makeQueryClient())).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
 
-  interface Session {
-    store: MealPlanEntitlementSessionStore
-    mount: (errors?: {preferencesError?: unknown; targetsError?: unknown}) => Pass
-  }
+  it('reads the latch the stored record holds', () => {
+    const queryClient = makeQueryClient()
+    const record: MealPlanCapabilityRecord = {activationEpoch: FIRST_EPOCH, latch: featureDisabledLatch}
 
-  /**
-   * The production composition with React taken out: the real session store, the real classifier, and a recorder
-   * that records on every invocation exactly as the hook's effect does — that effect carries no dependency array
-   * precisely so a still-live signal is re-read after a release rather than skipped as unchanged.
-   */
-  const startSession = (): Session => {
-    const store = createMealPlanEntitlementSessionStore()
+    queryClient.setQueryData(queryKeys.mealPlanCapability, record)
 
-    // Named as a hook because it calls one: `react-hooks/rules-of-hooks` allows a hook call only inside a
-    // component or another hook, and this pass is the test's stand-in for a mounted consumer.
-    const useEntitlementPass = (errors: {preferencesError?: unknown; targetsError?: unknown} = {}): Pass => {
-      const fakes = makeFakes({...errors, capabilityLatch: store.getSnapshot().capabilityLatch})
+    expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
+  })
 
-      fakes.hooks.useRecordedCapabilitySignals = recorded =>
-        store.recordCapabilitySignals(deriveMealPlanCapabilitySignals(recorded))
+  // THE PROCESS-SESSION CONTRACT, against a finite app-wide `gcTime` like production's 24 hours.
+  //
+  // The verdict is written with `setQueryData` and observed through the cache rather than through a
+  // `QueryObserver`, so nothing marks its entry active and a cache subscription does not: left on the app-wide
+  // `gcTime` it would be collected inside a still-running process, the gated reads would re-enable, and the app
+  // would issue exactly the probe AAP 0.2.5 says a latched client must not. The entry therefore carries
+  // `gcTime: Infinity` of its own, and the two ends of "session-scoped" are asserted together — collection can
+  // never take it, and `clear()` always can.
+  it('keeps the verdict through garbage collection, whatever the app-wide gcTime is', async () => {
+    jest.useFakeTimers()
 
-      const entitlement = useMealPlanEntitlement(fakes.hooks)
+    try {
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: {gcTime: 1_000, retry: false},
+          mutations: {gcTime: 1_000, retry: false}
+        }
+      })
 
-      return {
-        entitlement,
-        usePreferencesRead: fakes.usePreferencesRead,
-        useCurrentPlanRead: fakes.useCurrentPlanRead,
-        useTargetsRead: fakes.useTargetsRead
-      }
+      await failQuery(queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+      recordFrom(queryClient)
+
+      expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
+
+      jest.advanceTimersByTime(10 * 60_000)
+
+      // The read that produced the verdict has been collected — it had no observer — which is precisely why the
+      // verdict has to be retained rather than re-derived, and precisely why it must not be collected with it.
+      expect(queryClient.getQueryCache().find({queryKey: [...queryKeys.mealPlanPreferences]})).toBeUndefined()
+      expect(queryClient.getQueryCache().find({queryKey: [...queryKeys.mealPlanCapability]})).toBeDefined()
+      expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
+
+      queryClient.clear()
+
+      expect(readMealPlanCapabilityLatch(queryClient)).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+    } finally {
+      jest.useRealTimers()
     }
-
-    return {store, mount: useEntitlementPass}
-  }
-
-  // The regression the release exists to avoid causing: a released latch whose terminal error is still live must
-  // come back, or the gated observers stay enabled against a route that has already refused.
-  it('re-latches when the probe after a release meets the same terminal error', () => {
-    const {store, mount} = startSession()
-
-    expect(mount({preferencesError: featureDisabledError}).entitlement.isGatedRequestAllowed).toBe(false)
-    expect(store.getSnapshot().capabilityLatch).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
-
-    // The activation settles and releases the verdict it may have raced.
-    store.resetCapabilityLatch()
-    expect(store.getSnapshot().capabilityLatch).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
-
-    // One probe: this pass is the only one allowed to read a gated route, and it meets the same refusal.
-    const probe = mount({preferencesError: featureDisabledError})
-
-    expect(probe.usePreferencesRead).toHaveBeenCalledWith(true)
-    expect(probe.entitlement.availability).toBe('unavailable')
-    expect(probe.entitlement.isGatedRequestAllowed).toBe(false)
-    expect(store.getSnapshot().capabilityLatch).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
-
-    // The next pass — a re-render, a remount, a focus or a reconnect — issues nothing, with or without the error
-    // still in the cache.
-    const remount = mount()
-
-    expect(remount.usePreferencesRead).toHaveBeenCalledWith(false)
-    expect(remount.useCurrentPlanRead).toHaveBeenCalledWith(false, SESSION_DAY_KEY)
-    expect(remount.entitlement.availability).toBe('unavailable')
-    expect(remount.entitlement.isGatedRequestAllowed).toBe(false)
-
-    const focus = mount({preferencesError: featureDisabledError})
-
-    expect(focus.usePreferencesRead).toHaveBeenCalledWith(false)
-    expect(focus.useCurrentPlanRead).toHaveBeenCalledWith(false, SESSION_DAY_KEY)
   })
 
-  // Signal (b) behaves the same way, and the release must not leave the Catalog section hidden on a session that
-  // has recovered — so the visibility that follows the re-latch is asserted too.
-  it('re-latches a route-missing verdict and keeps the catalog hidden while it holds', () => {
-    const {store, mount} = startSession()
+  // Session-scoped by construction: the verdict is a memory-only cache entry, so the logout path's
+  // `queryClient.clear()` drops it and no account inherits another's verdict (AAP 0.7.5 forward recovery).
+  it('reads the empty verdict again once the client is cleared on logout', async () => {
+    const queryClient = makeQueryClient()
 
-    mount({targetsError: bareNotFoundError})
-    store.resetCapabilityLatch()
+    await failQuery(queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+    recordFrom(queryClient)
 
-    const probe = mount({targetsError: new RoutesMissingError(TARGETS_PATH)})
+    expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
 
-    expect(probe.entitlement.availability).toBe('unavailable')
-    expect(probe.entitlement.isCatalogVisible).toBe(false)
-    expect(store.getSnapshot().capabilityLatch).toEqual({isFeatureDisabled: false, areRoutesMissing: true})
+    queryClient.clear()
 
-    const remount = mount()
-
-    expect(remount.entitlement.isCatalogVisible).toBe(false)
-    expect(remount.entitlement.isGatedRequestAllowed).toBe(false)
-  })
-
-  // The release earns its keep on the state it was added for: the feature really is on, the probe succeeds, and
-  // the gated reads stay enabled from then on.
-  it('leaves the gated reads enabled when the probe after a release succeeds', () => {
-    const {store, mount} = startSession()
-
-    mount({preferencesError: featureDisabledError})
-    store.resetCapabilityLatch()
-
-    const probe = mount()
-
-    expect(probe.usePreferencesRead).toHaveBeenCalledWith(true)
-    expect(probe.entitlement.availability).toBe('enabled')
-    expect(probe.entitlement.isGatedRequestAllowed).toBe(true)
-    expect(store.getSnapshot().capabilityLatch).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
-
-    const next = mount()
-
-    expect(next.usePreferencesRead).toHaveBeenCalledWith(true)
-    expect(next.useCurrentPlanRead).toHaveBeenCalledWith(true, SESSION_DAY_KEY)
-    expect(next.entitlement.availability).toBe('enabled')
-  })
-
-  // What makes recording on every commit safe rather than noisy, and what makes it effective after a release:
-  // an unchanged reading is the same latch reference, so it notifies nobody and cannot re-enter the effect that
-  // wrote it, while a reading identical to one cleared by a release is recorded again rather than deduplicated
-  // against history the store no longer holds.
-  it('publishes nothing for an unchanged reading and re-records one the release cleared', () => {
-    const store = createMealPlanEntitlementSessionStore()
-    const listener = jest.fn()
-    const signals = {isFeatureDisabled: true, areRoutesMissing: false}
-
-    store.subscribe(listener)
-    store.recordCapabilitySignals(signals)
-
-    const latched = store.getSnapshot().capabilityLatch
-
-    expect(listener).toHaveBeenCalledTimes(1)
-
-    store.recordCapabilitySignals(signals)
-
-    expect(store.getSnapshot().capabilityLatch).toBe(latched)
-    expect(listener).toHaveBeenCalledTimes(1)
-
-    store.resetCapabilityLatch()
-    store.recordCapabilitySignals(signals)
-
-    expect(store.getSnapshot().capabilityLatch).toEqual(signals)
+    expect(readMealPlanCapabilityLatch(queryClient)).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
   })
 })
 
-// The two production effects the release loop is made of, driven directly. React's hook dispatcher stands in for
-// a renderer here — `useEffect` and `useLayoutEffect` are run the moment they are queued, which is what a commit
-// does — so the real session store, the real classifier and the real activation epoch take part. This is where
-// the shape of those effects is pinned: the recorder must carry no dependency array, and the release must come
-// from a mounted effect rather than from loading the module.
+describe('observeMealPlanCapabilitySignals over the query cache', () => {
+  // The finding, route by route: a confirmed `503 feature_disabled` from any gated read — nested screens
+  // included — is signal (a) and must reach the session's verdict (AAP 0.2.5).
+  const gatedQueryKeys: [string, readonly unknown[]][] = [
+    ['recipe detail', queryKeys.recipeVersion(RECIPE_VERSION_ID)],
+    ['plan day', queryKeys.mealPlanDay(PLAN_ID, SESSION_DAY_KEY)],
+    ['grocery list', queryKeys.groceryList(PLAN_ID)],
+    ['swap alternatives', queryKeys.swapAlternatives(PLAN_ID, 'meal-1', 3)],
+    ['swap preview', queryKeys.swapPreview(PLAN_ID, 'meal-1', RECIPE_VERSION_ID, 3)],
+    ['affected meals', queryKeys.affectedMeals(PLAN_ID)],
+    ['preferences', queryKeys.mealPlanPreferences],
+    ['current plan', queryKeys.mealPlanCurrent]
+  ]
+
+  it.each(gatedQueryKeys)('reads feature_disabled from the %s read', async (_name, queryKey) => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKey, featureDisabledError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(featureDisabledLatch)
+  })
+
+  const ungatedQueryKeys: [string, readonly unknown[]][] = [
+    ['nutrition targets', queryKeys.nutritionTargets],
+    ['target estimate', queryKeys.targetEstimate],
+    ['catalog search', queryKeys.catalogSearch('oats')],
+    ['catalog suggestions', queryKeys.catalogSuggestions]
+  ]
+
+  // The routes the server never gates (AAP 0.3.1): Account, Progress and the Diary editor read targets while
+  // planning is off, and Add Food keeps its Catalog section, so their 503 is not a statement about the feature.
+  it.each(ungatedQueryKeys)('ignores feature_disabled from the ungated %s read', async (_name, queryKey) => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKey, featureDisabledError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  // Signal (b) belongs to the three resource-less GETs only.
+  it.each([
+    ['preferences', queryKeys.mealPlanPreferences],
+    ['current plan', queryKeys.mealPlanCurrent],
+    ['nutrition targets', queryKeys.nutritionTargets]
+  ] as [string, readonly unknown[]][])('reads a bare 404 on the %s read as routes-missing', async (_name, queryKey) => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKey, bareNotFoundError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(routesMissingLatch)
+  })
+
+  // The resource-route exclusion of AAP 0.5.2: a plan-day 404 is the not-found/not-yours answer, and reading it
+  // as a rollback would put a whole session on the unavailable card over one missing day.
+  it('ignores a bare 404 from a gated resource route', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.mealPlanDay(PLAN_ID, SESSION_DAY_KEY), bareNotFoundError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('ignores a 404 that carries a decodable code, wherever it came from', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.mealPlanCurrent, makeApiError(404, API_ERROR_CODES.planNotActive))
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('reports neither signal for a client whose reads all succeeded', async () => {
+    const queryClient = makeQueryClient()
+
+    await queryClient.fetchQuery({queryKey: [...queryKeys.mealPlanCurrent], queryFn: () => Promise.resolve(null)})
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  // THE CACHE IS THE WHOLE INPUT. The entitlement's own three reads are read here exactly as every other
+  // request is — out of the cache, by key — and nothing is taken from a caller's render. That is the property
+  // that keeps a cleared client unlatchable, and it is asserted as the same three scopes the shell used to hand
+  // over by hand: preferences is gated and a probe, targets is a probe only.
+  it('reads the entitlement’s own three reads from the cache, with their own scopes', async () => {
+    const disabledFromPreferences = makeQueryClient()
+    const disabledFromTargets = makeQueryClient()
+    const missingFromTargets = makeQueryClient()
+
+    await failQuery(disabledFromPreferences, queryKeys.mealPlanPreferences, featureDisabledError)
+    await failQuery(disabledFromTargets, queryKeys.nutritionTargets, featureDisabledError)
+    await failQuery(missingFromTargets, queryKeys.nutritionTargets, bareNotFoundError)
+
+    expect(observeMealPlanCapabilitySignals(disabledFromPreferences)).toEqual(featureDisabledLatch)
+    expect(observeMealPlanCapabilitySignals(disabledFromTargets)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+    expect(observeMealPlanCapabilitySignals(missingFromTargets)).toEqual(routesMissingLatch)
+  })
+
+  // The corollary, stated on its own because it is the logout guarantee: an error a render still holds is not
+  // evidence once the cache no longer holds it, so a scan taken after `queryClient.clear()` finds nothing.
+  it('reads nothing from a client whose cache has been cleared', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(featureDisabledLatch)
+
+    queryClient.clear()
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('reads both signals when separate requests carry one each', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+    await failQuery(queryClient, queryKeys.nutritionTargets, bareNotFoundError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual({
+      isFeatureDisabled: true,
+      areRoutesMissing: true
+    })
+  })
+})
+
+describe('observeMealPlanCapabilitySignals over the mutation cache', () => {
+  // The setup saves and the keyed writes: a step save refused with a confirmed 503 used to become a generic
+  // retry toast that stranded the user on a gated screen, because the verdict never heard about it.
+  const gatedMutationKeys: [string, readonly unknown[]][] = [
+    ['setup step save', mutationKeys.saveSetupStep],
+    ['full preferences save', mutationKeys.savePreferences],
+    ['plan generation', mutationKeys.generatePlan],
+    ['plan regeneration', mutationKeys.regeneratePlan],
+    ['swap commit', mutationKeys.swapMeal],
+    ['grocery toggle', mutationKeys.toggleGroceryItem],
+    ['grocery uncheck-all', mutationKeys.uncheckAllGroceries],
+    ['planned-meal log', mutationKeys.logPlannedMeal]
+  ]
+
+  it.each(gatedMutationKeys)('reads feature_disabled from the %s', async (_name, mutationKey) => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKey, featureDisabledError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(featureDisabledLatch)
+  })
+
+  // The targets write is exempt with its read: the Diary target editor saves while planning is off.
+  it('ignores feature_disabled from the ungated targets save', async () => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKeys.saveNutritionTargets, featureDisabledError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('ignores a mutation failure that is not the capability code', async () => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKeys.swapMeal, makeApiError(409, API_ERROR_CODES.stalePlan))
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  // Confirmed-ness again: a lost response is an unknown outcome that a same-key retry can still resolve, so it
+  // must not stop every gated request (AAP 0.2.5).
+  it('ignores a mutation whose feature_disabled body carries no response status', async () => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKeys.saveSetupStep, {
+      response: {data: {error: API_ERROR_CODES.featureDisabled}}
+    })
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  it('never reads a mutation failure as routes-missing', async () => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKeys.saveSetupStep, bareNotFoundError)
+
+    expect(observeMealPlanCapabilitySignals(queryClient)).toEqual(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+})
+
+describe('recordMealPlanCapability', () => {
+  // An error that settled before the recorder ever ran is still the reading: the scan is over state, not events.
+  it('picks up a failure that was already in the cache on its first pass', async () => {
+    const queryClient = makeQueryClient()
+
+    await failMutation(queryClient, mutationKeys.saveSetupStep, featureDisabledError)
+
+    expect(recordFrom(queryClient)).toEqual(featureDisabledLatch)
+    expect(readMealPlanCapabilityLatch(queryClient)).toEqual(featureDisabledLatch)
+  })
+
+  // No entry is created for a healthy session, so the memory-only key stays absent until there is a verdict.
+  it('creates no cache entry when there is nothing to remember', () => {
+    const queryClient = makeQueryClient()
+
+    expect(recordFrom(queryClient)).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+    expect(queryClient.getQueryCache().find({queryKey: queryKeys.mealPlanCapability})).toBeUndefined()
+  })
+
+  // The write guard, which is why the recorder can subscribe to the cache it writes to: an unchanged reading
+  // writes nothing at all, so it emits no cache event and cannot notify itself into a loop.
+  it('writes nothing for an unchanged reading, so it cannot re-enter through its own subscription', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+    recordFrom(queryClient)
+
+    const stored = queryClient.getQueryCache().find({queryKey: queryKeys.mealPlanCapability})
+    const writtenAt = stored?.state.dataUpdatedAt
+    const record = queryClient.getQueryData(queryKeys.mealPlanCapability)
+
+    let events = 0
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+      events += 1
+    })
+
+    recordFrom(queryClient)
+    recordFrom(queryClient)
+
+    unsubscribe()
+
+    expect(events).toBe(0)
+    expect(queryClient.getQueryData(queryKeys.mealPlanCapability)).toBe(record)
+    expect(queryClient.getQueryCache().find({queryKey: queryKeys.mealPlanCapability})?.state.dataUpdatedAt).toBe(
+      writtenAt
+    )
+  })
+
+  it('accumulates a second signal into the verdict it already holds', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+    recordFrom(queryClient)
+
+    await failQuery(queryClient, queryKeys.nutritionTargets, new RoutesMissingError(TARGETS_PATH))
+
+    expect(recordFrom(queryClient)).toEqual({isFeatureDisabled: true, areRoutesMissing: true})
+  })
+
+  // A read that succeeds after a terminal signal does not unlatch it: the disabled route was not probed again.
+  it('keeps the verdict when a later reading carries no signal', async () => {
+    const queryClient = makeQueryClient()
+
+    recordMealPlanCapability(queryClient, FIRST_EPOCH, featureDisabledLatch)
+    await queryClient.fetchQuery({queryKey: [...queryKeys.mealPlanCurrent], queryFn: () => Promise.resolve(null)})
+
+    expect(recordFrom(queryClient)).toEqual(featureDisabledLatch)
+  })
+
+  // The release, and the only reason the activation epoch is stored: a verdict reached before the launch
+  // activation settled must not outlive the activation that confirms the feature is on — and must come straight
+  // back when the terminal error is still the answer, without a repeat probe (AAP 0.2.5, 0.7.5).
+  it('re-latches on a new activation while the terminal error is still the answer', async () => {
+    const queryClient = makeQueryClient()
+
+    await failQuery(queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+    recordFrom(queryClient)
+
+    const nextEpoch = FIRST_EPOCH + 1
+    const signals = observeMealPlanCapabilitySignals(queryClient)
+
+    expect(recordMealPlanCapability(queryClient, nextEpoch, signals)).toEqual(featureDisabledLatch)
+    expect(queryClient.getQueryData<MealPlanCapabilityRecord>(queryKeys.mealPlanCapability)?.activationEpoch).toBe(
+      nextEpoch
+    )
+  })
+
+  it('clears the verdict on a new activation whose reading carries no signal', () => {
+    const queryClient = makeQueryClient()
+
+    recordMealPlanCapability(queryClient, FIRST_EPOCH, featureDisabledLatch)
+
+    const nextEpoch = FIRST_EPOCH + 1
+
+    expect(recordMealPlanCapability(queryClient, nextEpoch, NO_MEAL_PLAN_CAPABILITY_LATCH)).toBe(
+      NO_MEAL_PLAN_CAPABILITY_LATCH
+    )
+  })
+
+  // Once per activation: after the release, the same epoch accumulates again rather than releasing on every
+  // reading, so a still-live refusal cannot be repeatedly forgotten.
+  it('releases only once for an activation', () => {
+    const queryClient = makeQueryClient()
+    const nextEpoch = FIRST_EPOCH + 1
+
+    recordMealPlanCapability(queryClient, FIRST_EPOCH, featureDisabledLatch)
+    recordMealPlanCapability(queryClient, nextEpoch, NO_MEAL_PLAN_CAPABILITY_LATCH)
+    recordMealPlanCapability(queryClient, nextEpoch, routesMissingLatch)
+
+    expect(recordMealPlanCapability(queryClient, nextEpoch, NO_MEAL_PLAN_CAPABILITY_LATCH)).toEqual(routesMissingLatch)
+  })
+})
+
+// The production effect the recording is made of, driven directly. React's hook dispatcher stands in for a
+// renderer here — `useEffect` runs the moment it is queued, which is what a commit does — so the real classifier,
+// the real activation epoch and a real `QueryClient` take part. This is where the shape of that effect is
+// pinned: it must carry no dependency array, it must attach and detach the cache listeners, and loading the
+// module must register no activation listener at all.
 describe('useMealPlanEntitlement production effects', () => {
-  const LIVE_ERRORS: MealPlanCapabilityErrors = {
-    preferencesError: featureDisabledError,
-    currentPlanError: undefined,
-    targetsError: undefined
+  // The recorder takes no payload, so a terminal signal is staged where it actually lives: in the client's own
+  // query cache, through TanStack's error channel, exactly as the failing read would have left it.
+  const seedTerminalFailure = (queryClient: QueryClient): Promise<void> =>
+    failQuery(queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+
+  const clearTerminalFailure = (queryClient: QueryClient): void => {
+    queryClient.removeQueries({queryKey: [...queryKeys.mealPlanPreferences]})
   }
 
   // Compared by value rather than by identity: an isolated copy of the module has its own clear-latch
   // constant, so the exported one is a different object here.
   const CLEAR_LATCH: MealPlanCapabilityLatch = {isFeatureDisabled: false, areRoutesMissing: false}
 
-  const NO_ERRORS: MealPlanCapabilityErrors = {
-    preferencesError: undefined,
-    currentPlanError: undefined,
-    targetsError: undefined
-  }
-
   interface Dispatcher {
+    /** The client the hooks read and write, so a test can fail a request in it. */
+    queryClient: QueryClient
     /** Invokes the recorder and returns the arguments it passed to `useEffect`. */
-    commitRecorder: (errors: MealPlanCapabilityErrors) => unknown[]
-    /** Mounts a consumer: elects it, and runs the activation release its effect carries. */
-    commitParticipation: () => void
-    /** Another mounted read. It returns the latch as that render saw it, before its own effects ran. */
+    commitRecorder: () => unknown[]
+    /** Runs the cleanup the last committed effect returned, which is what an unmount does. */
+    detachRecorder: () => void
+    /** Another mounted read: the latch as that render saw it. */
     readLatch: () => MealPlanCapabilityLatch
     /** The app's single launch fetch, which settles an activation and advances its epoch. */
     activate: () => Promise<boolean>
@@ -627,15 +902,18 @@ describe('useMealPlanEntitlement production effects', () => {
 
   /**
    * Loads its own copy of the hook module against a `react` whose effects run the moment they are queued, which
-   * is what a commit does. Everything else in that copy is production code — the same session store, classifier
-   * and activation epoch — and each call gets a fresh copy, so no case inherits another's latch.
+   * is what a commit does, and a `useQueryClient` that answers with the client below — the provider is the one
+   * piece of the tree a dispatcher-less harness cannot supply. Everything else in that copy is production code,
+   * and each call gets a fresh copy and a fresh client, so no case inherits another's verdict.
    */
   const loadWithImmediateEffects = (): Dispatcher => {
+    const queryClient = makeQueryClient()
     const effectCalls: unknown[][] = []
     const previousDeps = new Map<string, unknown[] | undefined>()
+    const cleanups = new Map<string, (() => void) | void>()
 
-    // Which hook is being invoked, so each one's effect remembers its own dependencies. Both hooks queue exactly
-    // one passive effect, so a slot needs no index.
+    // Which hook is being invoked, so each one's effect remembers its own dependencies and its own cleanup. The
+    // recorder queues exactly one passive effect, so a slot needs no index.
     let slot = 'recorder'
 
     // React's rule, kept rather than simplified away: an effect with a dependency array is skipped when every
@@ -658,20 +936,34 @@ describe('useMealPlanEntitlement production effects', () => {
     let service: typeof import('@service/remoteConfig/initRemoteConfig') | undefined
 
     jest.isolateModules(() => {
-      // A passthrough rather than a replacement: the module graph behind the three query hooks reaches React at
-      // import time, and only the four hooks this module calls are stood in for.
+      // Passthroughs rather than replacements: the module graph behind the three query hooks reaches React and
+      // TanStack at import time, and only the hooks this module calls are stood in for.
       jest.doMock('react', () => ({
         ...jest.requireActual('react'),
-        useRef: (initial: unknown) => ({current: initial}),
+        useCallback: (callback: unknown) => callback,
         useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
-        useLayoutEffect: (effect: () => void) => effect(),
-        useEffect: (effect: () => void, deps?: unknown[]) => {
+        useEffect: (effect: () => (() => void) | void, deps?: unknown[]) => {
           effectCalls.push(deps === undefined ? [effect] : [effect, deps])
 
-          if (shouldRun(deps)) {
-            effect()
+          if (!shouldRun(deps)) {
+            return
           }
+
+          // React's order, and the reason this harness keeps it: the previous effect's cleanup runs before the
+          // new one, so a commit replaces its consumer's cache listeners instead of adding a second pair.
+          const previousCleanup = cleanups.get(slot)
+
+          if (typeof previousCleanup === 'function') {
+            previousCleanup()
+          }
+
+          cleanups.set(slot, effect())
         }
+      }))
+
+      jest.doMock('@tanstack/react-query', () => ({
+        ...jest.requireActual('@tanstack/react-query'),
+        useQueryClient: () => queryClient
       }))
 
       hookModule = require('../useMealPlanEntitlement')
@@ -679,100 +971,176 @@ describe('useMealPlanEntitlement production effects', () => {
     })
 
     jest.dontMock('react')
+    jest.dontMock('@tanstack/react-query')
 
     const hooks = (hookModule as typeof import('../useMealPlanEntitlement')).defaultMealPlanEntitlementHooks
     const {initRemoteConfig: activate} = service as typeof import('@service/remoteConfig/initRemoteConfig')
 
     return {
-      commitRecorder: (errors: MealPlanCapabilityErrors): unknown[] => {
+      queryClient,
+      commitRecorder: (): unknown[] => {
         effectCalls.length = 0
         slot = 'recorder'
 
-        hooks.useRecordedCapabilitySignals(errors)
+        hooks.useRecordedCapabilitySignals()
 
         return effectCalls[0]
       },
-      commitParticipation: (): void => {
-        slot = 'participation'
+      detachRecorder: (): void => {
+        const cleanup = cleanups.get('recorder')
 
-        hooks.useSessionParticipation()
-      },
-      readLatch: (): MealPlanCapabilityLatch => {
-        slot = 'participation'
+        if (typeof cleanup === 'function') {
+          cleanup()
+        }
 
-        return hooks.useSessionParticipation().capabilityLatch
+        cleanups.delete('recorder')
       },
+      readLatch: (): MealPlanCapabilityLatch => hooks.useCapabilityLatch(),
       activate
     }
   }
 
-  // The line the whole loop rests on: a reading is the errors currently in hand, so it is re-read on every
-  // commit. A dependency array here would skip the re-read after a release that changed no error, leaving the
-  // latch empty and the gated observers enabled against a route that has already refused.
+  // The line the whole loop rests on: a reading is the state of both caches, so it is re-read on every commit.
+  // A dependency array here would skip the re-read after a release that changed no request, leaving the verdict
+  // empty and the gated observers enabled against a route that has already refused.
   it('queues the capability recorder with no dependency array', () => {
     const dispatcher = loadWithImmediateEffects()
 
-    const args = dispatcher.commitRecorder(LIVE_ERRORS)
+    const args = dispatcher.commitRecorder()
 
     expect(args).toHaveLength(1)
     expect(typeof args[0]).toBe('function')
   })
 
-  it('latches a terminal signal from the recorder effect', () => {
+  it('records a terminal signal from the recorder effect', async () => {
     const dispatcher = loadWithImmediateEffects()
 
-    dispatcher.commitRecorder(LIVE_ERRORS)
+    await seedTerminalFailure(dispatcher.queryClient)
+    dispatcher.commitRecorder()
 
-    expect(dispatcher.readLatch()).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
   })
 
   it('records nothing for a reading that carries no signal', () => {
     const dispatcher = loadWithImmediateEffects()
 
-    dispatcher.commitRecorder(NO_ERRORS)
+    dispatcher.commitRecorder()
 
     expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
   })
 
-  // The regression, end to end on production code: latched before the launch activation settled, released by
-  // that activation, probed once, and re-latched because the same terminal error is still the answer.
+  // The listeners the same effect attaches, which is what makes a request settling outside our own commits — a
+  // nested screen's gated read, a setup save — reach the verdict.
+  it('records a gated read that fails after the commit, through its own cache listener', async () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    dispatcher.commitRecorder()
+
+    await failQuery(dispatcher.queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
+  })
+
+  it('records a gated mutation that fails after the commit', async () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    dispatcher.commitRecorder()
+
+    await failMutation(dispatcher.queryClient, mutationKeys.saveSetupStep, featureDisabledError)
+
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
+  })
+
+  // THE LOGOUT REGRESSION, with the production recorder and its listeners attached — the state the earlier
+  // logout test could not reach, because it cleared a client nothing was listening to.
+  //
+  // `queryClient.clear()` empties the query cache before the mutation cache, and it empties each by removing
+  // every entry one at a time. Each removal notifies the recorder. A recorder that re-scanned on a removal
+  // would, part-way through that sweep, still see a gated failure — or the verdict's own entry going away — and
+  // write the verdict straight back into the client the logout had just emptied, leaving the next account's
+  // session latched off a previous account's refusal. A removal is the event of evidence going away, so it is
+  // not a reading.
+  it('leaves no verdict behind when logout clears the client under the attached recorder', async () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    dispatcher.commitRecorder()
+
+    await failQuery(dispatcher.queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+    await failMutation(dispatcher.queryClient, mutationKeys.saveSetupStep, featureDisabledError)
+
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
+
+    dispatcher.queryClient.clear()
+
+    expect(dispatcher.queryClient.getQueryCache().getAll()).toHaveLength(0)
+    expect(dispatcher.queryClient.getMutationCache().getAll()).toHaveLength(0)
+    expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
+  })
+
+  // The same sweep in the other order, because `clear()` is not the only way a session ends: an explicit
+  // removal of the verdict's own key must not be answered by writing it again either.
+  it('does not write the verdict back when its own entry is removed', async () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    dispatcher.commitRecorder()
+
+    await failQuery(dispatcher.queryClient, queryKeys.mealPlanPreferences, featureDisabledError)
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
+
+    dispatcher.queryClient.removeQueries({queryKey: [...queryKeys.mealPlanCapability]})
+
+    expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
+  })
+
+  // The cleanup half: an unmounted consumer leaves no listener behind on either cache.
+  it('stops recording once the effect is cleaned up', async () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    dispatcher.commitRecorder()
+    dispatcher.detachRecorder()
+
+    await failQuery(dispatcher.queryClient, queryKeys.recipeVersion(RECIPE_VERSION_ID), featureDisabledError)
+    await failMutation(dispatcher.queryClient, mutationKeys.saveSetupStep, featureDisabledError)
+
+    expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
+  })
+
+  // The regression, end to end on production code: recorded before the launch activation settled, released by
+  // that activation, and re-latched in the same reading because the same terminal error is still the answer.
   it('re-latches after the activation release when the terminal error is still live', async () => {
     const dispatcher = loadWithImmediateEffects()
 
-    dispatcher.commitRecorder(LIVE_ERRORS)
-    expect(dispatcher.readLatch()).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+    await seedTerminalFailure(dispatcher.queryClient)
+    dispatcher.commitRecorder()
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
 
     await dispatcher.activate()
 
-    // The mounted effect releases the verdict the activation may have raced — exactly once for that activation.
-    dispatcher.commitParticipation()
-    expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
+    dispatcher.commitRecorder()
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
 
-    // The probe that follows meets the same refusal, and the commit that carries it re-latches.
-    dispatcher.commitRecorder(LIVE_ERRORS)
-    expect(dispatcher.readLatch()).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
-
-    // Every later mount, focus and reconnect observes the same activation, so nothing releases it again.
-    dispatcher.commitParticipation()
-    dispatcher.commitParticipation()
-    expect(dispatcher.readLatch()).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+    // Every later commit observes the same activation, so nothing releases it again.
+    dispatcher.commitRecorder()
+    expect(dispatcher.readLatch()).toEqual(featureDisabledLatch)
   })
 
-  it('leaves the latch clear when the probe after the release carries no signal', async () => {
+  it('leaves the verdict clear when the reading after the release carries no signal', async () => {
     const dispatcher = loadWithImmediateEffects()
 
-    dispatcher.commitRecorder(LIVE_ERRORS)
+    await seedTerminalFailure(dispatcher.queryClient)
+    dispatcher.commitRecorder()
 
     await dispatcher.activate()
 
-    dispatcher.commitParticipation()
-    dispatcher.commitRecorder(NO_ERRORS)
+    // The refusal is gone from the cache as well as from the epoch, so the release has nothing to re-latch on.
+    clearTerminalFailure(dispatcher.queryClient)
+    dispatcher.commitRecorder()
 
     expect(dispatcher.readLatch()).toEqual(CLEAR_LATCH)
   })
 
-  // Loading the module must mutate nothing: the release belongs to a mounted consumer, so no activation listener
-  // may be registered on the way in.
+  // Loading the module must mutate nothing: the release is carried by the recorded epoch, so no activation
+  // listener may be registered on the way in.
   it('registers no activation listener when the module is loaded', () => {
     jest.isolateModules(() => {
       const subscribeToRemoteConfigActivation = jest.fn(() => () => undefined)
@@ -788,5 +1156,15 @@ describe('useMealPlanEntitlement production effects', () => {
 
       expect(subscribeToRemoteConfigActivation).not.toHaveBeenCalled()
     })
+
+    jest.dontMock('@service/remoteConfig/initRemoteConfig')
+  })
+
+  // Nothing is written on the way in either: the verdict is a cache entry, so a freshly loaded module holds none
+  // and a cold start probes the gated routes once (AAP 0.7.5).
+  it('writes no capability record when the module is loaded', () => {
+    const dispatcher = loadWithImmediateEffects()
+
+    expect(dispatcher.queryClient.getQueryCache().getAll()).toHaveLength(0)
   })
 })

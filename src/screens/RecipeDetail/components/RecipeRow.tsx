@@ -2,8 +2,8 @@ import React from 'react'
 
 import IngredientRow from '@components/IngredientRow'
 
-import {isSameRecipeRow, RecipeDetailRow} from '../../index.util'
-import InstructionStep from '../InstructionStep'
+import {isSameRecipeRow, RecipeDetailRow} from '../index.util'
+import InstructionStep from './InstructionStep'
 
 interface Props {
   row: RecipeDetailRow

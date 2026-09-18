@@ -1,3 +1,6 @@
+import {existsSync, readFileSync} from 'node:fs'
+import path from 'node:path'
+
 import {
   addDaysToDayKey,
   clampDayKeyToPlan,
@@ -20,10 +23,93 @@ const PLAN_START = '2026-07-05'
 const PLAN_END = '2026-07-11'
 const EN_DASH = '\u2013'
 
+// Only the fields the inventory assertion below reads. Jest's own project type is not published for a JS config,
+// and the two project literals differ in shape, so the pair is narrowed to one optional-field summary here.
+interface JestProjectSummary {
+  displayName?: string
+  testMatch?: string[]
+  testPathIgnorePatterns?: string[]
+  testEnvironment?: string
+}
+
+const JEST_CONFIG_FILE = 'jest.config.js'
+const PACKAGE_FILE = 'package.json'
+const DEFAULT_PROJECT = 'mobile'
+const DST_PROJECT = 'mobile-dst'
+const DST_SUITE_RELATIVE_PATH = 'src/utility/__tests__/MealPlanDateUtility.dst.test.ts'
+const DST_ENVIRONMENT_RELATIVE_PATH = 'src/testSupport/dstTimeZoneEnvironment.ts'
+const DST_TEST_GLOB = '<rootDir>/src/**/*.dst.test.ts'
+const DST_TEST_SUFFIX = '\\.dst\\.test\\.ts$'
+const DST_ENVIRONMENT_PRAGMA = '@jest-environment <rootDir>/src/testSupport/dstTimeZoneEnvironment.ts'
+
+// The Jest configuration is a root file, so no path alias reaches it — the configured aliases map directories
+// inside src/ — and a deep relative import of it is exactly what the conventions forbid. The root is located
+// instead by walking up from this file to the directory that holds both the configuration and the manifest, so
+// the seam carries no `../..` traversal and does not depend on the directory the runner was started in.
+const repositoryRoot = (): string => {
+  let directory = __dirname
+
+  while (!existsSync(path.join(directory, JEST_CONFIG_FILE)) || !existsSync(path.join(directory, PACKAGE_FILE))) {
+    const parent = path.dirname(directory)
+
+    if (parent === directory) {
+      throw new Error(`No directory above ${__dirname} holds both ${JEST_CONFIG_FILE} and ${PACKAGE_FILE}`)
+    }
+
+    directory = parent
+  }
+
+  return directory
+}
+
+const REPOSITORY_ROOT = repositoryRoot()
+
+const repositoryPath = (relativePath: string): string => path.resolve(REPOSITORY_ROOT, relativePath)
+
+// Loaded by absolute path rather than through an import specifier: the configuration is the subject of the
+// assertions below, not a dependency of the code under test. Defaulted so a config that has lost its `projects`
+// key fails the inventory by assertion rather than by crashing the suite on a property read.
+const JEST_PROJECTS: JestProjectSummary[] =
+  jest.requireActual<{projects?: JestProjectSummary[]}>(repositoryPath(JEST_CONFIG_FILE)).projects ?? []
+
+const projectNamed = (displayName: string): JestProjectSummary | undefined =>
+  JEST_PROJECTS.find(project => project.displayName === displayName)
+
 // This suite runs in the runner's own zone, which is UTC on CI, so the transition dates below are ordinary
 // 24-hour calendar days here and these cases document the calendar contract rather than prove it under a clock
 // shift. The daylight-saving and negative-offset regressions live in MealPlanDateUtility.dst.test.ts, which
-// jest.config.js pins to America/New_York; do not mutate the zone in this file to reproduce them.
+// jest.config.js runs as its own `mobile-dst` project in America/New_York; do not mutate the zone in this file
+// to reproduce them. The inventory below asserts that suite, its environment and that binding are all still
+// here, so the deferral above cannot outlive the coverage it points at.
+describe('daylight-saving coverage inventory', () => {
+  it('runs as the two projects jest.config.js declares', () => {
+    expect(JEST_PROJECTS.map(project => project.displayName)).toEqual([DEFAULT_PROJECT, DST_PROJECT])
+  })
+
+  it('keeps the pinned-zone suite the cases below defer to', () => {
+    expect(existsSync(repositoryPath(DST_SUITE_RELATIVE_PATH))).toBe(true)
+  })
+
+  it('keeps that suite pinned to the zone through its own docblock', () => {
+    expect(readFileSync(repositoryPath(DST_SUITE_RELATIVE_PATH), 'utf8')).toContain(DST_ENVIRONMENT_PRAGMA)
+  })
+
+  it('keeps the environment both the docblock and the config name', () => {
+    expect(existsSync(repositoryPath(DST_ENVIRONMENT_RELATIVE_PATH))).toBe(true)
+  })
+
+  it('runs the pinned-zone suite in its own project, in that environment', () => {
+    const dstProject = projectNamed(DST_PROJECT)
+
+    expect(dstProject?.testMatch).toEqual([DST_TEST_GLOB])
+    expect(dstProject?.testEnvironment).toBe(repositoryPath(DST_ENVIRONMENT_RELATIVE_PATH))
+  })
+
+  it('leaves that suite out of this project, so it never runs in the runner zone', () => {
+    expect(projectNamed(DEFAULT_PROJECT)?.testPathIgnorePatterns).toContain(DST_TEST_SUFFIX)
+  })
+})
+
 describe('parseDayKey', () => {
   it('returns the local calendar day rather than UTC midnight', () => {
     const parsed = parseDayKey('2026-07-05')

@@ -15,8 +15,50 @@ export type CatalogSearchState = 'hidden' | 'idle' | 'rows' | 'loading' | 'error
  */
 export const CATALOG_SEARCH_MIN_QUERY_LENGTH = 2
 
-export const isCatalogQuerySearchable = (query: string): boolean =>
-  query.trim().length >= CATALOG_SEARCH_MIN_QUERY_LENGTH
+/**
+ * The longest query the catalog answers, and the bound both search fields cap their input at
+ * (`CatalogSearchField`, and Add Food's `SearchBar` through `ADD_FOOD_SEARCH_MAX_QUERY_LENGTH`).
+ */
+export const CATALOG_SEARCH_MAX_QUERY_LENGTH = 60
+
+const LAST_C0_CHARACTER_CODE = 0x1f
+const DELETE_CHARACTER_CODE = 0x7f
+
+// The C0 range plus DEL: the class the server's `q` parser refuses outright, because a null byte cannot be
+// bound as a PostgreSQL text parameter at all and the rest only search for text no user typed
+// (`backend/src/services/catalog.logic.ts`). Tested by code point rather than with the character class that
+// states the same range, because a regular expression literal spelling C0 trips `no-control-regex`.
+const hasControlCharacter = (query: string): boolean => {
+  for (let index = 0; index < query.length; index += 1) {
+    const code = query.charCodeAt(index)
+
+    if (code <= LAST_C0_CHARACTER_CODE || code === DELETE_CHARACTER_CODE) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Whether the catalog will answer this query at all.
+ *
+ * The three conditions mirror the server's own `q` parser
+ * (`backend/src/services/catalog.logic.ts::parseCatalogSearchQuery`, AAP 0.5.2): the TRIMMED query is 2 to
+ * {@link CATALOG_SEARCH_MAX_QUERY_LENGTH} characters and carries no control character. Each refusal there is
+ * a `400 invalid_request` that `searchCatalogFoods` records as a crash and rethrows, so a query the server is
+ * certain to refuse has to leave the query hook disabled rather than reach the api function — which is the
+ * same reason the predicate also decides the surface state below.
+ */
+export const isCatalogQuerySearchable = (query: string): boolean => {
+  const trimmed = query.trim()
+
+  return (
+    trimmed.length >= CATALOG_SEARCH_MIN_QUERY_LENGTH &&
+    trimmed.length <= CATALOG_SEARCH_MAX_QUERY_LENGTH &&
+    !hasControlCharacter(trimmed)
+  )
+}
 
 export interface CatalogSearchStateInput {
   isVisible: boolean
@@ -39,8 +81,8 @@ export interface CatalogSearchStateInput {
  *
  * 1. Not visible — the entitlement gate (Remote Config off, or a backend whose meal-planning routes are
  *    gone). Nothing is rendered and nothing was requested.
- * 2. Not searchable — below {@link CATALOG_SEARCH_MIN_QUERY_LENGTH} the query hook is disabled, so no request
- *    was issued and there is nothing to report.
+ * 2. Not searchable — outside the bounds {@link isCatalogQuerySearchable} states the query hook is disabled,
+ *    so no request was issued and there is nothing to report.
  * 3. Rows before every request state. This is the load-bearing step: a failed background refetch and a stale
  *    refetch in flight both keep the rows the user is reading on screen instead of replacing them with an
  *    error or a no-results caption. TanStack reports `isError` on a refetch failure while retaining the data,

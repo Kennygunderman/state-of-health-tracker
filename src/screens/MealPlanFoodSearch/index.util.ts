@@ -106,8 +106,9 @@ export interface SearchSkeletonRow {
   secondary: number
 }
 
-// Figma 13c's own skeleton bars (193.68/129.12, 156.02/107.59, 177.54/139.88) as proportions of the 281px
-// text column a row leaves beside its control.
+// The bars of 13c's own skeleton card `36:340` (193.68/129.12, 156.02/107.59, 177.54/139.88) as proportions of
+// the 281px text column a row leaves beside its control. A swap-screen geometry is the source for a food-search
+// screen because AAP 0.2.5 prescribes the catalog-search loading rows as Skeleton rows "as 13c".
 export const SEARCH_SKELETON_ROWS: ReadonlyArray<SearchSkeletonRow> = Object.freeze([
   Object.freeze({primary: 0.69, secondary: 0.46}),
   Object.freeze({primary: 0.55, secondary: 0.38}),

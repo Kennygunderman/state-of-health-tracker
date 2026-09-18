@@ -15,29 +15,25 @@ import {MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} from '@constants/strings'
 
 import styles, {backButtonPosition} from './index.styled'
 
-interface BaseProps {
+/**
+ * The recipe hero band. Omitting `onPress` presents the recipe (12); passing it makes the content itself
+ * the control that opens the recipe (13b → 12).
+ *
+ * `onPress` and `accessibilityLabel` belong to that second mode together: the band becomes an accessible
+ * control only when a caller hands it `onPress`, and only the caller knows which recipe the press reaches,
+ * so the caller is also the one that can name it. A single interface cannot make one optional member
+ * require its sibling, so the render preserves what the pairing protects instead — an unnamed pressable
+ * hero is an unreachable control for a screen reader, so a caller that supplies no label gets a button
+ * named from `contextText`, the band's own visible context.
+ */
+interface Props {
   iconKey: RecipeIconKey
   contextText: string
   onBack: () => void
   size?: 'detail' | 'preview'
+  onPress?: () => void
+  accessibilityLabel?: string
 }
-
-// A hero that only presents the recipe (12): its content carries no press target, so there is nothing to name.
-interface StaticHeroProps extends BaseProps {
-  onPress?: never
-  accessibilityLabel?: never
-}
-
-// A hero whose content opens the recipe (13b → 12). The two modes are separate contracts rather than one
-// shape with an optional callback: a pressable hero that nothing names is an unreachable control for a
-// screen reader, and only the caller knows which recipe the press reaches, so the label is required here
-// instead of defaulted. The `never` members make the contradictory prop a compile error.
-interface PressableHeroProps extends BaseProps {
-  onPress: () => void
-  accessibilityLabel: string
-}
-
-type Props = StaticHeroProps | PressableHeroProps
 
 const RecipeHero = (props: Props): React.JSX.Element => {
   const {iconKey, contextText, onBack, size = 'detail'} = props
@@ -68,7 +64,7 @@ const RecipeHero = (props: Props): React.JSX.Element => {
           style={styles.content}
           activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
-          accessibilityLabel={props.accessibilityLabel}
+          accessibilityLabel={props.accessibilityLabel ?? contextText}
           onPress={props.onPress}>
           {content}
         </TouchableOpacity>

@@ -59,24 +59,23 @@ export const buildSelectedDislikes = (
 })
 
 export interface FoodPreferencesControlsInput {
+  // Both of these are taken as inputs so that the answer may be checked against them, and neither reaches
+  // the button: 0.7.4 gives setup one validation rule — the CTA stays enabled and validates on press — so a
+  // read still in flight never withholds this optional step (47:338), and suggestions are a shortcut to a
+  // selection the search field reaches anyway, so a failed suggestions query must leave the step continuable.
   isPreferencesPending: boolean
   isSavePending: boolean
-  // Taken as an input so that the answer may be checked against it: the step is optional (47:338) and
-  // suggestions are a shortcut to a selection the search field reaches anyway, so a failed suggestions
-  // query must leave the step continuable.
   suggestionsState: SuggestionsViewState
 }
 
 export interface FoodPreferencesControls {
-  isContinueDisabled: boolean
   isContinueLoading: boolean
 }
 
 export const resolveFoodPreferencesControls = ({
-  isPreferencesPending,
   isSavePending
 }: FoodPreferencesControlsInput): FoodPreferencesControls => ({
-  // The save carries the row's revision, so it waits for the row and for nothing else.
-  isContinueDisabled: isPreferencesPending,
+  // A pending write is the one thing allowed to suppress a press, so the save's flag is the only one read
+  // here. There is no disabled state to derive: the press path itself asks for the revision the save carries.
   isContinueLoading: isSavePending
 })

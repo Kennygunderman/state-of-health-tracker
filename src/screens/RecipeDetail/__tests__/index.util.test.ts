@@ -563,6 +563,11 @@ const apiError = (status: number, code: string | null = null): unknown => ({
 
 const lostResponse = (): unknown => new Error('Network Error')
 
+// A rejection whose body decoded to a machine code but which never reached a status — a transport failure that
+// still carried a payload. AAP 0.2.5 classifies that as an UNKNOWN outcome whatever code it echoed, so nothing
+// may be latched or abandoned on it.
+const codeWithoutStatus = (code: string): unknown => ({response: {data: {error: code}}})
+
 const readState = (overrides: Partial<RecipeDetailReadState> = {}): RecipeDetailReadState => ({
   recipeError: null,
   dayError: null,
@@ -611,12 +616,77 @@ describe('resolveRecipeDetailRead', () => {
       expect(outcome.failure).toEqual({source: 'day', recovery: 'retry'})
     })
 
-    // The capability state belongs to the Macros entitlement router, and this screen holds no plan of its own
-    // to recover, so it offers the read again rather than claiming the plan changed.
-    it('keeps a disabled-feature answer on the retry branch', () => {
+    // The defect this covers: a confirmed `503 feature_disabled` was classified as a generic retry, so the
+    // screen drew a Try-again card whose press can never succeed — the app-wide retry policy refuses to retry a
+    // confirmed error, and the same gated route answers a repeat request identically. Every one of the three
+    // routes is gated (AAP 0.3.1), so every one of them can say it, and the answer is the departure for the tab
+    // whose entitlement router states the refusal (AAP 0.2.5).
+    it('leaves for the plan tab on a confirmed disabled-feature answer from the recipe read', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({recipeError: apiError(503, API_ERROR_CODES.featureDisabled), hasContent: false})
+      )
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'exitToPlanTab'})
+    })
+
+    it('leaves for the plan tab on a confirmed disabled-feature answer from the day read', () => {
       const outcome = resolveRecipeDetailRead(readState({dayError: apiError(503, API_ERROR_CODES.featureDisabled)}))
 
-      expect(outcome.failure).toEqual({source: 'day', recovery: 'retry'})
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'exitToPlanTab'})
+    })
+
+    it('leaves for the plan tab on a confirmed disabled-feature answer from the preview read', () => {
+      const outcome = resolveRecipeDetailRead(readState({previewError: apiError(503, API_ERROR_CODES.featureDisabled)}))
+
+      expect(outcome.failure).toEqual({source: 'preview', recovery: 'exitToPlanTab'})
+    })
+
+    // The status is part of what makes it the capability's answer, and on THIS route that matters: AAP 0.5.2
+    // makes a 404 from `/recipes/:id` the not-found/not-yours answer and never an unavailability signal, so a
+    // 404 carrying the code is still this recipe's own terminal answer — the screen leaves, but as a recipe it
+    // cannot show rather than as a feature that is off, and the session is not latched behind it.
+    it('reads a 404 carrying the disabled-feature code as this recipe’s own terminal answer', () => {
+      const outcome = resolveRecipeDetailRead(readState({recipeError: apiError(404, API_ERROR_CODES.featureDisabled)}))
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'recipeUnavailable'})
+    })
+
+    // Any other 4xx carrying the code is some other refusal of this request, and a gateway 5xx echoing it
+    // describes nothing about the attempt — both stay on the retry card a second attempt can clear.
+    it('keeps a disabled-feature code on a non-503 status on the retry branch', () => {
+      expect(
+        resolveRecipeDetailRead(readState({recipeError: apiError(403, API_ERROR_CODES.featureDisabled)})).failure
+      ).toEqual({source: 'recipe', recovery: 'retry'})
+      expect(
+        resolveRecipeDetailRead(readState({dayError: apiError(502, API_ERROR_CODES.featureDisabled)})).failure
+      ).toEqual({source: 'day', recovery: 'retry'})
+    })
+
+    // No status means nothing described this attempt, so the code it echoed describes nothing either: a second
+    // attempt may well load the screen, and abandoning it on an unknown outcome would strand a user whose
+    // capability is perfectly live.
+    it('keeps a disabled-feature code that reached no status on the retry branch', () => {
+      const codeOnly = codeWithoutStatus(API_ERROR_CODES.featureDisabled)
+
+      expect(resolveRecipeDetailRead(readState({recipeError: codeOnly})).failure).toEqual({
+        source: 'recipe',
+        recovery: 'retry'
+      })
+      expect(resolveRecipeDetailRead(readState({dayError: codeOnly})).failure).toEqual({
+        source: 'day',
+        recovery: 'retry'
+      })
+      expect(resolveRecipeDetailRead(readState({previewError: codeOnly})).failure).toEqual({
+        source: 'preview',
+        recovery: 'retry'
+      })
+    })
+
+    // A 5xx is confirmed only for a recognised machine code, and an unrelated one is not the capability's.
+    it('keeps a server failure carrying an unrelated code on the retry branch', () => {
+      const outcome = resolveRecipeDetailRead(readState({recipeError: apiError(500, API_ERROR_CODES.invalidRequest)}))
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'retry'})
     })
 
     it('puts a lost or unreadable response on the retry branch for every read', () => {
@@ -673,6 +743,43 @@ describe('resolveRecipeDetailRead', () => {
 
       expect(outcome.failure).toEqual({source: 'recipe', recovery: 'retry'})
     })
+
+    // The capability is about the feature rather than about this recipe or this plan, so it governs every other
+    // answer beside it: a plan refetch behind a route that answers 503 is the one recovery that cannot succeed,
+    // and a recipe the server never spoke about must not be reported as missing (AAP 0.2.5).
+    it('leaves for the plan tab rather than reporting the recipe missing when both answered', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({
+          recipeError: apiError(404),
+          dayError: apiError(503, API_ERROR_CODES.featureDisabled),
+          hasContent: false
+        })
+      )
+
+      expect(outcome.failure).toEqual({source: 'day', recovery: 'exitToPlanTab'})
+    })
+
+    it('leaves for the plan tab rather than recovering a plan the day read said moved on', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({
+          recipeError: apiError(503, API_ERROR_CODES.featureDisabled),
+          dayError: apiError(409, API_ERROR_CODES.stalePlan)
+        })
+      )
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'exitToPlanTab'})
+    })
+
+    it('leaves for the plan tab rather than retiring a candidate the preview read refused', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({
+          recipeError: apiError(503, API_ERROR_CODES.featureDisabled),
+          previewError: apiError(422, API_ERROR_CODES.recipeIneligible)
+        })
+      )
+
+      expect(outcome.failure).toEqual({source: 'recipe', recovery: 'exitToPlanTab'})
+    })
   })
 
   describe('failures over cached content', () => {
@@ -707,6 +814,22 @@ describe('resolveRecipeDetailRead', () => {
 
       expect(outcome.isSavedCopy).toBe(false)
       expect(outcome.placeholder).toBe('none')
+    })
+
+    // The screen is leaving for the tab that states the refusal, so neither the retry card nor the saved-copy
+    // banner is drawn over the cached recipe — but the write stays withheld, because the plan revision it would
+    // be pinned to is exactly what could not be confirmed.
+    it('draws no card and no banner over cached content for a capability refusal, and still offers no write', () => {
+      const outcome = resolveRecipeDetailRead(
+        readState({dayError: apiError(503, API_ERROR_CODES.featureDisabled), hasContent: true})
+      )
+
+      expect(outcome).toEqual({
+        placeholder: 'none',
+        failure: {source: 'day', recovery: 'exitToPlanTab'},
+        isSavedCopy: false,
+        isWriteUnconfirmed: true
+      })
     })
   })
 

@@ -1,4 +1,5 @@
 import {MacroTargetsResponse, MacroTotalsResponse} from '@queries/api/macros/decoder/MacrosDecoder'
+import CrashUtility, {describeDecodeFailure} from '@utility/CrashUtility'
 import {isLeft, isRight} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 
@@ -22,6 +23,11 @@ import {
   TargetsResponse,
   TargetsSaveResponse
 } from '../decoder/MealPlanningDecoder'
+
+// The native Crashlytics module does not exist under Jest, and the canary below reaches the real reporting
+// boundary rather than a copy of it. `jest.mock` is hoisted above every import here, so CrashUtility loads
+// against the fake.
+jest.mock('@react-native-firebase/crashlytics', () => ({__esModule: true, default: () => ({recordError: jest.fn()})}))
 
 const decodeRight = <A>(codec: io.Decoder<unknown, A>, input: unknown): A => {
   const decoded = codec.decode(input)
@@ -825,10 +831,133 @@ describe('MealPlanResponse', () => {
       expect(plan.hasIncompatibilities).toBe(false)
     })
   })
+
+  // `generationKey` is not one of the members the contract declares (0.5.2), so requiring it would refuse a
+  // conforming plan response — a whole week of meals lost over a member nothing promised. It is decoded as an
+  // extra instead: present when this server sends it, and simply absent otherwise.
+  describe('the additive generation key', () => {
+    it('accepts a plan that carries no generation key, and every other member with it', () => {
+      const contractOnly = withoutMember(makePlan(), 'generationKey')
+
+      expectAccepted(MealPlanResponse, contractOnly)
+
+      const plan = decodeRight(MealPlanResponse, contractOnly)
+
+      expect(plan.generationKey).toBeUndefined()
+      expect(plan.id).toBe('plan-1')
+      expect(plan.days[0].meals).toHaveLength(2)
+    })
+
+    it('carries the key through when it is sent, and admits an explicit null', () => {
+      expect(decodeRight(MealPlanResponse, makePlan()).generationKey).toBe('gen-key-1')
+      expect(decodeRight(MealPlanResponse, withMembers(makePlan(), {generationKey: null})).generationKey).toBeNull()
+    })
+
+    // A non-string key could only ever compare false, silently, against the key a screen is holding.
+    it('refuses a key of the wrong type', () => {
+      expectRefused(MealPlanResponse, withMembers(makePlan(), {generationKey: 7}))
+    })
+
+    it('accepts the whole current-plan envelope with neither plan carrying a key', () => {
+      expectAccepted(CurrentMealPlanResponse, {
+        current: withoutMember(makePlan(), 'generationKey'),
+        upcoming: null
+      })
+    })
+  })
 })
 
 // The codec under test here is the one `fetchCurrentMealPlan` passes to httpGet, imported rather than
 // re-declared: a second definition would keep this suite green while production validated something else.
+/**
+ * THE MALFORMED-PLAN CANARY, on the production codec.
+ *
+ * The finding this guards was not that one hand-written codec could leak: it was that ANY response failing
+ * `MealPlanResponse` went through a boundary that serialised io-ts failures, and a plan response is the largest
+ * body this app decodes — a week of meal names, calorie and macro targets, dates, recipe and entry ids. So the
+ * canary drives the real codec with a realistic plan and asserts that nothing in it survives into what the
+ * shared boundary reports (CWE-532). A codec change that tightens a member cannot reintroduce the leak without
+ * failing here.
+ */
+describe('MealPlanResponse decode failures reaching telemetry', () => {
+  // Every value in the fixture that identifies a person's week, flattened. Member NAMES are schema and may be
+  // reported; these are the values.
+  const PLAN_VALUES = [
+    'plan-1',
+    'gen-key-1',
+    'Greek yogurt bowl',
+    'Chicken burrito bowl',
+    'recipe-version-1',
+    'recipe-version-2',
+    'entry-1',
+    '2026-07-05',
+    '2026-07-11',
+    '1940',
+    '146',
+    '194',
+    '1905',
+    '420',
+    'four hundred and twenty'
+  ]
+
+  // A plan that fails deep inside the real codec, the way a server drift would: one nutrition number arrives as
+  // prose, and one target as a string. Everything else is the ordinary fixture.
+  const malformedPlan = (): unknown => {
+    // Narrowed to exactly the two members being corrupted rather than widened to `any`: the fixture stays a
+    // real plan everywhere else, which is the whole point of decoding it through the production codec.
+    const plan = makePlan({
+      days: [makeDay({meals: [makeBreakfastMeal(), makeMeal()]})],
+      targets: makeTotals({calories: 1940, protein: 146, carbs: 194, fat: 65})
+    }) as unknown as {
+      days: {meals: {planned: {calories: unknown}}[]}[]
+      targets: {protein: unknown}
+    }
+
+    plan.days[0].meals[0].planned.calories = 'four hundred and twenty'
+    plan.targets.protein = '146'
+
+    return plan
+  }
+
+  const planFailures = (): io.Errors => {
+    const decoded = MealPlanResponse.decode(malformedPlan())
+
+    if (isRight(decoded)) {
+      throw new Error('expected the malformed plan to fail MealPlanResponse')
+    }
+
+    return decoded.left
+  }
+
+  it('names where the real codec failed, so the report is still actionable', () => {
+    const description = describeDecodeFailure(planFailures())
+
+    expect(description).toContain('days.0.meals.0.planned.calories')
+    expect(description).toContain('expected number')
+  })
+
+  it('reports no value from the plan, at any depth', () => {
+    const description = describeDecodeFailure(planFailures())
+
+    PLAN_VALUES.forEach(value => expect(description).not.toContain(value))
+    expect(description).not.toContain('actual')
+  })
+
+  it('leaks nothing through the shared boundary message — neither the body nor the requested URL', () => {
+    const error = CrashUtility.recordDecodeFailure(
+      'GET',
+      'https://api.example.com/api/meal-planning/plans/3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b/days/2026-07-05',
+      planFailures()
+    )
+
+    expect(error.message).toContain('GET')
+    expect(error.message).toContain('/api/meal-planning/plans/:id/days/:date')
+    expect(error.message).toContain('days.0.meals.0.planned.calories')
+    PLAN_VALUES.forEach(value => expect(error.message).not.toContain(value))
+    expect(error.message).not.toContain('3f2a1b4c')
+  })
+})
+
 describe('CurrentMealPlanResponse', () => {
   const makeUpcomingPlan = (): io.TypeOf<typeof MealPlanResponse> =>
     makePlan({
@@ -939,17 +1068,40 @@ describe('MealPlanDayEnvelopeResponse', () => {
     )
   })
 
-  // The member the gate is read from, so its absence may never be read as "writable": a response without it
-  // is a contract break rather than a default.
-  it('refuses an envelope with no writeability verdict', () => {
-    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'isWritable'))
-    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planLifecycle'))
+  // The contract is `{planId, planRevision, planStatus, day}` (0.5.2) and the two lifecycle members are
+  // additive extras, so a response carrying only the contract has to decode: refusing it would reject a
+  // conforming server outright and leave the screen with no day at all. The verdict is then resolved from
+  // `planStatus` by `convertMealPlanDayEnvelope`, whose own tests cover that fallback.
+  it('accepts an envelope that carries only the four members the contract declares', () => {
+    const contractOnly = withoutMember(withoutMember(makeEnvelope(), 'isWritable'), 'planLifecycle')
+
+    expectAccepted(MealPlanDayEnvelopeResponse, contractOnly)
+
+    const envelope = decodeRight(MealPlanDayEnvelopeResponse, contractOnly)
+
+    expect(envelope.planStatus).toBe('active')
+    expect(envelope.isWritable).toBeUndefined()
+    expect(envelope.planLifecycle).toBeUndefined()
+    expect(envelope.day.meals).toHaveLength(2)
+  })
+
+  it('accepts either extra on its own, and an explicit null for either', () => {
+    expectAccepted(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planLifecycle'))
+    expectAccepted(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'isWritable'))
+    expectAccepted(MealPlanDayEnvelopeResponse, withMembers(makeEnvelope(), {isWritable: null, planLifecycle: null}))
+  })
+
+  // Absent is "no verdict sent"; the wrong type is a malformed one, and admitting it would let a non-boolean
+  // decide a write gate by truthiness.
+  it('refuses an extra of the wrong type', () => {
     expectRefused(MealPlanDayEnvelopeResponse, withMembers(makeEnvelope(), {isWritable: 'true'}))
+    expectRefused(MealPlanDayEnvelopeResponse, withMembers(makeEnvelope(), {planLifecycle: 3}))
   })
 
   it('refuses an envelope missing the plan facts a write pins itself to', () => {
     expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planId'))
     expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planRevision'))
+    expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'planStatus'))
     expectRefused(MealPlanDayEnvelopeResponse, withoutMember(makeEnvelope(), 'day'))
   })
 })

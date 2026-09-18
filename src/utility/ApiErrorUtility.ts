@@ -97,6 +97,37 @@ export function isFeatureDisabledError(error: unknown): boolean {
   return getApiErrorCode(error) === API_ERROR_CODES.featureDisabled
 }
 
+// The one status the capability signal is defined on. AAP 0.2.5 and 0.7.5 both name it exactly — "503
+// feature_disabled — the explicit capability code a mounted backend returns from any gated route" — and the
+// backend maps its `MealPlanningDisabledError` to that status alone.
+const FEATURE_DISABLED_STATUS = 503
+
+// The capability signal as an *answer* rather than as a string: the server described this attempt's outcome and
+// what it described is a mounted backend with server-side planning off — signal (a) of AAP 0.2.5.
+//
+// THE STATUS IS PART OF THE SIGNAL, not decoration on it. The code alone is not enough, because the same string
+// carried by a different status means something else entirely:
+//
+// - a resource route's `404` is the not-found/not-yours answer of AAP 0.5.2 — which "never distinguishes missing
+//   from not-yours" and is emphatically NOT an unavailability signal — yet a 4xx with any decodable body is
+//   `confirmed`, so a `404 {error: 'feature_disabled'}` shaped by a proxy, a rewritten route or a future handler
+//   would otherwise latch the whole session off one plan day or one recipe the caller simply cannot see;
+// - a gateway `502` whose body happens to echo the code describes nothing about this attempt — it is a
+//   recognised failure code, so `classifyOutcome` calls it confirmed for the generic purposes that exist for
+//   (a keyed write must not promise "nothing changed") — but stopping every gated request in the session over a
+//   failure a second attempt would have resolved is the opposite of what the latch is for.
+//
+// So this predicate is narrower than `classifyOutcome` on purpose, and deliberately does not consult it: at 503
+// with a decodable code the outcome is confirmed by construction (a 5xx carrying a recognised failure code), so
+// adding that call would assert nothing while implying the status test were optional.
+//
+// One definition, because two readers depend on it and they must never disagree about when the capability is
+// off: the meal-planning entitlement, which turns this into the session's unavailable verdict, and the gated
+// screens, whose own recovery for it is to leave for the tab that states it.
+export function isConfirmedFeatureDisabledError(error: unknown): boolean {
+  return getApiErrorStatus(error) === FEATURE_DISABLED_STATUS && isFeatureDisabledError(error)
+}
+
 // The two codes that say the plan an attempt named is not the plan the server holds. Declared beside the rest
 // of the classification for the same reason `isFeatureDisabledError` is: the swap screen, the generating screen
 // and the Macros entitlement all read this exact pair, and three hand-rolled comparisons would be free to drift
@@ -147,10 +178,11 @@ export function isPlanReadInvalidatedError(error: unknown): boolean {
 // reported the capability off, and both have an authoritative next move (0.2.5) — the stale-plan toast with a
 // plan refetch, or the unavailable card the entitlement router draws from this very signal.
 //
-// Composed from `isConfirmedPlanStateError` rather than repeating its test, so the narrower predicate the plan
-// screens use and the wider one the entitlement router uses cannot disagree about what "confirmed" means.
+// Composed from the two confirmed predicates rather than repeating either test, so the narrower ones the plan
+// screens and the entitlement use and the wider one a read is redirected on cannot disagree about what
+// "confirmed" means.
 export function isPlanOrCapabilityRefusal(error: unknown): boolean {
-  return isConfirmedPlanStateError(error) || (classifyOutcome(error) === 'confirmed' && isFeatureDisabledError(error))
+  return isConfirmedPlanStateError(error) || isConfirmedFeatureDisabledError(error)
 }
 
 // The code of a confirmed refusal that a same-key retry can never resolve, or null when there is nothing to

@@ -534,14 +534,17 @@ const SwapPreviewScreen = (): React.JSX.Element => {
 
   const errorBlock = (): React.JSX.Element => (
     // The only thing on this screen that appears in response to a failure, so it is announced as one rather
-    // than waiting to be found: the hero and the footer are both absent in this state, and without the live
-    // region a screen reader is left on a screen whose loading status simply stopped.
-    <View style={styles.errorBlock} accessibilityRole="alert" accessibilityLiveRegion="polite">
+    // than waiting to be found: the hero and the footer are both absent in this state, and a screen reader
+    // would otherwise be left on a screen whose loading status simply stopped. `statusRole` is what announces
+    // it — the banner groups its own title and body and speaks them on both platforms, so this wrapper
+    // declares nothing and its "Try again" and "Back to alternatives" stay separately reachable.
+    <View style={styles.errorBlock}>
       <InfoBanner
         tone="error"
         glyph="alert"
         title={MEAL_PLAN_LOAD_ERROR_TITLE}
         body={MEAL_PLAN_LOAD_ERROR_BODY}
+        statusRole="alert"
         actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
         onAction={onRetryPressed}
         secondaryActionLabel={SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT}
@@ -558,7 +561,9 @@ const SwapPreviewScreen = (): React.JSX.Element => {
    * The copy names the wait rather than reusing the unconfirmed-outcome pair, because nothing the user did on
    * THIS meal has failed and there is nothing here for them to retry. No "Try again" is offered either — this
    * screen's mutation is bound to its own plan and meal, so the only honest move is back to the alternatives
-   * while the owning screen replays that key.
+   * while the owning screen replays that key. It takes the same `statusRole` as the failure above for the same
+   * reason: it replaces the commit this screen was opened to make, and a closed CTA nobody announced is the
+   * broken screen it reads as.
    */
   const foreignHoldBlock = (): React.JSX.Element => (
     <View style={styles.errorBlock}>
@@ -567,6 +572,7 @@ const SwapPreviewScreen = (): React.JSX.Element => {
         glyph="alert"
         title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
         body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
+        statusRole="alert"
         secondaryActionLabel={SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT}
         onSecondaryAction={navigation.goBack}
       />

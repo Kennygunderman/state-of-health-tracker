@@ -1,12 +1,12 @@
-import {CatalogFoodSearchResult} from '@data/models/CatalogFood'
+import {CatalogFood, CatalogFoodSearchResult} from '@data/models/CatalogFood'
 import {searchCatalogFoods} from '@queries/api/catalog/searchCatalogFoods'
 import {queryKeys} from '@queries/keys'
+import {QueryClient} from '@tanstack/react-query'
+import {CATALOG_SEARCH_MAX_QUERY_LENGTH, CATALOG_SEARCH_MIN_QUERY_LENGTH} from '@utility/CatalogSearchStateUtility'
 
 import {
   buildCatalogSearchQueryOptions,
   CATALOG_SEARCH_GC_TIME_MS,
-  CATALOG_SEARCH_MAX_PAGES,
-  CATALOG_SEARCH_MIN_QUERY_LENGTH,
   CATALOG_SEARCH_STALE_TIME_MS
 } from '../useCatalogSearchInfiniteQuery.util'
 
@@ -23,6 +23,10 @@ const FIRST_PAGE = 1
 const SECOND_PAGE = 2
 const LAST_PAGE = 3
 const PAGE_LIMIT = 25
+// One more forward fetch than the five-page window this query used to declare, against a result set deeper
+// still, so the sixth fetch is a page the server really answers rather than the end of the results.
+const DEEP_PAGE_COUNT = 6
+const DEEP_LAST_PAGE = 8
 
 type CatalogSearchOptions = ReturnType<typeof buildCatalogSearchQueryOptions>
 
@@ -37,9 +41,40 @@ const resultPage = (page: number, totalPages: number): CatalogFoodSearchResult =
   pagination: {page, limit: PAGE_LIMIT, total: totalPages * PAGE_LIMIT, totalPages}
 })
 
+// The id identifies the page a row arrived on, which is what makes "page 1's rows are still there" an
+// assertion about the rows rather than about the number of pages held.
+const itemId = (page: number): string => `page-${page}-item`
+
+const pageItem = (page: number): CatalogFood => ({
+  id: itemId(page),
+  name: `Chicken breast ${page}`,
+  category: 'protein_poultry',
+  foodState: 'raw',
+  identitySource: 'usda',
+  nutritionProvenance: 'source_backed',
+  nutritionBasis: 'per_100g',
+  basisAmount: 100,
+  calories: 120,
+  protein: 22.5,
+  carbs: 0,
+  fat: 2.6,
+  fiber: 0,
+  defaultPortion: {description: '4 oz', amount: 4, unit: 'oz', gramWeight: 113.4},
+  allergenTags: [],
+  allergenStatus: 'known',
+  foodGroup: 'poultry'
+})
+
+const itemPage = (page: number, totalPages: number): CatalogFoodSearchResult => ({
+  items: [pageItem(page)],
+  pagination: {page, limit: PAGE_LIMIT, total: totalPages * PAGE_LIMIT, totalPages}
+})
+
 describe('buildCatalogSearchQueryOptions', () => {
+  // Reset rather than clear, so the page factory the reachability case installs cannot leak into a case that
+  // only inspects the arguments the request was made with.
   beforeEach(() => {
-    jest.mocked(searchCatalogFoods).mockClear()
+    jest.mocked(searchCatalogFoods).mockReset()
   })
 
   describe('cache identity', () => {
@@ -109,6 +144,38 @@ describe('buildCatalogSearchQueryOptions', () => {
     })
   })
 
+  // The gate is the shared catalog rule, so the upper bound the server enforces disables this query rather
+  // than issuing a request it is certain to refuse with `400 invalid_request`.
+  describe('the maximum query length', () => {
+    it('is the sixty characters the search endpoint accepts', () => {
+      expect(CATALOG_SEARCH_MAX_QUERY_LENGTH).toBe(60)
+    })
+
+    it('enables the query at exactly sixty characters', () => {
+      const options = buildCatalogSearchQueryOptions('c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH))
+
+      expect(options.enabled).toBe(true)
+    })
+
+    it('disables the query at sixty-one characters', () => {
+      const options = buildCatalogSearchQueryOptions('c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH + 1))
+
+      expect(options.enabled).toBe(false)
+    })
+
+    it('enables a sixty-character term typed with surrounding whitespace', () => {
+      const options = buildCatalogSearchQueryOptions(` ${'c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH)} `)
+
+      expect(options.enabled).toBe(true)
+    })
+
+    it('disables the query for a term carrying a control character', () => {
+      const options = buildCatalogSearchQueryOptions('chick\u0000en')
+
+      expect(options.enabled).toBe(false)
+    })
+  })
+
   describe('paging through the result set', () => {
     it('advances to the next page while one remains', () => {
       const options = buildCatalogSearchQueryOptions(SEARCH_QUERY)
@@ -157,30 +224,40 @@ describe('buildCatalogSearchQueryOptions', () => {
       expect(CATALOG_SEARCH_GC_TIME_MS).toBe(FIVE_MINUTES_MS)
       expect(options.gcTime).toBe(FIVE_MINUTES_MS)
     })
+  })
 
-    it('holds at most five pages of one term, so an active search cannot grow without bound', () => {
-      const options = buildCatalogSearchQueryOptions(SEARCH_QUERY)
+  // Exercised against a real QueryClient rather than by reading the options object, because what is being
+  // asserted is what the cache HOLDS after paging: a `maxPages` window would satisfy every option-level
+  // assertion above and still delete the rows of page 1 on the sixth forward fetch, which is the only way
+  // either consumer pages (both call `fetchNextPage` alone).
+  describe('reachability of the rows already fetched', () => {
+    it('still holds the first page after six forward fetches of a longer result set', async () => {
+      jest.mocked(searchCatalogFoods).mockImplementation(async (query, page) => itemPage(page, DEEP_LAST_PAGE))
 
-      expect(CATALOG_SEARCH_MAX_PAGES).toBe(5)
-      expect(options.maxPages).toBe(CATALOG_SEARCH_MAX_PAGES)
-    })
+      const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}})
 
-    // The cap is only safe while what it drops can come back: both screens page strictly forward, so a
-    // dropped leading page would otherwise be rows deleted from a rendered list for good.
-    it('can page backwards, so a page the cap dropped is recoverable', () => {
-      const options = buildCatalogSearchQueryOptions(SEARCH_QUERY)
-      const windowPages = [resultPage(SECOND_PAGE, LAST_PAGE), resultPage(LAST_PAGE, LAST_PAGE)]
+      // Cleared in `finally` so that a failing assertion cannot leave this query's five-minute gcTime timer
+      // holding the jest worker open, which would report the regression as a hang rather than as a failure.
+      try {
+        const data = await queryClient.fetchInfiniteQuery({
+          ...buildCatalogSearchQueryOptions(SEARCH_QUERY),
+          pages: DEEP_PAGE_COUNT
+        })
 
-      expect(options.getPreviousPageParam?.(windowPages[0], windowPages, SECOND_PAGE, [SECOND_PAGE, LAST_PAGE])).toBe(
-        FIRST_PAGE
-      )
-    })
-
-    it('offers no previous page while the first page is still resident', () => {
-      const options = buildCatalogSearchQueryOptions(SEARCH_QUERY)
-      const pages = [resultPage(FIRST_PAGE, LAST_PAGE)]
-
-      expect(options.getPreviousPageParam?.(pages[0], pages, FIRST_PAGE, [FIRST_PAGE])).toBeUndefined()
+        expect(data.pages).toHaveLength(DEEP_PAGE_COUNT)
+        expect(data.pageParams[0]).toBe(FIRST_PAGE)
+        expect(data.pages[0].items.map(item => item.id)).toContain(itemId(FIRST_PAGE))
+        expect(data.pages.flatMap(page => page.items.map(item => item.id))).toEqual([
+          itemId(1),
+          itemId(2),
+          itemId(3),
+          itemId(4),
+          itemId(5),
+          itemId(6)
+        ])
+      } finally {
+        queryClient.clear()
+      }
     })
   })
 })

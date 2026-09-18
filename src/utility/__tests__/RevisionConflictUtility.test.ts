@@ -1,6 +1,7 @@
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
 
 import {
+  authoritativeRefetch,
   buildSaveEstimatedNutritionTargetsPayload,
   buildSaveManualNutritionTargetsPayload,
   resolveStaleRevision
@@ -67,6 +68,52 @@ const freshPreferences = (overrides: Partial<PreferencesShape> = {}): Preference
   noBudgetPreference: false,
   timeZone: 'Pacific/Auckland',
   ...overrides
+})
+
+describe('authoritativeRefetch', () => {
+  it('returns the row a successful refetch answered with', () => {
+    const fresh = freshPreferences()
+
+    expect(authoritativeRefetch({isSuccess: true, data: fresh})).toBe(fresh)
+  })
+
+  it('withholds the retained pre-press row of a failed refetch, so recovery cannot read it as the server answer', () => {
+    const retained = freshPreferences({cookingTimeLimitMin: 30})
+
+    expect(authoritativeRefetch({isSuccess: false, data: retained})).toBeNull()
+  })
+
+  it('withholds a retained row that happens to match the draft, which is the case that would advance a refused save', () => {
+    const draft = {cookingTimeLimitMin: 30}
+    const retained = freshPreferences({cookingTimeLimitMin: 30})
+    const fresh = authoritativeRefetch({isSuccess: false, data: retained})
+
+    expect(fresh).toBeNull()
+    expect(resolveStaleRevision<PreferencesShape>(draft, retained, PREFERENCE_FIELDS)).toEqual({status: 'resolved'})
+  })
+
+  it('returns null for a successful read that holds no row', () => {
+    expect(authoritativeRefetch<PreferencesShape>({isSuccess: true, data: undefined})).toBeNull()
+    expect(authoritativeRefetch<PreferencesShape>({isSuccess: true})).toBeNull()
+  })
+
+  it('returns null for a failure that never answered at all', () => {
+    expect(authoritativeRefetch<PreferencesShape>({isSuccess: false})).toBeNull()
+  })
+
+  it('reads the status rather than the data, so a row is never trusted on its presence alone', () => {
+    const fresh = freshPreferences()
+
+    expect(authoritativeRefetch({isSuccess: true, data: fresh})).not.toBeNull()
+    expect(authoritativeRefetch({isSuccess: false, data: fresh})).toBeNull()
+  })
+
+  it('serves a targets read as well as a preferences one', () => {
+    const targets: TargetsShape = {...VALUES}
+
+    expect(authoritativeRefetch({isSuccess: true, data: targets})).toBe(targets)
+    expect(authoritativeRefetch({isSuccess: false, data: targets})).toBeNull()
+  })
 })
 
 describe('resolveStaleRevision', () => {

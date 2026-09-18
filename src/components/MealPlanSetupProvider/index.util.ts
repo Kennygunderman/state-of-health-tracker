@@ -13,6 +13,9 @@ import {
   TargetRoute
 } from '@data/models/MealPlanPreferences'
 import {MealSlot} from '@data/models/Recipe'
+// The bound on the dislikes answer is shared with the two screens that build it, so it lives in
+// `src/utility` rather than here (Rule mobile-helper-functions' cross-tree case).
+import {refusesDislikeSelection} from '@utility/DislikeSelectionUtility'
 
 type EditablePreferences = Required<MealPlanPreferencesUpdate>
 
@@ -406,11 +409,19 @@ export const toggleDislikedFoodId = (state: MealPlanSetupDraftState, foodId: str
   const current = state.draft.dislikedFoodIds
   const dislikedFoodIds = current.includes(foodId) ? current.filter(value => value !== foodId) : [...current, foodId]
 
-  return setStepFields(state, 'dislikes', {dislikedFoodIds})
+  // The state itself and not a copy of it, so a refused tap re-renders nothing and reports no edit.
+  return refusesDislikeSelection(dislikedFoodIds, current) ? state : setStepFields(state, 'dislikes', {dislikedFoodIds})
 }
 
-export const setDislikedFoodIds = (state: MealPlanSetupDraftState, foodIds: string[]): MealPlanSetupDraftState =>
-  setStepFields(state, 'dislikes', {dislikedFoodIds: dedupe(foodIds)})
+export const setDislikedFoodIds = (state: MealPlanSetupDraftState, foodIds: string[]): MealPlanSetupDraftState => {
+  const dislikedFoodIds = dedupe(foodIds)
+
+  // Judged after de-duplication, exactly as the server judges it, and refused whole: keeping the first
+  // hundred of a larger set would store an answer the user never chose.
+  return refusesDislikeSelection(dislikedFoodIds, state.draft.dislikedFoodIds)
+    ? state
+    : setStepFields(state, 'dislikes', {dislikedFoodIds})
+}
 
 const withDislikeLabels = (
   state: MealPlanSetupDraftState,
@@ -425,7 +436,13 @@ const withDislikeLabels = (
 export const toggleDislikedFood = (
   state: MealPlanSetupDraftState,
   food: DislikedFoodSummary
-): MealPlanSetupDraftState => withDislikeLabels(toggleDislikedFoodId(state, food.id), [food])
+): MealPlanSetupDraftState => {
+  const toggled = toggleDislikedFoodId(state, food.id)
+
+  // An addition the cap refused returns the same state object, and records no name either: a name for a
+  // food the step did not take would put a chip on 06 for a selection that does not exist.
+  return toggled === state ? state : withDislikeLabels(toggled, [food])
+}
 
 // What the food-search screen shows: the step's answer with the visit's difference applied, or the answer
 // itself before a visit has been opened — which is what lets that screen render on its first frame.
@@ -475,7 +492,11 @@ export const toggleStagedDislike = (
   const {selection} = stagedDislikes(state)
   const desired = selection.includes(food.id) ? selection.filter(id => id !== food.id) : [...selection, food.id]
 
-  return stageSelection(state, desired, {...visitLabels(state), ...toDislikeLabels([food])})
+  // Refused at the tap rather than at Done, so the row stays unselected and the visit never carries a
+  // selection the step's own save would be refused for. The name is not recorded for a refused addition.
+  return refusesDislikeSelection(desired, selection)
+    ? state
+    : stageSelection(state, desired, {...visitLabels(state), ...toDislikeLabels([food])})
 }
 
 // Removal is by id, because the ✕ on a staged chip carries no more than that — and it needs no more: the
@@ -496,16 +517,25 @@ export const clearStagedDislikes = (state: MealPlanSetupDraftState): MealPlanSet
 // search screen discards it, so the step is marked edited here and nowhere else — and not even here when
 // the visit ends on the selection it started from, because an unchanged answer is not an edit.
 export const commitDislikeStaging = (state: MealPlanSetupDraftState): MealPlanSetupDraftState => {
-  if (state.dislikeStaging === null) {
+  const delta = state.dislikeStaging
+
+  if (delta === null) {
     return state
   }
 
   const {selection, labels} = stagedDislikes(state)
   const committed = {...state, dislikeLabels: labels, dislikeStaging: null}
   const answered = state.draft.dislikedFoodIds
-  const unchanged = selection.length === answered.length && selection.every(id => answered.includes(id))
+  // Every tap was bounded against the answer as it stood when it landed, and a response arriving mid-visit
+  // can raise that answer underneath the visit — so what Done writes is bounded once more here. The visit's
+  // additions are then refused as a set rather than trimmed to a count nobody chose, while its removals
+  // still apply, so the way back under the bound stays open.
+  const desired = refusesDislikeSelection(selection, answered)
+    ? answered.filter(id => !delta.removed.includes(id))
+    : dedupe(selection)
+  const unchanged = desired.length === answered.length && desired.every(id => answered.includes(id))
 
-  return unchanged ? committed : setStepFields(committed, 'dislikes', {dislikedFoodIds: dedupe(selection)})
+  return unchanged ? committed : setStepFields(committed, 'dislikes', {dislikedFoodIds: desired})
 }
 
 export const discardDislikeStaging = (state: MealPlanSetupDraftState): MealPlanSetupDraftState =>

@@ -17,7 +17,7 @@ documents are right.
 | [1. Screen ↔ Figma map](#1-screen--figma-map)                                                          | Which frame is which screen, and what the frame numbering does not mean |
 | [2. Where the code lives](#2-where-the-code-lives)                                                      | Directory map and the one new module convention                         |
 | [3. Running it locally](#3-running-it-locally)                                                          | Command order, and the two switches that make the feature appear at all |
-| [4. Environment and the API-origin guard](#4-environment-and-the-api-origin-guard)                      | Why a debug build now refuses a production origin                       |
+| [4. Environment and the API-origin guard](#4-environment-and-the-api-origin-guard)                      | Why a debug build refuses production, and how requests are held there   |
 | [5. Typeface](#5-typeface-helvetica-neue-vs-the-platform-default)                                       | A recorded, reversible deviation from Figma                             |
 | [6. Tokens and the style gate](#6-tokens-and-the-style-gate)                                            | New tokens, the literal scan, and three gaps left open                  |
 | [7. Lint: the baseline gate](#7-lint-the-baseline-gate)                                                 | Two commands, and the exit code that is _not_ the gate                  |
@@ -274,6 +274,7 @@ logged, and not on 06b, where one is only being excluded from planning.
 | `src/hooks/mealPlanning/`                                                                                                  | `useMealPlanEntitlement` and `useHomeTabsNavigation`, each with a tested `.util.ts`                                                                                                                                               |
 | `src/utility/`                                                                                                             | Helpers used across trees: `ServingsUtility`, `NutritionFormatUtility`, `UnitConversionUtility`, `MealPlanDateUtility`, `IdempotencyUtility`, `RevisionConflictUtility`, `MealPlanEntitlementUtility`, `MealPlanLifecycleUtility` |
 | `src/data/models/`                                                                                                         | The domain types the converters produce                                                                                                                                                                                           |
+| `src/testSupport/`                                                                                                         | Test infrastructure that Jest loads but must not collect as a suite: `dstTimeZoneEnvironment.ts`, the pinned-zone environment `jest.config.js` binds to `*.dst.test.ts` (see section 3)                                            |
 | `src/styles/`                                                                                                              | Tokens — see section 6                                                                                                                                                                                                            |
 | `src/constants/strings.ts`                                                                                                 | Every fixed string, imported as `@constants/strings`                                                                                                                                                                              |
 
@@ -312,6 +313,20 @@ npm run ios                        # == npx expo run:ios; needs macOS + Xcode
 that is already installed. `npm run android` is `npx expo run:android`. There are no other scripts
 for this feature; nothing was added to `package.json`.
 
+**`npm test` runs two Jest projects, and the second one exists for one reason.** `jest.config.js`
+declares `mobile` — every suite, in the runner's own zone, which is UTC on CI — and `mobile-dst`,
+which runs `src/**/*.dst.test.ts` in `src/testSupport/dstTimeZoneEnvironment.ts`, an environment that
+pins `TZ` to `America/New_York` before the sandbox is built and restores it on teardown. Today that
+is `src/utility/__tests__/MealPlanDateUtility.dst.test.ts`: a zone west of UTC that observes daylight
+saving is the only place where a day-key helper advancing by a fixed 24 hours, or reading
+`yyyy-MM-dd` as a UTC instant, returns the wrong calendar day — in UTC every day is a uniform 24
+hours and both bugs pass. The pairing is deliberately hard to remove quietly: `jest.config.js`
+reaches the environment through `require.resolve`, so a deleted or renamed environment fails the
+whole run instead of letting those files fall back to the runner's zone; the suite names the same
+module in its own `@jest-environment` docblock; and `MealPlanDateUtility.test.ts` asserts that both
+files and that binding are still present. If you are about to simplify this config, that is the
+coverage you are deleting.
+
 ### Two switches decide whether the feature exists
 
 Both default to off. A developer who misses either sees the app exactly as it was before this
@@ -346,8 +361,9 @@ default of `true` and is a kill switch for a live feature, while `meal_planning_
 
 ## 4. Environment and the API-origin guard
 
-A development or test run can no longer reach the production API by omission. Four changes
-together:
+A development or test run can no longer reach the production API by omission. Five changes
+together — four that decide which origin a build may use, and one that holds every individual
+request to it:
 
 **`.env.dist` carries a localhost placeholder.** The tracked template previously held the
 production API URL, so copying it produced a working `.env` pointed at production data. It now
@@ -407,6 +423,38 @@ where no developer-local `.env` exists. Without it, every suite that transitivel
 `Endpoints` would fail the preflight at import time. The isolated missing-origin and
 production-origin cases are covered in `src/__tests__/constants/endpoints.test.ts`, which drives the
 exported predicate directly.
+
+**Every request is held to the configured origin at runtime.** The preflight above settles which
+origin a build may use; it says nothing about where an individual request ends up, and a redirect
+moves exactly that. So `endpoints.ts` also exports `CONFIGURED_API_ORIGIN` and
+`isConfiguredApiOriginUrl(url)` — a strict scheme + host + effective-port comparison against the
+configured origin, never against the non-production allowlist, because a release build legitimately
+runs on production — and `src/service/http/httpRequest.ts` applies it at three points:
+
+- **Before a bearer token is attached.** The request interceptor refuses any URL outside the
+  configured origin. This is the only check that runs before anything leaves the device, so a URL
+  assembled from a hostile parameter never carries a credential.
+- **`maxRedirects: 0` on the instance.** Under Node that would end the matter. Under React Native it
+  is advisory: the XHR adapter delegates to the platform's networking stack, which follows redirects
+  itself and does not consult the option.
+- **On the way back, on both paths.** The fulfilled and the rejected handler each read the final URL
+  the transport reports (`XMLHttpRequest.responseURL`) and refuse the response when it names a host
+  outside the configured origin, recording the escape through `CrashUtility`. The rejected path
+  earns its own guard: a foreign origin answering `401` would otherwise reach the token-refresh
+  interceptor, which would mint a fresh token and replay the request — a second credential sent
+  after the first. The guard runs ahead of that interceptor, so an escaped `401` neither refreshes
+  nor replays.
+
+**What this does not do is prevent the hop.** By the time `responseURL` names a foreign host, the
+platform has already made the request there. Refusing the response, recording it and blocking the
+replay contains the exposure to a single request and makes the escape visible; it does not unsend
+the first credential. Closing that remaining gap needs a transport whose redirect callback the app
+controls — native networking configuration or a config plugin, an `app.json` change and a device
+build — and all three sit outside this feature's scope: no native code, `app.json` is
+reference-only, and no framework or HTTP-adapter upgrade is permitted. It is recorded here as a
+known residual, and the device step that would demonstrate the boundary is in section 10 marked
+**unrun**: neither macOS/Xcode nor an Android SDK was available where this was written, so no build
+could be pointed at a redirecting server.
 
 ---
 
@@ -594,22 +642,39 @@ npx eslint --no-fix -f json . -o /tmp/lint-after.json || true
 node scripts/lint-baseline-compare.mjs docs/lint-baseline.json /tmp/lint-after.json
 ```
 
-Step 1 exits `0` over the 437 changed source files, with `master` resolving to the feature's
+Step 1 exits `0` over the 441 changed source files, with `master` resolving to the feature's
 reference commit `788a36f` (`origin/master` in a fresh clone) — touched files are clean, per the
-styling rule's migrate-on-touch clause. Step 2 exits `0`: `0 new findings`, and all 487 baseline
-paths still on disk are covered by the after report's 861 results.
+styling rule's migrate-on-touch clause. It also exits `0` against the branch's own base `603718ee`
+(443 files), which is the base that pulls the root JavaScript configs into the list; see the next
+paragraph for why that no longer matters. Step 2 exits `0`: `0 new findings`, and all 487 baseline
+paths still on disk are covered by the after report's 863 results.
 
-One caveat about step 1's base, so the result is reproducible rather than surprising. Run it against
-the older `603718ee` instead and the list gains `babel.config.js`, which reports the parse error that
-the baseline already records for it: Expo's own `node_modules/expo/tsconfig.base.json` excludes
-`babel.config.js`, `metro.config.js` and `jest.config.js` from the TypeScript program, so
-project-aware parsing cannot resolve them and reports the whole file instead of linting it.
-All four carry the finding as pre-existing configuration noise, not as anything this feature wrote,
-and each is recorded that way in the baseline. This feature changed no root config at all:
-`babel.config.js`, `metro.config.js`, `.eslintrc.js` and `jest.config.js` are byte-identical to the
-reference commit, and so is `App.tsx` — the app root and the JS toolchain sit outside AAP 0.8.1's
-surface, so a finding of theirs is neutralised by leaving them alone rather than by configuring
-around them.
+Count the list with everything committed. `git diff` against a commit never lists an untracked file,
+so running step 1 over a change that has added files but not staged them silently lints fewer paths
+than it reports — the same failure mode the comparator's coverage check exists to catch in step 2.
+
+**Why the root JavaScript configs would otherwise fail step 1, and the one override that fixes it.**
+Expo's own `node_modules/expo/tsconfig.base.json` excludes `babel.config.js`, `metro.config.js` and
+`jest.config.js` from the TypeScript program, and its wildcard never matches a dotfile such as
+`.eslintrc.js`. `.eslintrc.js` sets `parserOptions.project`, so project-aware parsing cannot resolve
+any of those four: ESLint reports each whole file as a fatal parse error at `0:0` instead of linting
+it, and a changed-file run that includes one of them can never exit `0`. The baseline records all
+four findings as pre-existing configuration noise.
+
+`.eslintrc.js` therefore carries a scoped override — `parserOptions: {project: null}` for
+`.eslintrc.js`, `babel.config.js` and `jest.config.js` — which drops the program for exactly those
+three so ESLint lints them normally. No rule configured in this repository is type-aware, so nothing
+is lost by it. The three now report **no findings at all**, which is why the after-run count below is
+three lower than the baseline's on that account. `metro.config.js` is deliberately left out: this
+feature does not touch it, and linting it would replace its recorded parse error with a
+`@typescript-eslint/no-var-requires` finding — a different finding, which the baseline gate would
+correctly read as new. If you add a fourth root config to that list, lint it first and check the
+comparator, in that order.
+
+Two files in this set are changed by this feature and both are clean under the override:
+`jest.config.js` (the two Jest projects, section 3) and `.eslintrc.js` (this override, plus three
+arrays reformatted to satisfy `prettier/prettier`, which the parse error had been masking).
+`babel.config.js`, `metro.config.js` and `App.tsx` are byte-identical to the reference commit.
 
 > **The full `eslint .` run's own non-zero exit is expected and is not the gate.** ESLint exits `1`
 > while any pre-existing finding remains in an untouched file, which is why step 2 pipes it through
@@ -630,25 +695,26 @@ and it derives the changed-file list itself from the working tree against the ba
 (`603718ee`, recorded in the provenance record) — a report that lints fewer files holds fewer
 findings and would otherwise pass. `--require` overrides that derivation for a caller that already
 has the list; `--project` writes the elided projection described above. Its own behaviour is covered
-by `scripts/__tests__/lint-baseline-compare.test.js`.
+by `scripts/__tests__/lint-baseline-compare.test.ts`.
 
 ### State after this feature
 
-The measured after-run: **861 files linted, 44 findings in 26 files — 31 errors and 13 warnings**,
-and the comparator reports **0 new findings**. The count fell from 49 because five baseline findings
-sat in files this feature touched and were fixed there: `src/constants/endpoints.ts`,
+The measured after-run: **863 files linted, 41 findings in 23 files — 28 errors and 13 warnings**,
+and the comparator reports **0 new findings**. The count fell from 49 by eight. Five baseline
+findings sat in files this feature touched and were fixed there: `src/constants/endpoints.ts`,
 `src/constants/strings.ts`, `src/navigation/HomeTabs.tsx`,
 `src/screens/Macros/components/DailySummaryCard/index.tsx` and
-`src/screens/FoodDetail/index.util.ts`.
+`src/screens/FoodDetail/index.util.ts`. The other three are the parse errors of `.eslintrc.js`,
+`babel.config.js` and `jest.config.js`, which the scoped override above replaced with a normal lint
+of those files — and they report nothing.
 
-Three findings the baseline records are deliberately still here. `App.tsx`, `.eslintrc.js` and
-`jest.config.js` are root files outside AAP 0.8.1's surface, and they are byte-identical to the
-reference commit: the app root's `{flex: 1}` inline style and the two configs' project-aware parse
-errors are the baseline's, left where they are rather than fixed by editing a file this feature has
-no business editing. The comparator is unmoved — a baseline finding is not a new one — which is why
-the count is read beside this note and not on its own.
+Two findings the baseline records are deliberately still here. `App.tsx`'s `{flex: 1}` inline style
+and `metro.config.js`'s project-aware parse error are the baseline's, in files this feature does not
+touch, left where they are rather than fixed by editing them: `metro.config.js` in particular is
+outside the parser override for the reason given above. The comparator is unmoved — a baseline
+finding is not a new one — which is why the count is read beside this note and not on its own.
 
-The 44 that remain, in full, so a later run can be compared file by file rather than by total:
+The 41 that remain, in full, so a later run can be compared file by file rather than by total:
 
 | File                                                              | Findings | Rule(s)                                                                         |
 | ----------------------------------------------------------------- | -------: | ------------------------------------------------------------------------------- |
@@ -661,10 +727,7 @@ The 44 that remain, in full, so a later run can be compared file by file rather 
 | `src/components/Skeleton/index.tsx`                               | 2        | `@typescript-eslint/no-explicit-any`, `react-hooks/exhaustive-deps`             |
 | `src/service/http/httpUtil.ts`                                    | 2        | `@typescript-eslint/no-explicit-any` ×2                                         |
 | `src/utility/ListSwipeItemManager.ts`                             | 2        | `@typescript-eslint/no-explicit-any` ×2                                         |
-| `.eslintrc.js`                                                    | 1        | fatal parsing error                                                             |
 | `App.tsx`                                                         | 1        | `react-native/no-inline-styles`                                                 |
-| `babel.config.js`                                                 | 1        | fatal parsing error                                                             |
-| `jest.config.js`                                                  | 1        | fatal parsing error                                                             |
 | `metro.config.js`                                                 | 1        | fatal parsing error                                                             |
 | `src/components/GlobalBottomSheet/index.tsx`                      | 1        | `@typescript-eslint/no-shadow`                                                  |
 | `src/components/MinimumVersionSheet/__tests__/index.util.test.ts` | 1        | `jest/no-identical-title`                                                       |
@@ -679,18 +742,18 @@ The 44 that remain, in full, so a later run can be compared file by file rather 
 | `src/service/workouts/__tests__/syncWorkoutDay.test.ts`           | 1        | `jest/no-identical-title`                                                       |
 | `src/utility/CrashUtility.ts`                                     | 1        | `@typescript-eslint/no-explicit-any`                                            |
 
-By rule: `@typescript-eslint/no-explicit-any` 13, `@typescript-eslint/no-var-requires` 8, fatal
-parsing errors 4, `react-native/no-inline-styles` 4, `react-hooks/exhaustive-deps` 4,
-`prettier/prettier` 4, `jest/no-identical-title` 2, `@typescript-eslint/ban-ts-comment` 2,
-`react/no-unstable-nested-components` 2, `@typescript-eslint/no-shadow` 1.
+By rule: `@typescript-eslint/no-explicit-any` 13, `@typescript-eslint/no-var-requires` 8,
+`react-native/no-inline-styles` 4, `react-hooks/exhaustive-deps` 4, `prettier/prettier` 4,
+`jest/no-identical-title` 2, `@typescript-eslint/ban-ts-comment` 2,
+`react/no-unstable-nested-components` 2, fatal parsing error 1, `@typescript-eslint/no-shadow` 1.
 
-Every one of those 26 files is byte-identical to the reference commit `788a36f`, so no finding here
-belongs to anything this feature wrote. One of them needs a word of explanation:
-`babel.config.js` matches the reference commit but differs from the branch's own base `603718ee`,
-which predates the commit that trimmed the `react-native-dotenv` allowlist — so it does appear in
-the changed-lintable set the comparator derives against `603718ee`, while carrying a finding nothing
-here wrote. Its finding and those of `metro.config.js`, `.eslintrc.js` and `jest.config.js` are all
-the configuration-level parse error described under the gate above.
+Every one of those 23 files is byte-identical to the reference commit `788a36f`, so no finding here
+belongs to anything this feature wrote. One file needs a word of explanation even though it now
+carries no finding: `babel.config.js` matches the reference commit but differs from the branch's own
+base `603718ee`, which predates the commit that trimmed the `react-native-dotenv` allowlist — so it
+does appear in the changed-lintable set the comparator derives against `603718ee`, and it is in the
+parser override for exactly that reason: a changed file has to be lintable. `metro.config.js`'s
+remaining finding is the configuration-level parse error described under the gate above.
 
 **Fixing findings in files this feature does not touch is out of scope.** The baseline is not
 regenerated to make a change pass; a new finding is fixed in the file that introduced it. A genuine
@@ -728,18 +791,20 @@ pipeline in order to run cannot police the app's build pipeline. They are depend
 that reason, and `scripts/transform-imports.js` is the existing precedent for plain JavaScript in
 this folder.
 
-The comparator's test is `scripts/__tests__/lint-baseline-compare.test.js`, and the extension is
-forced twice over. The file-conventions rule requires the `.test.ts` suffix _because Jest ignores
-anything else_ — and Jest's collection is exactly where `.mjs` fails: `jest-expo`'s preset sets no
-`testMatch`, so Jest's defaults apply (`**/__tests__/**/*.[jt]s?(x)` and
-`**/?(*.)+(spec|test).[tj]s?(x)`), which resolve `.js`, `.jsx`, `.ts` and `.tsx` and **not** `.mjs`.
-A test written as `.test.mjs` would silently never run. `.test.js` is therefore the only extension
-that both satisfies the rule's intent — the runner actually picks the file up — and can import a
-bare-node ESM script; it runs the script as a child process and asserts its exit codes and output.
+The gates' own suite is **`scripts/__tests__/lint-baseline-compare.test.ts`** — TypeScript, like every
+other test in the repository, because nothing about a bare-node gate forces its test into JavaScript.
+The suite never imports either script: it spawns them with `spawnSync(process.execPath, …)` and
+asserts the exit code and the output, which is what a CI step observes, and a child process is
+indifferent to the language the test was written in. Only the extension of the **collected test file**
+has to satisfy Jest: `jest-expo`'s preset sets no `testMatch`, so Jest's defaults apply
+(`**/__tests__/**/*.[jt]s?(x)` and `**/?(*.)+(spec|test).[tj]s?(x)`), which resolve `.js`, `.jsx`,
+`.ts` and `.tsx` and **not** `.mjs` — so a suite written as `.test.mjs` would silently never run,
+while `.test.ts` is collected and type-checked.
 
-Be accurate about the coverage here: **only the comparator has a test.**
-`token-literal-scan.mjs` has none, deliberately — its behaviour is a single classification pass whose
-output the gate itself makes visible on every run.
+Be accurate about the coverage here: **one suite covers both gates.** The comparator's behaviour is
+pinned in full — roots, occurrence counts, fatal messages, unusable input, the tracked artefact — and
+`token-literal-scan.mjs` is covered for its classification rules and its argument contract in the same
+file, because its own specification gives it no suite of its own.
 
 ---
 
@@ -917,6 +982,23 @@ would meet the same forced failure for as long as the process lives.
       stays, the Meal Plan body shows the unavailable card, Add Food **keeps** its Catalog section
       (`/catalog/*` is ungated), and targets on Account, Diary and Progress keep working — no crash
 - [ ] Restore `MEAL_PLANNING_ENABLED=true` before continuing
+
+### API origin containment
+
+This is the one check that needs a second server, and the residual in section 4 is what it measures.
+Point a redirecting HTTP server at your dev origin's port — one that answers any `/api/*` request
+with a `302` to a host you control and can watch — and relaunch the app against it.
+
+- [ ] A request that the redirecting server bounces to the foreign host is **refused by the app**:
+      no decoded response reaches the screen, the failure is recorded, and a `401` from the foreign
+      host produces neither a token refresh nor a replay (watch the foreign host's log: it must see
+      at most the one redirected request, never a second carrying a fresh token)
+- [ ] **Known residual, expected to fail as written:** the foreign host receives that one request.
+      React Native's transport follows the redirect before any JavaScript runs, so this step records
+      the boundary rather than asserting zero requests. Preventing the hop needs the native
+      transport work section 4 scopes and excludes
+- [ ] Restore `SOH_API_BASE_URL` to your real dev origin and confirm the packager line from section 4
+      before continuing
 
 ### Layout and accessibility
 

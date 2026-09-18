@@ -3,6 +3,7 @@ import React, {useCallback, useEffect, useMemo, useRef} from 'react'
 import {FlatList, ListRenderItemInfo, TouchableOpacity, useWindowDimensions, View} from 'react-native'
 
 import type {GroceryItem} from '@data/models/GroceryList'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {GroceryListRouteProp, Navigation} from '@navigation/types'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useGroceryListQuery} from '@queries/mealPlanning/useGroceryListQuery'
@@ -91,7 +92,13 @@ const GroceryListScreen = (): React.JSX.Element => {
   // Opening the list without a plan id means "shop the plan I am on", so the current plan answers for it —
   // and only then. With an id already in hand the read would be a second /plans/current request and a second
   // rollover observer for an answer this screen would never consult, so the hook's own `enabled` turns it off.
-  const currentPlanQuery = useCurrentMealPlanQuery(params.planId === null)
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or a keyed write it
+  // issued — is terminal for a gated screen: no recovery that stays here can succeed, so the guard leaves for
+  // the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure, including a lost
+  // response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
+  const currentPlanQuery = useCurrentMealPlanQuery(params.planId === null && isGatedRequestAllowed)
 
   const currentPlanData = currentPlanQuery.data
   const isCurrentPlanError = currentPlanQuery.isError

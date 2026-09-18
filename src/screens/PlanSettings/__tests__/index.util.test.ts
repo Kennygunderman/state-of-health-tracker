@@ -9,7 +9,9 @@ import {
   PENDING_INTENT_TTL_MS
 } from '@store/mealPlan/useMealPlanStore'
 import {Theme} from '@styles/theme'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {matchesFingerprint, RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
+import {RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
 
 import Screens from '@constants/screens'
 
@@ -30,6 +32,7 @@ import {
   RegenerateLatchEvent,
   RegenerateLaunchInput,
   RegeneratePlanPin,
+  resolvePlanSettingsReadState,
   resolveRegenerateLatch,
   resolveRegenerateLaunch,
   shouldRecalculateTargets,
@@ -1645,6 +1648,42 @@ describe('reconcilePreferencesTimeZone', () => {
 
       expect(Object.keys(deps.savePreferences.mock.calls[0][0]).sort()).toEqual(['expectedRevision', 'timeZone'])
     })
+
+    it('sends only for a name that differs, which is the client half of the endpoint’s edit rule', async () => {
+      // The contract this helper depends on: `PUT /meal-planning/preferences` reads a body carrying only the
+      // envelope as an edit of `time_zone` when the zone DIFFERS from the stored one, and refuses it as
+      // `{field: 'body', code: 'required'}` when it does not. The guard above is the client half of that rule
+      // rather than a local shortcut, and this pins the half the client can establish: the request goes out
+      // only when the two NAMES differ. It is not a guarantee the server will agree — that case is below.
+      // Pinned because nothing else in this module states which bodies the endpoint accepts, and a guard
+      // removed as redundant would start earning 400s on every screen open.
+      const deps = collaborators()
+
+      await run(deps)
+
+      const [sent] = deps.savePreferences.mock.calls[0]
+
+      expect(sent.timeZone).toBe(DEVICE_ZONE)
+      expect(sent.timeZone).not.toBe(STORED_ZONE)
+    })
+
+    it('reports a refusal of an alias-equivalent zone as failed, leaving the stored zone alone', async () => {
+      // The residual case the string comparison cannot see: a stored name that is an ALIAS of the device's
+      // canonicalises to the same zone on the server, so the names differ here, the body is sent, and the
+      // endpoint answers `400 invalid_request` — its "this edits nothing" refusal. That is not
+      // `stale_revision`, so no refetch is attempted and the outcome is `failed`: the zone was not written,
+      // which is the truth this helper can state. It is NOT reported as `already_current`, because
+      // `getApiErrorCode` yields only the machine code and an `invalid_request` answer to this body could
+      // equally be `timeZone: invalid_time_zone` — a real problem that must not be swallowed.
+      const deps = collaborators()
+
+      deps.savePreferences.mockRejectedValueOnce(apiError('invalid_request'))
+
+      await expect(run(deps)).resolves.toBe('failed')
+
+      expect(deps.savePreferences).toHaveBeenCalledTimes(1)
+      expect(deps.refetchPreferences).not.toHaveBeenCalled()
+    })
   })
 
   describe('when the revision is refused', () => {
@@ -1792,5 +1831,253 @@ describe('canSubmitRegeneration', () => {
 
     expect(combinations).toHaveLength(16)
     expect(combinations.filter(canSubmitRegeneration)).toEqual([ready])
+  })
+})
+
+describe('resolvePlanSettingsReadState', () => {
+  const PLAN_ROW = {id: 'plan-1'}
+
+  // The read results TanStack actually hands the screen. `retained` is the shape the findings are about: the
+  // status has flipped to error while the last successful row is still in `data`.
+  const pending = {isSuccess: false, isError: false, error: null}
+  const settled = {isSuccess: true, isError: false, error: null}
+  const failing = (error: unknown): {isSuccess: boolean; isError: boolean; error: unknown} => ({
+    isSuccess: false,
+    isError: true,
+    error
+  })
+  const retained = (error: unknown): {isSuccess: boolean; isError: boolean; error: unknown; data: unknown} => ({
+    ...failing(error),
+    data: PLAN_ROW
+  })
+
+  const TRANSPORT_FAILURE = new Error('Network Error')
+
+  // A gated, resource-less GET answering a bare 404: the route is not mounted, so the backend was rolled back.
+  const ROUTES_MISSING = {isAxiosError: true, response: {status: 404, data: {}}}
+
+  const allSettled = {
+    preferences: settled,
+    targets: settled,
+    currentPlan: settled,
+    hasRoutedPlan: true
+  }
+
+  describe('a read that failed but kept its last row', () => {
+    it('refuses the preferences revision as a pin, retained row and all', () => {
+      // The finding: `preferences === null` was the only test, so this state — a read that has stopped working
+      // with its pre-failure row still in the cache — reported a row, skipped the retry card, rendered the
+      // seven rows as settled answers and left "Regenerate this week" pinning a revision nothing stood behind.
+      const failed = retained(TRANSPORT_FAILURE)
+
+      // The row really is still there, which is exactly why data nullity could not decide this.
+      expect(failed.data).toBe(PLAN_ROW)
+
+      const state = resolvePlanSettingsReadState({...allSettled, preferences: failed})
+
+      expect(state.status).toBe('failed')
+      expect(state.isPreferencesAuthoritative).toBe(false)
+      expect(state.retryPreferences).toBe(true)
+    })
+
+    it('refuses a retained current plan too, so the plan id and revision are never sent unconfirmed', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, currentPlan: retained(TRANSPORT_FAILURE)})
+
+      expect(state.status).toBe('failed')
+      expect(state.retryCurrentPlan).toBe(true)
+    })
+
+    it('refuses a retained targets row, whose revision the regeneration also pins', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, targets: retained(TRANSPORT_FAILURE)})
+
+      expect(state.status).toBe('failed')
+      expect(state.retryTargets).toBe(true)
+    })
+  })
+
+  describe('the current-plan read, which was omitted from this composition', () => {
+    it('holds the body at loading while it is still in flight', () => {
+      // The finding: plan identity, revision, dates and the 16b counts all come from this read alone, so its
+      // absence used to disable regeneration silently beside rows that looked authoritative.
+      expect(resolvePlanSettingsReadState({...allSettled, currentPlan: pending}).status).toBe('loading')
+    })
+
+    it('puts the body in the retry state when it fails, so the disabled control is explained', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, currentPlan: failing(TRANSPORT_FAILURE)})
+
+      expect(state.status).toBe('failed')
+      expect(state.retryCurrentPlan).toBe(true)
+    })
+  })
+
+  describe('the routed plan itself', () => {
+    it('reports it gone for a successful envelope that omits it', () => {
+      // A `{current, upcoming}` answer that holds neither slot for `params.planId`: it was superseded by a
+      // regeneration, it ended, or the week rolled over. The read succeeded, so this is not a failure and no
+      // retry could bring the plan back — the screen leaves with the stale-plan toast instead of keeping a
+      // Regenerate action that can never be pressed.
+      const state = resolvePlanSettingsReadState({...allSettled, hasRoutedPlan: false})
+
+      expect(state.status).toBe('ready')
+      expect(state.isRoutedPlanMissing).toBe(true)
+      // Not offered as a retry: the answer was correct, so re-requesting it would change nothing.
+      expect(state.retryCurrentPlan).toBe(false)
+    })
+
+    it('reports it present for an envelope that holds it', () => {
+      expect(resolvePlanSettingsReadState(allSettled).isRoutedPlanMissing).toBe(false)
+    })
+
+    it('never reports it gone before the read has answered', () => {
+      // A read in flight carries no plan either, and calling that "your plan changed" would be a claim the
+      // read has not made — and it would navigate the user off a screen that is merely still loading.
+      const state = resolvePlanSettingsReadState({...allSettled, currentPlan: pending, hasRoutedPlan: false})
+
+      expect(state.status).toBe('loading')
+      expect(state.isRoutedPlanMissing).toBe(false)
+    })
+
+    it('never reports it gone on a read that failed while keeping its last row', () => {
+      const state = resolvePlanSettingsReadState({
+        ...allSettled,
+        currentPlan: retained(TRANSPORT_FAILURE),
+        hasRoutedPlan: false
+      })
+
+      expect(state.status).toBe('failed')
+      expect(state.isRoutedPlanMissing).toBe(false)
+      expect(state.retryCurrentPlan).toBe(true)
+    })
+
+    it('never reports it gone on a capability refusal', () => {
+      const state = resolvePlanSettingsReadState({
+        ...allSettled,
+        currentPlan: failing(ROUTES_MISSING as unknown),
+        hasRoutedPlan: false
+      })
+
+      expect(state.status).toBe('unavailable')
+      expect(state.isRoutedPlanMissing).toBe(false)
+    })
+
+    it('reports it gone independently of another read failing, since that read says nothing about the plan', () => {
+      const state = resolvePlanSettingsReadState({
+        ...allSettled,
+        preferences: failing(TRANSPORT_FAILURE),
+        hasRoutedPlan: false
+      })
+
+      expect(state.status).toBe('failed')
+      expect(state.isRoutedPlanMissing).toBe(true)
+    })
+  })
+
+  describe('answers that are not failures', () => {
+    it.each([
+      ['the typed routes-missing error', new RoutesMissingError('/meal-planning/targets') as unknown],
+      ['a bare 404 from the targets route', ROUTES_MISSING as unknown]
+    ])('keeps the rows rendering when the targets read answers with %s', (_label, error) => {
+      // AAP 0.7.5: a rolled-back targets route means the rows fall back to the local target exactly as they do
+      // for a user who never opted in — and a retry could not change that answer, so none is offered.
+      const state = resolvePlanSettingsReadState({...allSettled, targets: failing(error)})
+
+      expect(state.status).toBe('ready')
+      expect(state.retryTargets).toBe(false)
+    })
+
+    it('still withholds nothing from the preferences pin when only the targets route is gone', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, targets: failing(ROUTES_MISSING as unknown)})
+
+      expect(state.isPreferencesAuthoritative).toBe(true)
+    })
+  })
+
+  describe('capability refusals, which no retry can change', () => {
+    it.each([
+      ['a bare 404, meaning the routes are not mounted', ROUTES_MISSING as unknown],
+      ['a confirmed 503 feature_disabled', apiError(API_ERROR_CODES.featureDisabled, 503)]
+    ])('reports the preferences read answering %s as unavailable', (_label, error) => {
+      const state = resolvePlanSettingsReadState({...allSettled, preferences: failing(error)})
+
+      expect(state.status).toBe('unavailable')
+      expect(state.retryPreferences).toBe(false)
+      expect(state.isPreferencesAuthoritative).toBe(false)
+    })
+
+    it('reports the same for the current-plan read', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, currentPlan: failing(ROUTES_MISSING as unknown)})
+
+      expect(state.status).toBe('unavailable')
+      expect(state.retryCurrentPlan).toBe(false)
+    })
+
+    it('outranks a retryable failure elsewhere, because the retry could not restore the feature', () => {
+      const state = resolvePlanSettingsReadState({
+        ...allSettled,
+        preferences: failing(ROUTES_MISSING as unknown),
+        currentPlan: failing(TRANSPORT_FAILURE)
+      })
+
+      expect(state.status).toBe('unavailable')
+    })
+  })
+
+  describe('a retry', () => {
+    it('names exactly the reads that failed', () => {
+      const state = resolvePlanSettingsReadState({
+        preferences: failing(TRANSPORT_FAILURE),
+        targets: settled,
+        currentPlan: failing(TRANSPORT_FAILURE),
+        hasRoutedPlan: true
+      })
+
+      expect(state.retryPreferences).toBe(true)
+      expect(state.retryTargets).toBe(false)
+      expect(state.retryCurrentPlan).toBe(true)
+    })
+
+    it('names nothing once every read has answered', () => {
+      const state = resolvePlanSettingsReadState(allSettled)
+
+      expect([state.retryPreferences, state.retryTargets, state.retryCurrentPlan]).toEqual([false, false, false])
+    })
+
+    it('names nothing while the reads are still in flight', () => {
+      const state = resolvePlanSettingsReadState({
+        preferences: pending,
+        targets: pending,
+        currentPlan: pending,
+        hasRoutedPlan: false
+      })
+
+      expect(state.status).toBe('loading')
+      expect([state.retryPreferences, state.retryTargets, state.retryCurrentPlan]).toEqual([false, false, false])
+    })
+  })
+
+  describe('the preferences pin, reported separately from the body status', () => {
+    it('survives a current-plan failure, which says nothing about the preferences revision', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, currentPlan: failing(TRANSPORT_FAILURE)})
+
+      expect(state.status).toBe('failed')
+      expect(state.isPreferencesAuthoritative).toBe(true)
+    })
+
+    it('is withheld while the preferences read is still in flight', () => {
+      const state = resolvePlanSettingsReadState({...allSettled, preferences: pending})
+
+      expect(state.isPreferencesAuthoritative).toBe(false)
+    })
+  })
+
+  it('offers the rows once all three reads have answered and the routed plan is there', () => {
+    expect(resolvePlanSettingsReadState(allSettled)).toEqual({
+      status: 'ready',
+      isPreferencesAuthoritative: true,
+      isRoutedPlanMissing: false,
+      retryPreferences: false,
+      retryTargets: false,
+      retryCurrentPlan: false
+    })
   })
 })

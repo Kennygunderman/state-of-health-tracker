@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import {FlatList, ListRenderItemInfo, View} from 'react-native'
+import {AccessibilityInfo, FlatList, ListRenderItemInfo, Platform, View} from 'react-native'
 
 import type {SwapAlternative, SwapMealPayload} from '@data/models/SwapAlternative'
 import {Navigation, SwapMealRouteProp} from '@navigation/types'
@@ -66,8 +66,10 @@ import {
   rendersAlternatives,
   rendersAlternativesGuidance,
   rendersOutcomeRetrySpinner,
+  resolveAlternativesAnnouncement,
   resolveAlternativesRevision,
   resolveAlternativesTrust,
+  resolveAnnouncementGuard,
   resolveBannerSlot,
   resolveOutcomeMemory,
   resolveReplayableSwap,
@@ -86,10 +88,11 @@ import {
 } from './index.util'
 
 /**
- * The alternatives card, as the list's single item. Figma wraps every row in ONE card and separates them with a
- * 1px top border on each row after the first, so the card is what the list renders and the rows are mapped
- * inside it — the shape the grocery list's section cards already take. The key is a constant because the card's
- * identity never changes: a fresh set of alternatives refills the same card rather than replacing it.
+ * The alternatives card, as the list's single item. Frame 13's alternatives card `36:58` holds all four rows, and
+ * AAP 0.2.1's file-wide row rule puts a 1px `#222D26` top stroke inset by the card padding on every list row after
+ * the first — so the card is what the list renders and the rows are mapped inside it, the shape the grocery list's
+ * section cards already take. The key is a constant because the card's identity never changes: a fresh set of
+ * alternatives refills the same card rather than replacing it.
  */
 type AlternativesBlock = {
   key: string
@@ -345,9 +348,6 @@ const SwapMealScreen = (): React.JSX.Element => {
     },
     [onSwapCommitted, swapMutation]
   )
-
-  // 13e's retry sits inside the error banner rather than navigating. The key and the body it sends are the
-  // orchestration module's answer: the stored key while the request still fingerprints to the intent, and the
 
   // 13e's retry sits inside the error banner rather than navigating. The key and the body it sends are
   // `resolveSwapRetryPlan`'s answer: the stored key while the request still fingerprints to the intent, and the
@@ -637,6 +637,30 @@ const SwapMealScreen = (): React.JSX.Element => {
     count: listedAlternatives.length
   })
 
+  // The resolution of 13c's wait, in the two cases that are not banners: the rows that arrived, or 13d's card.
+  const alternativesAnnouncement = resolveAlternativesAnnouncement({
+    viewKind: view.kind,
+    listedCount: listedAlternatives.length,
+    slot: currentMeal?.slot ?? null
+  })
+
+  const announcedAlternatives = useRef<string | null>(null)
+
+  useEffect(() => {
+    // Both resolutions carry `accessibilityLiveRegion="polite"`, which RN 0.86 implements on Android only, so
+    // VoiceOver is told here and only here — Android keeps its live region rather than being told twice. What
+    // counts as new is `resolveAnnouncementGuard`'s to decide: a refetch that answers with the same rows without
+    // leaving the list says nothing again, while a wait the screen genuinely returns to clears the guard, so the
+    // resolution after it is announced even when its copy repeats.
+    const guard = resolveAnnouncementGuard(alternativesAnnouncement, announcedAlternatives.current)
+
+    announcedAlternatives.current = guard.lastAnnounced
+
+    if (guard.announces !== null && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(guard.announces)
+    }
+  }, [alternativesAnnouncement])
+
   // Frame 13's two explanatory pieces travel together and frame 13e drops both (see index.util).
   const showsGuidance = rendersAlternativesGuidance(view)
 
@@ -681,14 +705,17 @@ const SwapMealScreen = (): React.JSX.Element => {
 
               {banner !== null && bannerSlot === 'aboveTitle' && (
                 // 13e's slot: the outcome of the commit the user just asked for, which is what the screen is
-                // about, so it precedes the title and the card it makes promises about. It is announced as a
-                // failure — `InfoBanner` declares no role of its own, so there is nothing to double up.
-                <View style={styles.errorBannerWrapper} accessibilityRole="alert">
+                // about, so it precedes the title and the card it makes promises about. `statusRole` is what
+                // announces it: the banner groups its own title and body into one alert and speaks the pair on
+                // both platforms, leaving its "Try again" and "Back to alternatives" separately reachable. This
+                // wrapper carries no semantics of its own — it positions the banner and the retry spinner.
+                <View style={styles.errorBannerWrapper}>
                   <InfoBanner
                     tone={banner.tone}
                     glyph={banner.glyph}
                     title={banner.title}
                     body={banner.body}
+                    statusRole="alert"
                     actionLabel={banner.actionLabel}
                     onAction={onBannerAction}
                     isActionPending={isAttemptPending}
@@ -713,13 +740,15 @@ const SwapMealScreen = (): React.JSX.Element => {
                 // list with nothing said about it reads as "no alternatives". The copy names that wait rather
                 // than reusing the unconfirmed-outcome pair: nothing the user did HERE failed, and telling them
                 // to check their connection would ask for an action that cannot help. It carries no action
-                // either, because only the meal holding the key may replay it.
-                <View style={styles.errorBannerWrapper} accessibilityRole="alert">
+                // either, because only the meal holding the key may replay it. `statusRole` is what announces
+                // it on both platforms — a wait the rows disappeared for must not be left to be found.
+                <View style={styles.errorBannerWrapper}>
                   <InfoBanner
                     tone="error"
                     glyph="alert"
                     title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
                     body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
+                    statusRole="alert"
                   />
                 </View>
               )}
@@ -769,17 +798,17 @@ const SwapMealScreen = (): React.JSX.Element => {
             <>
               {banner !== null && bannerSlot === 'alternatives' && (
                 // The alternatives area, below the title and the current-meal card that both stay (0.2.5): a
-                // read failed, not the plan. It is announced as a failure and as a live region, because it
-                // replaces content the user was waiting on rather than arriving with the screen.
-                <View
-                  style={styles.alternativesBannerWrapper}
-                  accessibilityRole="alert"
-                  accessibilityLiveRegion="polite">
+                // read failed, not the plan. It replaces content the user was waiting on rather than arriving
+                // with the screen, so it has to be announced — and `statusRole` is where that announcement now
+                // comes from, on both platforms, over the banner's own grouped title and body. This wrapper
+                // declares nothing: a live region around that group would announce the same failure twice.
+                <View style={styles.alternativesBannerWrapper}>
                   <InfoBanner
                     tone={banner.tone}
                     glyph={banner.glyph}
                     title={banner.title}
                     body={banner.body}
+                    statusRole="alert"
                     actionLabel={banner.actionLabel}
                     onAction={onBannerAction}
                     isActionPending={isRetryPending}

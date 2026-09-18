@@ -10,6 +10,7 @@ import type {
   WeightUnitPref
 } from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import type {TargetsReturn} from '@navigation/types'
 import {MealPlanAboutYouRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
@@ -22,7 +23,7 @@ import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {heightUnitPrefFor, weightUnitPrefFor} from '@utility/UnitConversionUtility'
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
@@ -161,11 +162,17 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanAboutYouRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const {
     data: preferencesData,
     isLoading: isLoadingPreferences,
     refetch: refetchPreferences
-  } = useMealPlanPreferencesQuery()
+  } = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const {data: weighInsData} = useWeighInsQuery()
   const {isPending: isSaving, mutateAsync: saveSetupStep} = useSaveSetupStepMutation()
   const {draft, seeded, seedFromPreferences, setStepFields, answerBodySkipped} = useMealPlanSetupDraft()
@@ -283,7 +290,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         // Never retried blindly: equal values mean the write whose response was lost, or the identical edit
         // from another device, already landed, so it resolves silently rather than writing twice.
         const refetched = await refetchPreferences()
-        const fresh = refetched.data ?? null
+        const fresh = authoritativeRefetch(refetched)
 
         if (fresh === null) {
           showToast('error', TOAST_GENERIC_ERROR)
@@ -712,10 +719,13 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
       </ContentColumn>
 
       <SetupFooter>
+        {/* Both actions stay live while the preferences read is in flight: 0.7.4 gives setup one validation
+            rule — the CTA is enabled and validates on press — and reserves disabling for a pending write.
+            Neither handler needs the read to have settled, because each asks for the revision it must name
+            (`preferencesQuery.refetch()`) and reports rather than writing blind when none comes back. */}
         <PrimaryButton
           label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
           isLoading={isSaving}
-          disabled={isLoadingPreferences}
           onPress={onContinuePressed}
           style={styles.ctaHeight}
         />
@@ -723,11 +733,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         {/* Skip is how setup declines the estimate, so setup is where it is offered. An edit opened from a
             Review or Plan settings row is changing one answer, not choosing a target route. */}
         {params.mode !== 'edit' && (
-          <TertiaryTextButton
-            label={MEAL_PLAN_SKIP_BUTTON_TEXT}
-            disabled={isSaving || isLoadingPreferences}
-            onPress={onSkipPressed}
-          />
+          <TertiaryTextButton label={MEAL_PLAN_SKIP_BUTTON_TEXT} disabled={isSaving} onPress={onSkipPressed} />
         )}
       </SetupFooter>
 

@@ -114,6 +114,9 @@ export const Opacity = {
   PRESSED: 0.6,
   PRESSED_SEGMENT: 0.7,
   PRESSED_CTA: 0.5,
+  // Progress's targets-card rows, which press harder than the `PRESSED` default because the whole row is
+  // the control rather than a tile inside one.
+  PRESSED_TARGET_ROW: 0.5,
   HERO_ART: 0.5,
   DISABLED: 0.5,
   CHIP_GLYPH: 0.8

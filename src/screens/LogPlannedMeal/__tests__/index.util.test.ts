@@ -56,6 +56,7 @@ import {
   resolveLogFormValues,
   resolveLogLaunch,
   resolveLogSubmitAffordance,
+  resolveRestoredLogDraft,
   resolveUnresolvedLogIntent,
   resolveViewTarget,
   servingsFieldText,
@@ -120,20 +121,9 @@ const fractionAccessibilityLabel = (glyph: string): string =>
 
 // A second planned meal of the same plan, which is what the single `pendingIntents.log` slot has to keep
 // apart from the first: one unresolved key belongs to exactly one meal.
-
-// A second planned meal of the same plan, which is what the single `pendingIntents.log` slot has to keep
-// apart from the first: one unresolved key belongs to exactly one meal.
 const OTHER_MEAL_ID = 'meal-dinner-thu'
 
-// The plan's Monday-to-Sunday week, the meal planned for Tuesday, and Thursday as the day the user steps it
-// onto: three distinct days, so a decision that confuses the planned day with the selected one cannot pass.
-
-// A day whose rows were all renamed, so no row carries a canonical slot name and every slot has to fall back.
-
 const MINT_LAUNCH: LogLaunchDecision = {kind: 'mint'}
-
-// `planLogAttempt` answers either the one attempt that may leave or the reason none may. Most cases are about
-// the attempt, so the refusal is turned into a failure here rather than into `undefined` assertions.
 
 // `planLogAttempt` answers either the one attempt that may leave or the reason none may. Most cases are about
 // the attempt, so the refusal is turned into a failure here rather than into `undefined` assertions.
@@ -144,12 +134,6 @@ const sentAttempt = (plan: LogAttemptPlan): LogAttempt => {
 
   return plan.attempt
 }
-
-// The unresolved intent as the screen resolves it before deriving anything else: the key an earlier attempt
-// was sent under, and the body it was sent with.
-
-// The unresolved intent as the screen resolves it before deriving anything else: the key an earlier attempt
-// was sent under, and the body it was sent with.
 
 // The unresolved intent as the screen resolves it before deriving anything else: the key an earlier attempt
 // was sent under, and the body it was sent with.
@@ -172,12 +156,6 @@ const replayLaunch = (intent: UnresolvedLogIntent = storedLogIntent()): LogLaunc
   kind: 'replay',
   intent
 })
-
-// An intent recorded for one request, the way the screen records it before the request leaves: the fingerprint
-// is derived from the snapshot, so only a byte-identical request can replay this key.
-
-// An intent recorded for one request, the way the screen records it before the request leaves: the fingerprint
-// is derived from the snapshot, so only a byte-identical request can replay this key.
 
 describe('plannedPortionSnapshot', () => {
   const fullPrecisionPortion = makePlannedPortion({calories: 420.4, protein: 32.5, carbs: 44.6, fat: 11.4})
@@ -769,13 +747,7 @@ const PLAN_ID = 'plan-1'
 
 const MEAL_ID = 'meal-lunch-tue'
 
-// A second planned meal of the same plan, which is what the single `pendingIntents.log` slot has to keep
-// apart from the first: one unresolved key belongs to exactly one meal.
-
 const USER_ID = 'user-1'
-
-// The plan's Monday-to-Sunday week, the meal planned for Tuesday, and Thursday as the day the user steps it
-// onto: three distinct days, so a decision that confuses the planned day with the selected one cannot pass.
 
 // The plan's Monday-to-Sunday week, the meal planned for Tuesday, and Thursday as the day the user steps it
 // onto: three distinct days, so a decision that confuses the planned day with the selected one cannot pass.
@@ -809,8 +781,6 @@ const diaryDay = (): Meal[] => [
 ]
 
 // A day whose rows were all renamed, so no row carries a canonical slot name and every slot has to fall back.
-
-// A day whose rows were all renamed, so no row carries a canonical slot name and every slot has to fall back.
 const renamedDiaryDay = (): Meal[] => [
   diaryMeal({id: 'diary-supper', name: 'Supper', sortOrder: 3}),
   diaryMeal({id: 'diary-brunch', name: 'Brunch', sortOrder: 1}),
@@ -838,9 +808,6 @@ const attemptInputs = (
   mintFreshKey: () => FRESH_KEY,
   ...overrides
 })
-
-// `planLogAttempt` answers either the one attempt that may leave or the reason none may. Most cases are about
-// the attempt, so the refusal is turned into a failure here rather than into `undefined` assertions.
 
 // An intent recorded for one request, the way the screen records it before the request leaves: the fingerprint
 // is derived from the snapshot, so only a byte-identical request can replay this key.
@@ -1577,6 +1544,72 @@ describe('resolveLogFormValues', () => {
       chosenBucketId: 'diary-breakfast',
       isLocked: true
     })
+  })
+})
+
+// The draft the screen keeps in its own state, as opposed to the values it derives. Without this adoption the
+// derived form was the only thing the stored request reached, so the frame after a confirmed refusal retired
+// the intent fell back to one serving, the route's date and no bucket — losing the restored request the user
+// was looking at and about to retry (0.2.5 keeps a failed attempt on screen with its values intact).
+describe('resolveRestoredLogDraft', () => {
+  const draftInputs = (overrides: Partial<Parameters<typeof resolveRestoredLogDraft>[0]> = {}) => ({
+    intent: storedLogIntent(),
+    servings: MIN_SERVINGS,
+    selectedDate: PLANNED_DATE,
+    chosenBucketId: null,
+    ...overrides
+  })
+
+  it('adopts the portion, day and bucket the stored request carries', () => {
+    const stored = storedLogIntent({servings: 2.5, date: STEPPED_DATE, diaryMealId: 'diary-dinner'})
+
+    expect(resolveRestoredLogDraft(draftInputs({intent: stored}))).toEqual({
+      servings: 2.5,
+      selectedDate: STEPPED_DATE,
+      chosenBucketId: 'diary-dinner'
+    })
+  })
+
+  // The adoption has to be idempotent, because the caller applies it from an effect that re-runs on the state
+  // it just wrote: equal values must answer "nothing to do" rather than set them again.
+  it('answers nothing once the draft already equals the stored request', () => {
+    const adopted = draftInputs({
+      intent: storedLogIntent({servings: 2.5, date: STEPPED_DATE, diaryMealId: 'diary-dinner'}),
+      servings: 2.5,
+      selectedDate: STEPPED_DATE,
+      chosenBucketId: 'diary-dinner'
+    })
+
+    expect(resolveRestoredLogDraft(adopted)).toBeNull()
+  })
+
+  it('adopts again while any single member still differs', () => {
+    const storedBucketOnly = draftInputs({
+      intent: storedLogIntent({servings: 1, date: PLANNED_DATE, diaryMealId: 'diary-lunch'}),
+      servings: 1,
+      selectedDate: PLANNED_DATE,
+      chosenBucketId: null
+    })
+
+    expect(resolveRestoredLogDraft(storedBucketOnly)).toEqual({
+      servings: 1,
+      selectedDate: PLANNED_DATE,
+      chosenBucketId: 'diary-lunch'
+    })
+  })
+
+  it('answers nothing when no intent is on record, leaving the draft the user is editing alone', () => {
+    const edited = draftInputs({intent: null, servings: 3, selectedDate: STEPPED_DATE, chosenBucketId: 'diary-dinner'})
+
+    expect(resolveRestoredLogDraft(edited)).toBeNull()
+  })
+
+  // The stored request's date is the DIARY date the user stepped to, which the route's own planned day may not
+  // be: the restored draft has to show that date, or the next attempt would describe a different request.
+  it('adopts a stored diary date that differs from the route date', () => {
+    const steppedIntent = storedLogIntent({date: STEPPED_DATE})
+
+    expect(resolveRestoredLogDraft(draftInputs({intent: steppedIntent}))?.selectedDate).toBe(STEPPED_DATE)
   })
 })
 

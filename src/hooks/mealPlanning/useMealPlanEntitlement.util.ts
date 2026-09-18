@@ -13,26 +13,35 @@
  * every type the same declaration, so there is exactly one policy rather than two that can drift. No *policy*
  * rule may be added here — one implemented in this file would silently override the one under test in
  * `src/utility/__tests__/MealPlanEntitlementUtility.test.ts`. What does belong here, below the re-exports, is
- * the hook's own pure wiring: which reads the hook enables and the session store the hook's instances elect a
- * lead through. Those decide nothing about entitlement — they decide who issues the requests the entitlement
- * already permits — and they are covered by `__tests__/useMealPlanEntitlement.util.test.ts`, whose re-export
- * assertions enumerate exactly the names this file is allowed to add.
+ * the hook's own pure wiring: which reads the hook enables, and which of the app's request keys sit inside the
+ * gating policy. Those decide nothing about entitlement — the first decides who issues the requests the
+ * entitlement already permits, the second only says where a request sits so the utility's one rule can read its
+ * failure — and they are covered by `__tests__/useMealPlanEntitlement.util.test.ts`, whose re-export assertions
+ * enumerate exactly the names this file is allowed to add.
+ *
+ * Nothing in this file is mutable: no module state, no subscriptions, no snapshots. The session's capability
+ * verdict is server-derived truth and lives in the query cache under `queryKeys.mealPlanCapability`, written and
+ * read by the hook beside this file (`mobile-state-management`).
  */
 import {CurrentMealPlans} from '@data/models/MealPlan'
+import {mutationKeys, queryKeys} from '@queries/keys'
 import {
   MealPlanCapabilityLatch,
-  MealPlanCapabilitySignals,
-  mergeMealPlanCapabilityLatch,
-  NO_MEAL_PLAN_CAPABILITY_LATCH
+  MealPlanRequestScope,
+  NO_MEAL_PLAN_REQUEST_SCOPE
 } from '@utility/MealPlanEntitlementUtility'
 
 export {
   deriveMealPlanCapabilitySignals,
+  deriveMealPlanCapabilitySignalsFromRequests,
   httpStatusOf,
   isFeatureDisabledError,
   isRoutesMissingError,
+  latchFromCapabilityRecord,
   mergeMealPlanCapabilityLatch,
+  nextMealPlanCapabilityRecord,
   NO_MEAL_PLAN_CAPABILITY_LATCH,
+  NO_MEAL_PLAN_REQUEST_SCOPE,
   PACKAGED_MEAL_PLANNING_ENABLED,
   resolveMealPlanEntitlement,
   resolveMealPlanningFlagEnabled,
@@ -43,102 +52,113 @@ export type {
   MealPlanAvailability,
   MealPlanCapabilityErrors,
   MealPlanCapabilityLatch,
+  MealPlanCapabilityRecord,
   MealPlanCapabilitySignals,
   MealPlanEntitlement,
   MealPlanEntitlementInputs,
   MealPlanningFlagInputs,
+  MealPlanRequestScope,
+  ObservedMealPlanRequest,
   RemoteConfigFetchStatus,
   RemoteConfigValueSource
 } from '@utility/MealPlanEntitlementUtility'
 
-/** What every mounted instance of the hook reads from the session store. */
-export interface MealPlanEntitlementSessionSnapshot {
-  /** The registered instance elected to drive the gated reads, or `null` while none is mounted. */
-  leadId: number | null
-  capabilityLatch: MealPlanCapabilityLatch
-}
-
 /**
- * The session-scoped state shared by every mounted `useMealPlanEntitlement` instance: which one drives the
- * gated reads, and which capability signals have been seen. A `useSyncExternalStore`-shaped store rather than a
- * Zustand store because nothing outside this hook may read or write it — it is the hook's own bookkeeping, not
- * app state — and because the snapshot has to be identity-stable for React to stop re-rendering on it.
- */
-export interface MealPlanEntitlementSessionStore {
-  subscribe: (listener: () => void) => () => void
-  getSnapshot: () => MealPlanEntitlementSessionSnapshot
-  registerInstance: (id: number) => void
-  releaseInstance: (id: number) => void
-  recordCapabilitySignals: (signals: MealPlanCapabilitySignals) => void
-  resetCapabilityLatch: () => void
-}
-
-/**
- * Builds one session store. A factory rather than a module singleton so the store is testable in isolation and
- * so this file stays pure — the hook module creates the single instance the app uses, and a test creates its
- * own.
+ * The gated query families: every read the server refuses with `503 feature_disabled` while
+ * `MEAL_PLANNING_ENABLED` is off — `/meal-planning/*` except `/meal-planning/targets*`, plus `/recipes/*`
+ * (AAP 0.3.1, 0.5.1). A confirmed refusal from any of them is signal (a) of AAP 0.2.5, which is why the nested
+ * plan, swap, grocery and recipe reads are here and not only the entitlement's own two.
  *
- * The lead is the *smallest* registered id, which makes the election deterministic and gives it the churn
- * profile the hook wants: see the hook for why the ids are handed out in render order.
+ * Built from `queryKeys` rather than from re-typed strings: a renamed key must fail to compile here instead of
+ * silently un-gating a route. `recipeVersion` is the one gated family with no collection key to read the root
+ * from, so its root is taken from a key built with an empty id — only the first segment is ever compared.
  */
-export const createMealPlanEntitlementSessionStore = (): MealPlanEntitlementSessionStore => {
-  const listeners = new Set<() => void>()
-  const registeredIds = new Set<number>()
+const ROOT_SEGMENT_PROBE = ''
 
-  let snapshot: MealPlanEntitlementSessionSnapshot = {
-    leadId: null,
-    capabilityLatch: NO_MEAL_PLAN_CAPABILITY_LATCH
+const GATED_QUERY_ROOTS: ReadonlySet<string> = new Set<string>([
+  queryKeys.mealPlanPreferences[0],
+  queryKeys.mealPlanCurrent[0],
+  queryKeys.mealPlanDayAll[0],
+  queryKeys.swapAlternativesAll[0],
+  queryKeys.swapPreviewAll[0],
+  queryKeys.groceryListAll[0],
+  queryKeys.affectedMealsAll[0],
+  queryKeys.recipeVersion(ROOT_SEGMENT_PROBE)[0]
+])
+
+/**
+ * The three resource-less GETs of AAP 0.2.5 signal (b): a feature-bearing backend answers them with 200 and
+ * null members, so a 404 without a decodable code can only mean a backend rolled back to a build without the
+ * routes (AAP 0.7.5). `nutritionTargets` is a probe and never gated — the rollback it detects takes the targets
+ * route with it, while the server flag never does.
+ */
+const ROUTES_PROBE_QUERY_ROOTS: ReadonlySet<string> = new Set<string>([
+  queryKeys.mealPlanPreferences[0],
+  queryKeys.mealPlanCurrent[0],
+  queryKeys.nutritionTargets[0]
+])
+
+/**
+ * The gated writes: the setup saves and the four keyed actions, all of which the server refuses with
+ * `503 feature_disabled` while the flag is off, so each of them is a producer of signal (a) too.
+ *
+ * `saveNutritionTargets` is deliberately absent, as its read is: `/meal-planning/targets*` is never gated, and
+ * the Diary target editor writes through it while planning is off (AAP 0.3.1, 0.7.5).
+ */
+const GATED_MUTATION_ROOTS: ReadonlySet<string> = new Set<string>([
+  mutationKeys.saveSetupStep[0],
+  mutationKeys.savePreferences[0],
+  mutationKeys.generatePlan[0],
+  mutationKeys.regeneratePlan[0],
+  mutationKeys.swapMeal[0],
+  mutationKeys.toggleGroceryItem[0],
+  mutationKeys.uncheckAllGroceries[0],
+  mutationKeys.logPlannedMeal[0]
+])
+
+// Signal (b) is defined on the three resource-less GETs only (AAP 0.2.5), so the write classification is handed
+// an empty probe set rather than relying on no mutation key ever sharing a read key's root.
+const NO_ROUTES_PROBE_ROOTS: ReadonlySet<string> = new Set<string>()
+
+const scopeForRoot = (
+  root: unknown,
+  gatedRoots: ReadonlySet<string>,
+  probeRoots: ReadonlySet<string>
+): MealPlanRequestScope => {
+  if (typeof root !== 'string') {
+    return NO_MEAL_PLAN_REQUEST_SCOPE
   }
 
-  const electLeadId = (): number | null => {
-    const ids = Array.from(registeredIds)
+  const isGated = gatedRoots.has(root)
+  const isRoutesProbe = probeRoots.has(root)
 
-    return ids.length === 0 ? null : ids.reduce((lowest, id) => (id < lowest ? id : lowest), ids[0])
-  }
-
-  // The snapshot object is replaced only when a member actually changes, so `useSyncExternalStore` compares an
-  // unchanged session by reference and re-renders nobody.
-  const publish = (leadId: number | null, capabilityLatch: MealPlanCapabilityLatch): void => {
-    if (leadId === snapshot.leadId && capabilityLatch === snapshot.capabilityLatch) {
-      return
-    }
-
-    snapshot = {leadId, capabilityLatch}
-
-    listeners.forEach(listener => listener())
-  }
-
-  return {
-    subscribe: (listener: () => void): (() => void) => {
-      listeners.add(listener)
-
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-    getSnapshot: (): MealPlanEntitlementSessionSnapshot => snapshot,
-    registerInstance: (id: number): void => {
-      registeredIds.add(id)
-
-      publish(electLeadId(), snapshot.capabilityLatch)
-    },
-    releaseInstance: (id: number): void => {
-      registeredIds.delete(id)
-
-      publish(electLeadId(), snapshot.capabilityLatch)
-    },
-    recordCapabilitySignals: (signals: MealPlanCapabilitySignals): void => {
-      publish(snapshot.leadId, mergeMealPlanCapabilityLatch(snapshot.capabilityLatch, signals))
-    },
-    resetCapabilityLatch: (): void => {
-      publish(snapshot.leadId, NO_MEAL_PLAN_CAPABILITY_LATCH)
-    }
-  }
+  return isGated || isRoutesProbe ? {isGated, isRoutesProbe} : NO_MEAL_PLAN_REQUEST_SCOPE
 }
+
+/**
+ * Where a query's key sits in the gating policy, classified by its first segment — the family root every key
+ * factory in `@queries/keys` shares, so a plan day, a swap preview or a recipe is recognised whatever
+ * identifiers follow.
+ *
+ * A root this release has never heard of is outside the policy in both directions, which is the safe default:
+ * an unclassified read can neither latch the session nor hide the catalog, and the key-by-key test beside this
+ * file is what makes a newly added meal-planning key fail until it is classified here.
+ */
+export const mealPlanRequestScopeForQueryKey = (queryKey: readonly unknown[]): MealPlanRequestScope =>
+  scopeForRoot(queryKey[0], GATED_QUERY_ROOTS, ROUTES_PROBE_QUERY_ROOTS)
+
+/**
+ * The same classification for a mutation's key, which TanStack leaves optional — an unkeyed mutation is
+ * unidentifiable and therefore outside the policy.
+ *
+ * No mutation is a routes probe: signal (b) is defined on the three resource-less GETs only (AAP 0.2.5), and a
+ * write's 404 carries no such meaning.
+ */
+export const mealPlanRequestScopeForMutationKey = (mutationKey: readonly unknown[] | undefined): MealPlanRequestScope =>
+  scopeForRoot(mutationKey?.[0], GATED_MUTATION_ROOTS, NO_ROUTES_PROBE_ROOTS)
 
 export interface MealPlanEntitlementQueryPlanInputs {
   isFlagEnabled: boolean
-  isLead: boolean
   capabilityLatch: MealPlanCapabilityLatch
   sessionDayKey: string
 }
@@ -153,11 +173,15 @@ export interface MealPlanEntitlementQueryPlan {
 /**
  * Decides which of the hook's reads may run.
  *
- * Three conditions gate the two gated reads, and they are different kinds of thing: the Remote Config flag is
- * the feature's own switch, the latch is a terminal capability verdict already reached this session (AAP 0.2.5 —
- * a disabled or absent route answers a repeat probe identically), and the lead election is the deduplication of
- * AAP 0.7.2's one-observer-per-key intent, since three mounted instances of this hook must not each mount an
- * observer for the same key.
+ * Two conditions gate the two gated reads, and they are different kinds of thing: the Remote Config flag is the
+ * feature's own switch, and the latch is a terminal capability verdict already reached this session (AAP 0.2.5 —
+ * a disabled or absent route answers a repeat probe identically, so the point is not to issue that probe).
+ *
+ * There is deliberately no third condition electing one instance to drive the reads. TanStack dedupes by key,
+ * `staleTime` is 60s app-wide (`src/queries/queryClient.ts`), and the current-plan rollover is an idempotent
+ * invalidate, so however many instances of this hook are mounted they cost at most one deduplicated refetch —
+ * whereas an election is mutable session state that has to live somewhere, and the only honest home for it was a
+ * module global.
  *
  * `targets` is enabled unconditionally and is listed rather than omitted so that "the targets read is never
  * gated" is an asserted fact instead of an absence: `/meal-planning/targets*` is ungated server-side, and
@@ -166,12 +190,11 @@ export interface MealPlanEntitlementQueryPlan {
  */
 export const planMealPlanEntitlementQueries = ({
   isFlagEnabled,
-  isLead,
   capabilityLatch,
   sessionDayKey
 }: MealPlanEntitlementQueryPlanInputs): MealPlanEntitlementQueryPlan => {
   const isLatchedUnavailable = capabilityLatch.isFeatureDisabled || capabilityLatch.areRoutesMissing
-  const enabled = isFlagEnabled && isLead && !isLatchedUnavailable
+  const enabled = isFlagEnabled && !isLatchedUnavailable
 
   return {
     preferences: {enabled},

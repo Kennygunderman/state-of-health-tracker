@@ -1,17 +1,24 @@
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {
   deriveMealPlanCapabilitySignals,
+  deriveMealPlanCapabilitySignalsFromRequests,
   httpStatusOf,
   isFeatureDisabledError,
   isRoutesMissingError,
+  latchFromCapabilityRecord,
   MealPlanCapabilityErrors,
   MealPlanCapabilityLatch,
+  MealPlanCapabilityRecord,
   MealPlanCapabilitySignals,
   MealPlanEntitlement,
   MealPlanEntitlementInputs,
   MealPlanningFlagInputs,
+  MealPlanRequestScope,
   mergeMealPlanCapabilityLatch,
+  nextMealPlanCapabilityRecord,
   NO_MEAL_PLAN_CAPABILITY_LATCH,
+  NO_MEAL_PLAN_REQUEST_SCOPE,
+  ObservedMealPlanRequest,
   PACKAGED_MEAL_PLANNING_ENABLED,
   RemoteConfigFetchStatus,
   RemoteConfigValueSource,
@@ -524,6 +531,178 @@ describe('deriveMealPlanCapabilitySignals', () => {
   })
 })
 
+// The producer every other request reaches the latch through: a setup step save, a nested plan/recipe/grocery
+// read, a keyed write. What decides whether a failure is a signal is the request's place in the gating policy,
+// not the error alone, so each case states a scope and an error together.
+describe('deriveMealPlanCapabilitySignalsFromRequests', () => {
+  const NO_SIGNALS: MealPlanCapabilitySignals = {isFeatureDisabled: false, areRoutesMissing: false}
+
+  const GATED_PROBE: MealPlanRequestScope = {isGated: true, isRoutesProbe: true}
+  const GATED_RESOURCE: MealPlanRequestScope = {isGated: true, isRoutesProbe: false}
+  const UNGATED_PROBE: MealPlanRequestScope = {isGated: false, isRoutesProbe: true}
+
+  const featureDisabledError = makeApiError(503, API_ERROR_CODES.featureDisabled)
+  const bareNotFoundError = makeApiError(404)
+
+  it('reports neither signal for no requests at all', () => {
+    expect(deriveMealPlanCapabilitySignalsFromRequests([])).toEqual(NO_SIGNALS)
+  })
+
+  it('reports neither signal for requests that failed outside the gating policy', () => {
+    const requests: ObservedMealPlanRequest[] = [
+      {...NO_MEAL_PLAN_REQUEST_SCOPE, error: featureDisabledError},
+      {...NO_MEAL_PLAN_REQUEST_SCOPE, error: bareNotFoundError},
+      {...NO_MEAL_PLAN_REQUEST_SCOPE, error: new RoutesMissingError(TARGETS_PATH)}
+    ]
+
+    expect(deriveMealPlanCapabilitySignalsFromRequests(requests)).toEqual(NO_SIGNALS)
+  })
+
+  it('reports neither signal for requests that did not fail', () => {
+    const requests: ObservedMealPlanRequest[] = [
+      {...GATED_PROBE, error: null},
+      {...GATED_RESOURCE, error: undefined},
+      {...UNGATED_PROBE, error: undefined}
+    ]
+
+    expect(deriveMealPlanCapabilitySignalsFromRequests(requests)).toEqual(NO_SIGNALS)
+  })
+
+  // Signal (a) from a gated request that is not one of the entitlement's own three reads — the finding this
+  // producer exists for: a setup step save, a recipe read, a swap commit.
+  it('reports feature_disabled from any gated request, resource route or not', () => {
+    const fromResource = deriveMealPlanCapabilitySignalsFromRequests([{...GATED_RESOURCE, error: featureDisabledError}])
+    const fromProbe = deriveMealPlanCapabilitySignalsFromRequests([{...GATED_PROBE, error: featureDisabledError}])
+
+    expect(fromResource).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+    expect(fromProbe).toEqual({isFeatureDisabled: true, areRoutesMissing: false})
+  })
+
+  // The signal is `503 feature_disabled` exactly (AAP 0.2.5, 0.7.5), and the status is load-bearing here for a
+  // reason that only shows up on a gated RESOURCE route: AAP 0.5.2 makes every 404 from one the
+  // not-found/not-yours answer, so a 404 carrying this code — from a proxy, a rewritten route, a future
+  // handler — must not latch the whole session off one plan day or one recipe the caller cannot see. Any other
+  // 4xx is likewise some other refusal of this request, not a statement about the feature.
+  it('ignores the capability code on a resource 404, which AAP 0.5.2 reserves for not-found/not-yours', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_RESOURCE, error: makeApiError(404, API_ERROR_CODES.featureDisabled)}
+    ])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  it('ignores the capability code on any other 4xx from a gated request', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_RESOURCE, error: makeApiError(403, API_ERROR_CODES.featureDisabled)},
+      {...GATED_PROBE, error: makeApiError(409, API_ERROR_CODES.featureDisabled)}
+    ])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  // A gateway echoing the string describes nothing about the attempt, so latching every gated request in the
+  // session on it would spend the feature on a failure a second attempt would have resolved.
+  it('ignores the capability code on a 5xx that is not the 503 it arrives as', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_RESOURCE, error: makeApiError(502, API_ERROR_CODES.featureDisabled)},
+      {...GATED_PROBE, error: makeApiError(500, API_ERROR_CODES.featureDisabled)}
+    ])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  // And the bare resource 404 itself, which is signal (b) only from one of the three resource-less GETs: from a
+  // gated resource route it is neither signal.
+  it('reports neither signal for a bare 404 from a gated resource route', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([{...GATED_RESOURCE, error: bareNotFoundError}])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  // The ungated exception: `/meal-planning/targets*` and `/catalog/*` are never gated server-side (AAP 0.3.1),
+  // so a `feature_disabled` from them is not a statement about the feature.
+  it('ignores feature_disabled from an ungated request', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([{...UNGATED_PROBE, error: featureDisabledError}])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  // Confirmed-ness is the difference between a refusal and a retry: no response status means nothing described
+  // this attempt, so the code in the body is not an answer about the capability.
+  it('ignores a feature_disabled body that carries no response status', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_RESOURCE, error: {response: {data: {error: API_ERROR_CODES.featureDisabled}}}}
+    ])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  it('reports routes-missing from a bare 404 on a resource-less probe', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([{...UNGATED_PROBE, error: bareNotFoundError}])
+
+    expect(signals).toEqual({isFeatureDisabled: false, areRoutesMissing: true})
+  })
+
+  it('reports routes-missing for the typed RoutesMissingError a probe throws', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_PROBE, error: new RoutesMissingError(TARGETS_PATH)}
+    ])
+
+    expect(signals).toEqual({isFeatureDisabled: false, areRoutesMissing: true})
+  })
+
+  // The resource-route exclusion of AAP 0.5.2, which is why the scope carries two members: a plan-day or recipe
+  // read is gated, but its bare 404 is the not-found/not-yours answer and never unavailability.
+  it('never reports routes-missing from a gated resource route, whose 404 is its not-found answer', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([{...GATED_RESOURCE, error: bareNotFoundError}])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  it('never reports routes-missing from a 404 that carries a decodable code', () => {
+    const signals = deriveMealPlanCapabilitySignalsFromRequests([
+      {...GATED_PROBE, error: makeApiError(404, API_ERROR_CODES.planNotActive)}
+    ])
+
+    expect(signals).toEqual(NO_SIGNALS)
+  })
+
+  it('finds the one request carrying a signal among many that do not', () => {
+    const requests: ObservedMealPlanRequest[] = [
+      {...GATED_PROBE, error: undefined},
+      {...NO_MEAL_PLAN_REQUEST_SCOPE, error: featureDisabledError},
+      {...GATED_RESOURCE, error: makeApiError(409, API_ERROR_CODES.stalePlan)},
+      {...GATED_RESOURCE, error: featureDisabledError},
+      {...UNGATED_PROBE, error: undefined}
+    ]
+
+    expect(deriveMealPlanCapabilitySignalsFromRequests(requests)).toEqual({
+      isFeatureDisabled: true,
+      areRoutesMissing: false
+    })
+  })
+
+  it('reports both signals when separate requests carry one each', () => {
+    const requests: ObservedMealPlanRequest[] = [
+      {...GATED_RESOURCE, error: featureDisabledError},
+      {...UNGATED_PROBE, error: bareNotFoundError}
+    ]
+
+    expect(deriveMealPlanCapabilitySignalsFromRequests(requests)).toEqual({
+      isFeatureDisabled: true,
+      areRoutesMissing: true
+    })
+  })
+
+  // The caller scans the query and mutation caches, so it hands over whatever iterable it has rather than
+  // materializing an array.
+  it('accepts any iterable of requests', () => {
+    const requests = new Set<ObservedMealPlanRequest>([{...GATED_RESOURCE, error: featureDisabledError}])
+
+    expect(deriveMealPlanCapabilitySignalsFromRequests(requests).isFeatureDisabled).toBe(true)
+  })
+})
+
 describe('mergeMealPlanCapabilityLatch', () => {
   const noSignals: MealPlanCapabilitySignals = {isFeatureDisabled: false, areRoutesMissing: false}
 
@@ -583,6 +762,150 @@ describe('mergeMealPlanCapabilityLatch', () => {
 
   it('starts from a latch holding nothing, which is what NO_MEAL_PLAN_CAPABILITY_LATCH is', () => {
     expect(NO_MEAL_PLAN_CAPABILITY_LATCH).toEqual({isFeatureDisabled: false, areRoutesMissing: false})
+  })
+})
+
+// The retention rule as data: what is remembered, under which activation, and what the activation release does
+// to it. The reducer is what replaced the module-level `let` the release used to be guarded by.
+describe('nextMealPlanCapabilityRecord', () => {
+  const FIRST_EPOCH = 1
+  const SECOND_EPOCH = 2
+
+  const noSignals: MealPlanCapabilitySignals = {isFeatureDisabled: false, areRoutesMissing: false}
+  const featureDisabledSignals: MealPlanCapabilitySignals = {isFeatureDisabled: true, areRoutesMissing: false}
+  const routesMissingSignals: MealPlanCapabilitySignals = {isFeatureDisabled: false, areRoutesMissing: true}
+
+  // No record is created for a session that has seen no signal, so the holder stays empty rather than filling
+  // with a "nothing is wrong" entry on every settled read.
+  it('records nothing when there is nothing held and nothing seen', () => {
+    expect(nextMealPlanCapabilityRecord(undefined, FIRST_EPOCH, noSignals)).toBeUndefined()
+  })
+
+  it('records the first signal seen, at the activation it was seen under', () => {
+    const record = nextMealPlanCapabilityRecord(undefined, FIRST_EPOCH, featureDisabledSignals)
+
+    expect(record).toEqual({activationEpoch: FIRST_EPOCH, latch: {isFeatureDisabled: true, areRoutesMissing: false}})
+  })
+
+  it('accumulates a second signal into the record held for the same activation', () => {
+    const first = nextMealPlanCapabilityRecord(undefined, FIRST_EPOCH, featureDisabledSignals)
+    const second = nextMealPlanCapabilityRecord(first, FIRST_EPOCH, routesMissingSignals)
+
+    expect(second).toEqual({activationEpoch: FIRST_EPOCH, latch: {isFeatureDisabled: true, areRoutesMissing: true}})
+  })
+
+  // A read that succeeds after a terminal signal does not unlatch it: the route was not probed again.
+  it('never drops a latched signal the new reading does not carry', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: false}
+    }
+
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, noSignals)).toBe(held)
+  })
+
+  // Identity, not value: the writer writes only when the reference changes, and the write notifies the writer's
+  // own subscription — so an allocating "unchanged" result would be an infinite write loop.
+  it('returns the very same record when the reading changes nothing', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: true}
+    }
+
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, featureDisabledSignals)).toBe(held)
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, routesMissingSignals)).toBe(held)
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, noSignals)).toBe(held)
+  })
+
+  it('returns a new record when a signal is added', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: false}
+    }
+    const next = nextMealPlanCapabilityRecord(held, FIRST_EPOCH, routesMissingSignals)
+
+    expect(next).not.toBe(held)
+    expect(next?.latch).toEqual({isFeatureDisabled: true, areRoutesMissing: true})
+  })
+
+  // The release: a verdict reached before the launch activation settled is dropped by that activation, and the
+  // signal still in hand re-latches in the same reading — which is what makes the release self-correcting.
+  it('releases the held verdict on a new activation and re-merges the signal still in hand', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: true}
+    }
+    const next = nextMealPlanCapabilityRecord(held, SECOND_EPOCH, featureDisabledSignals)
+
+    expect(next).toEqual({activationEpoch: SECOND_EPOCH, latch: {isFeatureDisabled: true, areRoutesMissing: false}})
+  })
+
+  it('clears the held verdict on a new activation whose reading carries no signal', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: false}
+    }
+    const next = nextMealPlanCapabilityRecord(held, SECOND_EPOCH, noSignals)
+
+    expect(next).toEqual({activationEpoch: SECOND_EPOCH, latch: NO_MEAL_PLAN_CAPABILITY_LATCH})
+    expect(next?.latch).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  // The stored epoch is the whole release mechanism: once it has advanced, every further reading under the same
+  // activation accumulates again rather than releasing, however many observers record it.
+  it('releases once per activation, so the next reading under it accumulates', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: true}
+    }
+    const released = nextMealPlanCapabilityRecord(held, SECOND_EPOCH, noSignals)
+    const afterRelease = nextMealPlanCapabilityRecord(released, SECOND_EPOCH, routesMissingSignals)
+
+    expect(afterRelease).toEqual({
+      activationEpoch: SECOND_EPOCH,
+      latch: {isFeatureDisabled: false, areRoutesMissing: true}
+    })
+    expect(nextMealPlanCapabilityRecord(afterRelease, SECOND_EPOCH, noSignals)).toBe(afterRelease)
+  })
+
+  // A reading taken under an earlier activation is stale — its observer has not seen the newer one yet — so it
+  // may add signals but must never release. Two observers allowed to release each other's verdict would
+  // exchange writes without end, because each write notifies the other.
+  it('never releases on a reading taken under an earlier activation', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: SECOND_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: false}
+    }
+
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, noSignals)).toBe(held)
+    expect(nextMealPlanCapabilityRecord(held, FIRST_EPOCH, routesMissingSignals)).toEqual({
+      activationEpoch: SECOND_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: true}
+    })
+  })
+
+  it('leaves the record it was given unmutated', () => {
+    const held: MealPlanCapabilityRecord = {
+      activationEpoch: FIRST_EPOCH,
+      latch: {isFeatureDisabled: true, areRoutesMissing: false}
+    }
+
+    nextMealPlanCapabilityRecord(held, SECOND_EPOCH, routesMissingSignals)
+
+    expect(held).toEqual({activationEpoch: FIRST_EPOCH, latch: {isFeatureDisabled: true, areRoutesMissing: false}})
+  })
+})
+
+describe('latchFromCapabilityRecord', () => {
+  it('reads the empty latch when no verdict has been recorded, by reference', () => {
+    expect(latchFromCapabilityRecord(undefined)).toBe(NO_MEAL_PLAN_CAPABILITY_LATCH)
+  })
+
+  // By reference again: this is the snapshot a `useSyncExternalStore` consumer compares between commits.
+  it('reads the record\u2019s own latch object', () => {
+    const latch: MealPlanCapabilityLatch = {isFeatureDisabled: true, areRoutesMissing: false}
+
+    expect(latchFromCapabilityRecord({activationEpoch: 3, latch})).toBe(latch)
   })
 })
 

@@ -155,6 +155,12 @@ const targetAuthorityDecision = (
  * `'server'` account, which correctly shows its local calorie figure while still editing in the canonical
  * editor. Consumers render `decision.serverCalories ?? localCalories`; the local value is not folded in here,
  * which is what keeps this pure and independent of the store.
+ *
+ * The Diary summary card is the one consumer with a *third* source for the same figure: `GET /macros/:date`
+ * answers with `users.target_calories` embedded, so it can display a target this read has disowned. It applies
+ * this decision to that figure in `@screens/Macros/index.util::resolveAuthoritativeMacroTargets` rather than
+ * rendering the two-term expression above — the rule for a third source belongs beside the surface that has
+ * one, not in this policy.
  */
 export const resolveTargetAuthority = (input: TargetAuthorityInput): TargetAuthorityDecision => {
   if (!input.isAuthed) {

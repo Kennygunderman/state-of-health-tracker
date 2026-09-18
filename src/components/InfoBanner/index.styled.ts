@@ -48,6 +48,11 @@ export default StyleSheet.create({
   containerDisc: {
     minHeight: Sizes.CONTROL
   },
+  // The envelopes below leave transparent inset under the last pill, so the shell gives up that half of its
+  // own bottom padding and the drawn gap under the action row stays the Spacing.SMALL 0.2.3 authors.
+  containerActionRow: {
+    paddingBottom: Spacing.TIGHT
+  },
   neutralBody: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
@@ -95,10 +100,17 @@ export default StyleSheet.create({
     alignItems: 'center',
     columnGap: Spacing.X_SMALL,
     rowGap: Spacing.X_SMALL,
-    paddingTop: Spacing.SMALL
+    paddingTop: Spacing.TIGHT
+  },
+  // `hitSlop` never extends past the parent view's bounds, so a slopped pill flush against this row's edge
+  // was clipped to a 38 pt target. The pressable is this envelope instead — Sizes.TOUCH_TARGET tall with the
+  // pill centred inside it — and the row above gives up the half of the difference it introduces at the top.
+  actionEnvelope: {
+    flexShrink: 1,
+    justifyContent: 'center',
+    minHeight: Sizes.TOUCH_TARGET
   },
   primaryAction: {
-    flexShrink: 1,
     paddingVertical: Spacing.X_SMALL,
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.PILL,
@@ -116,7 +128,6 @@ export default StyleSheet.create({
     color: Theme.colors.white
   },
   secondaryAction: {
-    flexShrink: 1,
     paddingVertical: Spacing.X_SMALL,
     paddingHorizontal: Spacing.SMALL,
     borderRadius: BorderRadius.TILE,

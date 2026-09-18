@@ -97,3 +97,20 @@ export const applyCurrentMealPlanRollover = (
 
   queryClient.invalidateQueries({queryKey: queryKeys.mealPlanCurrent})
 }
+
+/**
+ * Re-reads `{current, upcoming}` on demand, which is the recovery for a caller that has just learned the plan
+ * it holds is no longer the plan — a plan route that contradicted it, or a verdict that refused writes on it.
+ *
+ * It lives in this module because this module owns the current-plan cache entry: `queryKeys.mealPlanCurrent`
+ * is named in one place (see the note in `queries/keys.ts` and the one above `buildCurrentMealPlanQueryOptions`),
+ * so a screen never spells the key out to reach the entry itself.
+ *
+ * A refetch rather than an invalidation, which is the opposite choice from the rollover above and for the
+ * opposite reason: rollover runs under a mounted observer that will act on a stale mark, while this recovery
+ * is asked for by a screen that renders no current-plan observer at all, so marking the entry stale would
+ * leave it unread until something else mounted one.
+ */
+export const refetchCurrentMealPlan = (queryClient: QueryClient): void => {
+  queryClient.refetchQueries({queryKey: queryKeys.mealPlanCurrent})
+}

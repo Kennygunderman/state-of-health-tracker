@@ -1,5 +1,6 @@
-import {MealPlanPreferences, MealTimeEntry} from '@data/models/MealPlanPreferences'
+import {DislikedFoodSummary, MealPlanPreferences, MealTimeEntry} from '@data/models/MealPlanPreferences'
 import {MealSlot} from '@data/models/Recipe'
+import {isDislikeSelectionAtCap, MAX_DISLIKED_FOOD_IDS} from '@utility/DislikeSelectionUtility'
 
 import {
   ALLERGEN_NONE,
@@ -174,6 +175,13 @@ const makeSkippedBodyPreferences = (overrides: Partial<MealPlanPreferences> = {}
     activityLevel: null,
     ...overrides
   })
+
+// A dislike selection of any size the 100-id bound cares about. The ids are generated rather than written
+// out because the reducers validate none of them against a catalog — only how many distinct ones there are.
+const dislikeIds = (count: number): string[] => Array.from({length: count}, (_, index) => `food-${index}`)
+
+const savedDislikedFoods = (count: number): DislikedFoodSummary[] =>
+  dislikeIds(count).map((id, index) => ({id, name: `Food ${index}`, foodGroup: 'other'}))
 
 describe('createEmptyDraft', () => {
   it('preselects nothing, so a first-entry wizard shows no answers', () => {
@@ -369,6 +377,16 @@ describe('seedDraftFromPreferences', () => {
     expect(Object.values(draft).every(value => value !== undefined)).toBe(true)
   })
 
+  // The bound refuses additions; it never trims. A row stored at the server's maximum must therefore seed
+  // whole, and stay editable.
+  it('keeps a stored selection of the full 100 ids, and still removes from it', () => {
+    const seeded = seedDraftFromPreferences(makePreferences({dislikedFoods: savedDislikedFoods(100)}))
+
+    expect(seeded.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+    expect(Object.keys(seeded.dislikeLabels)).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+    expect(toggleDislikedFoodId(seeded, 'food-0').draft.dislikedFoodIds).toHaveLength(99)
+  })
+
   it('does not mutate the preferences it reads', () => {
     const preferences = makePreferences()
     const snapshot = makePreferences()
@@ -558,6 +576,84 @@ describe('toggleDislikedFoodId / setDislikedFoodIds', () => {
     expect(toggled.draft.dislikedFoodIds).not.toBe(state.draft.dislikedFoodIds)
     expect(replaced.draft.dislikedFoodIds).not.toBe(state.draft.dislikedFoodIds)
     expect(toggled.draft).not.toBe(state.draft)
+  })
+
+  // The bound the server applies to this answer, refused here so the app cannot build a selection the
+  // dislikes save is certain to answer 400 `invalid_request` for (AAP 0.5.2).
+  describe('the 100 distinct ids the server accepts', () => {
+    const LATE_FOOD = {id: 'food-late', name: 'Anchovies', foodGroup: 'fish'}
+
+    it('is the bound the server enforces', () => {
+      expect(MAX_DISLIKED_FOOD_IDS).toBe(100)
+    })
+
+    it('takes the addition that fills the last place', () => {
+      const added = toggleDislikedFoodId(makeState({dislikedFoodIds: dislikeIds(99)}), LATE_FOOD.id)
+
+      expect(added.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(added.draft.dislikedFoodIds[99]).toBe(LATE_FOOD.id)
+      expect(added.dirty.dislikes).toBe(true)
+    })
+
+    it('refuses the addition that would pass it, leaving the draft and its dirty flag untouched', () => {
+      const state = makeState({dislikedFoodIds: dislikeIds(MAX_DISLIKED_FOOD_IDS)})
+      const refused = toggleDislikedFoodId(state, LATE_FOOD.id)
+
+      expect(refused).toBe(state)
+      expect(refused.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(refused.dirty.dislikes).toBe(false)
+    })
+
+    it('records no name for a food the bound refused', () => {
+      const state = makeState({dislikedFoodIds: dislikeIds(MAX_DISLIKED_FOOD_IDS)})
+      const refused = toggleDislikedFood(state, LATE_FOOD)
+
+      expect(refused).toBe(state)
+      expect(refused.dislikeLabels[LATE_FOOD.id]).toBeUndefined()
+    })
+
+    it('removes at the cap, and takes the next addition once a place is free', () => {
+      const state = makeState({dislikedFoodIds: dislikeIds(MAX_DISLIKED_FOOD_IDS)})
+      const removed = toggleDislikedFoodId(state, 'food-0')
+      const added = toggleDislikedFoodId(removed, LATE_FOOD.id)
+
+      expect(removed.draft.dislikedFoodIds).toHaveLength(99)
+      expect(removed.draft.dislikedFoodIds).not.toContain('food-0')
+      expect(added.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(added.draft.dislikedFoodIds).toContain(LATE_FOOD.id)
+    })
+
+    it('still deselects an already selected food at the cap', () => {
+      const state = makeState({dislikedFoodIds: dislikeIds(MAX_DISLIKED_FOOD_IDS)})
+
+      expect(toggleDislikedFoodId(state, 'food-99').draft.dislikedFoodIds).not.toContain('food-99')
+    })
+
+    it('accepts a committed set of exactly the cap', () => {
+      const ids = dislikeIds(MAX_DISLIKED_FOOD_IDS)
+
+      expect(setDislikedFoodIds(makeState(), ids).draft.dislikedFoodIds).toEqual(ids)
+    })
+
+    it('accepts a committed set that only passes the cap before de-duplication', () => {
+      const ids = dislikeIds(MAX_DISLIKED_FOOD_IDS)
+
+      expect(setDislikedFoodIds(makeState(), [...ids, 'food-0']).draft.dislikedFoodIds).toEqual(ids)
+    })
+
+    it('refuses a committed set of one distinct id too many rather than keeping the first hundred', () => {
+      const state = makeState({dislikedFoodIds: ['food-mushroom']})
+      const refused = setDislikedFoodIds(state, dislikeIds(MAX_DISLIKED_FOOD_IDS + 1))
+
+      expect(refused).toBe(state)
+      expect(refused.draft.dislikedFoodIds).toEqual(['food-mushroom'])
+      expect(refused.dirty.dislikes).toBe(false)
+    })
+
+    it('reads as at the cap only once the last place is taken', () => {
+      expect(isDislikeSelectionAtCap(dislikeIds(99))).toBe(false)
+      expect(isDislikeSelectionAtCap(dislikeIds(MAX_DISLIKED_FOOD_IDS))).toBe(true)
+    })
   })
 })
 
@@ -1764,6 +1860,96 @@ describe('a food-search visit', () => {
     const reseeded = seedDraftFromPreferences(makePreferences(), staged)
 
     expect(stagedDislikes(reseeded).selection).toEqual(['food-mushroom', 'food-olive', 'food-anchovy'])
+  })
+
+  // A visit is bounded by the same 100 distinct ids the step's own save is, so Done can never present the
+  // server with a selection it refuses.
+  describe('the 100 distinct ids the server accepts', () => {
+    const FOOD_ZERO = {id: 'food-0', name: 'Food 0', foodGroup: 'other'}
+
+    const visitAtCap = (): MealPlanSetupDraftState =>
+      beginDislikeStaging(makeState({dislikedFoodIds: dislikeIds(MAX_DISLIKED_FOOD_IDS)}))
+
+    it('stages the addition that fills the last place, with its name', () => {
+      const staged = toggleStagedDislike(beginDislikeStaging(makeState({dislikedFoodIds: dislikeIds(99)})), ANCHOVY)
+
+      expect(stagedDislikes(staged).selection).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(stagedDislikes(staged).labels['food-anchovy']).toEqual(ANCHOVY)
+    })
+
+    it('refuses a tap that would pass it, staging neither the id nor the name', () => {
+      const opened = visitAtCap()
+      const refused = toggleStagedDislike(opened, ANCHOVY)
+
+      expect(refused).toBe(opened)
+      expect(stagedDislikes(refused).selection).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(stagedDislikes(refused).labels['food-anchovy']).toBeUndefined()
+    })
+
+    it('refuses the tap that passes it once the visit itself has filled the last place', () => {
+      const filled = toggleStagedDislike(beginDislikeStaging(makeState({dislikedFoodIds: dislikeIds(99)})), ANCHOVY)
+      const refused = toggleStagedDislike(filled, MUSHROOM)
+
+      expect(refused).toBe(filled)
+      expect(stagedDislikes(refused).selection).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(stagedDislikes(refused).selection).not.toContain('food-mushroom')
+    })
+
+    it('removes a staged food at the cap, and then takes an addition', () => {
+      const removed = removeStagedDislike(visitAtCap(), 'food-0')
+      const added = toggleStagedDislike(removed, ANCHOVY)
+
+      expect(stagedDislikes(removed).selection).toHaveLength(99)
+      expect(stagedDislikes(added).selection).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(stagedDislikes(added).selection).toContain('food-anchovy')
+    })
+
+    it('still deselects an already staged food at the cap', () => {
+      expect(stagedDislikes(toggleStagedDislike(visitAtCap(), FOOD_ZERO)).selection).not.toContain('food-0')
+    })
+
+    it('empties a staged selection at the cap on Clear all', () => {
+      expect(stagedDislikes(clearStagedDislikes(visitAtCap())).selection).toEqual([])
+    })
+
+    it('commits the full hundred a visit at the cap ends on', () => {
+      const committed = commitDislikeStaging(toggleStagedDislike(removeStagedDislike(visitAtCap(), 'food-0'), ANCHOVY))
+
+      expect(committed.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(committed.draft.dislikedFoodIds).toContain('food-anchovy')
+      expect(committed.dirty.dislikes).toBe(true)
+    })
+
+    // The one path a tap cannot bound: the answer underneath the visit is raised to the cap by a response
+    // landing mid-visit, so what Done would write is larger than either the visit or the answer alone.
+    it('refuses the visit additions the answer raised under it no longer leaves room for', () => {
+      const staged = toggleStagedDislike(beginDislikeStaging(createEmptyDraft()), ANCHOVY)
+      const raised = seedDraftFromPreferences(
+        makePreferences({dislikedFoods: savedDislikedFoods(MAX_DISLIKED_FOOD_IDS)}),
+        staged
+      )
+      const committed = commitDislikeStaging(raised)
+
+      expect(committed.draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+      expect(committed.draft.dislikedFoodIds).not.toContain('food-anchovy')
+      expect(committed.dirty.dislikes).toBe(false)
+      expect(committed.dislikeStaging).toBeNull()
+    })
+
+    it('still applies the removal of a visit whose additions no longer fit', () => {
+      const shortened = removeStagedDislike(beginDislikeStaging(makeState({dislikedFoodIds: dislikeIds(99)})), 'food-0')
+      const staged = toggleStagedDislike(toggleStagedDislike(shortened, ANCHOVY), MUSHROOM)
+      const raised = seedDraftFromPreferences(
+        makePreferences({dislikedFoods: savedDislikedFoods(MAX_DISLIKED_FOOD_IDS)}),
+        staged
+      )
+      const committed = commitDislikeStaging(raised)
+
+      expect(committed.draft.dislikedFoodIds).toHaveLength(99)
+      expect(committed.draft.dislikedFoodIds).not.toContain('food-0')
+      expect(committed.draft.dislikedFoodIds).not.toContain('food-anchovy')
+      expect(committed.dirty.dislikes).toBe(true)
+    })
   })
 })
 

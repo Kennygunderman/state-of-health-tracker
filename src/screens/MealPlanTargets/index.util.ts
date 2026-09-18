@@ -15,7 +15,7 @@ import type {
 } from '@data/models/NutritionTargets'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
 import type {GenerationContext, RootStackParamList} from '@navigation/types'
-import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
+import {API_ERROR_CODES, classifyOutcome, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {
   addDaysToDayKey,
   clampDayKeyToPlan,
@@ -25,6 +25,13 @@ import {
   PlanStartDateBounds,
   planStartDateBounds
 } from '@utility/MealPlanDateUtility'
+import {isRoutesMissingError} from '@utility/MealPlanEntitlementUtility'
+import {
+  classifyMealPlanRead,
+  MealPlanReadState,
+  MealPlanReadStatus,
+  worstMealPlanReadState
+} from '@utility/MealPlanReadStateUtility'
 import {
   confirmedTargetValues,
   formatCalories,
@@ -723,6 +730,114 @@ export const resolveGenerateCtaState = ({
     label: MEAL_PLAN_GENERATE_BUTTON_TEXT,
     isEnabled: !isPending && !awaitsEstimateDecision && !hasReadFailure,
     action: settledBlockedReason === null ? 'generate' : CTA_ACTION_BY_BLOCKED_REASON[settledBlockedReason]
+  }
+}
+
+/**
+ * Whether the estimate read answered that no estimate can be calculated for these inputs, rather than failing
+ * to answer at all.
+ *
+ * Confirmedness is the whole of the distinction, which is why this is not the bare code test: `409
+ * estimate_unavailable` is the server's verdict on the user's own inputs and its drawn recovery is manual
+ * entry (0.2.5), while a 502 whose body happens to carry the same code is an unknown outcome a second attempt
+ * may resolve — sending that user to type targets by hand asks them to replace figures the server never said
+ * it could not calculate.
+ */
+export const isConfirmedEstimateUnavailableError = (error: unknown): boolean =>
+  classifyOutcome(error) === 'confirmed' && getApiErrorCode(error) === API_ERROR_CODES.estimateUnavailable
+
+/** The estimate query result, as much of it as deciding whether to trust its data requires. */
+export interface EstimateRead {
+  isSuccess: boolean
+  data?: NutritionTargetEstimate | undefined
+}
+
+/**
+ * The estimate the card and the press may use: the read's data only while the read itself succeeded.
+ *
+ * The same rule as `authoritativeRefetch` in `@utility/RevisionConflictUtility`, applied to a query result
+ * rather than a refetch, and it matters most in the one estimate error this screen treats as an *answer*.
+ * TanStack keeps the last successful `data` on a result that has since errored, so a confirmed `409
+ * estimate_unavailable` arriving after a good estimate leaves that estimate in the cache. Reading it would
+ * make `resolvePrimaryFigures` report `kind: 'estimate'`, and from there the card renders the stale figures
+ * (its `source !== 'unavailable'` branch is tested before `isEstimateUnavailable`) with a Generate path that
+ * would confirm them — figures the server has just said it cannot calculate, whose drawn recovery is manual
+ * entry (AAP 0.2.5). Returning null instead yields `kind: 'none'`, which keeps `dependsOnEstimate` true so a
+ * generic failure still composes into the read state, leaves `requiresTargetConfirmation` false so no
+ * confirmation payload can be built from a withheld estimate, and lets the unavailable card render.
+ */
+export const authoritativeEstimate = (read: EstimateRead): NutritionTargetEstimate | null =>
+  read.isSuccess ? (read.data ?? null) : null
+
+export interface ReviewReadStateInputs {
+  preferences: MealPlanReadStatus
+  targets: MealPlanReadStatus
+  estimate: MealPlanReadStatus
+  // `GenerateSequencePlan.dependsOnEstimate`: whether the press's outcome still rests on the estimate. False
+  // whenever there is no plan to ask — the plan is derived from the preferences row, and preferences that have
+  // not answered have already decided this screen on their own.
+  dependsOnEstimate: boolean
+}
+
+export interface ReviewReadState {
+  status: MealPlanReadState
+  // Which reads a "Try again" must refetch. Keyed on each read's own state and never on its data, so a retry
+  // offered for a read that has stopped working actually re-requests it, and one that failed nowhere asks for
+  // nothing.
+  retryPreferences: boolean
+  retryTargets: boolean
+  retryEstimate: boolean
+}
+
+/**
+ * What the review screen's three reads have jointly said, and which of them a retry would re-request.
+ *
+ * It replaces a data-nullity test that could not state this. `preferencesQuery.data` survives a refetch that
+ * failed — TanStack keeps the last successful row deliberately — so a read that has *stopped working* still
+ * reported a row, the retry card was skipped, the review rendered as settled state, and the Generate press
+ * went on pinning `expectedPreferencesRevision` from a row the read no longer stands behind. Every state here
+ * is therefore keyed on the read's status, which is the only thing that says what the server answered about
+ * this attempt.
+ *
+ * Each read is classified with the errors it answers for itself, because "the read failed" means something
+ * different for each of the three:
+ *
+ *  - **preferences** — no answered error. `/meal-planning/preferences` is one of the gated, resource-less GETs,
+ *    so its bare 404 and its confirmed `503 feature_disabled` are the capability signals of 0.2.5 and surface
+ *    as `unavailable`: a route that is not mounted, or a capability switched off, answers a repeat probe
+ *    identically forever, so that state states itself and offers no retry.
+ *  - **targets** — `isRoutesMissingError` is an answer, not a failure. A rolled-back targets route means the
+ *    local target stands and the card still renders exactly as it does for a user who never opted in
+ *    (AAP 0.7.5), which is the treatment `selectNutritionTargets` already applies to the same error. This
+ *    reproduces `isNutritionTargetsReadFailure` exactly: everything it calls a failure lands on `failed` or
+ *    `unavailable`, and the routes-missing answer lands on `ready`.
+ *  - **estimate** — a confirmed `409 estimate_unavailable` is an answer with its own drawn card and its own
+ *    recovery into manual entry (0.2.5), so it is `ready` here and the card renders it. Any other estimate
+ *    error is a read that never answered, and it composes in only while `dependsOnEstimate` holds: a review
+ *    leading with the user's confirmed figures must not be blocked by an estimate it never shows.
+ *
+ * The estimate's own `loading` is deliberately dropped from the composition rather than escalated. 0.2.5 gives
+ * that read a card-level skeleton, not a screen-level one — the targets card draws it while the rest of the
+ * review stays on screen — and the press already waits for it through `resolveGenerateCtaState`'s
+ * `isEstimateLoading`. Escalating it would replace an otherwise complete review with a full-screen skeleton
+ * every first visit.
+ */
+export const resolveReviewReadState = ({
+  preferences,
+  targets,
+  estimate,
+  dependsOnEstimate
+}: ReviewReadStateInputs): ReviewReadState => {
+  const preferencesState = classifyMealPlanRead(preferences)
+  const targetsState = classifyMealPlanRead(targets, isRoutesMissingError)
+  const estimateState = classifyMealPlanRead(estimate, isConfirmedEstimateUnavailableError)
+  const composedEstimateState = dependsOnEstimate && estimateState !== 'loading' ? estimateState : 'ready'
+
+  return {
+    status: worstMealPlanReadState([preferencesState, targetsState, composedEstimateState]),
+    retryPreferences: preferencesState === 'failed',
+    retryTargets: targetsState === 'failed',
+    retryEstimate: composedEstimateState === 'failed'
   }
 }
 

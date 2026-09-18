@@ -16,6 +16,7 @@ import {AxiosError, AxiosResponse} from 'axios'
 import {stringWithNamedParameters, SWAP_TITLE_TEMPLATE} from '@constants/strings'
 
 import {
+  AlternativesAnnouncementInput,
   buildMealMetaText,
   buildNoAlternativesBody,
   buildSwapDateLabel,
@@ -31,8 +32,10 @@ import {
   rendersAlternatives,
   rendersAlternativesGuidance,
   rendersOutcomeRetrySpinner,
+  resolveAlternativesAnnouncement,
   resolveAlternativesRevision,
   resolveAlternativesTrust,
+  resolveAnnouncementGuard,
   resolveBannerSlot,
   resolveOutcomeMemory,
   resolveReplayableSwap,
@@ -122,9 +125,6 @@ const plannedMeal = (slot: MealSlot = 'lunch'): MealPlanMeal => ({
   previousRecipe: null,
   loggedEntries: []
 })
-
-// The view the screen is actually holding when a swap commit came back without an answer, derived rather than
-// asserted so the classification stays the util's.
 
 const swapInput = (overrides: Partial<SwapViewInput> = {}): SwapViewInput => ({
   currentMeal: plannedMeal(),
@@ -1886,30 +1886,9 @@ const freshPass = (): ScreenPass => ({
 // The outcome of the first commit fired from the preview screen, and of a second one fired from it later while
 // this screen stayed mounted. Same idempotency key, because the preview re-records the key it replays; different
 // submission, because they are different attempts.
-
-/**
- * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
- * back, refetch the plan day. The retire branch is here on purpose — the screen has none — so that "the intent
- * survives" is an assertion about the decision rather than about this simulator: it would retire the intent the
- * moment the decision allowed it.
- */
-
-// The outcome of the first commit fired from the preview screen, and of a second one fired from it later while
-// this screen stayed mounted. Same idempotency key, because the preview re-records the key it replays; different
-// submission, because they are different attempts.
 const FIRST_ATTEMPT_KEY = unconfirmedRefetchKey(STORED_KEY, NOW)
 
 const SECOND_ATTEMPT_KEY = unconfirmedRefetchKey(STORED_KEY, NOW + 30_000)
-
-/**
- * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
- * back, refetch the current plan and the plan day. The retire branch is here on purpose — the screen has none —
- * so that "the intent survives" is an assertion about the decision rather than about this simulator: it would
- * retire the intent the moment the decision allowed it.
- *
- * The attempt key is a parameter because it is what the screen passes in: the guard is per-attempt, so a pass
- * carrying a later commit's outcome runs the same effect under a different key.
- */
 
 /**
  * The unconfirmed effect of `index.tsx`, step for step: read the guard, ask for the decision, write the guard
@@ -2778,6 +2757,166 @@ describe('resolveSwapInteraction', () => {
       allowsAlternativeSelection: false,
       showsCommitBusyState: false,
       showsForeignHoldNotice: true
+    })
+  })
+})
+
+/**
+ * The two resolutions of 13c's wait that are NOT banners. Every banner announces itself from inside
+ * `InfoBanner`, so this resolver's silence on those states is what keeps a failure from being spoken twice.
+ */
+describe('resolveAlternativesAnnouncement', () => {
+  it('reports how many alternatives arrived', () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'list', listedCount: 4, slot: 'dinner'})).toBe(
+      'Alternatives, 4 found'
+    )
+  })
+
+  it('reports a single alternative in the same sentence', () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'list', listedCount: 1, slot: 'lunch'})).toBe(
+      'Alternatives, 1 found'
+    )
+  })
+
+  // The overline is drawn from the rows, and an unresolved commit holding the swap slot withholds every one of
+  // them: announcing a count over an empty area would report a list the user cannot reach.
+  it('says nothing while the rows are withheld, however many the view carries', () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'list', listedCount: 0, slot: 'dinner'})).toBeNull()
+  })
+
+  it("speaks 13d's headline and the body that qualifies it as one sentence", () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'empty', listedCount: 0, slot: 'lunch'})).toBe(
+      'No alternatives for this slot. Nothing else matches your targets, cooking time, and dislikes for lunch this week.'
+    )
+  })
+
+  // 13d is drawn only with the meal known, and the body names its slot: without one there is no card on screen
+  // and no sentence to speak about it.
+  it('says nothing for an empty result before the meal has decoded', () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'empty', listedCount: 0, slot: null})).toBeNull()
+  })
+
+  it('leaves every banner state to the banner that announces itself', () => {
+    const bannerKinds: SwapView['kind'][] = ['error', 'failed', 'unconfirmed', 'retrying', 'terminal']
+
+    bannerKinds.forEach(viewKind =>
+      expect(resolveAlternativesAnnouncement({viewKind, listedCount: 0, slot: 'dinner'})).toBeNull()
+    )
+  })
+
+  it('says nothing while the outcome is still loading', () => {
+    expect(resolveAlternativesAnnouncement({viewKind: 'loading', listedCount: 0, slot: 'breakfast'})).toBeNull()
+  })
+})
+
+/**
+ * The guard the screen's announcement effect runs, and the sequences that made it necessary.
+ *
+ * Driven as a sequence rather than a set of single calls, because what the guard decides depends on what was
+ * last spoken: the alternatives area genuinely returns to 13c's wait — the query key changes with the
+ * authoritative plan revision, and an unresolved commit withholds every row — and it routinely resolves to the
+ * same copy afterwards. A guard that only compared messages left those second resolutions silent.
+ */
+describe('resolveAnnouncementGuard', () => {
+  // The screen's effect, verbatim: resolve the message, ask the guard, hold what it returns. The effect's
+  // dependency is the message, so a render that recomputes the same string does not re-enter it — modelled here
+  // so the sequences read as the screen behaves.
+  const announcedThrough = (steps: readonly AlternativesAnnouncementInput[]): readonly string[] => {
+    const spoken: string[] = []
+    let lastAnnounced: string | null = null
+    let lastMessage: string | null = null
+    let isFirstStep = true
+
+    steps.forEach(step => {
+      const message = resolveAlternativesAnnouncement(step)
+
+      if (!isFirstStep && message === lastMessage) {
+        return
+      }
+
+      isFirstStep = false
+      lastMessage = message
+
+      const decision = resolveAnnouncementGuard(message, lastAnnounced)
+
+      lastAnnounced = decision.lastAnnounced
+
+      if (decision.announces !== null) {
+        spoken.push(decision.announces)
+      }
+    })
+
+    return spoken
+  }
+
+  const listed = (count: number): AlternativesAnnouncementInput => ({
+    viewKind: 'list',
+    listedCount: count,
+    slot: 'lunch'
+  })
+
+  const waiting: AlternativesAnnouncementInput = {viewKind: 'loading', listedCount: 0, slot: 'lunch'}
+
+  const noResults: AlternativesAnnouncementInput = {viewKind: 'empty', listedCount: 0, slot: 'lunch'}
+
+  it('announces a resolution the screen returns to, even with the count unchanged', () => {
+    expect(announcedThrough([listed(4), waiting, listed(4)])).toEqual([
+      'Alternatives, 4 found',
+      'Alternatives, 4 found'
+    ])
+  })
+
+  it("announces 13d again when the same slot's wait resolves to no results a second time", () => {
+    const sentence =
+      'No alternatives for this slot. Nothing else matches your targets, cooking time, and dislikes for lunch this week.'
+
+    expect(announcedThrough([noResults, waiting, noResults])).toEqual([sentence, sentence])
+  })
+
+  // The withheld case reaches the guard as a null of its own — an unresolved commit owns the swap slot, so no
+  // row is drawn — and the rows that come back are a resolution the user has not been told about yet.
+  it('announces rows restored after a commit withheld them, at the same count', () => {
+    expect(announcedThrough([listed(4), listed(0), listed(4)])).toEqual([
+      'Alternatives, 4 found',
+      'Alternatives, 4 found'
+    ])
+  })
+
+  it('stays silent through a refetch that never leaves the resolved list', () => {
+    expect(announcedThrough([listed(4), listed(4), listed(4)])).toEqual(['Alternatives, 4 found'])
+  })
+
+  it('announces a count that changes without the list going away', () => {
+    expect(announcedThrough([listed(4), listed(3)])).toEqual(['Alternatives, 4 found', 'Alternatives, 3 found'])
+  })
+
+  it('announces copy that differs after a wait, as it always did', () => {
+    expect(announcedThrough([listed(4), waiting, noResults])).toEqual([
+      'Alternatives, 4 found',
+      'No alternatives for this slot. Nothing else matches your targets, cooking time, and dislikes for lunch this week.'
+    ])
+  })
+
+  it('clears what it holds when there is nothing resolved on screen', () => {
+    expect(resolveAnnouncementGuard(null, 'Alternatives, 4 found')).toEqual({
+      announces: null,
+      lastAnnounced: null
+    })
+  })
+
+  // Not only React's dependency check: a StrictMode double-invoke, or a remount that re-enters the effect with
+  // the resolution still on screen, must not repeat it either.
+  it('repeats nothing while the message it last spoke is still the message', () => {
+    expect(resolveAnnouncementGuard('Alternatives, 4 found', 'Alternatives, 4 found')).toEqual({
+      announces: null,
+      lastAnnounced: 'Alternatives, 4 found'
+    })
+  })
+
+  it('speaks a message it has not spoken before and holds it', () => {
+    expect(resolveAnnouncementGuard('Alternatives, 2 found', null)).toEqual({
+      announces: 'Alternatives, 2 found',
+      lastAnnounced: 'Alternatives, 2 found'
     })
   })
 })

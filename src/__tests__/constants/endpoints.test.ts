@@ -4,6 +4,8 @@
 import Endpoints, {
   assertNonProductionApi,
   assertNonProductionApiOrigin,
+  CONFIGURED_API_ORIGIN,
+  isConfiguredApiOriginUrl,
   isNonProductionApiOrigin,
   isOriginPreflightEnforced,
   PRODUCTION_API_FALLBACK_ORIGIN,
@@ -251,6 +253,128 @@ describe('isNonProductionApiOrigin', () => {
         expect(isNonProductionApiOrigin(`https://${host}`)).toBe(true)
       }
     })
+  })
+})
+
+describe('isConfiguredApiOriginUrl', () => {
+  const CONFIGURED_ORIGIN = 'http://localhost:3000'
+
+  describe('the origin this bundle was configured with', () => {
+    it('accepts a request URL on that origin, path and query included', () => {
+      expect(isConfiguredApiOriginUrl(`${CONFIGURED_API_ORIGIN}/api/catalog/foods?q=rice&page=1&limit=25`)).toBe(true)
+      expect(isConfiguredApiOriginUrl(Endpoints.User)).toBe(true)
+      expect(isConfiguredApiOriginUrl(Endpoints.CatalogFoodSearch('chicken breast', 1, 25))).toBe(true)
+    })
+
+    it('rejects a production-fallback URL while a non-production origin is configured', () => {
+      expect(CONFIGURED_API_ORIGIN).not.toBe(PRODUCTION_API_FALLBACK_ORIGIN)
+      expect(isConfiguredApiOriginUrl(`${PRODUCTION_API_FALLBACK_ORIGIN}/api/user`)).toBe(false)
+      expect(isConfiguredApiOriginUrl(`${PRODUCTION_API_FALLBACK_ORIGIN}/api/meal-planning/plans/current`)).toBe(false)
+    })
+  })
+
+  describe('an injected configured origin', () => {
+    it.each([
+      `${CONFIGURED_ORIGIN}/api/user`,
+      `${CONFIGURED_ORIGIN}/api/catalog/foods?q=chicken%20breast&page=1&limit=25`,
+      `${CONFIGURED_ORIGIN}/api/user#section`,
+      CONFIGURED_ORIGIN,
+      'HTTP://LOCALHOST:3000/api/user',
+      'http://localhost.:3000/api/user'
+    ])('accepts %s', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(true)
+    })
+
+    it.each([
+      'http://localhost:3001/api/user',
+      'https://localhost:3000/api/user',
+      'http://localhost/api/user',
+      'http://127.0.0.1:3000/api/user',
+      `${PRODUCTION_ORIGIN}/api/user`
+    ])('rejects %s', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('the scheme default port', () => {
+    it.each([
+      ['https://api.internal.example/api/user', 'https://api.internal.example:443'],
+      ['https://api.internal.example:443/api/user', 'https://api.internal.example'],
+      ['http://api.internal.example/api/user', 'http://api.internal.example:80'],
+      ['http://api.internal.example:80/api/user', 'http://api.internal.example']
+    ])('reads %s as the same origin as %s', (url, configuredOrigin) => {
+      expect(isConfiguredApiOriginUrl(url, configuredOrigin)).toBe(true)
+    })
+
+    it.each([
+      ['http://api.internal.example:443/api/user', 'https://api.internal.example:443'],
+      ['https://api.internal.example:443/api/user', 'http://api.internal.example:443'],
+      ['http://api.internal.example:443/api/user', 'https://api.internal.example'],
+      ['https://api.internal.example/api/user', 'http://api.internal.example:443']
+    ])('keeps %s apart from %s, where the port matches but the scheme does not', (url, configuredOrigin) => {
+      expect(isConfiguredApiOriginUrl(url, configuredOrigin)).toBe(false)
+    })
+  })
+
+  describe('authority forms that move the host a URL parser resolves', () => {
+    it.each([
+      'http://user@localhost:3000/api/user',
+      `${BACKSLASH_USERINFO_ORIGIN}/api/user`,
+      'http://localhost:3000\\@stateofhealthapi.com/api/user',
+      'http://localhost:3000@stateofhealthapi.com/api/user',
+      'http://stateofhealthapi.com#@localhost:3000/api/user',
+      'http://stateofhealthapi.com?x=@localhost:3000/api/user'
+    ])('rejects %j', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('hosts that merely contain the configured name', () => {
+    it.each([
+      'http://localhost.evil.com:3000/api/user',
+      'http://notlocalhost:3000/api/user',
+      'http://127.0.0.1.evil.com:3000/api/user',
+      'http://localhost-staging.example.com:3000/api/user'
+    ])('rejects %s', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('input no request built from Endpoints can carry', () => {
+    it.each([
+      '',
+      '   ',
+      'localhost:3000/api/user',
+      '//localhost:3000/api/user',
+      'ftp://localhost:3000/api/user',
+      'http://local host:3000/api/user',
+      'http://localhost:99999/api/user',
+      'http://[::1]:3000/api/user',
+      'http://localhost。stateofhealthapi.com:3000/api/user'
+    ])('rejects %j', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+
+    // Every builder in endpoints.ts percent-encodes the text it interpolates, so
+    // a raw space or control character can only come from somewhere else — and
+    // refusing it is what keeps a header-injection payload out of the stack.
+    it.each([
+      'http://localhost:3000/api/catalog/foods?q=a b',
+      'http://localhost:3000/api/user\nHost: stateofhealthapi.com',
+      'http://localhost:3000/api/user\u00a0'
+    ])('rejects %j', url => {
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('a configured origin the parser cannot read', () => {
+    it.each(['', '   ', 'localhost:3000', 'ftp://localhost:3000', 'http://local host', 'http://localhost:99999'])(
+      'is inert for %j instead of rejecting every request the build makes',
+      configuredOrigin => {
+        expect(isConfiguredApiOriginUrl(`${PRODUCTION_ORIGIN}/api/user`, configuredOrigin)).toBe(true)
+        expect(isConfiguredApiOriginUrl('http://localhost:3000/api/user', configuredOrigin)).toBe(true)
+      }
+    )
   })
 })
 

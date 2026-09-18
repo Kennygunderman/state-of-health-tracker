@@ -54,6 +54,7 @@ import FoodResultRow from './components/FoodResultRow'
 import LibraryFoodRow from './components/LibraryFoodRow'
 import styles from './index.styled'
 import {
+  ADD_FOOD_SEARCH_MAX_QUERY_LENGTH,
   AddFoodSectionKey,
   CATALOG_SKELETON_ROWS,
   catalogProvenanceBadge,
@@ -436,6 +437,7 @@ const AddFoodScreen = () => {
           <SearchBar
             placeholder={SEARCH_YOUR_FOODS_PLACEHOLDER}
             isLoading={isSearching}
+            maxLength={ADD_FOOD_SEARCH_MAX_QUERY_LENGTH}
             onSearchTextChanged={setSearchText}
           />
 

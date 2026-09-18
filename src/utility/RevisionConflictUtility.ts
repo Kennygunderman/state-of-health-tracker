@@ -84,6 +84,35 @@ const areValuesEqual = (left: unknown, right: unknown): boolean => {
 }
 
 /**
+ * A refetch as the caller receives it. `isSuccess` is required rather than optional because it is the whole
+ * point of the shape: a caller that passed `data` alone would be handing over a row the read no longer stands
+ * behind. Both a `QueryObserverResult` (what `refetch()` resolves with) and a `useQuery` result satisfy it
+ * without a cast.
+ */
+export interface RefetchedResourceRead<T> {
+  isSuccess: boolean
+  data?: T | undefined
+}
+
+/**
+ * The refetched row, and only when the refetch actually reached the server.
+ *
+ * This is the gate `resolveStaleRevision` depends on and cannot enforce for itself. AAP 0.7.2 requires a
+ * rejected revisioned save to be recovered against "the authoritative resource", and TanStack deliberately
+ * keeps the last successful `data` on a result whose refetch failed — so `refetched.data` after a failed
+ * refetch is the row the client already held *before* it pressed, not the server's answer. Comparing the draft
+ * with that row inverts the recovery: the two match precisely because nothing was re-read, the helper reports
+ * `resolved`, and the screen advances as proof that a refused write had landed — discarding whatever another
+ * device (or this client's own earlier attempt) actually stored.
+ *
+ * `null` therefore means "no authoritative answer", which covers the failed refetch and the resource that
+ * genuinely holds no row. Both leave the caller in the same position — nothing may be concluded, the draft is
+ * kept, and the press is reported as failed — so they need no distinction here.
+ */
+export const authoritativeRefetch = <T>(refetched: RefetchedResourceRead<T>): T | null =>
+  refetched.isSuccess ? (refetched.data ?? null) : null
+
+/**
  * Decides how a rejected revisioned save recovers, given the draft the user submitted and the
  * freshly refetched resource. Only the listed fields the draft actually carries are compared, so
  * an edit made elsewhere to an untouched field is never a conflict.
@@ -91,6 +120,10 @@ const areValuesEqual = (left: unknown, right: unknown): boolean => {
  * Equal values resolve silently, which covers both a matching edit from another device and this
  * client's own first attempt having been written before its response was lost — neither may
  * surface a conflict prompt or produce a second write.
+ *
+ * `fresh` must be an authoritative answer — obtain it with `authoritativeRefetch`, which is where the reason
+ * is written down. A retained pre-press row passed in here resolves silently for the wrong reason and lets a
+ * refused write read as committed.
  */
 export const resolveStaleRevision = <T extends object>(
   draft: Partial<T>,

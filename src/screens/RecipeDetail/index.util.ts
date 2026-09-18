@@ -6,6 +6,7 @@ import {
   classifyOutcome,
   getApiErrorCode,
   getApiErrorStatus,
+  isConfirmedFeatureDisabledError,
   isPlanStateError
 } from '@utility/ApiErrorUtility'
 import {dayStripLabel, formatPlanDayLabel, formatSlotTime} from '@utility/MealPlanDateUtility'
@@ -44,6 +45,13 @@ export type RecipeDetailReadSource = 'recipe' | 'day' | 'preview'
 /**
  * What the user is offered for a failed read.
  *
+ * - `exitToPlanTab` — a gated route answered a CONFIRMED `feature_disabled`: meal planning itself is off behind
+ *   a mounted backend, which is about the capability rather than about this recipe or this plan. No next move
+ *   exists on a recipe screen, and nothing here is worth retrying because the same route answers a repeat
+ *   request identically, so the screen leaves for the Meal Plan tab — whose entitlement router turns that same
+ *   signal into the unavailable card that states the refusal, once (AAP 0.2.5). Deliberately the name and the
+ *   semantics `SwapMeal` already gives this answer (`SwapTerminalRecovery`), so the app keeps one vocabulary
+ *   for it.
  * - `recipeUnavailable` — the recipe resource answered 404. Nothing here can succeed on a retry, so the screen
  *   says so and leaves (AAP 0.2.5 for `useRecipeDetailQuery`).
  * - `previewIneligible` — the preview route answered a confirmed `recipe_ineligible`: the candidate no longer
@@ -56,14 +64,18 @@ export type RecipeDetailReadSource = 'recipe' | 'day' | 'preview'
  * - `retry` — every other failure, including one that never reached a response. The inline card with a
  *   Try-again press and a way back.
  */
-export type RecipeDetailReadRecovery = 'recipeUnavailable' | 'previewIneligible' | 'planRecovery' | 'retry'
+export type RecipeDetailReadRecovery =
+  | 'exitToPlanTab'
+  | 'recipeUnavailable'
+  | 'previewIneligible'
+  | 'planRecovery'
+  | 'retry'
 
 export interface RecipeDetailReadFailure {
   source: RecipeDetailReadSource
   recovery: RecipeDetailReadRecovery
 }
 
-/** What stands in for the recipe while there is none renderable. */
 export type RecipeDetailPlaceholder = 'loading' | 'error' | 'none'
 
 export interface RecipeDetailReadState {
@@ -96,7 +108,6 @@ export interface RecipeDetailReadOutcome {
   isWriteUnconfirmed: boolean
 }
 
-/** The positional arguments `useSwapPreviewQuery` is called with, and whether it may issue its request. */
 export type PreviewQueryScope = readonly [
   planId: string,
   mealId: string,
@@ -155,10 +166,10 @@ const isPresent = (segment: string | undefined): segment is string => segment !=
 
 const hasFailed = (error: unknown): boolean => error !== null && error !== undefined
 
-// The two recoveries that leave the screen rather than offering it again. Neither draws a placeholder or a
-// saved-copy banner: the screen is already going, and a retry offered on the way out cannot succeed.
+// The recoveries that leave the screen rather than offering it again. None draws a placeholder or a saved-copy
+// banner: the screen is already going, and a retry offered on the way out cannot succeed.
 const isDeparture = (recovery: RecipeDetailReadRecovery): boolean =>
-  recovery === 'recipeUnavailable' || recovery === 'previewIneligible'
+  recovery === 'exitToPlanTab' || recovery === 'recipeUnavailable' || recovery === 'previewIneligible'
 
 /**
  * Stored ingredient quantities are whole-recipe amounts, so 'Your portion' divides the recipe by its yield
@@ -361,11 +372,26 @@ export function resolveRecipeDetailErrorBranch(
   return status === NOT_FOUND_STATUS ? 'not_found' : 'inline'
 }
 
-// The recipe resource's own answer: a 404 is terminal for this screen, everything else is retryable.
+/**
+ * The recipe resource's own answer: the capability first, then a 404 as terminal for this screen, and
+ * everything else retryable.
+ *
+ * `/recipes/:recipeVersionId` is gated by the server flag (AAP 0.3.1), so it is one of the routes that can
+ * report the capability off, and that answer is asked for FIRST because it is about the feature rather than
+ * about this recipe — classifying it as the recipe resource's own refusal would tell a user whose recipe is
+ * perfectly readable that it is not theirs. `resolveRecipeDetailErrorBranch` is left to answer the question it
+ * exists for, which is 404-vs-inline and nothing else.
+ *
+ * The order does not swallow the 404, because the capability answer is `503 feature_disabled` exactly
+ * (`isConfirmedFeatureDisabledError`): a 404 carrying that code stays this recipe's own terminal answer, which
+ * is what AAP 0.5.2 reserves every resource-route 404 for.
+ */
 const recipeRecovery = (error: unknown): RecipeDetailReadRecovery =>
-  resolveRecipeDetailErrorBranch(getApiErrorStatus(error), getApiErrorCode(error)) === 'not_found'
-    ? 'recipeUnavailable'
-    : 'retry'
+  isConfirmedFeatureDisabledError(error)
+    ? 'exitToPlanTab'
+    : resolveRecipeDetailErrorBranch(getApiErrorStatus(error), getApiErrorCode(error)) === 'not_found'
+      ? 'recipeUnavailable'
+      : 'retry'
 
 /**
  * A PLAN route's answer — the day read, and the preview read that hangs off the same meal.
@@ -377,14 +403,20 @@ const recipeRecovery = (error: unknown): RecipeDetailReadRecovery =>
  *
  * Confirmed-ness is load-bearing and deliberately not dropped: a 5xx that merely echoed the string `stale_plan`
  * is an unknown outcome, and sending a user through plan recovery on a gateway body would abandon a screen a
- * second attempt would have loaded. `feature_disabled` is deliberately NOT plan recovery either — the
- * capability state belongs to the Macros entitlement router (AAP 0.2.5), and this screen has no plan of its own
- * to recover, so it offers the inline retry and says nothing it cannot support.
+ * second attempt would have loaded.
+ *
+ * A confirmed `feature_disabled` is asked for ahead of both, and is not plan recovery: the plan routes are
+ * gated too (AAP 0.3.1), and when the server reports the capability off there is no plan to re-read behind a
+ * route that answers 503 — the departure is the only recovery left, and the Macros entitlement router is what
+ * states the refusal (AAP 0.2.5).
  */
 const planRouteRecovery = (error: unknown): RecipeDetailReadRecovery =>
-  getApiErrorStatus(error) === NOT_FOUND_STATUS || (classifyOutcome(error) === 'confirmed' && isPlanStateError(error))
-    ? 'planRecovery'
-    : 'retry'
+  isConfirmedFeatureDisabledError(error)
+    ? 'exitToPlanTab'
+    : getApiErrorStatus(error) === NOT_FOUND_STATUS ||
+        (classifyOutcome(error) === 'confirmed' && isPlanStateError(error))
+      ? 'planRecovery'
+      : 'retry'
 
 /**
  * The preview route's answer, which is a plan route with one extra outcome of its own.
@@ -404,11 +436,14 @@ const previewRecovery = (error: unknown): RecipeDetailReadRecovery =>
 /**
  * The one failure the screen acts on, chosen from up to three independent reads.
  *
- * ORDER IS LOAD-BEARING. A recipe 404 comes first because its recovery leaves the screen, which makes every
- * other recovery moot. A plan-route refusal comes next — ahead of any merely retryable failure — because a plan
- * the server has contradicted must not be acted on from content drawn beside it, the same precedence the swap
- * screen gives a terminal day answer. Retryable failures come last, recipe first, so the inline card names the
- * read the user is most likely waiting on.
+ * ORDER IS LOAD-BEARING. A confirmed capability refusal comes first, ahead of the other two departures and of
+ * plan recovery: when one route says the plan moved on and another says meal planning is off, the capability is
+ * the answer that governs, because a plan refetch behind a route answering 503 is the one recovery that cannot
+ * succeed (AAP 0.2.5). The remaining departures come next — a recipe 404 and a retired candidate both leave the
+ * screen, which makes every recovery that stays on it moot. A plan-route refusal follows, ahead of any merely
+ * retryable failure, because a plan the server has contradicted must not be acted on from content drawn beside
+ * it, the same precedence the swap screen gives a terminal day answer. Retryable failures come last, recipe
+ * first, so the inline card names the read the user is most likely waiting on.
  */
 const resolveReadFailure = (state: RecipeDetailReadState): RecipeDetailReadFailure | null => {
   const recipe: RecipeDetailReadFailure | null = hasFailed(state.recipeError)
@@ -423,6 +458,7 @@ const resolveReadFailure = (state: RecipeDetailReadState): RecipeDetailReadFailu
   const ordered = [recipe, day, preview].filter((candidate): candidate is RecipeDetailReadFailure => candidate !== null)
 
   return (
+    ordered.find(candidate => candidate.recovery === 'exitToPlanTab') ??
     ordered.find(candidate => isDeparture(candidate.recovery)) ??
     ordered.find(candidate => candidate.recovery === 'planRecovery') ??
     ordered[0] ??
@@ -446,8 +482,8 @@ const resolveReadFailure = (state: RecipeDetailReadState): RecipeDetailReadFailu
  * alone then offered Log and Swap for a recipe the screen did not have.
  *
  * The placeholder is only ever what stands in for ABSENT content: the loading strip while a read is still in
- * flight, the inline retry card once one has failed, and nothing at all for the two departures — those
- * recoveries are already leaving the screen, and a retry offered on the way out cannot succeed.
+ * flight, the inline retry card once one has failed, and nothing at all for a departure — those recoveries are
+ * already leaving the screen, and a retry offered on the way out cannot succeed.
  *
  * A fourth case has no error to report and nothing to render either: every read has settled, and the meal this
  * route names is still not in the day it answered with — it was swapped, regenerated or logged away under the

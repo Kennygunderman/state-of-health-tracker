@@ -3,6 +3,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AccessibilityInfo, LayoutChangeEvent, Platform, TouchableOpacity, View} from 'react-native'
 
 import type {MealPlanMeal} from '@data/models/MealPlan'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {LogPlannedMealRouteProp, Navigation} from '@navigation/types'
 import type {LogPlannedMealResult} from '@queries/api/mealPlanning/logPlannedMeal'
 import {mutationKeys} from '@queries/keys'
@@ -91,6 +92,7 @@ import {
   resolveLogFormValues,
   resolveLogLaunch,
   resolveLogSubmitAffordance,
+  resolveRestoredLogDraft,
   resolveUnresolvedLogIntent,
   resolveViewTarget,
   thisAddsTotals
@@ -133,6 +135,10 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   const clearPendingIntent = useMealPlanStore(state => state.clearPendingIntent)
   const setPostLogResult = useMealPlanStore(state => state.setPostLogResult)
   const setSelectedPlanDate = useMealPlanStore(state => state.setSelectedPlanDate)
+  // Selected alongside the day on success: the plan tab binds the success banner to whatever plan it is
+  // showing, and `selectedPlanId` is ephemeral, so an entry logged against the upcoming week has to name its
+  // own plan or the banner is raised on this week instead (0.1.4 iii, 0.7.4).
+  const setSelectedPlanId = useMealPlanStore(state => state.setSelectedPlanId)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
   // Read only. This is the day the Diary itself calls today, and the only value the post-log destination may
   // be decided against: a second reading of "today" could send the user to a screen the entry is not on.
@@ -208,6 +214,38 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     [chosenBucketId, launch, logDate, servings, storedIntent]
   )
 
+  /**
+   * The stored request adopted into this screen's own draft, once, while its intent exists.
+   *
+   * The derivation above only overrides what it returns, so without this the portion, day and bucket the
+   * screen holds stay at one serving, the route's date and no bucket — and the moment a confirmed refusal
+   * retires the intent the screen falls back to those, losing the restored request the user was looking at.
+   * 0.2.5 keeps a failed attempt on this screen with every entered value intact, and a restored attempt is no
+   * different. Safe against a user edit by construction: the form is locked for as long as an intent is on
+   * record, and the resolver answers `null` once the three values already match, so the effect settles after
+   * one pass.
+   */
+  const restoredDraft = useMemo(
+    () =>
+      resolveRestoredLogDraft({
+        intent: storedIntent,
+        servings,
+        selectedDate: logDate,
+        chosenBucketId
+      }),
+    [chosenBucketId, logDate, servings, storedIntent]
+  )
+
+  useEffect(() => {
+    if (restoredDraft === null) {
+      return
+    }
+
+    setServings(restoredDraft.servings)
+    setLogDate(restoredDraft.selectedDate)
+    setChosenBucketId(restoredDraft.chosenBucketId)
+  }, [restoredDraft])
+
   // The meal belongs to the planned day the route names; the entry is written to the day the form resolves,
   // which is the day the diary is read for and the date the payload carries.
   const cacheScope = useMemo(
@@ -215,9 +253,15 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     [form.selectedDate, params.date, params.planId]
   )
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own reads, or a keyed write it
+  // issued — is terminal for a gated screen: no recovery that stays here can succeed, so the guard leaves for
+  // the Meal Plan segment, which states the refusal once (AAP 0.2.5). Every other failure, including a lost
+  // response or an undecodable body, is untouched and still retryable in place.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const dayQuery = useMealPlanDayQuery(...planDayQueryScope(cacheScope))
   const macrosQuery = useDailyMacrosQuery(cacheScope.diaryDate)
-  const currentPlanQuery = useCurrentMealPlanQuery()
+  const currentPlanQuery = useCurrentMealPlanQuery(isGatedRequestAllowed)
   const logMutation = useLogPlannedMealMutation(cacheScope.planId, params.mealId)
 
   const refetchDisplay = dayQuery.refetch
@@ -328,6 +372,10 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         recipeName: loaded.meal.recipe.name,
         viewTarget: resolveViewTarget(loaded.target.diaryDate, sessionDayKey)
       })
+      // The route's own plan and PLANNED day, which are the authoritative origin of this entry: the diary date
+      // above may sit on another day of the week, and the tab reads its banner's plan and day from the
+      // selection. Plan first, then day — selecting a different plan clears the day by design.
+      setSelectedPlanId(params.planId)
       setSelectedPlanDate(params.date)
       setMacrosSegment('mealPlan')
       // The success banner is the plan tab's (38:351), raised from postLogResult — no toast is raised here.
@@ -337,10 +385,12 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       clearPendingIntent,
       navigation,
       params.date,
+      params.planId,
       sessionDayKey,
       setMacrosSegment,
       setPostLogResult,
-      setSelectedPlanDate
+      setSelectedPlanDate,
+      setSelectedPlanId
     ]
   )
 
@@ -545,7 +595,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       return null
     }
 
-    const metrics = buildThisAddsItems(thisAddsTotals(ready.meal.planned, servings))
+    const metrics = buildThisAddsItems(thisAddsTotals(ready.meal.planned, form.servings))
       .map(item =>
         stringWithNamedParameters(MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE, {caption: item.caption, value: item.value})
       )
@@ -555,7 +605,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
       label: THIS_ADDS_LABEL,
       metrics
     })
-  }, [ready, servings])
+  }, [form.servings, ready])
 
   const announcedThisAdds = useRef<string | null>(null)
 
@@ -668,12 +718,18 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
     </View>
   )
 
+  // Every status banner below is an `alert`: each one refuses or holds the write the user came here to make,
+  // so it interrupts what is being read rather than waiting its turn. `statusRole` is also what groups a
+  // banner's title and body into one spoken element instead of two loose text nodes, and what states an
+  // appearing status at all — the assertive live region is Android's half, and InfoBanner announces the
+  // composed message on iOS, which has none. Its retry stays a separately reachable button.
   const errorBlock = (): React.JSX.Element => (
     <View style={styles.bannerSection}>
       <InfoBanner
         tone="error"
         glyph="alert"
         body={MEAL_PLAN_LOAD_ERROR_TITLE}
+        statusRole="alert"
         actionLabel={canRetryLoad ? MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT : undefined}
         onAction={canRetryLoad ? onRetryLoadPressed : undefined}
         secondaryActionLabel={MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT}
@@ -694,6 +750,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
             tone="error"
             glyph="alert"
             body={MEAL_PLAN_LOAD_ERROR_TITLE}
+            statusRole="alert"
             actionLabel={MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
             onAction={retryIntentsHydration}
           />
@@ -711,6 +768,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
             glyph="alert"
             title={MEAL_PLAN_OTHER_MEAL_PENDING_TITLE}
             body={MEAL_PLAN_OTHER_MEAL_PENDING_BODY}
+            statusRole="alert"
           />
         </View>
       )}
@@ -722,6 +780,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
             glyph="alert"
             title={MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE}
             body={MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY}
+            statusRole="alert"
             // Offered only while a send is actually permitted: a retry that the launch verdict would refuse
             // would promise the user an attempt that never leaves.
             actionLabel={affordance.canSubmit ? MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT : undefined}

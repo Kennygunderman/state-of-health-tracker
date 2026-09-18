@@ -1,3 +1,4 @@
+import authService from '@service/auth/AuthService'
 import useAuthStore from '@store/auth/useAuthStore'
 import {zustandAsyncStorage} from '@store/zustandAsyncStorage'
 import {
@@ -10,14 +11,19 @@ import {
   requestIds,
   SwapRequestSnapshot
 } from '@utility/IdempotencyUtility'
+import {StorageValue} from 'zustand/middleware'
 
 import useMealPlanStore, {
   buildPendingIntent,
+  clearPersistedPendingIntents,
+  discardPendingIntentsForSignIn,
   isPendingIntentExpired,
+  MealPlanPersistedState,
   parsePendingIntent,
   PENDING_INTENT_TTL_MS,
   PendingIntent,
   PendingIntentAction,
+  PendingIntentReservation,
   PostLogResult,
   prunePendingIntentsForUser,
   resolveKeyedRequest,
@@ -41,12 +47,20 @@ jest.mock('@store/zustandAsyncStorage', () => ({
 // meal-plan store itself is deliberately left unmocked — it is what the assertion reads back.
 jest.mock('@queries/queryClient', () => ({
   queryClient: {clear: jest.fn()},
-  asyncStoragePersister: {removeClient: jest.fn(async () => undefined)}
+  sealQueryCachePartition: jest.fn(),
+  activateQueryCachePartition: jest.fn(),
+  discardPersistedQueryCache: jest.fn(async () => undefined)
 }))
 
+// The identity-resolution paths below are driven through the real auth store, so the Firebase wrapper is
+// stubbed down to the four calls those paths make: the cold-start read, one sign-in and the sign-out.
 jest.mock('@service/auth/AuthService', () => ({
   __esModule: true,
-  default: {logOutUser: jest.fn(async () => undefined)}
+  default: {
+    logOutUser: jest.fn(async () => undefined),
+    getCurrentUser: jest.fn(() => null),
+    logInUser: jest.fn(async () => ({id: 'user-a', email: 'user-a@example.com'}))
+  }
 }))
 
 jest.mock('@service/workouts/OfflineWorkoutStorageService', () => ({
@@ -66,6 +80,7 @@ jest.mock('@store/progress/useProgressStore', () => ({
 
 const persistedReads = zustandAsyncStorage.getItem as jest.Mock
 const persistedWrites = zustandAsyncStorage.setItem as jest.Mock
+const persistedRemovals = zustandAsyncStorage.removeItem as jest.Mock
 
 /**
  * Lets the adapter's awaited writes settle. The persist middleware writes after `set` without awaiting, so
@@ -161,6 +176,15 @@ const makePostLogResult = (overrides: Partial<PostLogResult> = {}): PostLogResul
   recipeName: 'Greek yogurt bowl',
   viewTarget: 'diary',
   ...overrides
+})
+
+// Every TTL and ownership decision in this suite is made against an explicit timestamp except one: the
+// store's rehydration prune, which has no caller to inject a clock and therefore reads `Date.now()` itself
+// (useMealPlanStore.ts, `onRehydrateStorage`). Pinning that single read to the same fixture the intents are
+// minted from is what keeps a boundary case from depending on when the suite happens to run. Installed once:
+// the `jest.clearAllMocks()` below clears recorded calls, not implementations.
+beforeAll(() => {
+  jest.spyOn(Date, 'now').mockReturnValue(NOW)
 })
 
 // Draining hydration before each case keeps the rehydration prune — the store's only wall-clock
@@ -433,11 +457,11 @@ describe('prunePendingIntents', () => {
 
 describe('rehydration', () => {
   it('removes an intent that aged out while the app was closed and rewrites storage', async () => {
-    const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+    const live = makePendingIntent({key: 'live', createdAt: NOW})
     const expired = makePendingIntent({
       action: 'generate',
       key: 'expired',
-      createdAt: Date.now() - PENDING_INTENT_TTL_MS
+      createdAt: NOW - PENDING_INTENT_TTL_MS
     })
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: live, generate: expired}}, version: 0})
@@ -449,7 +473,7 @@ describe('rehydration', () => {
   })
 
   it('restores a live intent without writing storage back', async () => {
-    const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+    const live = makePendingIntent({key: 'live', createdAt: NOW})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: live}}, version: 0})
 
@@ -460,7 +484,7 @@ describe('rehydration', () => {
   })
 
   it('keeps a foreign intent for the signing-in account to sweep, since ownership is unknown here', async () => {
-    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: Date.now()})
+    const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: NOW})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign}}, version: 0})
 
@@ -495,7 +519,7 @@ describe('rehydration', () => {
       ['a name resolving to the Object constructor', 'constructor'],
       ['a name resolving to a zero-argument function on Object.prototype', 'toString']
     ])('completes hydration and drops %s', async (_label, slot) => {
-      const live = makePendingIntent({key: 'live', createdAt: Date.now()})
+      const live = makePendingIntent({key: 'live', createdAt: NOW})
 
       persistedReads.mockResolvedValueOnce({
         state: {pendingIntents: {log: live, [slot]: forwardVersionRecord(slot)}},
@@ -511,7 +535,7 @@ describe('rehydration', () => {
     })
 
     it('still runs the ownership sweep that was deferred until hydration finished', async () => {
-      const clock = Date.now()
+      const clock = NOW
       const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
       const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
 
@@ -559,7 +583,7 @@ describe('rehydration', () => {
 
 describe('prunePendingIntentsForUser', () => {
   it('removes a record minted by another account and rewrites the persisted slice', async () => {
-    const clock = Date.now()
+    const clock = NOW
     const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
     const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
 
@@ -579,7 +603,7 @@ describe('prunePendingIntentsForUser', () => {
   })
 
   it('waits for an in-flight hydration instead of being overwritten by it', async () => {
-    const clock = Date.now()
+    const clock = NOW
     const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
     const live = makePendingIntent({key: 'live', userId: 'user-a', createdAt: clock})
 
@@ -603,7 +627,7 @@ describe('prunePendingIntentsForUser', () => {
   // nobody has seen — including, possibly, a key the server has already acted on. The sweep therefore waits,
   // and a retry that succeeds is what finally runs it.
   it('does not sweep a slice it could not read, and sweeps once a retry succeeds', async () => {
-    const clock = Date.now()
+    const clock = NOW
     const foreign = makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock})
 
     useMealPlanStore.setState({
@@ -655,6 +679,83 @@ describe('prunePendingIntentsForUser', () => {
 
     expect(useMealPlanStore.getState().pendingIntents).toBe(before)
     expect(persistedWrites).not.toHaveBeenCalled()
+  })
+})
+
+// The sweep is only worth anything if something actually runs it. A record minted by the previous account
+// stays replayable for seven days, so every path where an identity becomes known has to sweep — otherwise a
+// record the outgoing session failed to erase is still there when its own account signs back in.
+describe('the ownership sweep at identity resolution', () => {
+  const currentUser = authService.getCurrentUser as jest.Mock
+  const logIn = authService.logInUser as jest.Mock
+
+  const seed = (clock: number): {foreign: PendingIntent; mine: PendingIntent} => ({
+    foreign: makePendingIntent({action: 'generate', key: 'foreign', userId: 'user-b', createdAt: clock}),
+    mine: makePendingIntent({key: 'mine', userId: 'user-a', createdAt: clock})
+  })
+
+  it('runs for the account a cold start finds already signed in', async () => {
+    const clock = NOW
+    const {foreign, mine} = seed(clock)
+
+    persistedReads.mockResolvedValueOnce({state: {pendingIntents: {generate: foreign, log: mine}}, version: 0})
+
+    await useMealPlanStore.persist.rehydrate()
+
+    // Hydration cannot judge ownership, so the foreign record is still there when initAuth runs.
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({generate: foreign, log: mine})
+
+    currentUser.mockReturnValueOnce({uid: 'user-a', email: 'user-a@example.com'})
+
+    expect(useAuthStore.getState().initAuth()).toBe(true)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: mine})
+  })
+
+  it('runs for an asynchronous session restore, which initAuth own synchronous read can miss', () => {
+    const clock = NOW
+    const {foreign, mine} = seed(clock)
+
+    useMealPlanStore.setState({pendingIntents: {generate: foreign, log: mine}})
+    useAuthStore.setState({userId: null, userEmail: null, isAuthed: false, isAttemptingAuth: false})
+
+    useAuthStore.getState().syncAuthState({uid: 'user-a', email: 'user-a@example.com'} as never)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: mine})
+  })
+
+  it('leaves nothing of the outgoing account when one account replaces another', async () => {
+    const clock = NOW
+    const {mine} = seed(clock)
+
+    useMealPlanStore.setState({pendingIntents: {log: mine}})
+    useAuthStore.setState({userId: 'user-a', userEmail: 'user-a@example.com', isAuthed: true, isAttemptingAuth: false})
+    persistedRemovals.mockClear()
+
+    useAuthStore.getState().syncAuthState({uid: 'user-b', email: 'user-b@example.com'} as never)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+
+    await flushMicrotasks()
+
+    expect(persistedRemovals).toHaveBeenCalledTimes(1)
+    expect(persistedRemovals.mock.calls[0][0]).toBe('meal-plan-store')
+  })
+
+  // A sign-in is the one identity resolution that is NOT a restore, so it discards rather than prunes: the
+  // credentials just typed mean the session that minted any record here has ended, and the record the
+  // signed-out session failed to erase is precisely the one that would otherwise replay (0.7.2).
+  it('discards every record when a sign-in is what establishes the account, its own included', async () => {
+    const clock = NOW
+    const {foreign, mine} = seed(clock)
+
+    useMealPlanStore.setState({pendingIntents: {generate: foreign, log: mine}})
+    logIn.mockResolvedValueOnce({id: 'user-a', email: 'user-a@example.com'})
+
+    await useAuthStore.getState().loginUser('user-a@example.com', 'secret')
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+    expect(resolveReplayableIntent(useMealPlanStore.getState(), 'log', 'user-a', clock, REQUESTS.log)).toBeNull()
   })
 })
 
@@ -811,6 +912,76 @@ describe('reset', () => {
   })
 })
 
+// `reset()` writes the default state through the persisting setter, which is neither awaited nor even
+// attempted while the store's last read failed. The outgoing account's request snapshot would then stay on
+// the device — so the account boundary removes the item and waits for the device to say it is gone.
+describe('clearPersistedPendingIntents', () => {
+  it('removes the persisted item and clears the slice in memory', async () => {
+    useMealPlanStore.setState({
+      macrosSegment: 'mealPlan',
+      selectedPlanId: 'plan-1',
+      pendingIntents: {log: makePendingIntent({key: 'outgoing'})}
+    })
+    persistedRemovals.mockClear()
+
+    await clearPersistedPendingIntents()
+
+    expect(persistedRemovals).toHaveBeenCalledTimes(1)
+    expect(persistedRemovals.mock.calls[0][0]).toBe('meal-plan-store')
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+    expect(useMealPlanStore.getState().macrosSegment).toBe('diary')
+    expect(useMealPlanStore.getState().selectedPlanId).toBeNull()
+  })
+
+  // The case `reset()` alone cannot cover: after a refused read the adapter writes nothing at all, so the
+  // only thing that can take the record off the device is the removal.
+  it('erases the slice after a read that rejected, where an ordinary write is refused', async () => {
+    useMealPlanStore.setState({
+      pendingIntents: {log: makePendingIntent({key: 'stranded'})},
+      hasHydratedIntents: false,
+      intentsHydration: 'pending'
+    })
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    await useMealPlanStore.persist.rehydrate()
+
+    persistedWrites.mockClear()
+    persistedRemovals.mockClear()
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'erased'})
+
+    expect(persistedWrites).not.toHaveBeenCalled()
+    expect(persistedRemovals).toHaveBeenCalledTimes(1)
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+
+  // A removal the device refuses must not surface as a failed sign-out, and must not take the in-memory
+  // boundary down with it — and it must not be the end of the erasure either: writing the empty slice is a
+  // different storage call, and a rejection of the removal says nothing about it.
+  it('writes an empty slice when the removal is refused, and still reports the record erased', async () => {
+    useMealPlanStore.setState({pendingIntents: {log: makePendingIntent({key: 'undeletable'})}})
+    persistedRemovals.mockRejectedValueOnce(new Error('storage unavailable'))
+    persistedWrites.mockClear()
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'erased'})
+
+    expect(persistedWrites.mock.calls.at(-1)).toEqual(['meal-plan-store', {state: {pendingIntents: {}}, version: 0}])
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+
+  it('is reached by a sign-out, so the record leaves the device and not only memory', async () => {
+    useMealPlanStore.setState({pendingIntents: {log: makePendingIntent({key: 'signed-out'})}})
+    useAuthStore.setState({userId: 'user-a', userEmail: 'user-a@example.com', isAuthed: true})
+    persistedRemovals.mockClear()
+
+    await useAuthStore.getState().logoutUser()
+
+    expect(persistedRemovals).toHaveBeenCalledTimes(1)
+    expect(persistedRemovals.mock.calls[0][0]).toBe('meal-plan-store')
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+})
+
 describe('buildPendingIntent', () => {
   it('derives the fingerprint from the request, so the record describes itself', () => {
     const request = REQUESTS.swap
@@ -929,14 +1100,14 @@ describe('cold-start replay', () => {
   // come back out of storage byte for byte and go out under the key it was already sent with.
   it.each(actions)('rebuilds the identical %s request after the app was killed mid-request', async action => {
     const request = REQUESTS[action]
-    const sent = makePendingIntent({action, key: 'key-sent', createdAt: Date.now()})
+    const sent = makePendingIntent({action, key: 'key-sent', createdAt: NOW})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {[action]: sent}}, version: 0})
 
     await useMealPlanStore.persist.rehydrate()
 
     const restored = useMealPlanStore.getState()
-    const replay = resolveKeyedRequest(restored, request, 'user-a', Date.now(), 'key-fresh')
+    const replay = resolveKeyedRequest(restored, request, 'user-a', NOW, 'key-fresh')
 
     expect(replay).toEqual({idempotencyKey: 'key-sent', isReplay: true, request})
     expect(requestBody(replay.request, replay.idempotencyKey)).toEqual(requestBody(request, 'key-sent'))
@@ -1029,9 +1200,9 @@ describe('cold-start replay', () => {
       fingerprint: 'fp-1',
       planId: 'plan-1',
       planRevision: 3,
-      createdAt: Date.now()
+      createdAt: NOW
     }
-    const live = makePendingIntent({action: 'swap', key: 'live', createdAt: Date.now()})
+    const live = makePendingIntent({action: 'swap', key: 'live', createdAt: NOW})
 
     persistedReads.mockResolvedValueOnce({state: {pendingIntents: {log: legacy, swap: live}}, version: 0})
 
@@ -1336,6 +1507,192 @@ describe('persisted write durability', () => {
   })
 })
 
+// The reservation is what a screen may act on: the memory record alone says nothing about the device, and a
+// keyed request sent on the strength of it races its own storage write. A kill in that window loses the only
+// key that can reconcile an action the server may already have committed (0.7.2).
+describe('recordPendingIntent durability', () => {
+  it('reports the record durable only once the device has confirmed the write', async () => {
+    const intent = makePendingIntent({key: 'durable'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+    persistedWrites.mockClear()
+
+    let releaseWrite = (): void => undefined
+
+    persistedWrites.mockImplementationOnce(
+      async () =>
+        new Promise<void>(resolve => {
+          releaseWrite = resolve
+        })
+    )
+
+    const reservation = useMealPlanStore.getState().recordPendingIntent(intent)
+
+    let settled: PendingIntentReservation | null = null
+
+    reservation.then(value => {
+      settled = value
+    })
+
+    await flushMicrotasks()
+
+    // The record is already in memory, but nothing may be claimed about the device yet.
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: intent})
+    expect(settled).toBeNull()
+
+    releaseWrite()
+
+    await expect(reservation).resolves.toEqual({kind: 'durable'})
+  })
+
+  it('reports a rejected write as storage_failed, keeps the record, and still writes on the next attempt', async () => {
+    const intent = makePendingIntent({key: 'rejected'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+
+    persistedWrites.mockClear()
+    persistedWrites.mockRejectedValueOnce(new Error('disk full'))
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'storage_failed'
+    })
+
+    // Deliberately NOT rolled back: the caller has already pressed, and a caller that lost its key would mint
+    // a second one for a request the server may have committed under the first.
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: intent})
+    expect(persistedWrites).toHaveBeenCalledTimes(1)
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({kind: 'durable'})
+
+    expect(persistedWrites).toHaveBeenCalledTimes(2)
+    expect(persistedWrites.mock.calls[1][1]).toEqual({state: {pendingIntents: {log: intent}}, version: 0})
+  })
+
+  // Re-recording the same intent writes nothing — the device already holds exactly that slice — and the
+  // reservation has to report that as durable rather than as a write it never saw land.
+  it('reports durability for a record the device already holds, without writing again', async () => {
+    const intent = makePendingIntent({key: 'already-stored'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({kind: 'durable'})
+
+    persistedWrites.mockClear()
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({kind: 'durable'})
+
+    expect(persistedWrites).not.toHaveBeenCalled()
+  })
+
+  it('claims nothing while the persisted slice has not come back yet', async () => {
+    const intent = makePendingIntent({key: 'while-pending'})
+
+    useMealPlanStore.setState({pendingIntents: {}, hasHydratedIntents: false, intentsHydration: 'pending'})
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'hydration_unknown'
+    })
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: intent})
+  })
+
+  it('claims nothing after a read that rejected, where the adapter refuses the write outright', async () => {
+    const intent = makePendingIntent({key: 'after-failed-read'})
+
+    useMealPlanStore.setState({pendingIntents: {}, hasHydratedIntents: false, intentsHydration: 'pending'})
+    persistedReads.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    await useMealPlanStore.persist.rehydrate()
+    persistedWrites.mockClear()
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(intent)).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'hydration_unknown'
+    })
+
+    expect(persistedWrites).not.toHaveBeenCalled()
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: intent})
+  })
+
+  // A confirmed slice describing a DIFFERENT request must not pass for this one: the reservation exists to
+  // say that this key is recoverable, and a key that is not on disk is not.
+  it('does not report durability from a confirmed slice holding another key for the same action', async () => {
+    const stored = makePendingIntent({key: 'stored'})
+    const other = makePendingIntent({key: 'other'})
+
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(stored)).resolves.toEqual({kind: 'durable'})
+
+    // The write of the second record is refused, so what the device confirmed still describes the first.
+    persistedWrites.mockRejectedValueOnce(new Error('disk full'))
+
+    await expect(useMealPlanStore.getState().recordPendingIntent(other)).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'storage_failed'
+    })
+  })
+})
+
+// CWE-532. An AsyncStorage rejection carries native paths and module internals, and its message can quote
+// the value being written — which here is an idempotency key and a request body. Device and crash logs are
+// read by more people than the user, so the log carries a fixed code and nothing else.
+describe('persistence failure logging', () => {
+  const CANARY = '/data/user/0/com.stateofhealth/files/RCTAsyncLocalStorage_V1/intent-key-9f3c-CANARY'
+
+  let consoleError: jest.SpyInstance
+
+  beforeEach(() => {
+    consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    consoleError.mockRestore()
+  })
+
+  const loggedArguments = (): string[] => consoleError.mock.calls.flat().map(value => String(value))
+
+  it('logs a fixed code for a rejected write, never the rejection', async () => {
+    useMealPlanStore.setState({pendingIntents: {}})
+    await flushPersistedRead()
+
+    persistedWrites.mockRejectedValueOnce(new Error(CANARY))
+
+    await useMealPlanStore.getState().recordPendingIntent(makePendingIntent({key: 'canary-write'}))
+
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    expect(consoleError.mock.calls[0]).toEqual(['meal_plan_intent_persist_write_failed'])
+
+    loggedArguments().forEach(logged => {
+      expect(logged).not.toContain(CANARY)
+      expect(logged).not.toContain('Error')
+      expect(logged).not.toContain('canary-write')
+    })
+  })
+
+  it('logs a fixed code for a refused removal, never the rejection', async () => {
+    useMealPlanStore.setState({pendingIntents: {log: makePendingIntent({key: 'canary-removal'})}})
+    persistedRemovals.mockRejectedValueOnce(new Error(CANARY))
+
+    await clearPersistedPendingIntents()
+
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    expect(consoleError.mock.calls[0]).toEqual(['meal_plan_intent_persist_remove_failed'])
+
+    loggedArguments().forEach(logged => {
+      expect(logged).not.toContain(CANARY)
+      expect(logged).not.toContain('Error')
+      expect(logged).not.toContain('canary-removal')
+    })
+  })
+})
+
 describe('resolveSlotOwnership', () => {
   const swap = (planId: string, mealId: string): PendingIntent =>
     makePendingIntent({
@@ -1422,5 +1779,256 @@ describe('resolveSlotOwnership', () => {
     expect(
       resolveSlotOwnership({pendingIntents: {generate: intent}}, 'generate', 'user-a', NOW, {planId: 'plan-1'}).kind
     ).toBe('foreign')
+  })
+})
+
+// The pin above is what every boundary case in this file rests on, and it is installed once rather than per
+// case. This is the assertion that it survived all of them — `jest.clearAllMocks()` resets recorded calls,
+// not implementations, and a change to that would otherwise turn these cases back into live-clock tests
+// without failing anything.
+describe('the suite clock', () => {
+  it('is still pinned to the NOW fixture after every earlier case', () => {
+    expect(Date.now()).toBe(NOW)
+  })
+})
+
+// The account boundary as a sequence of processes rather than of calls. Everything above drives the adapter
+// with one-shot mock answers, which cannot express the question these findings actually ask: what is STILL AT
+// REST after storage refused, and what happens when the app comes back and reads it. So these cases run
+// against a device that retains what was written to it and can be told to refuse each call independently.
+describe('the account boundary against a device that keeps what it was given', () => {
+  interface Device {
+    item: StorageValue<MealPlanPersistedState> | null
+    rejectReads: boolean
+    rejectWrites: boolean
+    rejectRemovals: boolean
+  }
+
+  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+
+  let device: Device
+
+  beforeEach(() => {
+    device = {item: null, rejectReads: false, rejectWrites: false, rejectRemovals: false}
+
+    persistedReads.mockImplementation(async () => {
+      if (device.rejectReads) {
+        throw new Error('read unavailable')
+      }
+
+      return device.item === null ? null : clone(device.item)
+    })
+
+    persistedWrites.mockImplementation(async (_name: string, value: StorageValue<MealPlanPersistedState>) => {
+      if (device.rejectWrites) {
+        throw new Error('write unavailable')
+      }
+
+      device.item = clone(value)
+    })
+
+    persistedRemovals.mockImplementation(async () => {
+      if (device.rejectRemovals) {
+        throw new Error('removal unavailable')
+      }
+
+      device.item = null
+    })
+  })
+
+  // The adapter's quarantine and write memos are module state that outlives a case, so the suite is handed
+  // back a device that answers, and one successful read is what clears a latch this describe set.
+  afterEach(async () => {
+    persistedReads.mockImplementation(async () => null)
+    persistedWrites.mockImplementation(async () => undefined)
+    persistedRemovals.mockImplementation(async () => undefined)
+
+    await flushPersistedRead()
+  })
+
+  /** What the device holds, as the slice rather than the envelope. */
+  const restingIntents = (): unknown => device.item?.state.pendingIntents ?? null
+
+  const seedDeviceWith = async (intent: PendingIntent): Promise<void> => {
+    device.item = {state: {pendingIntents: {[intent.request.action]: intent}}, version: 0}
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+  }
+
+  it('leaves nothing at rest when the removal lands', async () => {
+    await seedDeviceWith(makePendingIntent({key: 'signed-out'}))
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'erased'})
+
+    expect(restingIntents()).toBeNull()
+  })
+
+  // The scenario the erasure finding named: the read rejected, so every ordinary write is refused, and then
+  // the removal rejected too. Before the fallback write existed, the outgoing account's request snapshot
+  // stayed on the device from here on.
+  it('erases the record through the empty write when the read and the removal both refused', async () => {
+    const stranded = makePendingIntent({key: 'stranded'})
+
+    await seedDeviceWith(stranded)
+
+    device.rejectReads = true
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('failed')
+
+    device.rejectReads = false
+    device.rejectRemovals = true
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'erased'})
+
+    expect(restingIntents()).toEqual({})
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+  })
+
+  // Every path refused. The record really is still at rest, so the boundary says so — and what makes it
+  // harmless is the next sign-in, not a hope about storage.
+  it('reports failure, and the next explicit sign-in discards the record it left behind', async () => {
+    const abandoned = makePendingIntent({key: 'abandoned'})
+
+    await seedDeviceWith(abandoned)
+
+    device.rejectRemovals = true
+    device.rejectWrites = true
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'failed'})
+
+    // Still there, which is the honest state of the device and why the outcome is reported.
+    expect(restingIntents()).toEqual({log: throughStorage(abandoned)})
+
+    // The app comes back. Writes are still refused, so nothing can quietly erase the device before the read
+    // — a new process starts from the default state and hydrates, it does not write first. The abandoned
+    // record is restored into memory: exactly the cold start that would have replayed it.
+    useMealPlanStore.setState({hasHydratedIntents: false, intentsHydration: 'pending'})
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: throughStorage(abandoned)})
+
+    // And the sign-in that follows a sign-out keeps nothing, whoever minted it.
+    device.rejectWrites = false
+    discardPendingIntentsForSignIn()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+    expect(resolveReplayableIntent(useMealPlanStore.getState(), 'log', 'user-a', NOW, REQUESTS.log)).toBeNull()
+
+    await flushMicrotasks()
+
+    // The discard's own write is what finally takes it off the device, now that the device answers again.
+    expect(restingIntents()).toEqual({})
+  })
+
+  // The dangerous ordering: the sign-in happens while the read is still out, so the sweep has to wait for it
+  // rather than decide on a slice nobody has seen — and then discard what the read brings back.
+  it('discards a record that arrives from storage after the sign-in', async () => {
+    const abandoned = makePendingIntent({key: 'late-arrival'})
+
+    device.item = {state: {pendingIntents: {log: abandoned}}, version: 0}
+    useMealPlanStore.setState({hasHydratedIntents: false, intentsHydration: 'pending'})
+    device.rejectReads = true
+
+    await useMealPlanStore.persist.rehydrate()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('failed')
+
+    discardPendingIntentsForSignIn()
+    device.rejectReads = false
+    useMealPlanStore.getState().retryIntentsHydration()
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+
+    expect(useMealPlanStore.getState().intentsHydration).toBe('succeeded')
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+    expect(restingIntents()).toEqual({})
+  })
+
+  // The sequence the ownership finding named, end to end: A's cleanup fails, B arrives and B's own prune
+  // cannot be written either, and then A comes back. A's abandoned key must not be replayable at any point
+  // after the sign-out that abandoned it.
+  it("keeps A's abandoned key unreplayable through B and back to A, even when every write refused", async () => {
+    const abandonedByA = makePendingIntent({key: 'a-abandoned', userId: 'user-a'})
+
+    await seedDeviceWith(abandonedByA)
+
+    device.rejectRemovals = true
+    device.rejectWrites = true
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'failed'})
+
+    // B signs in. The discard drops the record from memory; the write that would take it off the device is
+    // still refused, so it remains at rest and B can see it on a cold start — but never resolve it.
+    useMealPlanStore.setState({hasHydratedIntents: false, intentsHydration: 'pending'})
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+
+    discardPendingIntentsForSignIn()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({})
+    expect(resolveReplayableIntent(useMealPlanStore.getState(), 'log', 'user-b', NOW, REQUESTS.log)).toBeNull()
+    expect(restingIntents()).toEqual({log: throughStorage(abandonedByA)})
+
+    // A comes back. The record is restored from the device it never left, and A's own sign-in is what
+    // refuses it: the session that minted it ended at the sign-out.
+    useMealPlanStore.setState({hasHydratedIntents: false, intentsHydration: 'pending'})
+
+    await useMealPlanStore.persist.rehydrate()
+    await flushMicrotasks()
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: throughStorage(abandonedByA)})
+
+    device.rejectWrites = false
+    discardPendingIntentsForSignIn()
+
+    expect(resolveReplayableIntent(useMealPlanStore.getState(), 'log', 'user-a', NOW, REQUESTS.log)).toBeNull()
+
+    await flushMicrotasks()
+
+    expect(restingIntents()).toEqual({})
+  })
+
+  // A cold start that RESTORES a session is the one case an unresolved key exists for, so the two sweeps must
+  // not be interchangeable: the prune keeps the restored account's own live record.
+  it('keeps the restored account own record where the prune runs instead of the discard', async () => {
+    const live = makePendingIntent({key: 'live', userId: 'user-a'})
+
+    await seedDeviceWith(live)
+    prunePendingIntentsForUser('user-a', () => NOW)
+
+    expect(useMealPlanStore.getState().pendingIntents).toEqual({log: throughStorage(live)})
+    expect(resolveReplayableIntent(useMealPlanStore.getState(), 'log', 'user-a', NOW, REQUESTS.log)).not.toBeNull()
+  })
+
+  // The quarantine exists so that a write cannot overwrite contents nobody has read. A removal that REJECTED
+  // did not make those contents known, so announcing them as empty — which is what clearing the latch before
+  // the await did — would hand that permission out on the strength of a call that failed.
+  it('keeps refusing ordinary writes after a removal the device rejected', async () => {
+    await seedDeviceWith(makePendingIntent({key: 'quarantined'}))
+
+    device.rejectReads = true
+    await useMealPlanStore.persist.rehydrate()
+
+    device.rejectReads = false
+    device.rejectRemovals = true
+    device.rejectWrites = true
+
+    await expect(clearPersistedPendingIntents()).resolves.toEqual({kind: 'failed'})
+
+    device.rejectWrites = false
+    persistedWrites.mockClear()
+
+    // An ordinary state change, which the persist middleware would write. The contents are still unknown, so
+    // it must not reach the device.
+    useMealPlanStore.setState({pendingIntents: {swap: makePendingIntent({action: 'swap', key: 'later'})}})
+    await flushMicrotasks()
+
+    expect(persistedWrites).not.toHaveBeenCalled()
   })
 })

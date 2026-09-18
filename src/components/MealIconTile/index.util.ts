@@ -30,6 +30,10 @@ const ICON_COMPONENTS: Record<RecipeIconKey, ComponentType<IconProps>> = {
 // so their stroke scales by 24/76 to hold the hero stroke-to-size ratio.
 const FLAT_GLYPH_HERO_STROKE: number = (Stroke.HERO_ART * Sizes.ICON_XL) / Sizes.HERO_TILE
 
+// `RecipeIconKey` is a closed nine-value set mapped 1:1 to the components above (AAP 0.5.1), but the wire field is
+// decoded as a plain string and resolved leniently by the converter (AAP 0.5.2), so a key a future server release
+// adds must stay renderable: it draws the bowl instead of throwing or leaving an empty tile. `recipes-seed.ts`
+// rejects any key outside the set, which keeps this a forward-compatibility guard and not a silent data defect.
 export const iconComponentFor = (key: RecipeIconKey | string): ComponentType<IconProps> =>
   ICON_COMPONENTS[key as RecipeIconKey] ?? MealBowlIcon
 

@@ -18,6 +18,16 @@ export default StyleSheet.create({
     paddingTop: Spacing.GUTTER,
     rowGap: Spacing.X_SMALL
   },
+  // The read state stands exactly where the option list does, so nothing above or below it moves when the
+  // saved answer arrives.
+  skeletonGroup: {
+    alignSelf: 'stretch',
+    paddingTop: Spacing.GUTTER,
+    rowGap: Spacing.X_SMALL
+  },
+  skeletonStretch: {
+    width: '100%'
+  },
   infoBannerWrapper: {
     alignSelf: 'stretch',
     paddingTop: Spacing.LARGE

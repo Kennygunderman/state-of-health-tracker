@@ -9,9 +9,11 @@ export function convertMealPlan(data: io.TypeOf<typeof MealPlanResponse>): MealP
     id: data.id,
     revision: data.revision,
     generationAttempt: data.generationAttempt,
-    // The publishing write's idempotency key, carried through so a screen holding an unresolved generation
-    // can recognise this plan as its own result rather than guessing from dates (0.2.5).
-    generationKey: data.generationKey,
+    // The publishing write's idempotency key when the response carried one, so the screen that OWNS a pending
+    // generation can recognise this plan as its own result (0.7.4). An additive extra rather than a contract
+    // member, so absent and explicit null both land as null — "not proven", which is what every reader outside
+    // that screen is left with anyway: a plan read never settles a pending intent (0.2.5).
+    generationKey: data.generationKey ?? null,
     startDate: data.startDate,
     endDate: data.endDate,
     // Carried, never defaulted. The status decides whether Swap and Log are offered at all, so reading an

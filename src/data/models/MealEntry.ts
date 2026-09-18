@@ -41,6 +41,14 @@ export interface MealEntry {
   nutritionProvenance: NutritionProvenance | null
 }
 
+// The two shapes POST /macros/meal/:mealId/entries accepts are alternatives, not
+// a menu to mix: the server routes on them (nutrition.logic.ts::routeFor) and
+// answers a body naming both a personal and a catalog food with 400
+// invalid_payload. Their `never` members are what makes that refusal a compile
+// error instead of a round trip, because an object literal checked against the
+// union LogMealEntryPayload | LogCatalogMealEntryPayload may carry any member
+// declared by EITHER shape — excess-property checking alone would pass a mixed
+// body. Nothing internal is added, so the body still reaches httpPost verbatim.
 export interface LogMealEntryPayload {
   foodId?: string
   name: string
@@ -52,6 +60,7 @@ export interface LogMealEntryPayload {
   fat: number
   inputMethod?: ClientInputMethod
   rawInput?: string
+  catalogFoodId?: never
 }
 
 export interface LogCatalogMealEntryPayload {
@@ -59,6 +68,18 @@ export interface LogCatalogMealEntryPayload {
   servings: number
   servingText?: string
   inputMethod: InputMethodEnum.SEARCH
+  // The server's LEGACY_INTENT_FIELDS, member for member: each one makes a body
+  // a legacy claim, and sending one here either conflicts with the catalog id
+  // (foodId) or asks for a snapshot the server derives from the catalog row and
+  // silently discards. servings and servingText are absent by design — both
+  // shapes carry them, so neither may act as a shape signal.
+  foodId?: never
+  name?: never
+  rawInput?: never
+  calories?: never
+  protein?: never
+  carbs?: never
+  fat?: never
 }
 
 export interface UpdateMealEntryPayload {
@@ -114,9 +135,11 @@ export function isFromMealPlan(entry: MealEntry): boolean {
   return entry.inputMethod === InputMethodEnum.MEAL_PLAN
 }
 
-// Diary caption. Origin outranks provenance: a planned meal is built from
-// source-backed ingredients, so it reads as its origin. 'user_entered' and the
-// legacy null both carry no source claim and fall back to the AI-estimate rule.
+// Diary caption. Origin outranks provenance: planning admits only source-backed
+// ingredients, so a planned row never needs a class qualifier and reads as its
+// origin. That caption names the origin only — provenance is a separate fact it
+// makes no claim about (0.7.3). 'user_entered' and the legacy null both carry no
+// source claim and fall back to the AI-estimate rule.
 export function entryProvenanceLabel(entry: MealEntry): string | null {
   if (isFromMealPlan(entry)) {
     return MEAL_ENTRY_FROM_MEAL_PLAN_LABEL

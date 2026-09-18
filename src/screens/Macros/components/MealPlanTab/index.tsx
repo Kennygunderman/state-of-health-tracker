@@ -1,4 +1,4 @@
-import React, {ReactNode, useCallback, useContext, useEffect, useMemo, useState} from 'react'
+import React, {ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 
 import {AccessibilityInfo, LayoutChangeEvent, Platform, TouchableOpacity, useWindowDimensions, View} from 'react-native'
 
@@ -18,12 +18,11 @@ import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {useSessionStore} from '@store/session/useSessionStore'
 import BorderRadius from '@styles/borderRadius'
-import FontSize, {LineHeight} from '@styles/fontSize'
+import {LineHeight} from '@styles/fontSize'
 import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {useIsMutating, useMutationState} from '@tanstack/react-query'
-import {isPlanStateError, isUnknownOutcome} from '@utility/ApiErrorUtility'
 import {formatIsoDayMonthDay} from '@utility/DateUtility'
 import {
   addDaysToDayKey,
@@ -65,7 +64,8 @@ import {
   MEAL_PLAN_VIEW_DIARY_LINK_TEXT,
   MEAL_PLAN_VIEW_NEXT_WEEK_BUTTON_TEXT,
   PLAN_REGENERATE_DIALOG_RANGE_TEMPLATE,
-  stringWithNamedParameters
+  stringWithNamedParameters,
+  TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 import DayStrip from './components/DayStrip'
@@ -100,11 +100,14 @@ import {
   resolvePendingGeneration,
   resolvePlanSwitchLink,
   resolvePostLogBannerOrigin,
+  resolveRestoredWriteDisposition,
+  resolveRestoredWriteRecovery,
   resolveSelectedPlanDate,
   resolveStalePlanSelection,
   resolveSwapOwnership,
   resolveTabFrame,
-  resolveViewTarget
+  resolveViewTarget,
+  RestoredWriteReport
 } from './index.util'
 
 // The day query is scoped to a plan and this tab renders four states that have none. The empty id is never
@@ -133,8 +136,6 @@ const SKELETON_MEAL_ROW_KEYS: number[] = [0, 1]
 const SKELETON_MEAL_CARD_KEYS: number[] = [0, 1]
 
 const CARD_INSET_SIDES = 2
-
-const PLAN_SWITCH_HIT_SLOP = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
 
 const RETRY_PILL_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.PILL_SM) / 2
 
@@ -220,6 +221,15 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const [replayedSwapKey, setReplayedSwapKey] = useState<string | null>(null)
   const [replayedLogKey, setReplayedLogKey] = useState<string | null>(null)
 
+  // The state one of those replays reported and nobody owns yet. State rather than a ref because the handoff
+  // is decided during render from it, and the report arrives from a settled request rather than from a render.
+  const [restoredWriteReport, setRestoredWriteReport] = useState<RestoredWriteReport | null>(null)
+  // The key this tab has already handed to the write's own screen, so one report opens one screen once.
+  const [handedOffWriteKey, setHandedOffWriteKey] = useState<string | null>(null)
+  // The `kind:key` token of the recovery outcome already acted on. Written synchronously inside the effect,
+  // which is what the two state latches above cannot do within a single frame.
+  const actedRestoredWriteToken = useRef<string | null>(null)
+
   // One reading of the clock per render, shared by all three intent decisions below so they cannot disagree
   // about which records are still within their 7-day life.
   const now = Date.now()
@@ -304,9 +314,6 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const outcome = resolveFrameOutcome(frame)
   const handoffParams = generation.outcome.kind === 'handoff' ? generation.outcome.params : null
   const handoffLatch = generation.navigatedKey
-  const settledGeneration = generation.outcome.kind === 'settled' ? generation.outcome : null
-  const settledAction = settledGeneration?.action ?? null
-  const settledPlanId = settledGeneration?.planId ?? null
 
   useEffect(() => {
     if (handoffParams === null) {
@@ -327,24 +334,10 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     setNavigatedGenerationKey(latch => resolveHandoffLatch(latch, isFocused))
   }, [isFocused])
 
-  /**
-   * The one resolution a READ may reach: a returned plan carries the pending `generationKey`, so the server
-   * has answered that key (AAP 0.2.5) and the record is retired here rather than filtered away on every
-   * render. Retiring it is what frees the action's single slot — an unretired record makes the launch path
-   * hand its superseded request back to this tab, which filters it again, so the user could not regenerate
-   * until the 7-day expiry.
-   *
-   * The selection is set alongside it because the plan that key produced is the one the user asked for, and
-   * the two writes land in a single React commit before the body leaves the placeholder frame above.
-   */
-  useEffect(() => {
-    if (settledAction === null || settledPlanId === null) {
-      return
-    }
-
-    setSelectedPlanId(settledPlanId)
-    clearPendingIntent(settledAction)
-  }, [clearPendingIntent, setSelectedPlanId, settledAction, settledPlanId])
+  // A plan read never retires a pending generation here. Refetching the week is display-only, and an
+  // unresolved keyed write is settled by an answer to its own key alone — the stored replay the handoff above
+  // sends the Generating screen to fetch, a fresh commit, or a confirmed terminal error (AAP 0.2.5, 0.7.2).
+  // That is also what frees the action's single slot, so nothing is left for this screen to clear.
 
   // Taken from the outcome rather than resolved a second time, so the plan the body renders and the plan the
   // day query, the header and every route parameter are built from cannot diverge.
@@ -394,7 +387,13 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   // Adjusted during render rather than in an effect: the banner stands where the totals card does, so an
   // origin settled after paint costs one frame of the wrong day's success. The resolver returns the same
   // object when nothing changed, which is what ends the adjustment after a single pass.
-  const nextBannerOrigin = resolvePostLogBannerOrigin(bannerOrigin, postLogResult, planId, lastSwapSucceededAt)
+  const nextBannerOrigin = resolvePostLogBannerOrigin(
+    bannerOrigin,
+    postLogResult,
+    planId,
+    selectedDayKey,
+    lastSwapSucceededAt
+  )
 
   if (nextBannerOrigin !== bannerOrigin) {
     setBannerOrigin(nextBannerOrigin)
@@ -421,48 +420,58 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   }, [refetchCurrentPlan])
 
   /**
-   * The silent same-key attempt both in-place replays make, and the only place their records are retired.
+   * The silent same-key attempt both in-place replays make, and where their records are retired.
    *
    * `mutateAsync` is awaited rather than fired and forgotten so the continuation runs even if the user leaves
    * this segment mid-flight — the store action it calls is not component state, which is what makes that safe.
    *
-   * What clears the record is an answer to its own key (AAP 0.2.5). A commit or a stored replay answers it, so
-   * it goes. A CONFIRMED failure is the server describing this key's fate and is terminal, so it goes too —
-   * and a plan the server will no longer read or write earns the stale-plan toast and refetch the AAP asks for
-   * (0.7.2). An UNKNOWN outcome answers nothing: the write may have committed before the response was lost, so
-   * the key stays on record as the only safe way to ask again, and the next launch owns it once more.
+   * A success answers the key, so the record goes and nothing is said: the write the user asked for is done.
+   * Every failure is `resolveRestoredWriteDisposition`'s to judge, because the four answers differ — an
+   * unknown outcome keeps its key, a capability refusal retires it silently behind the segment's unavailable
+   * card, a plan-state answer takes the stale-plan recovery (0.7.2), and any other confirmed refusal is a
+   * 0.2.5 state that belongs on the action's own screen, so its key is KEPT and the state is reported for the
+   * handoff below rather than cleared here with nothing said.
    */
   const replayKeyedWrite = useCallback(
-    async (action: InPlaceWriteAction, send: () => Promise<unknown>): Promise<void> => {
+    async (action: InPlaceWriteAction, key: string, send: () => Promise<unknown>): Promise<void> => {
       try {
         await send()
         clearPendingIntent(action)
       } catch (error) {
-        if (isUnknownOutcome(error)) {
-          return
+        const disposition = resolveRestoredWriteDisposition({action, key, error})
+
+        if (disposition.clearsIntent) {
+          clearPendingIntent(action)
         }
 
-        clearPendingIntent(action)
-
-        if (isPlanStateError(error)) {
+        if (disposition.recoversStalePlan) {
           recoverFromStalePlan()
+        } else if (disposition.refetchesCurrentPlan) {
+          refetchCurrentPlan()
+        }
+
+        if (disposition.report !== null) {
+          setRestoredWriteReport(disposition.report)
         }
       }
     },
-    [clearPendingIntent, recoverFromStalePlan]
+    [clearPendingIntent, recoverFromStalePlan, refetchCurrentPlan]
   )
 
   const swapReplayPayload = swapOwnership.payload
   const swapReplayLatch = swapOwnership.replayedKey
   const sendSwapReplay = swapReplayMutation.mutateAsync
 
+  // The latch is the key the replay is being sent under, so it is also the key a reported state has to name.
+  // Both come from the one replay decision — a payload exists only for a record in hand — so the null test
+  // narrows the latch rather than guarding a state either value can reach on its own.
   useEffect(() => {
-    if (swapReplayPayload === null) {
+    if (swapReplayPayload === null || swapReplayLatch === null) {
       return
     }
 
     setReplayedSwapKey(swapReplayLatch)
-    replayKeyedWrite('swap', () => sendSwapReplay(swapReplayPayload))
+    replayKeyedWrite('swap', swapReplayLatch, () => sendSwapReplay(swapReplayPayload))
   }, [replayKeyedWrite, sendSwapReplay, swapReplayLatch, swapReplayPayload])
 
   const logReplayPayload = logOwnership.payload
@@ -470,13 +479,90 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const sendLogReplay = logReplayMutation.mutateAsync
 
   useEffect(() => {
-    if (logReplayPayload === null) {
+    if (logReplayPayload === null || logReplayLatch === null) {
       return
     }
 
     setReplayedLogKey(logReplayLatch)
-    replayKeyedWrite('log', () => sendLogReplay(logReplayPayload))
+    replayKeyedWrite('log', logReplayLatch, () => sendLogReplay(logReplayPayload))
   }, [logReplayLatch, logReplayPayload, replayKeyedWrite, sendLogReplay])
+
+  /**
+   * AAP 0.2.5 draws both unconfirmed states of a swap and a planned log on the ACTION's own screen, so a state
+   * this tab's silent replay reported is routed there: the screen replays the stored key once on open, reads
+   * the attempt this tab already fired out of the shared mutation cache by that key, and owns every mapping
+   * from there. Resolved during render from the report plus the records still on file, so a record resolved in
+   * the meantime cannot be routed to.
+   *
+   * The gate is navigation's: this tab must be the route on screen and the feature available. A withheld
+   * report is KEPT rather than dropped, which is what makes the handoff fire when focus returns.
+   */
+  const restoredWriteRecovery = resolveRestoredWriteRecovery({
+    report: restoredWriteReport,
+    swapIntent: swapOwnership.intent,
+    logIntent: logOwnership.intent,
+    plans,
+    isHandoffAllowed: isFocused && availability === 'enabled',
+    handedOffKey: handedOffWriteKey
+  })
+
+  useEffect(() => {
+    // Both kinds leave the report standing and act on nothing: `idle` is a handoff this frame may not make,
+    // `pending` is a current-plan read that has not answered yet. Returning before the token is written is
+    // what lets the same key be acted on once the frame that can decide it arrives.
+    if (restoredWriteRecovery.kind === 'idle' || restoredWriteRecovery.kind === 'pending') {
+      return
+    }
+
+    // The resolver answers from render values, so it hands back a fresh object every render while a report
+    // stands. The token is what makes each outcome act once for its key: it is written synchronously, before
+    // any state is set, so a re-run queued in the same frame is already too late to double the navigate or
+    // the toast. The state latch below is the same rule expressed across the report's own lifetime.
+    const actionToken = `${restoredWriteRecovery.kind}:${restoredWriteRecovery.key}`
+
+    if (actedRestoredWriteToken.current === actionToken) {
+      return
+    }
+
+    actedRestoredWriteToken.current = actionToken
+
+    if (restoredWriteRecovery.kind === 'handoff') {
+      setHandedOffWriteKey(restoredWriteRecovery.key)
+      setRestoredWriteReport(null)
+
+      // The located plan is selected before its screen opens, because `selectedPlanId` is ephemeral and
+      // defaults to null — which resolves to `current` (0.7.4). A record restored for the UPCOMING week would
+      // otherwise be acted on from a tab showing this week, and the day it returns to would be clamped into
+      // this week's range. Plan first, then day: selecting a different plan clears the day by design.
+      setSelectedPlanId(restoredWriteRecovery.target.params.planId)
+      setSelectedPlanDate(restoredWriteRecovery.target.params.date)
+
+      if (restoredWriteRecovery.target.screen === 'swap') {
+        navigation.navigate(Screens.SWAP_MEAL, restoredWriteRecovery.target.params)
+
+        return
+      }
+
+      navigation.navigate(Screens.LOG_PLANNED_MEAL, restoredWriteRecovery.target.params)
+
+      return
+    }
+
+    if (restoredWriteRecovery.kind === 'unreachable') {
+      // The plan the write named is not in `{current, upcoming}`, so there is no screen to open it on. A
+      // confirmed refusal is retired and stated, because nothing else will ever state it; an unknown outcome
+      // keeps its key, which stays the only safe way to ask again (0.7.2).
+      if (restoredWriteRecovery.clearsIntent) {
+        clearPendingIntent(restoredWriteRecovery.action)
+      }
+
+      if (restoredWriteRecovery.reportsError) {
+        showToast('error', TOAST_GENERIC_ERROR)
+      }
+    }
+
+    setRestoredWriteReport(null)
+  }, [clearPendingIntent, navigation, restoredWriteRecovery, setSelectedPlanDate, setSelectedPlanId])
 
   // Whichever read surfaced it, the plan the screen holds has been contradicted, so the recovery is the same.
   // The error's own identity is the effect's key, and it only changes when a further read fails.
@@ -792,10 +878,10 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const planSwitchBlock = (link: PlanSwitchLink): React.JSX.Element => (
     <View style={styles.planSwitchRow}>
       <TouchableOpacity
+        style={styles.planSwitchButton}
         activeOpacity={Opacity.PRESSED}
         accessibilityRole="button"
         accessibilityLabel={link === 'next' ? MEAL_PLAN_NEXT_WEEK_LINK_TEXT : MEAL_PLAN_THIS_WEEK_LINK_TEXT}
-        hitSlop={PLAN_SWITCH_HIT_SLOP}
         onPress={() => onPlanSwitchPressed(link)}>
         <Text style={styles.planSwitchLink}>
           {link === 'next' ? MEAL_PLAN_NEXT_WEEK_LINK_TEXT : MEAL_PLAN_THIS_WEEK_LINK_TEXT}
@@ -945,6 +1031,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
           meal={model.meal}
           loggedState={model.loggedState}
           areWriteActionsEnabled={areWriteActionsEnabledFor(model.meal.id)}
+          offersStalePlanRecovery={isWriteRefused}
           onOpen={onOpenRecipePressed}
           onSwap={onSwapPressed}
           onLog={onLogPressed}

@@ -17,7 +17,7 @@ import Endpoints from '@constants/endpoints'
 import {convertAffectedMeals} from '../converter/convertAffectedMeals'
 import {convertGroceryItem, convertGroceryList} from '../converter/convertGroceryList'
 import {convertMealPlan} from '../converter/convertMealPlan'
-import {convertMealPlanDay, convertMealPlanMeal} from '../converter/convertMealPlanDay'
+import {convertMealPlanDay, convertMealPlanDayEnvelope, convertMealPlanMeal} from '../converter/convertMealPlanDay'
 import {convertNutritionTargets, convertNutritionTargetsSaveResult} from '../converter/convertNutritionTargets'
 import {convertPreferences, convertPreferencesSaveResult} from '../converter/convertPreferences'
 import {convertRecipeVersion} from '../converter/convertRecipeVersion'
@@ -28,6 +28,7 @@ import {
   CurrentMealPlanResponse,
   GroceryItemResponse,
   GroceryListResponse,
+  MealPlanDayEnvelopeResponse,
   MealPlanDayResponse,
   MealPlanMealResponse,
   MealPlanResponse,
@@ -66,6 +67,7 @@ type WireTargetsSave = io.TypeOf<typeof TargetsSaveResponse>
 type WireMeal = io.TypeOf<typeof MealPlanMealResponse>
 type WireDay = io.TypeOf<typeof MealPlanDayResponse>
 type WirePlan = io.TypeOf<typeof MealPlanResponse>
+type WireDayEnvelope = io.TypeOf<typeof MealPlanDayEnvelopeResponse>
 type WireRecipeVersion = io.TypeOf<typeof RecipeVersionResponse>
 type WireAlternative = io.TypeOf<typeof SwapAlternativeResponse>
 type WireAlternatives = io.TypeOf<typeof SwapAlternativesResponse>
@@ -87,6 +89,17 @@ const RECOGNISED_ICON_KEYS = ['crosshair', 'fork_knife', 'bowl', 'wrap', 'dome',
 const RECOGNISED_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 
 const RECOGNISED_FLAG_CODES = ['diet', 'allergen', 'dislike', 'cooking_time'] as const
+
+// A payload with a member the server did not send. The fixture builders are typed against the codecs, so an
+// absent optional member cannot be expressed through them — and absence is the behaviour under test wherever a
+// response carries only what the contract declares.
+const withoutMembers = <T extends object>(value: T, ...members: (keyof T & string)[]): Record<string, unknown> => {
+  const payload = {...value} as Record<string, unknown>
+
+  members.forEach(member => delete payload[member])
+
+  return payload
+}
 
 const makeTotals = (overrides: Partial<WireTotals> = {}): WireTotals => ({
   calories: 610,
@@ -1233,6 +1246,136 @@ describe('convertMealPlan', () => {
 
   it('returns an empty day list for a plan with no days', () => {
     expect(convertMealPlan(makePlan({days: []})).days).toEqual([])
+  })
+
+  // `generationKey` is an additive extra rather than a contract member (0.5.2), so the model carries
+  // `string | null`: only the screen that owns a pending generation reads it, and "absent" has to mean "not
+  // proven" there rather than failing the read or inventing a key.
+  describe('the additive generation key', () => {
+    it('carries the key through when the response sent one', () => {
+      expect(convertMealPlan(makePlan()).generationKey).toBe('gen-key-1')
+    })
+
+    it('maps an absent key to null', () => {
+      const withoutKey = withoutMembers(makePlan(), 'generationKey') as WirePlan
+
+      expect(convertMealPlan(withoutKey).generationKey).toBeNull()
+    })
+
+    it('maps an explicit null through as null', () => {
+      expect(convertMealPlan(makePlan({generationKey: null})).generationKey).toBeNull()
+    })
+  })
+})
+
+// The envelope `GET .../days/:date` answers, and with it the writeability verdict Swap and Log are gated on.
+// The contract is `{planId, planRevision, planStatus, day}` (0.5.2); `planLifecycle` and `isWritable` are
+// additive extras, so this converter has to be right in both cases — with the server's own judgement when it
+// is sent, and from the contract's `planStatus` when it is not.
+describe('convertMealPlanDayEnvelope', () => {
+  const makeEnvelope = (overrides: Partial<WireDayEnvelope> = {}): WireDayEnvelope => ({
+    planId: 'plan-1',
+    planRevision: 3,
+    planStatus: 'active',
+    planLifecycle: 'active',
+    isWritable: true,
+    day: makeDay(),
+    ...overrides
+  })
+
+  const withoutVerdict = (overrides: Partial<WireDayEnvelope> = {}): WireDayEnvelope =>
+    withoutMembers(makeEnvelope(overrides), 'planLifecycle', 'isWritable') as WireDayEnvelope
+
+  describe('the verdict the server sent', () => {
+    it('carries a live plan through as writable', () => {
+      const envelope = convertMealPlanDayEnvelope(makeEnvelope())
+
+      expect(envelope.planId).toBe('plan-1')
+      expect(envelope.planRevision).toBe(3)
+      expect(envelope.planStatus).toBe('active')
+      expect(envelope.planLifecycle).toBe('active')
+      expect(envelope.isWritable).toBe(true)
+      expect(envelope.day.meals).toHaveLength(1)
+    })
+
+    // The case the stored column cannot answer: a finished week stays 'active' in storage (0.5.1), and only
+    // the server knows it is over, because endedness is judged in the user's saved zone.
+    it('reports a finished week as ended and unwritable although its status is active', () => {
+      const envelope = convertMealPlanDayEnvelope(
+        makeEnvelope({planStatus: 'active', planLifecycle: 'ended', isWritable: false})
+      )
+
+      expect(envelope.planStatus).toBe('active')
+      expect(envelope.planLifecycle).toBe('ended')
+      expect(envelope.isWritable).toBe(false)
+    })
+
+    it('believes a refusal whatever lifecycle it names', () => {
+      const refused = convertMealPlanDayEnvelope(makeEnvelope({planLifecycle: 'active', isWritable: false}))
+
+      expect(refused.isWritable).toBe(false)
+    })
+
+    it('reads a lifecycle it does not recognise as read-only rather than live', () => {
+      const envelope = convertMealPlanDayEnvelope(makeEnvelope({planLifecycle: 'frozen'}))
+
+      expect(envelope.planLifecycle).toBe('superseded')
+      expect(envelope.isWritable).toBe(false)
+    })
+
+    it('reads a status it does not recognise as superseded', () => {
+      expect(convertMealPlanDayEnvelope(makeEnvelope({planStatus: 'draft'})).planStatus).toBe('superseded')
+    })
+  })
+
+  // A conforming response that carries neither extra: the day still renders, and the verdict comes from
+  // `planStatus`. The one case that leaves — a week over in the user's zone but stored 'active' — is the one
+  // the write path refuses `409 plan_not_active {reason: 'ended'}`, which the screens recover from.
+  describe('a response carrying only the contract', () => {
+    it('offers the write for an active plan', () => {
+      const envelope = convertMealPlanDayEnvelope(withoutVerdict())
+
+      expect(envelope.planStatus).toBe('active')
+      expect(envelope.planLifecycle).toBe('active')
+      expect(envelope.isWritable).toBe(true)
+      expect(envelope.day.meals).toHaveLength(1)
+    })
+
+    it('withholds it for a superseded plan', () => {
+      const envelope = convertMealPlanDayEnvelope(withoutVerdict({planStatus: 'superseded'}))
+
+      expect(envelope.planLifecycle).toBe('superseded')
+      expect(envelope.isWritable).toBe(false)
+    })
+
+    it('withholds it for a status it does not recognise', () => {
+      const envelope = convertMealPlanDayEnvelope(withoutVerdict({planStatus: 'draft'}))
+
+      expect(envelope.planStatus).toBe('superseded')
+      expect(envelope.isWritable).toBe(false)
+    })
+
+    it('treats an explicit null verdict exactly as an absent one', () => {
+      const nulled = convertMealPlanDayEnvelope(makeEnvelope({planLifecycle: null, isWritable: null}))
+
+      expect(nulled).toEqual(convertMealPlanDayEnvelope(withoutVerdict()))
+    })
+
+    it('honours one extra when only the other is missing', () => {
+      const lifecycleOnly = withoutMembers(makeEnvelope({planLifecycle: 'ended'}), 'isWritable') as WireDayEnvelope
+      const verdictOnly = withoutMembers(makeEnvelope({isWritable: false}), 'planLifecycle') as WireDayEnvelope
+
+      expect(convertMealPlanDayEnvelope(lifecycleOnly).isWritable).toBe(false)
+      expect(convertMealPlanDayEnvelope(verdictOnly).isWritable).toBe(false)
+    })
+  })
+
+  it('maps the day through the day converter', () => {
+    const envelope = convertMealPlanDayEnvelope(
+      makeEnvelope({day: makeDay({meals: [makeMeal({recipe: makeRecipeSummary({iconKey: 'skillet'})})]})})
+    )
+
+    expect(envelope.day.meals[0].recipe.iconKey).toBe('bowl')
   })
 })
 

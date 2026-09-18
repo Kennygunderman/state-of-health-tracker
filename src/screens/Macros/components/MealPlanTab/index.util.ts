@@ -19,7 +19,12 @@ import {
   resolveReplayableIntent
 } from '@store/mealPlan/useMealPlanStore'
 import type {PostLogResult} from '@store/mealPlan/useMealPlanStore'
-import {isPlanReadInvalidatedError} from '@utility/ApiErrorUtility'
+import {
+  isFeatureDisabledError,
+  isPlanReadInvalidatedError,
+  isPlanStateError,
+  isUnknownOutcome
+} from '@utility/ApiErrorUtility'
 import {
   LogRequestSnapshot,
   MealPlanRequestSnapshot,
@@ -131,6 +136,18 @@ export interface PostLogBannerOrigin {
   entryId: string
   planId: string | null
   /**
+   * The PLAN day the banner was raised on, which is where it stands (AAP 0.1.4 iii — until "View diary" is
+   * tapped, the selected day or plan changes, or the user leaves the segment).
+   *
+   * It cannot be read from `postLogResult`: that record carries the DIARY date the entry landed on, and frame
+   * 15's date stepper may have moved it to another day of the plan week. Comparing the diary date against the
+   * selected day is what cleared the required banner the moment the two differed. Bound lazily beside
+   * `planId`, because both resolve from the same render — the selected day is only a plan day once a plan is
+   * on screen, and the logging screen writes the planned date into the selection in the same commit as the
+   * result.
+   */
+  dayKey: string | null
+  /**
    * The newest successful swap at the moment this banner was raised, as that mutation's `submittedAt`.
    *
    * A watermark rather than a pending flag, because the lifecycle retires the confirmation when another swap
@@ -234,12 +251,11 @@ export type MealPlanGeneratingParams = RootStackParamList[typeof Screens.MEAL_PL
  * Generating screen for an unresolved generation, carrying the STORED key so the attempt there is a replay
  * rather than a second plan under a new key (0.7.2).
  *
- * `settled` is the one resolution that can be reached from a READ: a returned plan carrying the pending
- * `generationKey` is the server's own answer to that key, which is the only thing allowed to retire it
- * (0.2.5). It is stated rather than filtered away because a record nobody retires keeps the action's single
- * slot occupied — the launch path then sees a stored request for a superseded plan and hands back to this tab,
- * which filters it again, and the user cannot regenerate until the 7-day expiry. `action` names the slot to
- * clear and `planId` the plan that key produced, which is also the plan the user should be looking at.
+ * NO OUTCOME RESOLVES AN INTENT FROM A READ. A plan read refetched by this tab is display-only: it may show a
+ * generation that has already been published, but it does not settle the request that published it, because
+ * only a server answer to the same key may — a stored replay, a fresh commit, or a confirmed terminal error
+ * (0.2.5). The handoff is how that answer is obtained: the Generating screen replays the stored key and
+ * retires the record from the keyed response, which is also what frees the action's single slot.
  *
  * `hydrating` and `unreadable` are the two answers that precede every other: until the persisted slice has
  * been read, whether a keyed write is pending is UNKNOWN, and a refused read leaves it unknown rather than
@@ -250,7 +266,6 @@ export type PendingGenerationOutcome =
   | {kind: 'idle'}
   | {kind: 'hydrating'}
   | {kind: 'unreadable'}
-  | {kind: 'settled'; action: PendingIntentAction; planId: string}
   | {kind: 'handoff'; params: MealPlanGeneratingParams}
 
 /**
@@ -323,24 +338,6 @@ const planById = (plans: CurrentMealPlans | undefined, planId: string): MealPlan
 }
 
 /**
- * The plan a pending key already produced, if the payload in hand holds it. `generationKey` is the only field
- * that can answer this: after a lost response a refetched plan may be the one that request committed, one
- * another device made, or the week it was about to replace, and dates and revisions cannot tell them apart
- * (0.2.5, 0.7.2).
- */
-const planByGenerationKey = (plans: CurrentMealPlans | undefined, key: string): MealPlan | null => {
-  const current = plans?.current ?? null
-
-  if (current !== null && current.generationKey === key) {
-    return current
-  }
-
-  const upcoming = plans?.upcoming ?? null
-
-  return upcoming !== null && upcoming.generationKey === key ? upcoming : null
-}
-
-/**
  * Every generation record this tab still owns, newest first, answered or not.
  *
  * Newest first because that is the request the user is waiting on. `sort` is stable, so two intents recorded
@@ -352,29 +349,6 @@ const liveGenerationIntents = (inputs: PendingGenerationInputs): GenerationInten
   )
     .filter((intent): intent is GenerationIntent => intent !== null)
     .sort((left, right) => right.createdAt - left.createdAt)
-
-/**
- * The first record the payload in hand has already answered, paired with the plan that answers it — the
- * exact-match settlement. Only `generationKey` can establish this (`planByGenerationKey`), which is why the
- * pairing is returned rather than a boolean: the caller has to retire that action AND select the plan the key
- * produced, and neither is derivable from the intent alone.
- *
- * An answered record must not shadow an older one nobody has answered, so the scan returns the settlement and
- * leaves the remaining records to the handoff path on the next render, once the settled one is gone.
- */
-const answeredGenerationIntent = (
-  intents: GenerationIntent[],
-  plans: CurrentMealPlans | undefined
-): {intent: GenerationIntent; plan: MealPlan} | null =>
-  intents.reduce<{intent: GenerationIntent; plan: MealPlan} | null>((answered, intent) => {
-    if (answered !== null) {
-      return answered
-    }
-
-    const plan = planByGenerationKey(plans, intent.key)
-
-    return plan === null ? null : {intent, plan}
-  }, null)
 
 /**
  * The route params that reconstruct the Generating screen for a stored request.
@@ -424,19 +398,18 @@ const buildGeneratingParams = (
  * is left holding the Generating screen, and the plan the request may already have committed would never be
  * asked for again. This tab is the state router for the whole feature, so it is where that ownership lands:
  * it opens Generating for the stored intent and the screen replays the stored snapshot under the stored key
- * (AAP 0.7.2 — "the state router opens Generating when a generate intent exists and no plan carries that
- * generationKey").
+ * (AAP 0.7.2), which is what obtains the server's answer to that key and retires the record.
+ *
+ * THIS FUNCTION NEVER SETTLES AN INTENT ITSELF, and in particular not from `inputs.plans`. A refetched week
+ * may well be the one a lost response published, but a read is display-only and only an answer to the same
+ * key may resolve the request that made it (0.2.5). So a record whose plan is already on screen is handed
+ * over exactly like any other: the replay returns the stored response, the mutation retires the record, and
+ * the slot is free again — with no path on which a read decides a keyed write is done.
  *
  * Branch order is load-bearing. Hydration comes first because "no intent" and "not read yet" are different
- * answers, and deciding before the persisted slice has come back would conclude that nothing is pending. A
- * plan already carrying the key is the server's answer, and it is SETTLED rather than ignored — retiring it is
- * what frees the action's one slot for the user's next request. What is left is handed over once per key, and
- * never while an attempt for it is already on the wire — two answers to one key is the race the latch and the
- * in-flight gate exist to prevent.
- *
- * The settlement is deliberately not gated on `isHandoffAllowed`: that gate exists for navigation, and
- * retiring a key the server has demonstrably answered is a state write that is correct whether or not this tab
- * is the route on screen.
+ * answers, and deciding before the persisted slice has come back would conclude that nothing is pending. What
+ * is left is handed over once per key, and never while an attempt for it is already on the wire — two answers
+ * to one key is the race the latch and the in-flight gate exist to prevent.
  */
 export function resolvePendingGeneration(inputs: PendingGenerationInputs): PendingGenerationDecision {
   if (inputs.intentsHydration !== 'succeeded') {
@@ -446,17 +419,7 @@ export function resolvePendingGeneration(inputs: PendingGenerationInputs): Pendi
     }
   }
 
-  const intents = liveGenerationIntents(inputs)
-  const answered = answeredGenerationIntent(intents, inputs.plans)
-
-  if (answered !== null) {
-    return {
-      outcome: {kind: 'settled', action: answered.intent.request.action, planId: answered.plan.id},
-      navigatedKey: inputs.navigatedKey
-    }
-  }
-
-  const [intent] = intents
+  const [intent] = liveGenerationIntents(inputs)
   const replay = resolveMountReplay({
     intent: intent ?? null,
     isReady: inputs.isHandoffAllowed,
@@ -636,6 +599,233 @@ export function resolveLogOwnership(inputs: InPlaceWriteInputs): InPlaceWriteOwn
     intent: owned?.intent ?? null,
     payload: replay.replays && owned !== null ? logReplayBody(owned.request, owned.intent.key) : null,
     replayedKey: replay.replayedKey
+  }
+}
+
+/**
+ * The outcome of the tab's own silent replay, as the state that still needs an owner.
+ *
+ * `'unknown'` is an answer nothing has given yet — the write may have committed before its response was lost —
+ * and `'failed'` is a confirmed refusal the server has already described. Both are AAP 0.2.5 states that
+ * belong on the ACTION's own screen (swap → `SwapMeal`, log → `LogPlannedMeal`), which is why the key travels
+ * with them: the destination finds the attempt and the stored record by that key and owns every mapping from
+ * there.
+ */
+export interface RestoredWriteReport {
+  action: InPlaceWriteAction
+  key: string
+  outcome: 'failed' | 'unknown'
+}
+
+/**
+ * What the tab does with one failed replay.
+ *
+ * `recoversStalePlan` is the existing stale-plan recovery — the toast AND the current-plan refetch it already
+ * carries — so `refetchesCurrentPlan` is never true beside it: it is the silent re-read the capability
+ * refusal earns, where the segment's own unavailable card is what states the reason.
+ */
+export interface RestoredWriteDisposition {
+  clearsIntent: boolean
+  recoversStalePlan: boolean
+  refetchesCurrentPlan: boolean
+  report: RestoredWriteReport | null
+}
+
+export interface RestoredWriteDispositionInputs {
+  action: InPlaceWriteAction
+  /** The key the replay was sent under — the one the owning screen has to be handed. */
+  key: string
+  error: unknown
+}
+
+/**
+ * What a failed silent replay leaves behind, and who owns what is left.
+ *
+ * Branch order is the precedence, and each branch answers a different question about the key.
+ *
+ * An UNKNOWN outcome answers nothing: the write may have committed before the response was lost, so the record
+ * stays as the only safe way to ask again (0.7.2) and the state is reported, because a plan tab drawing its
+ * ordinary week over an unresolved key tells the user nothing about the write they made (0.2.5).
+ *
+ * `503 feature_disabled` is the capability verdict rather than this write's fate: the record goes, and the
+ * Meal Plan segment's unavailable card explains it once. Nothing is reported — routing into the write's own
+ * screen would bounce straight back out through that screen's own recovery — and the plan is re-read so the
+ * entitlement latch and the body agree.
+ *
+ * A confirmed plan-state answer (`409 stale_plan`, `409 plan_not_active`) retires the key and takes the
+ * stale-plan recovery the AAP asks for (0.7.2). No report: the plan the write named is gone, so there is no
+ * meal, no day and no revision left to route to.
+ *
+ * Anything else is a confirmed refusal of THIS key — `502 swap_failed`, `422 recipe_ineligible`,
+ * `409 idempotency_conflict`, a 400 — and it is exactly the state 0.2.5 draws on the action's own screen. The
+ * record is KEPT so that screen re-sends the same stored key, receives the same confirmed answer and retires
+ * the key through its own mapping, rather than this tab clearing it silently and leaving nothing said.
+ */
+export function resolveRestoredWriteDisposition(inputs: RestoredWriteDispositionInputs): RestoredWriteDisposition {
+  const {action, key, error} = inputs
+
+  if (isUnknownOutcome(error)) {
+    return {
+      clearsIntent: false,
+      recoversStalePlan: false,
+      refetchesCurrentPlan: false,
+      report: {action, key, outcome: 'unknown'}
+    }
+  }
+
+  if (isFeatureDisabledError(error)) {
+    return {clearsIntent: true, recoversStalePlan: false, refetchesCurrentPlan: true, report: null}
+  }
+
+  if (isPlanStateError(error)) {
+    return {clearsIntent: true, recoversStalePlan: true, refetchesCurrentPlan: false, report: null}
+  }
+
+  return {
+    clearsIntent: false,
+    recoversStalePlan: false,
+    refetchesCurrentPlan: false,
+    report: {action, key, outcome: 'failed'}
+  }
+}
+
+/**
+ * The route that owns a reported state, as the screen to open and the params to open it with.
+ *
+ * Discriminated rather than one params object with a screen name beside it, so the caller's `navigate` call
+ * types against the route it names without a cast — the same shape `onWriteActionPressed` navigates with.
+ */
+export type RestoredWriteTarget =
+  | {screen: 'swap'; params: RootStackParamList[typeof Screens.SWAP_MEAL]}
+  | {screen: 'log'; params: RootStackParamList[typeof Screens.LOG_PLANNED_MEAL]}
+
+/**
+ * What the tab does about a reported state this frame.
+ *
+ * `idle` leaves the report standing: there is nothing to report, or the tab may not navigate yet (it is not
+ * the route on screen, or meal planning is unavailable), so the handoff fires when focus returns rather than
+ * being dropped. `settled` is a report whose record is no longer on file — the write resolved elsewhere — so
+ * there is nothing to hand off and the report is simply dropped. `pending` is a report the current-plan read
+ * has not answered yet, which also leaves it standing. `handoff` is the one frame the owning screen is opened
+ * in. `unreachable` is a record the read has ANSWERED about and whose plan or meal is not in
+ * `{current, upcoming}` — a superseded or ended week — where no route can be built: a confirmed refusal is
+ * then retired and reported by toast, while an unknown outcome keeps its key, because that key remains the
+ * only safe way to ask again and the next open owns it (0.7.2).
+ *
+ * `pending` and `unreachable` are separate because they are opposite facts that look alike. The replay fires
+ * as soon as the persisted slice is read (0.7.2) and runs beside the current-plan query, not after it, so a
+ * refusal routinely arrives while `plans` is still `undefined` — a cold start whose plan entry expired, or
+ * was never persisted, answers the mutation first. Reading that silence as "no route exists" would retire a
+ * confirmed refusal with nothing but a toast and drop an unknown outcome's report, which is the whole defect
+ * the routing exists to remove: the state would never reach the screen 0.2.5 draws it on. Holding the report
+ * instead costs nothing, because this resolver answers from render values and is reconsidered the frame the
+ * read lands.
+ */
+export type RestoredWriteRecovery =
+  | {kind: 'idle'}
+  | {kind: 'settled'; action: InPlaceWriteAction; key: string}
+  | {kind: 'pending'; action: InPlaceWriteAction; key: string}
+  | {kind: 'handoff'; action: InPlaceWriteAction; key: string; target: RestoredWriteTarget}
+  | {kind: 'unreachable'; action: InPlaceWriteAction; key: string; clearsIntent: boolean; reportsError: boolean}
+
+export interface RestoredWriteRecoveryInputs {
+  report: RestoredWriteReport | null
+  /** The swap and log records still on file, from `resolveSwapOwnership` / `resolveLogOwnership`. */
+  swapIntent: InPlaceWriteIntent | null
+  logIntent: InPlaceWriteIntent | null
+  plans: CurrentMealPlans | undefined
+  /** Whether the tab may navigate at all: it is the focused route and meal planning is available. */
+  isHandoffAllowed: boolean
+  /** The key this tab has already handed over, so one report opens one screen once. */
+  handedOffKey: string | null
+}
+
+/**
+ * The PLANNED day of the meal a record names, and the revision to pin its next attempt to.
+ *
+ * Both are read from the current-plan response rather than from the stored snapshot, because neither is in it:
+ * the snapshot's `date` is the DIARY date a log was written to (frame 15's stepper moves it within the plan
+ * week), and its `expectedPlanRevision` is the revision the refused attempt was built against. The destination
+ * screens are addressed by the plan day the meal sits on, at the revision the plan carries now.
+ */
+const locateRestoredWrite = (
+  // Required, not optional: an unanswered read is held by the caller before this is reached, so a `null` here
+  // can only mean the read answered and does not hold the record's plan or meal.
+  plans: CurrentMealPlans,
+  intent: InPlaceWriteIntent
+): {date: string; planRevision: number} | null => {
+  const plan = planById(plans, intent.planId)
+
+  if (plan === null) {
+    return null
+  }
+
+  const day = plan.days.find(candidate => candidate.meals.some(meal => meal.id === intent.mealId))
+
+  return day === undefined ? null : {date: day.date, planRevision: plan.revision}
+}
+
+/**
+ * Who owns the state the tab's own replay reported, and with what.
+ *
+ * AAP 0.2.5 puts both unconfirmed states on the action's own screen, and those screens already own every
+ * mapped outcome: `SwapMeal` finds the attempt this tab fired by its idempotency key in the shared mutation
+ * cache and replays the stored key once on open, and `LogPlannedMeal` replays through `planStoredLogReplay`
+ * and maps confirmed failures through `classifyLogFailure`. So the handoff carries no outcome copy — only the
+ * route and the ids the screen needs to reconstruct the write.
+ *
+ * Branch order is load-bearing. The navigation gate comes first, because a report withheld is a report kept.
+ * The record is then re-read: a key that is no longer on file, or a record that has moved on to another key,
+ * has been resolved by something else and leaves nothing to hand off. An unanswered current-plan read is held
+ * next, so the absence of data is never mistaken for the absence of a route. Only then is the route built, and
+ * only from a plan and meal the read actually holds.
+ */
+export function resolveRestoredWriteRecovery(inputs: RestoredWriteRecoveryInputs): RestoredWriteRecovery {
+  const {report} = inputs
+
+  if (report === null || !inputs.isHandoffAllowed || inputs.handedOffKey === report.key) {
+    return {kind: 'idle'}
+  }
+
+  const intent = report.action === 'swap' ? inputs.swapIntent : inputs.logIntent
+
+  if (intent === null || intent.key !== report.key) {
+    return {kind: 'settled', action: report.action, key: report.key}
+  }
+
+  // Held rather than judged: `undefined` is a read that has not answered, and only an answer can say whether
+  // the record's plan is on file. A rejected replay reaching this resolver first is the ordinary case, not an
+  // edge one.
+  if (inputs.plans === undefined) {
+    return {kind: 'pending', action: report.action, key: report.key}
+  }
+
+  const located = locateRestoredWrite(inputs.plans, intent)
+
+  if (located === null) {
+    const isConfirmedRefusal = report.outcome === 'failed'
+
+    return {
+      kind: 'unreachable',
+      action: report.action,
+      key: report.key,
+      clearsIntent: isConfirmedRefusal,
+      reportsError: isConfirmedRefusal
+    }
+  }
+
+  const params = {
+    planId: intent.planId,
+    mealId: intent.mealId,
+    date: located.date,
+    planRevision: located.planRevision
+  }
+
+  return {
+    kind: 'handoff',
+    action: report.action,
+    key: report.key,
+    target: report.action === 'swap' ? {screen: 'swap', params} : {screen: 'log', params}
   }
 }
 
@@ -939,14 +1129,17 @@ export function formatPostLogBannerBody(dateIso: string, slotLabel: string, toda
  * The origin to hold for the banner currently in the store, or `null` when there is no banner.
  *
  * The same object is returned whenever nothing has to change, so a caller adjusting state during render
- * settles after one pass. The plan id is bound lazily: a log resolves while the plan is on screen, but if the
- * store is written a render before the plan resolves, the origin takes the plan as soon as one exists rather
- * than freezing a `null` the comparison below could never match.
+ * settles after one pass. The plan id and the plan day are bound lazily and TOGETHER: a log resolves while the
+ * plan is on screen, but if the store is written a render before the plan resolves, the origin takes both as
+ * soon as a plan exists rather than freezing a `null` the comparison below could never match — and the
+ * selected day is only a plan day while a plan is on screen (without one the tab falls back to the session's
+ * day), so capturing it before then would bind a day the plan does not contain.
  */
 export function resolvePostLogBannerOrigin(
   current: PostLogBannerOrigin | null,
   result: PostLogResult | null,
   planId: string | null,
+  selectedDayKey: string,
   lastSwapSucceededAt: number
 ): PostLogBannerOrigin | null {
   if (result === null) {
@@ -954,14 +1147,24 @@ export function resolvePostLogBannerOrigin(
   }
 
   if (current === null || current.entryId !== result.entryId) {
-    return {entryId: result.entryId, planId, lastSwapSucceededAt}
+    return {
+      entryId: result.entryId,
+      planId,
+      dayKey: planId === null ? null : selectedDayKey,
+      lastSwapSucceededAt
+    }
   }
 
-  // The plan id can arrive after the entry did, when the log resolved before the week's read: adopting it
-  // then is what lets the banner be shown against the plan it belongs to instead of staying unattributable.
+  // The plan can arrive after the entry did, when the log resolved before the week's read: adopting it then is
+  // what lets the banner be shown against the plan and day it belongs to instead of staying unattributable.
   // The watermark is carried through unchanged, because this is the same banner, not a newer one.
   if (current.planId === null && planId !== null) {
-    return {entryId: current.entryId, planId, lastSwapSucceededAt: current.lastSwapSucceededAt}
+    return {
+      entryId: current.entryId,
+      planId,
+      dayKey: selectedDayKey,
+      lastSwapSucceededAt: current.lastSwapSucceededAt
+    }
   }
 
   return current
@@ -974,6 +1177,12 @@ export function resolvePostLogBannerOrigin(
  * it on the wrong day or the wrong plan misreports what was logged. The plan is compared by the id actually
  * on screen rather than by the stored selection, which is `null` for a default-selected plan and therefore
  * equal across a replacement plan covering the same dates.
+ *
+ * The day is the CAPTURED plan day, never `result.dateIso`: that is the diary date the entry landed on, and a
+ * log may target another day of the plan week, in which case comparing it against the selected day cleared
+ * the banner 0.1.4 (iii) requires on the very frame it was raised. The diary date still decides the wording
+ * and the Diary-versus-History destination — `formatPostLogBannerBody` and `resolveViewTarget` read it — so
+ * the two concerns stay on the date each of them is about.
  */
 export function isPostLogBannerVisible(inputs: PostLogBannerInputs): boolean {
   const {result, origin, dismissedEntryId, planId, selectedDayKey, lastSwapSucceededAt} = inputs
@@ -986,7 +1195,7 @@ export function isPostLogBannerVisible(inputs: PostLogBannerInputs): boolean {
     return false
   }
 
-  return origin.entryId === result.entryId && origin.planId === planId && result.dateIso === selectedDayKey
+  return origin.entryId === result.entryId && origin.planId === planId && origin.dayKey === selectedDayKey
 }
 
 export function latestLoggedEntry(entries: LoggedEntryRef[]): LoggedEntryRef | null {

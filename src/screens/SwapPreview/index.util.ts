@@ -51,7 +51,6 @@ export interface SwapCommitDisposition {
    * this screen — and there is nothing here for the user to retry.
    */
   failure: CommitFailure | null
-  /** Whether the persisted swap intent survives this answer. */
   retainsPendingIntent: boolean
 }
 
@@ -60,37 +59,38 @@ export interface SwapCommitDisposition {
  * commit is the only irreversible thing frame 13b does and separate inline conditions are how one of them goes
  * missing. Two families of condition meet here: whether the PLAN still accepts this write (0.5.2) and whether
  * the single keyed slot is free for it (0.7.2).
+ *
+ * Four of these members mean less than their names suggest. `isHydrated` is true only for a read that
+ * SUCCEEDED — a pending and a refused read are both false, because neither knows what the slot holds.
+ * `isCommitInFlight` is counted across the app rather than on this hook instance, since any swap on the wire is
+ * an answer this one slot is awaiting. `isPlanWritable` is the day envelope's own verdict and the sole
+ * authority on whether the plan still accepts writes (0.5.2). And both revision members stay null or undefined
+ * until an envelope — respectively a preview — has answered, so an absent revision is "not yet", never a
+ * mismatch.
  */
 export interface SwapCommitGateInput {
-  /** Who holds the one `swap` intent slot, from this plan and meal's point of view. */
   ownership: SlotOwnership
-  /** Whether the persisted slice was READ SUCCESSFULLY — a pending and a refused read are both false. */
   isHydrated: boolean
-  /** Counted across the app, not per hook instance: any swap on the wire is an answer this slot is awaiting. */
   isCommitInFlight: boolean
-  /** `MealPlanDayEnvelope.isWritable` — the sole authority on whether this plan still accepts writes (0.5.2). */
   isPlanWritable: boolean | null | undefined
-  /** The revision the day envelope reports, or nothing when no envelope has answered. */
   dayPlanRevision: number | null | undefined
-  /** The revision the preview bound its portion and totals to, or nothing while none is in hand. */
   previewPlanRevision: number | null | undefined
-  /** A preview read in flight — including the refetch a revision mismatch starts to re-bind the portion. */
   isPreviewFetching: boolean
 }
 
+/**
+ * The one answer the commit gate gives, in the terms frame 13b has to draw.
+ *
+ * `showsForeignHoldNotice` exists so the CTA is never left disabled with nothing on screen explaining it, for
+ * as long as another meal's swap key stays unanswered. `isWriteRefused` and `isAwaitingWriteVerdict` are kept
+ * apart because an answered `false` verdict is not the same state as no verdict at all: only the former may be
+ * explained to the user as a stale-plan refusal.
+ */
 export interface SwapCommitGateDecision {
-  /** Whether 'Use this meal' is closed — for any of the reasons below, or for a slot that is not free. */
   isCommitDisabled: boolean
-  /** Whether the CTA reads as pending: an attempt on the wire, or a persisted slice not yet read. */
   isCommitPending: boolean
-  /**
-   * Whether the screen must say that another meal's swap is still unresolved. Without it the CTA would sit
-   * disabled with nothing on screen explaining it, for as long as that key stays unanswered.
-   */
   showsForeignHoldNotice: boolean
-  /** An answered `false` verdict, and the only state the stale-plan refusal may be explained for. */
   isWriteRefused: boolean
-  /** No verdict answered yet — neither permission nor refusal, so only the day route can move this. */
   isAwaitingWriteVerdict: boolean
 }
 
@@ -107,12 +107,10 @@ export interface SwapSlotOwnershipInput {
   now: number
 }
 
-/** Why no swap request may leave right now, taken from the launch decision so the two cannot drift apart. */
 export type SwapCommitBlockedReason = Extract<KeyedLaunchDecision, {kind: 'blocked'}>['reason']
 
 export interface SwapCommitLaunchInput {
   state: Pick<MealPlanStore, 'pendingIntents'>
-  /** The 0.5.2 swap request this press would send, built from the route and the preview envelope. */
   request: SwapRequestSnapshot
   userId: string | null
   isHydrated: boolean
@@ -127,7 +125,6 @@ export type SwapCommitLaunch =
    * request's body under the stored key on a replay and the fresh request's under the minted key otherwise.
    */
   | {kind: 'send'; isReplay: boolean; payload: SwapMealPayload; intent: PendingIntent | null}
-  /** Record NOTHING and send nothing. The reason is what the screen tells the user. */
   | {kind: 'blocked'; reason: SwapCommitBlockedReason}
 
 // Declared by @utility/ServingsUtility, which owns the scaling and formatting this screen shares with recipe

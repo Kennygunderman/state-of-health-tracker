@@ -4,7 +4,6 @@ import {ProgressStackParamList} from '@navigation/ProgressStack'
 import {RootStackParamList} from '@navigation/types'
 import {BottomTabNavigationOptions, createBottomTabNavigator} from '@react-navigation/bottom-tabs'
 import {getFocusedRouteNameFromRoute, NavigatorScreenParams} from '@react-navigation/native'
-import FontSize from '@styles/fontSize'
 import {Theme} from '@styles/theme'
 
 import AccountScreen from '@screens/Account'
@@ -18,6 +17,7 @@ import RunIcon from '@components/icons/RunIcon'
 import Screens from '@constants/screens'
 import {MACROS_TITLE, PROGRESS_TITLE, WORKOUTS_TITLE} from '@constants/strings'
 
+import styles from './HomeTabs.styled'
 import MacrosStack from './MacrosStack'
 import ProgressStack from './ProgressStack'
 import RunsStack from './RunsStack'
@@ -88,21 +88,13 @@ const HomeTabs = (): React.JSX.Element => {
 
         return {
           freezeOnBlur: true,
-          sceneStyle: {backgroundColor: Theme.colors.background},
+          sceneStyle: styles.scene,
           tabBarIcon: TAB_BAR_ICONS[route.name],
           headerShown: false,
           tabBarActiveTintColor: Theme.colors.accentGreen,
           tabBarInactiveTintColor: Theme.colors.textFaint,
-          tabBarLabelStyle: {
-            fontSize: FontSize.TAB_LABEL,
-            fontWeight: '600'
-          },
-          tabBarStyle: {
-            display: hideTabBar ? 'none' : 'flex',
-            borderTopWidth: 1,
-            borderTopColor: Theme.colors.hairline,
-            backgroundColor: Theme.colors.navBar
-          }
+          tabBarLabelStyle: styles.tabBarLabel,
+          tabBarStyle: [styles.tabBar, hideTabBar ? styles.tabBarHidden : styles.tabBarVisible]
         }
       }}>
       <Tab.Screen name={'MacrosStack'} component={MacrosStack} options={{title: MACROS_TITLE}} />

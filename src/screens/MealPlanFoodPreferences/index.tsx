@@ -4,6 +4,7 @@ import {ScrollView, View} from 'react-native'
 
 import type {DislikedFoodSummary} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
+import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {MealPlanFoodPreferencesRouteProp, Navigation} from '@navigation/types'
 import {useCatalogSuggestionsQuery} from '@queries/catalog/useCatalogSuggestionsQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
@@ -12,7 +13,8 @@ import {useNavigation, useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
+import {isDislikeSelectionAtCap, MAX_DISLIKED_FOOD_IDS} from '@utility/DislikeSelectionUtility'
+import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CatalogSearchField from '@components/CatalogSearchField'
@@ -32,6 +34,7 @@ import WizardHeader from '@components/WizardHeader'
 import Screens from '@constants/screens'
 import {
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
+  MEAL_PLAN_DISLIKES_CAP_TEMPLATE,
   MEAL_PLAN_FOOD_PREFERENCES_HELPER_TEXT,
   MEAL_PLAN_FOOD_PREFERENCES_SUBTITLE,
   MEAL_PLAN_FOOD_PREFERENCES_TITLE,
@@ -76,11 +79,17 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
   const {params} = useRoute<MealPlanFoodPreferencesRouteProp>()
   const {returnFromTargets} = useHomeTabsNavigation()
 
+  // A confirmed `503 feature_disabled` from ANY gated route — this screen's own read, a setup save, a nested
+  // plan read — is terminal for a gated screen: there is nothing here to retry, so the guard leaves for the
+  // Meal Plan segment, which states the refusal once (AAP 0.2.5). The gate it returns also keeps this screen's
+  // gated read from going out when the screen is mounted with the verdict already in force.
+  const {isGatedRequestAllowed} = useMealPlanCapabilityGuard()
+
   const {
     data: preferencesData,
     isPending: isLoadingPreferences,
     refetch: refetchPreferences
-  } = useMealPlanPreferencesQuery()
+  } = useMealPlanPreferencesQuery(isGatedRequestAllowed)
   const {
     data: suggestionsData,
     isPending: isLoadingSuggestions,
@@ -113,6 +122,11 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
     isSavePending: isSaving,
     suggestionsState
   })
+
+  // The reducers behind every add path refuse the id past the hundredth, matching the bound the server
+  // enforces on the distinct count. A refused tap returns the identical selection, so without this the
+  // suggestion chips would simply stop responding; the caption below says why while removal keeps working.
+  const isSelectionAtCap = isDislikeSelectionAtCap(draft.dislikedFoodIds)
 
   // The chips render names while the payload carries ids, so all three sources of a name are merged into one
   // lookup — and the flow's own index is what names a food staged from catalog search, which neither the
@@ -189,7 +203,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
       // A rejected revision is never retried blindly (0.7.2): equal ids mean this client's own lost write, or
       // the identical edit from another device, already landed, so it resolves silently rather than writing again.
       const refetched = await refetchPreferences()
-      const fresh = refetched.data ?? null
+      const fresh = authoritativeRefetch(refetched)
 
       if (fresh === null) {
         showToast('error', TOAST_GENERIC_ERROR)
@@ -298,15 +312,22 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
           </View>
 
           <Text style={styles.helperText}>{MEAL_PLAN_FOOD_PREFERENCES_HELPER_TEXT}</Text>
+
+          {isSelectionAtCap && (
+            <Text style={styles.helperText} accessibilityLiveRegion="polite">
+              {stringWithNamedParameters(MEAL_PLAN_DISLIKES_CAP_TEMPLATE, {count: MAX_DISLIKED_FOOD_IDS})}
+            </Text>
+          )}
         </ScrollView>
       </ContentColumn>
 
       <SetupFooter>
         <View style={styles.footerContent}>
+          {/* This step is optional (47:338) and 0.7.4 reserves a disabled CTA for a pending write, so the
+              only flag the button takes is the save's own. */}
           <PrimaryButton
             label={params.mode === 'edit' ? MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT : MEAL_PLAN_CONTINUE_BUTTON_TEXT}
             isLoading={controls.isContinueLoading}
-            disabled={controls.isContinueDisabled}
             onPress={onContinuePressed}
           />
         </View>

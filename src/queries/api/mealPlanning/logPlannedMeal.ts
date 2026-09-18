@@ -11,17 +11,16 @@ import * as io from 'io-ts'
 import Endpoints from '@constants/endpoints'
 
 // The created entry is an ordinary diary row — the very row the next GET /macros/:date returns — so it is
-// decoded by the diary's own codec and mapped by the diary's own converter instead of a second copy here.
-// One row shape, one mapper: the 'From meal plan' caption MealEntryRow derives from inputMethod,
-// mealPlanMealId and nutritionProvenance cannot drift between this response and the diary's.
+// decoded by the diary's own codec and mapped by the diary's own converter instead of a second copy here,
+// which is what keeps inputMethod, mealPlanMealId and nutritionProvenance from drifting between the two.
 //
-// Refined by one field at this boundary, and only here: a planned meal is built from recipes whose every
-// ingredient is source-backed, so the server stamps 'source_backed' on the row it writes. The shared diary
-// codec cannot state that — it also decodes legacy and AI-logged rows, where the other classes and null are
-// legitimate — so the claim is made where it holds, and a response disagreeing with it is refused rather
-// than mapped. That is the choice MealPlanMealResponse already makes for the planned recipe: labelling an
-// estimate as sourced nutrition is the one thing this response may not do, and the diary caption a planned
-// row renders ('From meal plan') asserts exactly that sourcing.
+// One field is narrowed here and nowhere else, because meal origin and nutrition provenance are independent
+// facts (0.7.3): the caption a planned row renders ('From meal plan') derives from inputMethod alone and
+// claims nothing about sourcing, so the sourcing is checked here instead of read off the label. A planned
+// meal is built from recipes whose every ingredient is source-backed, so the server stamps 'source_backed'
+// and a response disagreeing with it is refused rather than mapped — presenting an estimate as sourced
+// nutrition is the one thing this response may not do. The shared diary codec cannot make the claim: it also
+// decodes legacy and AI-logged rows, where the other classes and null are legitimate.
 const PlannedMealEntryResponse = io.intersection([
   MealEntryResponse,
   io.type({nutritionProvenance: io.literal('source_backed')})

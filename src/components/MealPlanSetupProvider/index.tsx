@@ -94,13 +94,15 @@ export interface MealPlanSetupContextValue extends MealPlanSetupActions {
 // MacrosStack's navigator, because the seven steps are separate routes and a provider on one of
 // them would drop every answer at the next Continue. Nothing about leaving a step screen unmounts
 // it, so clearing the draft is an explicit act, wired in three places:
-//   - MacrosStack resets it with 'flow_exited' whenever the Macros root regains focus. That is
-//     what actually clears a completed or dismissed setup today: a generated plan and 'Not now'
-//     both end with no wizard route left on the stack.
+//   - MacrosRoutesStack, which declares the routes inside this provider, resets it with
+//     'flow_exited' whenever the Macros root regains focus. That is what actually clears a
+//     completed or dismissed setup today: a generated plan and 'Not now' both end with no wizard
+//     route left on the stack.
 //   - 'setup_completed' and 'setup_dismissed' are the same clearing decision named for a screen
-//     that prefers to clear in its own handler. No setup screen exists in the tree yet, so no
-//     call site uses them; they are the API those screens should reach for rather than inventing
-//     a clearing rule, and clearing twice is a no-op.
+//     that prefers to clear in its own handler. No production call site passes either one: the
+//     focus listener on the Macros root in MacrosRoutesStack.tsx reports 'flow_exited', and that
+//     is the clearing path in use. They stay the API a screen should reach for rather than
+//     inventing a clearing rule of its own, and clearing twice is a no-op.
 //   - a change of account clears by unmounting, and the boundary is the signed-in uid rather than
 //     the signed-in/signed-out flag: App.tsx gives the session tree the React key
 //     `sessionCacheBindingFor(userId).sessionKey`, so signing out AND signing straight in as

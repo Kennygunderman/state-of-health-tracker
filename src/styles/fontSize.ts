@@ -1,3 +1,11 @@
+// Type metrics only — deliberately no family. Every Figma text style names Helvetica Neue, and nothing under
+// `src/` sets a `fontFamily`, so the app renders the platform default (San Francisco on iOS, Roboto on
+// Android). That is the approved resolution of the divergence rather than an oversight: Agent Action Plan
+// 0.1.4 and 0.6.3 adopt option A — keep the platform default family and match size, weight, line height and
+// letter spacing exactly — so the glyph shapes differ from the comp while every metric below does not.
+// Option B (bundling a licensed Helvetica Neue and adding a `FontFamily` token here) remains available if
+// the decision is reversed; `docs/meal-planning.md` section 5 records both, and the screenshot comparisons
+// state the deviation.
 export default {
   H1: 24,
   H2: 18,

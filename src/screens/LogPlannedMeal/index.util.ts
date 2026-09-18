@@ -460,14 +460,6 @@ export interface LogAttempt {
   intent: PendingIntent | null
 }
 
-/**
- * Either the one attempt that may leave right now, or the reason nothing may leave at all.
- *
- * A blocked verdict is a first-class outcome rather than a silently dropped press: it carries no payload and
- * no intent to file, so the caller cannot mint a key, cannot write the slot and has something to tell the user
- * (0.7.2).
- */
-
 export interface LogAttemptInputs {
   planId: string
   mealId: string
@@ -494,24 +486,6 @@ const logPayload = (snapshot: LogRequestSnapshot, idempotencyKey: string): LogPl
   expectedPlanRevision: snapshot.expectedPlanRevision,
   idempotencyKey
 })
-
-/**
- * The launch verdict decides this, not the current form values: while this screen's own key is unresolved the
- * attempt is its stored snapshot under its stored key, and the caller's portion, day, bucket and revision are
- * not consulted at all. While anything else holds the slot — another meal's unresolved key, an attempt already
- * on the wire, or a persisted slice that has not been read successfully — no attempt is planned and no key is
- * minted.
- *
- * That order is the whole point. Building the body first and only then asking whether it matched the stored
- * fingerprint meant a commit whose response was lost — after which the refetched plan revision has moved on —
- * produced a *different* body, hence a freshly minted key, hence a server that had never seen it and wrote a
- * second diary entry for a meal the user logged once. Asking only about THIS meal was the same mistake one
- * level up: `pendingIntents.log` holds exactly one record, so another meal's unresolved key read as an empty
- * slot, and the fresh key filed over it abandoned the only request that could have been reconciled. A key is
- * only ever replayable under the body it was minted for (a changed body earns `409 idempotency_conflict`), so
- * the stored body is the only thing the stored key may carry, and a new key may only be minted when the slot
- * is genuinely free (0.7.2).
- */
 
 /**
  * The launch verdict decides this, not the current form values: while this screen's own key is unresolved the
@@ -608,13 +582,6 @@ export function classifyLogFailure(error: unknown): LogFailureDecision {
   }
 }
 
-/**
- * An unresolved log intent this screen is the owner of: the key an earlier attempt was sent under, and the
- * request body it was sent with. Both members are needed and neither is derivable from the other — the key
- * without the body cannot be replayed byte-identically, and the body without the key would have to be sent
- * under a new one, which is how one intent becomes two diary entries (0.7.2).
- */
-
 export interface LogUnresolvedIntentInputs {
   pendingIntents: MealPlanStore['pendingIntents']
   userId: string | null
@@ -623,6 +590,12 @@ export interface LogUnresolvedIntentInputs {
   now: number
 }
 
+/**
+ * The refetch that accompanies the unconfirmed-outcome banner. It is display only: it lets the plan day and
+ * the diary show an entry this attempt may already have written, and it never resolves the outcome or clears
+ * the intent — only a server answer to the same key does (0.2.5). Hence the two members that are always
+ * false: they are the property the caller must not break, stated where a test can read it.
+ */
 export interface LogUnconfirmedRefetch {
   refetchPlanDay: boolean
   refetchDiary: boolean
@@ -741,14 +714,7 @@ const asUnresolvedLogIntent = (intent: PendingIntent): UnresolvedLogIntent | nul
   intent.request.action === 'log' ? {key: intent.key, request: intent.request} : null
 
 /** Why no log may be sent right now, as the three cases `resolveKeyedLaunch` distinguishes. */
-
-/** Why no log may be sent right now, as the three cases `resolveKeyedLaunch` distinguishes. */
 export type LogLaunchBlockReason = Extract<KeyedLaunchDecision, {kind: 'blocked'}>['reason']
-
-/**
- * What this screen may do about the planned-log action: mint a key for a new log, replay its own unresolved
- * one, or nothing at all.
- */
 
 /**
  * What this screen may do about the planned-log action: mint a key for a new log, replay its own unresolved
@@ -774,19 +740,6 @@ export interface LogLaunchInputs {
    */
   isRequestInFlight: boolean
 }
-
-/**
- * The launch decision for the planned log, taken from the state of the ACTION's one intent slot rather than
- * from this route's own scope.
- *
- * `resolveUnresolvedLogIntent` answers the narrower question — "is there something HERE to replay" — and
- * returns null both for an empty slot and for a slot held by another plan or meal. Those two are not
- * interchangeable: `pendingIntents.log` holds exactly one record, so reading a foreign holder as an empty slot
- * is what let a fresh key be filed over an unresolved one and a second diary entry be written for a meal the
- * user logged once. `resolveSlotOwnership` keeps them apart, and `resolveKeyedLaunch` applies the shared
- * precedence — hydration, then an attempt in flight, then a foreign holder, then this screen's own replay, and
- * only then a mint — so all four keyed writes answer it the same way (0.7.2).
- */
 
 /**
  * The launch decision for the planned log, taken from the state of the ACTION's one intent slot rather than
@@ -834,16 +787,6 @@ export function resolveLogLaunch(inputs: LogLaunchInputs): LogLaunchDecision {
  * committed is the write being described. The lock holds until that key receives a server answer or a
  * confirmed terminal error, which is the only thing that clears the intent (0.7.2).
  */
-
-/**
- * What the screen shows while a key is unresolved, and whether the inputs that would change it are locked.
- *
- * An unresolved key may only ever be re-sent with the body it was minted for, so the stored snapshot — not the
- * local form state, and not a revision a refetch has moved on — is what the user sees: the visible portion,
- * day and bucket are then exactly the request the next attempt carries, and the write that may already have
- * committed is the write being described. The lock holds until that key receives a server answer or a
- * confirmed terminal error, which is the only thing that clears the intent (0.7.2).
- */
 export interface LogFormValues {
   servings: number
   selectedDate: string
@@ -870,19 +813,58 @@ export interface LogFormValuesInputs {
  * nothing at all is known about the slot, so an edit accepted then could be typed over a restored intent the
  * screen has not seen yet (0.7.2).
  */
-
-/**
- * Whether the portion, the day and the bucket may be edited at all.
- *
- * Only a launch that would mint is editable, and the three other verdicts are read-only for three different
- * reasons: this screen's own unresolved key is re-sent unchanged, so an edit could only describe a request no
- * attempt may send; another meal's unresolved key means nothing may be sent from here until it is retired; an
- * attempt on the wire is the request being answered; and until the persisted slice has been read successfully
- * nothing at all is known about the slot, so an edit accepted then could be typed over a restored intent the
- * screen has not seen yet (0.7.2).
- */
 export function isLogFormEditable(launch: LogLaunchDecision): boolean {
   return launch.kind === 'mint'
+}
+
+/**
+ * The local draft to adopt from a stored request, or `null` when there is nothing to adopt.
+ *
+ * `resolveLogFormValues` shows the stored snapshot while the intent exists, but it only overrides what is
+ * DERIVED: the portion, day and bucket the screen holds in its own state stay at one serving, the route's date
+ * and no bucket. The moment a confirmed refusal retires that intent, the derivation stops overriding and the
+ * screen falls back to those three — so the restored request the user was looking at, and was about to retry,
+ * disappears and is replaced by a different one (0.2.5 keeps the user on this screen with every entered value
+ * intact). Adopting the snapshot into the draft is what makes the values on screen survive the answer that
+ * retires the key.
+ *
+ * `null` when nothing differs, which is what makes the adoption idempotent: after it has been applied the
+ * three values equal the snapshot's, so this answers `null` and the caller's effect stops. There is no fight
+ * with a user edit either — the form is locked for as long as an intent is on record.
+ */
+export interface RestoredLogDraft {
+  servings: number
+  selectedDate: string
+  chosenBucketId: string | null
+}
+
+export interface RestoredLogDraftInputs {
+  intent: UnresolvedLogIntent | null
+  servings: number
+  selectedDate: string
+  chosenBucketId: string | null
+}
+
+export function resolveRestoredLogDraft(inputs: RestoredLogDraftInputs): RestoredLogDraft | null {
+  const {intent} = inputs
+
+  if (intent === null) {
+    return null
+  }
+
+  const stored: RestoredLogDraft = {
+    servings: intent.request.servings,
+    // The diary date the request named, which the date stepper may have moved off the route's own day.
+    selectedDate: intent.request.date,
+    chosenBucketId: intent.request.diaryMealId
+  }
+
+  const isAlreadyAdopted =
+    stored.servings === inputs.servings &&
+    stored.selectedDate === inputs.selectedDate &&
+    stored.chosenBucketId === inputs.chosenBucketId
+
+  return isAlreadyAdopted ? null : stored
 }
 
 export function resolveLogFormValues(inputs: LogFormValuesInputs): LogFormValues {
@@ -913,23 +895,10 @@ export function resolveLogFormValues(inputs: LogFormValuesInputs): LogFormValues
  * abandons a key (0.7.2). A refused read is the one blocked case the user can act on, and it gets a retry of
  * the READ rather than of the write — `retryIntentsHydration` is the only way out of that state.
  */
-
-/**
- * What the footer CTA and the unconfirmed banner's retry offer, given the launch verdict.
- *
- * Commit readiness alone is not enough to offer a submit: a press taken while the persisted slice is unread,
- * while another meal's key is unresolved, or while an attempt is on the wire either duplicates a write or
- * abandons a key (0.7.2). A refused read is the one blocked case the user can act on, and it gets a retry of
- * the READ rather than of the write — `retryIntentsHydration` is the only way out of that state.
- */
 export interface LogSubmitAffordance {
-  /** Whether a press may send anything at all. */
   canSubmit: boolean
-  /** Whether the control shows its pending treatment: an attempt on the wire, or the persisted read still out. */
   isPending: boolean
-  /** Whether the screen offers the persisted read again instead of a submit. */
   offersHydrationRetry: boolean
-  /** Whether another plan or meal holds the one log slot, which is why no submit is offered. */
   isBlockedByOtherMeal: boolean
 }
 
@@ -972,21 +941,6 @@ export interface LogUnconfirmedOutcomeInputs {
  * intent at all still states the outcome: an attempt made with nobody signed in records nothing (the slice is
  * user-scoped), and a failure the user is told nothing about would be worse than one they cannot resolve.
  */
-
-/**
- * Whether the screen states an outcome it cannot vouch for: a key that actually answered with an unknown
- * outcome, and nothing since that resolved it.
- *
- * Keyed rather than a flag, and never inferred from the mere presence of a stored intent: an intent on record
- * whose key has had no answer yet is owed its silent replay (`planStoredLogReplay`), and announcing the
- * unconfirmed variant before that replay has been tried would hand the user a manual retry for a request the
- * screen is about to finish on its own (0.7.2). It survives a retry of that same key while the request is in
- * flight, which is what keeps the banner and its pending treatment on screen instead of flickering.
- *
- * An intent for a *different* key is a later attempt, whose own answer decides what the screen says. No
- * intent at all still states the outcome: an attempt made with nobody signed in records nothing (the slice is
- * user-scoped), and a failure the user is told nothing about would be worse than one they cannot resolve.
- */
 export function isLogOutcomeUnconfirmed(inputs: LogUnconfirmedOutcomeInputs): boolean {
   return inputs.unconfirmedKey !== null && (inputs.intent === null || inputs.intent.key === inputs.unconfirmedKey)
 }
@@ -1014,23 +968,6 @@ export interface LogStoredReplayInputs {
  * wire twice. The once-per-key rule itself is `resolveMountReplay`'s, shared with the other three keyed writes
  * so they cannot disagree about it (0.7.2).
  */
-
-/**
- * Whether the unresolved intent still owes its silent replay as the screen opens, and the latch to keep.
- *
- * The intent comes from the launch verdict, so the replay can only ever fire for a key this screen owns: the
- * persisted slice must have been read successfully (a first frame would otherwise read an empty slice and
- * conclude there was nothing to replay), the account must be known, and no other plan or meal may hold the
- * slot. The one prerequisite left is this screen's own: the day and diary reads have to have produced a
- * commit-ready state, because a success has to be describable — the post-log banner names the recipe and the
- * bucket the entry landed in, which only the loaded day carries. Until then the decision is simply "not yet",
- * never "nothing pending".
- *
- * `isRequestInFlight` is asserted here as well as inside the verdict, and it is the app-wide count rather than
- * this screen's mutation: the Meal Plan tab owns the same cold-start replay, and one key must never be on the
- * wire twice. The once-per-key rule itself is `resolveMountReplay`'s, shared with the other three keyed writes
- * so they cannot disagree about it (0.7.2).
- */
 export function planStoredLogReplay(inputs: LogStoredReplayInputs): MountReplayDecision {
   return resolveMountReplay({
     intent: inputs.launch.kind === 'replay' ? inputs.launch.intent : null,
@@ -1039,10 +976,3 @@ export function planStoredLogReplay(inputs: LogStoredReplayInputs): MountReplayD
     replayedKey: inputs.replayedKey
   })
 }
-
-/**
- * The refetch that accompanies the unconfirmed-outcome banner. It is display only: it lets the plan day and
- * the diary show an entry this attempt may already have written, and it never resolves the outcome or clears
- * the intent — only a server answer to the same key does (0.2.5). Hence the two members that are always
- * false: they are the property the caller must not break, stated where a test can read it.
- */

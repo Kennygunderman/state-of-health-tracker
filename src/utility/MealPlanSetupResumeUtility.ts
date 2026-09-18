@@ -53,10 +53,8 @@ const SETUP_RESUME_TARGETS: Record<SetupStep, () => SetupResumeTarget> = {
  * is complete back to the first question. Where no status is passed, the caller has already established that
  * the step is the authority — the tab's no-plan state routes `ready_for_review` to Review itself.
  *
- * It lives in `@utility` rather than in the Meal Plan tab's own util because two trees resume setup — the
- * tab's no-plan state and the introduction's returning-user CTA — and a screen may not import another
- * component's `index.util.ts`. One resolver is what keeps the label a screen shows and the step it opens from
- * describing different progress.
+ * It lives in `@utility` rather than in the Meal Plan tab's own util because `useSetupResumeNavigation`
+ * consumes it from outside that component's tree, and a hook may not import a component's `index.util.ts`.
  */
 export function resolveSetupResumeTarget(step: SetupStep | null, status?: SetupStatus): SetupResumeTarget {
   if (status === 'ready_for_review') {

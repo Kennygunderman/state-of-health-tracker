@@ -176,26 +176,37 @@ export const MealPlanDayResponse = io.type({
   meals: io.array(MealPlanMealResponse)
 })
 
-export const MealPlanResponse = io.type({
-  id: io.string,
-  revision: io.number,
-  generationAttempt: io.number,
-  // The idempotency key of the write that published this plan. Required, because the one thing it is for is
-  // proving that a plan a client just read is the product of its own unresolved request: a member that could
-  // be absent would make every such comparison inconclusive and leave a possibly committed key unresolved.
-  generationKey: io.string,
-  startDate: DayKeyString,
-  endDate: DayKeyString,
-  status: planStatusCode,
-  targets: MacroTotalsResponse,
-  generationTargets: MacroTotalsResponse,
-  targetsStale: io.boolean,
-  preferencesRevision: io.number,
-  targetsRevision: io.number,
-  hasIncompatibilities: io.boolean,
-  summary: io.type({plannedMeals: io.number, groceryItemCount: io.number, loggedEntryCount: io.number}),
-  days: io.array(MealPlanDayResponse)
-})
+/**
+ * A plan as every plan-bearing response carries it.
+ *
+ * The required members are exactly the ones the contract declares (0.5.2). `generationKey` — the idempotency
+ * key of the write that published the plan — is an additive extra this server sends and is therefore decoded
+ * as OPTIONAL: requiring it would refuse a contract-conforming payload outright, and a whole week of meals is
+ * not worth failing over a member the contract does not promise. The screen that owns a pending generation
+ * uses it to recognise its own result when it is there (0.7.4) and waits for the answer to its own key when it
+ * is not (0.2.5) — no read settles an intent from it.
+ */
+export const MealPlanResponse = io.intersection([
+  io.type({
+    id: io.string,
+    revision: io.number,
+    generationAttempt: io.number,
+    startDate: DayKeyString,
+    endDate: DayKeyString,
+    status: planStatusCode,
+    targets: MacroTotalsResponse,
+    generationTargets: MacroTotalsResponse,
+    targetsStale: io.boolean,
+    preferencesRevision: io.number,
+    targetsRevision: io.number,
+    hasIncompatibilities: io.boolean,
+    summary: io.type({plannedMeals: io.number, groceryItemCount: io.number, loggedEntryCount: io.number}),
+    days: io.array(MealPlanDayResponse)
+  }),
+  // Absent and explicit null are both "no key in hand", which the converter maps to null. A member of the
+  // wrong type is still refused: a non-string key could only ever compare false, silently.
+  io.partial({generationKey: io.union([io.string, io.null])})
+])
 
 // The GET /meal-planning/plans/current envelope, declared here so the request function and its tests share one
 // definition: both members are always present, and `{current: null, upcoming: null}` is the no-plan answer.
@@ -208,21 +219,30 @@ export const CurrentMealPlanResponse = io.type({
  * The GET /meal-planning/plans/:planId/days/:date envelope, declared here for the same reason as the one
  * above: the request function and the codec tests read one definition.
  *
- * `isWritable` is the server's verdict on whether this plan still accepts writes, computed in the user's
- * stored zone, and it is REQUIRED — a response without it cannot be gated on, and reading its absence as
- * writable is the defect the member was added to close. `planStatus` and `planLifecycle` stay loose strings
- * resolved with a conservative fallback (`@utility/MealPlanLifecycleUtility`), unlike `MealPlanResponse.status`
- * above: a lifecycle value a newer server introduces should leave the day read-only, not fail the whole read
- * and leave the screen with nothing.
+ * The required members are exactly the four the contract declares — `{planId, planRevision, planStatus, day}`
+ * (0.5.2). `planLifecycle` and `isWritable` are additive extras: this server computes them in the user's
+ * stored zone and sends them on every day read, and when they are there they are what spares a user a Swap or
+ * a Log the write path would refuse `409 plan_not_active`. They are decoded as OPTIONAL because the contract
+ * does not promise them, so a conforming response must not be refused over their absence;
+ * `convertMealPlanDayEnvelope` then falls back to `planStatus` and the plan's own refusal recovers the
+ * remaining case (a finished week whose stored status is still 'active').
+ *
+ * `planStatus` and `planLifecycle` stay loose strings resolved conservatively there, unlike
+ * `MealPlanResponse.status` above: a lifecycle value a newer server introduces should leave the day read-only,
+ * not fail the whole read and leave the screen with nothing.
  */
-export const MealPlanDayEnvelopeResponse = io.type({
-  planId: io.string,
-  planRevision: io.number,
-  planStatus: io.string,
-  planLifecycle: io.string,
-  isWritable: io.boolean,
-  day: MealPlanDayResponse
-})
+export const MealPlanDayEnvelopeResponse = io.intersection([
+  io.type({
+    planId: io.string,
+    planRevision: io.number,
+    planStatus: io.string,
+    day: MealPlanDayResponse
+  }),
+  io.partial({
+    planLifecycle: io.union([io.string, io.null]),
+    isWritable: io.union([io.boolean, io.null])
+  })
+])
 
 export const RecipeVersionResponse = io.type({
   versionId: io.string,

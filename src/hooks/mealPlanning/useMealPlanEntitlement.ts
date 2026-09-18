@@ -1,6 +1,7 @@
-import {useEffect, useLayoutEffect, useRef, useSyncExternalStore} from 'react'
+import {useCallback, useEffect, useSyncExternalStore} from 'react'
 
 import {CurrentMealPlans} from '@data/models/MealPlan'
+import {queryKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
@@ -10,14 +11,20 @@ import {
   subscribeToRemoteConfigActivation
 } from '@service/remoteConfig/initRemoteConfig'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {QueryClient, useQueryClient} from '@tanstack/react-query'
 
 import {
-  createMealPlanEntitlementSessionStore,
-  deriveMealPlanCapabilitySignals,
+  deriveMealPlanCapabilitySignalsFromRequests,
   hasMealPlan,
-  MealPlanCapabilityErrors,
+  latchFromCapabilityRecord,
   MealPlanCapabilityLatch,
+  MealPlanCapabilityRecord,
+  MealPlanCapabilitySignals,
   MealPlanEntitlement,
+  mealPlanRequestScopeForMutationKey,
+  mealPlanRequestScopeForQueryKey,
+  nextMealPlanCapabilityRecord,
+  ObservedMealPlanRequest,
   planMealPlanEntitlementQueries,
   resolveMealPlanEntitlement
 } from './useMealPlanEntitlement.util'
@@ -26,12 +33,6 @@ import {
 export interface MealPlanEntitlementRead<TData> {
   data?: TData
   error: unknown
-}
-
-/** One instance's standing in the session: whether it drives the gated reads, and the verdict already reached. */
-export interface MealPlanEntitlementParticipation {
-  isLead: boolean
-  capabilityLatch: MealPlanCapabilityLatch
 }
 
 /**
@@ -45,114 +46,202 @@ export interface MealPlanEntitlementParticipation {
 export interface MealPlanEntitlementHooks {
   /** The Remote Config verdict, re-read whenever the single launch activation settles. */
   useFlagEnabled: () => boolean
-  /** Registers this instance for the lead election and reads back the session's lead and latch. */
-  useSessionParticipation: () => MealPlanEntitlementParticipation
+  /** The session's capability verdict, re-read whenever the query cache that holds it changes. */
+  useCapabilityLatch: () => MealPlanCapabilityLatch
   useSessionDayKey: () => string
   usePreferencesRead: (enabled: boolean) => MealPlanEntitlementRead<unknown>
   useCurrentPlanRead: (enabled: boolean, sessionDayKey: string) => MealPlanEntitlementRead<CurrentMealPlans>
   /** Takes no gate: `/meal-planning/targets*` is never gated (AAP 0.7.5), and the signature says so. */
   useTargetsRead: () => MealPlanEntitlementRead<unknown>
-  /** Adds the signals the current errors carry to the session latch, after commit. */
-  useRecordedCapabilitySignals: (errors: MealPlanCapabilityErrors) => void
+  /**
+   * Adds the signals every settled gated request carries to the session verdict, after commit.
+   *
+   * Takes no arguments, and that is the contract rather than an omission: the recorder derives the verdict
+   * from the request caches alone, so the verdict can never outlive the requests that justify it.
+   */
+  useRecordedCapabilitySignals: () => void
 }
-
-const sessionStore = createMealPlanEntitlementSessionStore()
 
 /**
- * Clears the retained capability verdict so the gated routes may be read again.
+ * The capability verdict lives in the query cache, under `queryKeys.mealPlanCapability`.
  *
- * Retention is what stops a known-unavailable route being re-probed on every mount, focus and reconnect, and
- * this release is its one counterweight: a `503 feature_disabled` seen before the launch activation settled (the
- * SDK serves a cached activated value straight away, so the gated reads can run and fail first) must not outlive
- * the activation that confirms the feature is on.
+ * It is server-derived truth — read out of the errors of the gated requests themselves — so the query cache is
+ * where `mobile-state-management` puts it, beside the requests that produce it and inside the client that
+ * `queryClient.clear()` empties on logout. The key is deliberately absent from `PERSISTED_QUERY_KEYS`, which
+ * makes the verdict session-scoped: a cold start probes the gated routes once more, the forward-recovery path an
+ * operator re-enable needs (AAP 0.7.5). Nothing fetches the entry — it has no `queryFn` and is written only by
+ * the recorder below.
  *
- * A release is not a promise that a request follows. The recorder below re-asserts the latch from whatever
- * terminal error is still the current answer, so a release with a live `503` or route-missing 404 in hand
- * re-latches without issuing anything — a repeat probe of a route that just refused is exactly what the
- * retention rule forbids — and the gated reads resume only once that error is no longer the answer.
- *
- * Exported so the forward-recovery path has a name, which is also what lets a test start from a clean session.
+ * The three functions are `QueryClient`-injected rather than hook-internal so the whole mechanism is exercisable
+ * in plain Jest against a real `QueryClient`, with no renderer (AAP 0.4.1).
  */
-export const resetMealPlanCapabilityLatch = (): void => {
-  sessionStore.resetCapabilityLatch()
+const readMealPlanCapabilityRecord = (queryClient: QueryClient): MealPlanCapabilityRecord | undefined =>
+  queryClient.getQueryData<MealPlanCapabilityRecord>(queryKeys.mealPlanCapability)
+
+/**
+ * The entry is written with `setQueryData` and observed through the cache rather than through a
+ * `QueryObserver`, so nothing marks it active and it would otherwise inherit the app-wide 24-hour `gcTime` in
+ * `src/queries/queryClient.ts` and be collected inside a still-running process. `Infinity` is what makes
+ * "session-scoped" true for the whole process: the verdict is dropped by `queryClient.clear()` on logout and by
+ * process death, and by nothing else — a collection would re-enable the gated reads and send out exactly the
+ * probe AAP 0.2.5 says a latched client must not issue.
+ *
+ * Applied before every write because defaults are consulted when a query is first built: setting them on the
+ * one path that can create this entry is what guarantees they are in place by then, and repeating it is free.
+ * The key stays out of `PERSISTED_QUERY_KEYS`, so `Infinity` never reaches disk.
+ */
+const CAPABILITY_RECORD_QUERY_DEFAULTS = {gcTime: Infinity} as const
+
+export const readMealPlanCapabilityLatch = (queryClient: QueryClient): MealPlanCapabilityLatch =>
+  latchFromCapabilityRecord(readMealPlanCapabilityRecord(queryClient))
+
+/**
+ * Reads the whole session for capability signals: every settled query and every settled mutation in the two
+ * caches.
+ *
+ * Scanning the caches is what makes *every* gated request a producer of the verdict rather than only the
+ * entitlement's own reads (AAP 0.2.5 — "the explicit capability code a mounted backend returns from any gated
+ * route"). A setup step or full-preferences save, a plan-day, grocery, alternatives, preview, affected-meals or
+ * recipe read, and each of the four keyed writes can all answer a confirmed `503 feature_disabled`; before this
+ * scan existed the verdict never learned about any of them, so the Meal Plan segment kept claiming the feature
+ * was live and further gated probes kept going out.
+ *
+ * THE CACHES ARE THE WHOLE INPUT, and nothing is appended from the shell's own render. That is what keeps the
+ * verdict from outliving the evidence for it: `queryClient.clear()` on logout empties both caches, so a scan
+ * taken after it finds nothing and writes nothing, and the next account cannot inherit the previous one's
+ * terminal verdict. Appending the shell's three live errors — which survive in a render for as long as the
+ * observers hold their last result, i.e. past the clear — was exactly the path by which a cleared verdict came
+ * back. Nothing is lost by dropping them: while this hook is mounted it *is* an observer of those three
+ * queries, so their errors are in the cache by construction, and the immediate, pre-effect reading the UI needs
+ * is served by `resolveMealPlanEntitlement`, which merges the live errors with the latch on the read path.
+ *
+ * Which requests may produce which signal is not decided here — the classification is
+ * `mealPlanRequestScopeFor*Key`, and the rule reading it is `deriveMealPlanCapabilitySignalsFromRequests`.
+ */
+export const observeMealPlanCapabilitySignals = (queryClient: QueryClient): MealPlanCapabilitySignals => {
+  const observed: ObservedMealPlanRequest[] = queryClient
+    .getQueryCache()
+    .getAll()
+    .map(query => ({...mealPlanRequestScopeForQueryKey(query.queryKey), error: query.state.error}))
+
+  queryClient
+    .getMutationCache()
+    .getAll()
+    .forEach(mutation => {
+      observed.push({
+        ...mealPlanRequestScopeForMutationKey(mutation.options.mutationKey),
+        error: mutation.state.error
+      })
+    })
+
+  return deriveMealPlanCapabilitySignalsFromRequests(observed)
 }
 
-let releasedActivationEpoch = getRemoteConfigActivation().epoch
+/**
+ * Whether a cache event can have introduced a request failure, and is therefore worth re-scanning for.
+ *
+ * Only `added` and `updated` can: a request appears, or its state moves — and a failure is one such move.
+ * `removed` is excluded because it is the event of evidence going away, and a scan triggered by evidence going
+ * away is precisely the wrong moment to re-decide anything. It is also the only event `queryClient.clear()`
+ * emits, for every entry it drops, so excluding it is what stops the logout clear from re-creating the verdict
+ * it has just discarded. The observer events carry no state change at all.
+ *
+ * `observerAdded` is deliberately absent: a mount re-scans anyway, because attaching runs the full scan.
+ */
+const RECORDABLE_EVENT_TYPES: ReadonlySet<string> = new Set<string>(['added', 'updated'])
 
-// Guarded by the epoch rather than by the caller, because the latch is session-scoped: the activation that
-// releases it must release it once however many instances observe the same broadcast.
-const releaseCapabilityLatchForActivation = (epoch: number): void => {
-  if (epoch === releasedActivationEpoch) {
-    return
+const isRecordableCacheEvent = (event: {type: string}): boolean => RECORDABLE_EVENT_TYPES.has(event.type)
+
+// The recorder's own writes land in the cache it subscribes to. Reference equality already stops the write
+// from repeating, but skipping the verdict's own key removes the re-entrancy rather than surviving it.
+const isCapabilityRecordEvent = (event: {type: string; query?: {queryKey: readonly unknown[]}}): boolean =>
+  event.query?.queryKey[0] === queryKeys.mealPlanCapability[0]
+
+/**
+ * Writes the reading into the session's verdict and answers with the latch that now holds.
+ *
+ * The write happens only when `nextMealPlanCapabilityRecord` returns a different record. That guard is
+ * mandatory, not an optimisation: `setQueryData` emits a query-cache event, and the recorder below subscribes to
+ * that very cache, so an unconditional write would notify itself forever. It is also what keeps an unchanged
+ * reading from re-rendering every consumer, since the latch is published through `useSyncExternalStore`.
+ *
+ * `activationEpoch` carries the release of AAP 0.7.5: a verdict recorded under an earlier activation is dropped
+ * by the first reading taken under a new one, and the signals in hand re-latch it immediately when the terminal
+ * error is still the answer.
+ */
+export const recordMealPlanCapability = (
+  queryClient: QueryClient,
+  activationEpoch: number,
+  signals: MealPlanCapabilitySignals
+): MealPlanCapabilityLatch => {
+  const record = readMealPlanCapabilityRecord(queryClient)
+  const next = nextMealPlanCapabilityRecord(record, activationEpoch, signals)
+
+  if (next === record) {
+    return latchFromCapabilityRecord(record)
   }
 
-  releasedActivationEpoch = epoch
+  queryClient.setQueryDefaults(queryKeys.mealPlanCapability, CAPABILITY_RECORD_QUERY_DEFAULTS)
+  queryClient.setQueryData(queryKeys.mealPlanCapability, next)
 
-  resetMealPlanCapabilityLatch()
+  return latchFromCapabilityRecord(next)
 }
-
-// Handed out in first-render order, which is what makes the lead the longest-lived instance. React runs child
-// effects before parent effects, so electing by effect order would make MealPlanTab's instance the lead and
-// transfer the lead — and with it a refetch — every time the user leaves the Meal Plan segment. Render order
-// puts Macros (the parent that stays mounted) first, so the lead does not churn when MealPlanTab unmounts or
-// Add Food is pushed on top.
-let nextInstanceId = 0
 
 const useFlagEnabled = (): boolean => useSyncExternalStore(subscribeToRemoteConfigActivation, isMealPlanningEnabled)
 
-const useSessionParticipation = (): MealPlanEntitlementParticipation => {
-  const instanceIdRef = useRef<number | null>(null)
+const useCapabilityLatch = (): MealPlanCapabilityLatch => {
+  const queryClient = useQueryClient()
+  // Memoised: `useSyncExternalStore` resubscribes whenever the subscribe function's identity changes, and a
+  // fresh closure per render would tear down and re-add a cache listener on every commit.
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => queryClient.getQueryCache().subscribe(onStoreChange),
+    [queryClient]
+  )
+  const getLatch = useCallback(() => readMealPlanCapabilityLatch(queryClient), [queryClient])
 
-  if (instanceIdRef.current === null) {
-    instanceIdRef.current = nextInstanceId
-    nextInstanceId += 1
-  }
-
-  const instanceId = instanceIdRef.current
-  const session = useSyncExternalStore(sessionStore.subscribe, sessionStore.getSnapshot)
-  const {epoch: activationEpoch} = useSyncExternalStore(subscribeToRemoteConfigActivation, getRemoteConfigActivation)
-
-  // A layout effect rather than a passive one, so the election is settled before any passive effect — the
-  // current-plan read's rollover effect included — runs against a session that has no lead yet. The consequence
-  // to accept: the lead's own gated reads start one render pass after its mount, because the render that elects
-  // it has already computed its `enabled` flags. Nothing user-visible depends on that pass — MealPlanTab mounts
-  // its own preferences and current-plan observers from the same entitlement and is unaffected.
-  useLayoutEffect(() => {
-    sessionStore.registerInstance(instanceId)
-
-    return () => sessionStore.releaseInstance(instanceId)
-  }, [instanceId])
-
-  // The activation release, run from a mounted effect rather than an import-time subscription, so loading this
-  // module mutates nothing and the release happens only while a consumer is on screen to act on it. The epoch
-  // guard makes it once-per-activation across every instance, and this effect is declared before the recorder's
-  // in shell order, so a release is followed in the same commit by the recorder re-asserting the latch from any
-  // terminal error that is still the current answer.
-  useEffect(() => {
-    releaseCapabilityLatchForActivation(activationEpoch)
-  }, [activationEpoch])
-
-  return {isLead: session.leadId === instanceId, capabilityLatch: session.capabilityLatch}
+  return useSyncExternalStore(subscribe, getLatch)
 }
 
 const useSessionDayKey = (): string => useSessionStore(state => state.sessionStartDateIso)
 
-const useRecordedCapabilitySignals = (errors: MealPlanCapabilityErrors): void => {
-  const {isFeatureDisabled, areRoutesMissing} = deriveMealPlanCapabilitySignals(errors)
+const useRecordedCapabilitySignals = (): void => {
+  const queryClient = useQueryClient()
+  const {epoch: activationEpoch} = useSyncExternalStore(subscribeToRemoteConfigActivation, getRemoteConfigActivation)
 
-  // Recorded after commit rather than during render because it publishes to a store every instance subscribes
-  // to: a sibling whose gated reads are now disabled re-renders once, and the merge returns the same latch
-  // reference when nothing changed, so a settled read that carries no signal notifies nobody.
+  // Deliberately on every commit, with no dependency array. The reading is the state of both caches rather than
+  // an event, and the verdict it feeds can be released underneath it by an activation: gating this on a change
+  // in the requests themselves would mean a release with an unchanged, still-cached `503` never re-records,
+  // leaving the verdict empty and the gated observers enabled against a route that has already refused.
+  // Re-reading unconditionally is what makes that release self-correcting, and it is cheap — the reducer returns
+  // the same record unless a signal is newly true, so an unchanged reading writes nothing and cannot re-enter
+  // this effect.
   //
-  // Deliberately on every commit, with no dependency array. The signals are a reading of the errors currently in
-  // hand, not an event, and the latch they feed can be released underneath them by an activation: gating this on
-  // a change in the signals themselves would mean a release with an unchanged, still-live `503` never re-records,
-  // leaving the latch empty and the gated observers enabled against a route that has already refused. Re-reading
-  // unconditionally is what makes that release self-correcting, and it is cheap — the merge is a two-boolean
-  // compare that returns the same reference unless a signal is newly true, so an unchanged reading publishes
-  // nothing and cannot re-enter this effect.
+  // The same effect owns the cache listeners, because a request that settles outside a commit of ours — a
+  // nested screen's gated read, a setup save, a keyed write — is exactly the producer this recorder was widened
+  // to include. Re-attaching on every commit is harmless: attaching re-runs the full scan, so an event that
+  // arrives between this commit's cleanup and its re-subscribe is read anyway.
   useEffect(() => {
-    sessionStore.recordCapabilitySignals({isFeatureDisabled, areRoutesMissing})
+    const record = (): void => {
+      recordMealPlanCapability(queryClient, activationEpoch, observeMealPlanCapabilitySignals(queryClient))
+    }
+
+    record()
+
+    const unsubscribeFromQueries = queryClient.getQueryCache().subscribe(event => {
+      if (isRecordableCacheEvent(event) && !isCapabilityRecordEvent(event)) {
+        record()
+      }
+    })
+    const unsubscribeFromMutations = queryClient.getMutationCache().subscribe(event => {
+      if (isRecordableCacheEvent(event)) {
+        record()
+      }
+    })
+
+    return () => {
+      unsubscribeFromQueries()
+      unsubscribeFromMutations()
+    }
   })
 }
 
@@ -162,7 +251,7 @@ const useRecordedCapabilitySignals = (errors: MealPlanCapabilityErrors): void =>
  */
 export const defaultMealPlanEntitlementHooks: MealPlanEntitlementHooks = {
   useFlagEnabled,
-  useSessionParticipation,
+  useCapabilityLatch,
   useSessionDayKey,
   usePreferencesRead: useMealPlanPreferencesQuery,
   useCurrentPlanRead: useCurrentMealPlanQuery,
@@ -174,20 +263,21 @@ export const defaultMealPlanEntitlementHooks: MealPlanEntitlementHooks = {
  * The meal-planning entitlement every gated surface reads: Macros for the segmented control, Add Food for the
  * Catalog section, the Meal Plan tab for its availability and its permission to issue gated requests.
  *
- * Invoking it more than once per visible tree is expected and cheap: the instances elect one lead, the lead
- * drives the two gated reads, and the rest read the same cache entries through disabled observers, which issue
- * no request and run no rollover effect. The verdict itself is decided in `@utility/MealPlanEntitlementUtility`.
+ * Invoking it more than once per visible tree is expected and cheap: the instances mount observers for the same
+ * two keys, which TanStack dedupes against the 60s `staleTime` in `src/queries/queryClient.ts`, and they read
+ * one shared capability verdict out of the query cache. The verdict itself is decided in
+ * `@utility/MealPlanEntitlementUtility`.
  */
 export const useMealPlanEntitlement = (
   hooks: MealPlanEntitlementHooks = defaultMealPlanEntitlementHooks
 ): MealPlanEntitlement => {
   const isFlagEnabled = hooks.useFlagEnabled()
-  const {isLead, capabilityLatch} = hooks.useSessionParticipation()
+  const capabilityLatch = hooks.useCapabilityLatch()
   // The current-plan query owns no store of its own and ignores an undefined day key, so the session's key is
   // read here and handed in — dropping it silently stops the plan rollover refetch.
   const sessionDayKey = hooks.useSessionDayKey()
 
-  const queryPlan = planMealPlanEntitlementQueries({isFlagEnabled, isLead, capabilityLatch, sessionDayKey})
+  const queryPlan = planMealPlanEntitlementQueries({isFlagEnabled, capabilityLatch, sessionDayKey})
 
   const {error: preferencesError} = hooks.usePreferencesRead(queryPlan.preferences.enabled)
   const {data: plans, error: currentPlanError} = hooks.useCurrentPlanRead(
@@ -198,7 +288,9 @@ export const useMealPlanEntitlement = (
   // server-side and Account, Progress and the Diary editor depend on this read under a rolled-back backend.
   const {error: targetsError} = hooks.useTargetsRead()
 
-  hooks.useRecordedCapabilitySignals({preferencesError, currentPlanError, targetsError})
+  // Takes nothing: the recorder reads the request caches, which is where these three errors already live while
+  // this hook observes them, and where they stop living the moment logout clears the client.
+  hooks.useRecordedCapabilitySignals()
 
   return resolveMealPlanEntitlement({
     isFlagEnabled,

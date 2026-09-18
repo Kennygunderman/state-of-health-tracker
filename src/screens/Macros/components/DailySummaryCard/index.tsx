@@ -26,6 +26,8 @@ const RING_STROKE_WIDTH = 10
 
 interface Props {
   totals: MacroTotals
+  // Already authority-resolved by `Macros/index.util::resolveAuthoritativeMacroTargets`, which is where the
+  // displayed calorie target is decided; the read below is the same one, for editor routing only.
   targets: ResolvedMacroTargets
 }
 

@@ -254,6 +254,47 @@ describe('logMealEntry', () => {
     })
   })
 
+  describe('the body shapes the request type accepts', () => {
+    it('takes either shape through the same call, each sent as the caller built it', async () => {
+      resolveWith(201, LEGACY_WIRE_ENTRY)
+
+      await logMealEntry(MEAL_ID, LEGACY_PAYLOAD)
+      await logMealEntry(MEAL_ID, CATALOG_PAYLOAD)
+
+      expect(mockHttpPost.mock.calls.map(call => call[2])).toEqual([LEGACY_PAYLOAD, CATALOG_PAYLOAD])
+    })
+
+    // The parameter is the union of the two shapes, and a union target reports one
+    // assignability error for the whole argument, so the directive sits on the call line.
+    // It fails the build the day the mixed body stops being an error, which is what keeps
+    // this request from reaching the 400 the server answers it with.
+    it('refuses a body naming both a personal and a catalog food, and the refusal is the compiler', async () => {
+      resolveWith(201, LEGACY_WIRE_ENTRY)
+
+      // @ts-expect-error nutrition.logic.ts::routeFor answers both ids with 400
+      // invalid_payload, so this body must never compile into a request
+      await logMealEntry(MEAL_ID, {...LEGACY_PAYLOAD, catalogFoodId: 'catalog-food-1'})
+
+      const [, , body] = postedCall()
+
+      expect(body).toHaveProperty('foodId')
+      expect(body).toHaveProperty('catalogFoodId')
+    })
+
+    it('refuses a catalog body carrying legacy snapshot members, which the server would discard', async () => {
+      resolveWith(201, LEGACY_WIRE_ENTRY)
+
+      // @ts-expect-error a catalog log derives every number from the catalog row, so a
+      // body claiming its own name and macros must never compile into a request
+      await logMealEntry(MEAL_ID, {...CATALOG_PAYLOAD, name: 'Greek yogurt bowl', calories: 420})
+
+      const [, , body] = postedCall()
+
+      expect(body).toHaveProperty('catalogFoodId')
+      expect(body).toHaveProperty('calories')
+    })
+  })
+
   describe('the resolved entry', () => {
     it('resolves the converted entry on 201 Created', async () => {
       resolveWith(201, LEGACY_WIRE_ENTRY)

@@ -6,6 +6,7 @@ import {
   classifyOutcome,
   getApiErrorCode,
   getApiErrorStatus,
+  isConfirmedFeatureDisabledError,
   isConfirmedPlanStateError,
   isFeatureDisabledError,
   isPlanOrCapabilityRefusal,
@@ -355,6 +356,80 @@ describe('isFeatureDisabledError', () => {
   })
 })
 
+describe('isConfirmedFeatureDisabledError', () => {
+  it('recognises the 503 a mounted backend returns from a gated route', () => {
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}})
+    ).toBe(true)
+  })
+
+  // THE STATUS IS PART OF THE SIGNAL. A resource route's 404 is the not-found/not-yours answer of AAP 0.5.2,
+  // which that section never distinguishes and which is emphatically not an unavailability signal — so even
+  // when such a response carries this exact code (a proxy, a rewritten route, a future handler), reading it as
+  // the capability being off would latch the entire session over one plan day or one recipe the caller cannot
+  // see. The generic classification still calls it confirmed, as it must; the capability question answers no.
+  it('refuses the code on a resource 404, which AAP 0.5.2 reserves for not-found/not-yours', () => {
+    const resourceNotFound = {response: {status: 404, data: {error: API_ERROR_CODES.featureDisabled}}}
+
+    expect(classifyOutcome(resourceNotFound)).toBe('confirmed')
+    expect(isFeatureDisabledError(resourceNotFound)).toBe(true)
+    expect(isConfirmedFeatureDisabledError(resourceNotFound)).toBe(false)
+  })
+
+  it('refuses the code on any other 4xx, which is some other refusal of this request', () => {
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 403, data: {error: API_ERROR_CODES.featureDisabled}}})
+    ).toBe(false)
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 409, data: {error: API_ERROR_CODES.featureDisabled}}})
+    ).toBe(false)
+  })
+
+  // A gateway failure echoing the string describes nothing about this attempt. `classifyOutcome` calls it
+  // confirmed because the code is a recognised machine code and the generic rule has other purposes for that
+  // (a keyed write must not promise "nothing changed"); stopping every gated request in the session over a
+  // failure a second attempt would have resolved is not one of them.
+  it('refuses the code on a 5xx that is not the 503 the capability answer arrives as', () => {
+    const gatewayEcho = {response: {status: 502, data: {error: API_ERROR_CODES.featureDisabled}}}
+
+    expect(classifyOutcome(gatewayEcho)).toBe('confirmed')
+    expect(isConfirmedFeatureDisabledError(gatewayEcho)).toBe(false)
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 500, data: {error: API_ERROR_CODES.featureDisabled}}})
+    ).toBe(false)
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 504, data: {error: API_ERROR_CODES.featureDisabled}}})
+    ).toBe(false)
+  })
+
+  // A rejection that never reached a response describes no outcome, however its shape was assembled, so it
+  // must stay a retry rather than latch the session's unavailable verdict.
+  it('refuses the code when no response status carried it', () => {
+    expect(isConfirmedFeatureDisabledError({response: {data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(false)
+    expect(isConfirmedFeatureDisabledError({message: API_ERROR_CODES.featureDisabled})).toBe(false)
+  })
+
+  it('does not treat another confirmed refusal as the capability being off', () => {
+    expect(
+      isConfirmedFeatureDisabledError({response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}})
+    ).toBe(false)
+    expect(isConfirmedFeatureDisabledError({response: {status: 404, data: {error: 'Plan not found'}}})).toBe(false)
+  })
+
+  it('does not treat a bodiless or transport failure as the capability being off', () => {
+    expect(isConfirmedFeatureDisabledError({response: {status: 503}})).toBe(false)
+    expect(isConfirmedFeatureDisabledError(new Error('Network Error'))).toBe(false)
+    expect(isConfirmedFeatureDisabledError(null)).toBe(false)
+    expect(isConfirmedFeatureDisabledError(undefined)).toBe(false)
+  })
+
+  it('reads an axios-shaped rejection, the form a request function re-throws', () => {
+    expect(isConfirmedFeatureDisabledError(makeAxiosError(503, {error: API_ERROR_CODES.featureDisabled}))).toBe(true)
+    // The same rejection without a response is the transport failure case: no status, so nothing is confirmed.
+    expect(isConfirmedFeatureDisabledError(makeAxiosError(undefined))).toBe(false)
+  })
+})
+
 describe('isPlanStateError', () => {
   it('recognises both codes that say the plan an attempt named is not the plan the server holds', () => {
     expect(isPlanStateError({response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}})).toBe(true)
@@ -509,6 +584,40 @@ describe('isPlanOrCapabilityRefusal', () => {
     expect(isPlanOrCapabilityRefusal(new Error('Network Error'))).toBe(false)
     expect(isPlanOrCapabilityRefusal(null)).toBe(false)
     expect(isPlanOrCapabilityRefusal(undefined)).toBe(false)
+  })
+
+  // The swap screen reads this predicate to decide a terminal refusal, so the resource-404 rule has to hold
+  // here too: AAP 0.5.2 makes a 404 from a plan or recipe route the not-found/not-yours answer, and a swap
+  // abandoned as "meal planning is off" over an alternative the caller simply cannot see would be wrong for
+  // the same reason it would be wrong in the entitlement.
+  it('does not treat a resource 404 carrying the capability code as a refusal', () => {
+    expect(isPlanOrCapabilityRefusal({response: {status: 404, data: {error: API_ERROR_CODES.featureDisabled}}})).toBe(
+      false
+    )
+  })
+
+  // The composition itself, so the wider predicate cannot drift from the two narrower ones it is built out of:
+  // whatever either of them confirms, this confirms, and nothing else.
+  it('is exactly its two confirmed parts, for every shape either of them judges', () => {
+    const errors: unknown[] = [
+      {response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}},
+      {response: {status: 409, data: {error: API_ERROR_CODES.planNotActive}}},
+      {response: {status: 503, data: {error: API_ERROR_CODES.featureDisabled}}},
+      {response: {status: 502, data: {error: API_ERROR_CODES.featureDisabled}}},
+      {response: {status: 502, data: {error: API_ERROR_CODES.stalePlan}}},
+      {response: {status: 409, data: {error: API_ERROR_CODES.previewStale}}},
+      {response: {status: 404, data: {error: 'Plan not found'}}},
+      {response: {status: 503}},
+      new Error('Network Error'),
+      null,
+      undefined
+    ]
+
+    errors.forEach(error => {
+      expect(isPlanOrCapabilityRefusal(error)).toBe(
+        isConfirmedPlanStateError(error) || isConfirmedFeatureDisabledError(error)
+      )
+    })
   })
 })
 

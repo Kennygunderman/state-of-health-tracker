@@ -32,23 +32,28 @@ const dangerBorder = 'rgba(226,104,94,0.4)'
 
 const white = '#fff'
 const heroScrim = 'rgba(8,13,10,0.6)'
+// The blocking scrim the forced-update sheet lays over the app. Distinct from `overlayBackdrop`, which is
+// opaque black that react-native-modal composes with its own `backdropOpacity`; a scrim painted as a single
+// `backgroundColor` carries its alpha in the colour, so it needs its own value.
+const sheetScrim = 'rgba(0,0,0,0.7)'
 
 // BLITZY [A11Y] — accessible-colour register.
 //
 // STATUS, in two parts, because they have different owners and different states.
 //
-// ENGINEERING: COMPLETE, AND COMPLETE BY DIRECTIVE. The governing Agent Action Plan does not leave the
-// treatment of a sub-threshold Figma pair to judgement; it prescribes it. Its accessibility rule divides
-// accessibility work in two. "Invisible accessibility" — roles, labels, hints, keyboard order, associated
-// form labels, alt text — is to be applied always, because it cannot conflict with a drawn design, and it
-// is applied throughout this feature. "Visible accessibility" is governed by Figma: colour contrast
-// "defaults to WCAG AA (4.5:1 normal, 3:1 large) ONLY when Figma does not specify otherwise. When Figma
-// values compute lower, match Figma EXACTLY and emit /* BLITZY [A11Y] */ for designer review — never
-// silently darken or lighten colours to satisfy the minimum." It then addresses this exact situation by
-// name: where a review finding asks for 4.5:1 on an element whose values Figma sets, the instruction is to
-// implement Figma exactly, emit the flag, and record the deferral to designer review — not to raise the
-// value. That is what every entry below is: the mandated engineering action, carried out. The flag is
-// emitted here and at each in-scope point of use, and the deferral is recorded in the checkpoint report.
+// ENGINEERING: COMPLETE. Every pair below implements the value Figma draws, which is what this feature's
+// precedence requires — see "Why they were not simply raised" for the citation — so none of them is a
+// judgement left open in code. The accessibility work that is engineering's alone is applied throughout the
+// feature and is what keeps each control below reachable and named: an `accessibilityRole` and an
+// `accessibilityLabel` on every pressable (Agent Action Plan 0.7.2) and 44px targets (0.6.5). Raising a
+// rendered colour is the one remedy engineering cannot apply on its own, because it would break the 1:1
+// Figma mapping the same sections require of every token here.
+//
+// `BLITZY [A11Y]` is this repository's own marker for a Figma-exact pairing that sits under the WCAG AA
+// default, not a requirement of the plan, which names neither the marker nor a contrast rule of its own. It
+// is emitted here and at each point of use — `grep -rn 'BLITZY \[A11Y\]' src` lists them — so the debt is
+// findable from the code rather than only from a report, and the deferral itself is recorded in the
+// checkpoint report.
 //
 // DESIGN: OPEN. Only a design decision can change a rendered value here, and none has been supplied, so
 // each pair remains accepted, tracked accessibility debt rather than a compliant treatment. This register
@@ -63,9 +68,13 @@ const heroScrim = 'rgba(8,13,10,0.6)'
 // supplied to implementers as the project directive rather than as a file in this repository — with Figma
 // named the visual source of truth (0.1.2) and every one of these colours recorded as an exact 1:1 token
 // match (0.2.2, 0.6.3). The WCAG default therefore governs where Figma is silent, and here it is not.
-// Raising a value would also reach far outside this feature: these constants are read by 153 files and
-// `green` alone paints 53 shipped surfaces beyond meal planning, including the bottom tab bar that 0.8.2
-// holds out of scope, so an edit here would break the 1:1 Figma mapping everywhere else.
+// Raising a value would also reach far outside this feature, because this is the app-wide palette rather
+// than a meal-planning one: `green` alone backs `accentGreen`, `success`, `secondaryLighter` and
+// `barActive`, which paint shipped surfaces this feature never touches — including the bottom tab bar that
+// 0.8.2 holds out of scope — so an edit here would break the 1:1 Figma mapping everywhere else. The reach
+// is left countable rather than quoted, since any number written here would rot: count the modules that
+// read these constants with `grep -rl '@styles/theme' src | wc -l`, and the ones that paint with the green
+// family with `grep -rlE 'accentGreen|colors\.success|secondaryLighter|barActive' src | wc -l`.
 //
 // What design needs to decide, per entry: accept the Figma value, or adopt the remedy named with it. The
 // remedies keep each control's visual language intact and are given as existing palette tokens wherever one
@@ -157,6 +166,7 @@ export const Theme = {
     dangerTint,
     dangerBorder,
     heroScrim,
+    sheetScrim,
     barMuted: '#33453B',
     barMid: '#57A67F',
     barActive: green,

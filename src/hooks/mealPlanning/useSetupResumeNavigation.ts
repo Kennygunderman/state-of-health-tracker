@@ -11,8 +11,8 @@ export interface SetupResumeNavigation {
 }
 
 /**
- * Opening the setup step a user left off at, from either surface that offers to continue: the Meal Plan tab's
- * no-plan state and the introduction's returning-user CTA.
+ * Opening the setup step a user left off at, from the only surface that offers to continue: the Meal Plan
+ * tab's no-plan state. Returning users never see the introduction, so it holds no resume path (AAP 0.7.4).
  *
  * The dispatch lives in one hook because route and params arrive already correlated from
  * `resolveSetupResumeTarget`, and the runtime navigation object takes that pair as it stands rather than

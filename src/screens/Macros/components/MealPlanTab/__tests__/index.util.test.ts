@@ -40,7 +40,9 @@ import {
   buildMealCardModels,
   isKeyedWriteHeldByAnotherMeal,
   flexItemWidth,
+  InPlaceWriteAction,
   InPlaceWriteInputs,
+  InPlaceWriteIntent,
   formatPostLogBannerBody,
   isPostLogBannerVisible,
   isStalePlanError,
@@ -63,6 +65,8 @@ import {
   resolvePendingGeneration,
   resolvePlanSwitchLink,
   resolvePostLogBannerOrigin,
+  resolveRestoredWriteDisposition,
+  resolveRestoredWriteRecovery,
   resolveSelectedPlan,
   resolveSelectedPlanDate,
   resolveSetupResumeTarget,
@@ -815,11 +819,12 @@ describe('resolvePendingGeneration', () => {
     })
   })
 
-  // The one resolution reachable from a read (AAP 0.2.5): the plan carries the key, so the key is answered.
-  // It has to be RETIRED rather than merely skipped — a record left on file keeps the action's single slot
-  // occupied, and the launch path would hand its superseded request back here for the rest of the week.
-  describe('a key the server has already answered', () => {
-    it('retires the generation and selects the plan a returned upcoming week carries the key for', () => {
+  // A READ NEVER SETTLES A KEYED WRITE (AAP 0.2.5): refetching the week is display-only, and a pending
+  // generation is retired only by an answer to its own key — the stored replay the handoff goes and fetches, a
+  // fresh commit, or a confirmed terminal error. So a week already carrying the pending key is handed over
+  // exactly like any other, and the decision cannot be told apart from the one for a week that does not.
+  describe('a plan already carrying the pending key', () => {
+    it('hands the generation to its owner rather than concluding the key is answered', () => {
       const decision = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([generateIntent()]),
@@ -827,13 +832,12 @@ describe('resolvePendingGeneration', () => {
         })
       )
 
-      expect(decision).toEqual({
-        outcome: {kind: 'settled', action: 'generate', planId: UPCOMING_PLAN_ID},
-        navigatedKey: null
-      })
+      expect(decision.outcome.kind).toBe('handoff')
+      expect(decision.navigatedKey).toBe(GENERATE_KEY)
+      expect(decision.outcome.kind === 'handoff' && decision.outcome.params.idempotencyKey).toBe(GENERATE_KEY)
     })
 
-    it('retires the regeneration and selects the plan that carries the pending key', () => {
+    it('hands the regeneration over under the key the stored record holds', () => {
       const decision = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([regenerateIntent()]),
@@ -841,25 +845,43 @@ describe('resolvePendingGeneration', () => {
         })
       )
 
-      expect(decision.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+      expect(decision.outcome.kind === 'handoff' && decision.outcome.params.idempotencyKey).toBe(REGENERATE_KEY)
     })
 
-    // The settlement retires the record and selects the plan; it never reopens the screen for a request the
-    // server has already finished.
-    it('opens no screen for the settled key', () => {
-      const decision = resolvePendingGeneration(
+    // The proof that the refetch is display-only: the same stored record decides identically whether or not
+    // the week in hand carries its key, so no branch reads a plan as an answer to a request.
+    it('decides identically whether or not the week in hand carries the key', () => {
+      const withMatch = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([regenerateIntent()]),
           plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null)
         })
       )
 
-      expect(decision.outcome.kind).not.toBe('handoff')
+      const withoutMatch = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: 'gen-key-someone-else'}), null)
+        })
+      )
+
+      expect(withMatch).toEqual(withoutMatch)
     })
 
-    // Settling is a state write about a key the server demonstrably answered, so it does not wait for the
-    // navigation gate the handoff needs — otherwise an unfocused tab would leave the slot occupied.
-    it('settles even while the tab may not navigate', () => {
+    // A plan whose key is absent is the contract-conforming case: `generationKey` is an additive extra, so a
+    // response without it is ordinary and may not change what this resolver does.
+    it('decides identically when the plans carry no generation key at all', () => {
+      const decision = resolvePendingGeneration(
+        makeGenerationInputs({
+          intents: makeIntents([regenerateIntent()]),
+          plans: makePlans(makePlan({generationKey: null}), null)
+        })
+      )
+
+      expect(decision.outcome.kind === 'handoff' && decision.outcome.params.idempotencyKey).toBe(REGENERATE_KEY)
+    })
+
+    it('still waits for the navigation gate, because a handoff is a navigation', () => {
       const decision = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([regenerateIntent()]),
@@ -868,10 +890,10 @@ describe('resolvePendingGeneration', () => {
         })
       )
 
-      expect(decision.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
     })
 
-    it('settles the key even after this tab has already handed it over once', () => {
+    it('does not reopen the screen for a key it already holds the latch for', () => {
       const decision = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([regenerateIntent()]),
@@ -880,31 +902,15 @@ describe('resolvePendingGeneration', () => {
         })
       )
 
-      expect(decision).toEqual({
-        outcome: {kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID},
-        navigatedKey: REGENERATE_KEY
-      })
+      expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: REGENERATE_KEY})
     })
 
-    it('settles nothing while no record is stored, however the plans are keyed', () => {
+    it('owns nothing while no record is stored, however the plans are keyed', () => {
       const decision = resolvePendingGeneration(
         makeGenerationInputs({plans: makePlans(makePlan({generationKey: REGENERATE_KEY}), null)})
       )
 
       expect(decision).toEqual({outcome: {kind: 'idle'}, navigatedKey: null})
-    })
-
-    // A plan carrying another key proves nothing about this one: after a lost response the week in hand may be
-    // the one the request was about to replace.
-    it('still reconstructs the owner when the plans in hand carry other generation keys', () => {
-      const decision = resolvePendingGeneration(
-        makeGenerationInputs({
-          intents: makeIntents([generateIntent()]),
-          plans: makePlans(makePlan({generationKey: 'gen-key-someone-else'}), null)
-        })
-      )
-
-      expect(decision.outcome.kind).toBe('handoff')
     })
   })
 
@@ -998,19 +1004,20 @@ describe('resolvePendingGeneration', () => {
       expect(decision.navigatedKey).toBe(REGENERATE_KEY)
     })
 
-    // An answered key must not shadow one nobody has answered, or the older request would never be finished:
-    // the answered one is settled first, and the render after its record is retired owns the older request.
-    it('settles the published newer request, then reconstructs the older one', () => {
+    // A week already carrying the newer key changes nothing about which record is owned first: the newer one
+    // is handed over, its replay answers it, and the render after its record is retired owns the older one.
+    it('hands over the newer request even when its plan is already in hand, then the older one', () => {
       const published = makePlans(makePlan({generationKey: REGENERATE_KEY}), null)
 
-      const settlement = resolvePendingGeneration(
+      const first = resolvePendingGeneration(
         makeGenerationInputs({
           intents: makeIntents([generateIntent(), regenerateIntent(INTENT_CREATED_AT + 1000)]),
           plans: published
         })
       )
 
-      expect(settlement.outcome).toEqual({kind: 'settled', action: 'regenerate', planId: CURRENT_PLAN_ID})
+      expect(first.outcome.kind).toBe('handoff')
+      expect(first.navigatedKey).toBe(REGENERATE_KEY)
 
       const afterSettlement = resolvePendingGeneration(
         makeGenerationInputs({intents: makeIntents([generateIntent()]), plans: published})
@@ -1155,6 +1162,361 @@ describe('resolveSwapOwnership and resolveLogOwnership', () => {
   })
 })
 
+// What the tab does with the outcome of its own silent replay. The defect this resolver removes: an unknown
+// outcome returned silently, leaving the ordinary plan tab over a key nobody owned, and every other confirmed
+// refusal cleared the record without a word — neither reached the action-specific state AAP 0.2.5 draws.
+describe('resolveRestoredWriteDisposition', () => {
+  const swapFailedError = {response: {status: 502, data: {error: API_ERROR_CODES.swapFailed}}}
+  const recipeIneligibleError = {response: {status: 422, data: {error: API_ERROR_CODES.recipeIneligible}}}
+  const idempotencyConflictError = {response: {status: 409, data: {error: API_ERROR_CODES.idempotencyConflict}}}
+  const invalidRequestError = {response: {status: 400, data: {error: API_ERROR_CODES.invalidRequest}}}
+
+  const disposition = (error: unknown, action: InPlaceWriteAction = 'swap') =>
+    resolveRestoredWriteDisposition({action, key: action === 'swap' ? SWAP_KEY : LOG_KEY, error})
+
+  describe('an outcome nothing has answered', () => {
+    // The write may have committed before the response was lost, so the key stays the only safe way to ask
+    // again — and the state is reported, because the plan tab alone says nothing about it (0.2.5, 0.7.2).
+    it('keeps the record and reports the unknown outcome for its key', () => {
+      expect(disposition(networkError)).toEqual({
+        clearsIntent: false,
+        recoversStalePlan: false,
+        refetchesCurrentPlan: false,
+        report: {action: 'swap', key: SWAP_KEY, outcome: 'unknown'}
+      })
+    })
+
+    it('treats an undecodable body and a 5xx without a known code as the same unknown', () => {
+      expect(disposition(undecodableError, 'log').report).toEqual({
+        action: 'log',
+        key: LOG_KEY,
+        outcome: 'unknown'
+      })
+    })
+  })
+
+  describe('the capability verdict', () => {
+    // The segment's unavailable card explains this once; routing into the write's own screen would bounce
+    // straight back out through that screen's own recovery, so nothing is reported.
+    it('retires the record silently and re-reads the plan', () => {
+      expect(disposition(featureDisabledError)).toEqual({
+        clearsIntent: true,
+        recoversStalePlan: false,
+        refetchesCurrentPlan: true,
+        report: null
+      })
+    })
+  })
+
+  describe('a plan the server will no longer write', () => {
+    // AAP 0.7.2's named behaviour, and it must not change: the plan the write named is gone, so there is no
+    // meal, day or revision left to route to.
+    it('retires the record and takes the stale-plan recovery, with nothing to hand off', () => {
+      const expected = {
+        clearsIntent: true,
+        recoversStalePlan: true,
+        refetchesCurrentPlan: false,
+        report: null
+      }
+
+      expect(disposition(stalePlanError)).toEqual(expected)
+      expect(disposition(planNotActiveError, 'log')).toEqual(expected)
+    })
+
+    // The recovery already refetches, so asking for a second read would double it.
+    it('never asks for the silent refetch beside the recovery that carries one', () => {
+      const decided = disposition(stalePlanError)
+
+      expect(decided.recoversStalePlan && decided.refetchesCurrentPlan).toBe(false)
+    })
+  })
+
+  describe('a confirmed refusal of this key', () => {
+    // Kept rather than cleared: the owning screen re-sends the same stored key, receives the same confirmed
+    // answer and retires the key through its own mapping, which is where 0.2.5 draws the state.
+    it('keeps the record and reports the confirmed failure', () => {
+      expect(disposition(swapFailedError)).toEqual({
+        clearsIntent: false,
+        recoversStalePlan: false,
+        refetchesCurrentPlan: false,
+        report: {action: 'swap', key: SWAP_KEY, outcome: 'failed'}
+      })
+    })
+
+    it('reports every other confirmed code the same way, whatever its status', () => {
+      expect(disposition(recipeIneligibleError).report?.outcome).toBe('failed')
+      expect(disposition(idempotencyConflictError).report?.outcome).toBe('failed')
+      expect(disposition(invalidRequestError).report?.outcome).toBe('failed')
+      expect(disposition(legacyNotFoundError, 'log').report).toEqual({
+        action: 'log',
+        key: LOG_KEY,
+        outcome: 'failed'
+      })
+    })
+  })
+})
+
+// Where a reported state is owned: the action's own screen, opened with the ids it needs to reconstruct the
+// write. The screens already own every mapped outcome — SwapMeal finds the attempt by its idempotency key in
+// the shared mutation cache and replays the stored key once on open, LogPlannedMeal replays through
+// `planStoredLogReplay` and maps confirmed failures through `classifyLogFailure` — so nothing about the
+// outcome travels with the handoff (0.2.5).
+describe('resolveRestoredWriteRecovery', () => {
+  const SWAP_DAY_KEY = '2026-07-07'
+  const CURRENT_REVISION = 6
+  const UPCOMING_REVISION = 3
+
+  const swapRecord: InPlaceWriteIntent = {planId: CURRENT_PLAN_ID, mealId: SWAP_MEAL_ID, key: SWAP_KEY}
+  const logRecord: InPlaceWriteIntent = {planId: CURRENT_PLAN_ID, mealId: LOG_MEAL_ID, key: LOG_KEY}
+
+  // The swap meal sits on a LATER day than the plan's first, so a resolver that answered with the plan's start
+  // date — or with the day the tab happens to be showing — cannot pass.
+  const planWithBothMeals = (overrides: Partial<MealPlan> = {}): MealPlan =>
+    makePlan({
+      revision: CURRENT_REVISION,
+      days: [
+        makeDay({id: 'day-1', date: PLAN_START_DATE, meals: [makeMeal({id: LOG_MEAL_ID})]}),
+        makeDay({id: 'day-3', date: SWAP_DAY_KEY, meals: [makeMeal({id: SWAP_MEAL_ID, slot: 'lunch'})]})
+      ],
+      ...overrides
+    })
+
+  const makeRecoveryInputs = (
+    overrides: Partial<Parameters<typeof resolveRestoredWriteRecovery>[0]> = {}
+  ): Parameters<typeof resolveRestoredWriteRecovery>[0] => ({
+    report: {action: 'swap', key: SWAP_KEY, outcome: 'failed'},
+    swapIntent: swapRecord,
+    logIntent: null,
+    plans: makePlans(planWithBothMeals(), null),
+    isHandoffAllowed: true,
+    handedOffKey: null,
+    ...overrides
+  })
+
+  describe('the route a reported state is owned on', () => {
+    it('opens the swap screen on the planned day of the meal the record names', () => {
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs())).toEqual({
+        kind: 'handoff',
+        action: 'swap',
+        key: SWAP_KEY,
+        target: {
+          screen: 'swap',
+          params: {
+            planId: CURRENT_PLAN_ID,
+            mealId: SWAP_MEAL_ID,
+            date: SWAP_DAY_KEY,
+            planRevision: CURRENT_REVISION
+          }
+        }
+      })
+    })
+
+    it('finds the meal in the upcoming plan as readily as in the current one', () => {
+      const upcoming = makeUpcomingPlan({
+        revision: UPCOMING_REVISION,
+        days: [makeDay({id: 'day-8', date: UPCOMING_START_DATE, meals: [makeMeal({id: SWAP_MEAL_ID})]})]
+      })
+      const recovery = resolveRestoredWriteRecovery(
+        makeRecoveryInputs({
+          swapIntent: {planId: UPCOMING_PLAN_ID, mealId: SWAP_MEAL_ID, key: SWAP_KEY},
+          plans: makePlans(planWithBothMeals(), upcoming)
+        })
+      )
+
+      expect(recovery).toEqual({
+        kind: 'handoff',
+        action: 'swap',
+        key: SWAP_KEY,
+        target: {
+          screen: 'swap',
+          params: {
+            planId: UPCOMING_PLAN_ID,
+            mealId: SWAP_MEAL_ID,
+            date: UPCOMING_START_DATE,
+            planRevision: UPCOMING_REVISION
+          }
+        }
+      })
+    })
+
+    // The stored log snapshot carries the DIARY date the entry was written to, which frame 15's stepper may
+    // have moved off the planned day. The route is the planned day the meal sits on, never that date.
+    it('opens the log screen on the planned day, not on the diary date the request carried', () => {
+      const recovery = resolveRestoredWriteRecovery(
+        makeRecoveryInputs({
+          report: {action: 'log', key: LOG_KEY, outcome: 'unknown'},
+          swapIntent: null,
+          logIntent: logRecord
+        })
+      )
+
+      expect(recovery).toEqual({
+        kind: 'handoff',
+        action: 'log',
+        key: LOG_KEY,
+        target: {
+          screen: 'log',
+          params: {
+            planId: CURRENT_PLAN_ID,
+            mealId: LOG_MEAL_ID,
+            date: PLAN_START_DATE,
+            planRevision: CURRENT_REVISION
+          }
+        }
+      })
+    })
+
+    it('reads the record of the action the report names, never the other slot', () => {
+      const bothOnFile = makeRecoveryInputs({
+        report: {action: 'log', key: LOG_KEY, outcome: 'failed'},
+        swapIntent: swapRecord,
+        logIntent: logRecord
+      })
+
+      expect(resolveRestoredWriteRecovery(bothOnFile)).toMatchObject({action: 'log', key: LOG_KEY})
+    })
+  })
+
+  describe('nothing to hand off', () => {
+    it('stays idle while there is no reported state', () => {
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({report: null}))).toEqual({kind: 'idle'})
+    })
+
+    // Withheld rather than dropped: the caller keeps the report, so the handoff fires when this tab is the
+    // route on screen again and the feature is available.
+    it('withholds the handoff while the tab may not navigate', () => {
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({isHandoffAllowed: false}))).toEqual({kind: 'idle'})
+    })
+
+    it('stays idle once that key has already been handed over', () => {
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({handedOffKey: SWAP_KEY}))).toEqual({kind: 'idle'})
+    })
+
+    it('answers settled when the record is no longer on file, or has moved on to another key', () => {
+      const gone = makeRecoveryInputs({swapIntent: null})
+      const laterKey = makeRecoveryInputs({
+        swapIntent: {planId: CURRENT_PLAN_ID, mealId: SWAP_MEAL_ID, key: 'idem-swap-2'}
+      })
+
+      expect(resolveRestoredWriteRecovery(gone)).toEqual({kind: 'settled', action: 'swap', key: SWAP_KEY})
+      expect(resolveRestoredWriteRecovery(laterKey)).toEqual({kind: 'settled', action: 'swap', key: SWAP_KEY})
+    })
+  })
+
+  describe('a plan no route can be built for', () => {
+    // A superseded or ended week is not in `{current, upcoming}`, so there is no screen to open the write on.
+    it('retires and states a confirmed refusal whose plan is gone', () => {
+      const supersededPlan = makeRecoveryInputs({plans: makePlans(null, null)})
+
+      expect(resolveRestoredWriteRecovery(supersededPlan)).toEqual({
+        kind: 'unreachable',
+        action: 'swap',
+        key: SWAP_KEY,
+        clearsIntent: true,
+        reportsError: true
+      })
+    })
+
+    // The key stays the only safe way to ask again, so an unknown outcome is neither retired nor announced —
+    // the next open owns it (0.7.2).
+    it('keeps an unknown outcome silently when its plan is gone', () => {
+      const supersededPlan = makeRecoveryInputs({
+        report: {action: 'swap', key: SWAP_KEY, outcome: 'unknown'},
+        plans: makePlans(null, null)
+      })
+
+      expect(resolveRestoredWriteRecovery(supersededPlan)).toEqual({
+        kind: 'unreachable',
+        action: 'swap',
+        key: SWAP_KEY,
+        clearsIntent: false,
+        reportsError: false
+      })
+    })
+
+    it('treats a plan whose days no longer hold that meal as unreachable too', () => {
+      const mealRemoved = makeRecoveryInputs({
+        plans: makePlans(makePlan({revision: CURRENT_REVISION, days: [makeDay({meals: [makeMeal()]})]}), null),
+        swapIntent: {planId: CURRENT_PLAN_ID, mealId: 'meal-dinner', key: SWAP_KEY}
+      })
+
+      expect(resolveRestoredWriteRecovery(mealRemoved)).toMatchObject({kind: 'unreachable', clearsIntent: true})
+    })
+  })
+
+  // The opposite fact, which looks identical at the call site: no plan data yet. The replay fires as soon as
+  // the persisted slice is read and races the current-plan query, so a refusal arriving before that read
+  // answers is ordinary — and reading it as "no route exists" would retire a confirmed refusal with nothing
+  // but a toast, or drop an unknown outcome's report, leaving the state the tab was supposed to hand over
+  // stranded until a later remount.
+  describe('a plan read that has not answered yet', () => {
+    it('holds a confirmed refusal instead of judging it unreachable', () => {
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({plans: undefined}))).toEqual({
+        kind: 'pending',
+        action: 'swap',
+        key: SWAP_KEY
+      })
+    })
+
+    it('holds an unknown outcome the same way', () => {
+      const unresolvedRead = makeRecoveryInputs({
+        report: {action: 'swap', key: SWAP_KEY, outcome: 'unknown'},
+        plans: undefined
+      })
+
+      expect(resolveRestoredWriteRecovery(unresolvedRead)).toEqual({
+        kind: 'pending',
+        action: 'swap',
+        key: SWAP_KEY
+      })
+    })
+
+    it('holds a reported log the same way', () => {
+      const unresolvedRead = makeRecoveryInputs({
+        report: {action: 'log', key: LOG_KEY, outcome: 'failed'},
+        swapIntent: null,
+        logIntent: logRecord,
+        plans: undefined
+      })
+
+      expect(resolveRestoredWriteRecovery(unresolvedRead)).toEqual({
+        kind: 'pending',
+        action: 'log',
+        key: LOG_KEY
+      })
+    })
+
+    // The sequence the race actually produces: the same report, resolved twice. Held while the read is out,
+    // then routed the frame it lands — which is why the report is kept rather than cleared, and why the
+    // caller acts on nothing for `pending`.
+    it('routes the same report once the read answers', () => {
+      const report = {action: 'swap', key: SWAP_KEY, outcome: 'failed'} as const
+
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({report, plans: undefined}))).toMatchObject({
+        kind: 'pending'
+      })
+      expect(
+        resolveRestoredWriteRecovery(makeRecoveryInputs({report, plans: makePlans(planWithBothMeals(), null)}))
+      ).toMatchObject({
+        kind: 'handoff',
+        target: {screen: 'swap', params: {planId: CURRENT_PLAN_ID, date: SWAP_DAY_KEY}}
+      })
+    })
+
+    // A read that answered and holds no such plan is still unreachable: the distinction is the answer, not
+    // the absence of a route.
+    it('still judges a record unreachable once the read answers without its plan', () => {
+      const report = {action: 'swap', key: SWAP_KEY, outcome: 'failed'} as const
+
+      expect(resolveRestoredWriteRecovery(makeRecoveryInputs({report, plans: makePlans(null, null)}))).toMatchObject({
+        kind: 'unreachable',
+        clearsIntent: true,
+        reportsError: true
+      })
+    })
+  })
+})
+
 // The gate that decides whether the tab may draw its ordinary surfaces at all. Those surfaces carry Swap, Log
 // and the routes that generate a plan, so exposing them while the existence of an unresolved keyed write is
 // unknown is what lets a press mint a second key over one the server may already have committed (0.7.2).
@@ -1194,10 +1556,8 @@ describe('resolveTabFrame', () => {
     ).toEqual({kind: 'withheld'})
   })
 
-  it('withholds the plan for the frame that retires an answered generation', () => {
-    expect(resolveTabFrame(planBody, {kind: 'settled', action: 'generate', planId: UPCOMING_PLAN_ID})).toEqual({
-      kind: 'withheld'
-    })
+  it('withholds the plan while the persisted record has not been read yet', () => {
+    expect(resolveTabFrame(planBody, {kind: 'hydrating'})).toEqual({kind: 'withheld'})
   })
 
   // The unavailable card offers nothing to press, and no keyed write can be owned while the feature is off, so
@@ -1915,28 +2275,46 @@ describe('resolvePostLogBannerOrigin', () => {
   const makeOrigin = (overrides: Partial<PostLogBannerOrigin> = {}): PostLogBannerOrigin => ({
     entryId: result.entryId,
     planId: CURRENT_PLAN_ID,
+    dayKey: PLAN_START_DATE,
     lastSwapSucceededAt: SWAPPED_AT,
     ...overrides
   })
 
-  it('captures the entry, the plan it was logged into, and the swap history behind it', () => {
-    expect(resolvePostLogBannerOrigin(null, result, CURRENT_PLAN_ID, SWAPPED_AT)).toEqual({
+  it('captures the entry, the plan and day it was logged on, and the swap history behind it', () => {
+    expect(resolvePostLogBannerOrigin(null, result, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT)).toEqual({
       entryId: result.entryId,
       planId: CURRENT_PLAN_ID,
+      dayKey: PLAN_START_DATE,
+      lastSwapSucceededAt: SWAPPED_AT
+    })
+  })
+
+  // The banner stands on the PLAN day the tab returns to, which the entry's diary date may differ from: the
+  // date stepper on frame 15 moves the entry within the plan week without moving the card it was logged from.
+  it('captures the plan day the tab is on, not the diary date the entry landed on', () => {
+    const steppedToThursday = makePostLogResult({dateIso: PLAN_END_DATE})
+
+    expect(resolvePostLogBannerOrigin(null, steppedToThursday, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT)).toEqual({
+      entryId: steppedToThursday.entryId,
+      planId: CURRENT_PLAN_ID,
+      dayKey: PLAN_START_DATE,
       lastSwapSucceededAt: SWAPPED_AT
     })
   })
 
   it('forgets the origin once the banner is gone', () => {
-    expect(resolvePostLogBannerOrigin(makeOrigin(), null, CURRENT_PLAN_ID, SWAPPED_AT)).toBe(null)
+    expect(resolvePostLogBannerOrigin(makeOrigin(), null, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT)).toBe(null)
   })
 
   it('re-captures for a different entry, which is a second log', () => {
     const second = makePostLogResult({entryId: 'entry-b'})
 
-    expect(resolvePostLogBannerOrigin(makeOrigin(), second, UPCOMING_PLAN_ID, SWAPPED_AT + 1)).toEqual({
+    expect(
+      resolvePostLogBannerOrigin(makeOrigin(), second, UPCOMING_PLAN_ID, UPCOMING_START_DATE, SWAPPED_AT + 1)
+    ).toEqual({
       entryId: 'entry-b',
       planId: UPCOMING_PLAN_ID,
+      dayKey: UPCOMING_START_DATE,
       lastSwapSucceededAt: SWAPPED_AT + 1
     })
   })
@@ -1946,7 +2324,7 @@ describe('resolvePostLogBannerOrigin', () => {
   it('returns the same origin when nothing has changed', () => {
     const origin = makeOrigin()
 
-    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, SWAPPED_AT)).toBe(origin)
+    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT)).toBe(origin)
   })
 
   // A swap that lands after the banner must not be absorbed into its origin, or the comparison that retires
@@ -1954,34 +2332,49 @@ describe('resolvePostLogBannerOrigin', () => {
   it('returns the same origin when a swap has since succeeded, leaving the watermark behind it', () => {
     const origin = makeOrigin()
 
-    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, SWAPPED_AT + 5_000)).toBe(origin)
+    expect(resolvePostLogBannerOrigin(origin, result, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT + 5_000)).toBe(
+      origin
+    )
   })
 
-  it('takes the plan as soon as one exists, rather than freezing the absence of one', () => {
-    const unbound = makeOrigin({planId: null})
+  it('takes the plan and its day as soon as a plan exists, rather than freezing the absence of one', () => {
+    const unbound = makeOrigin({planId: null, dayKey: null})
 
-    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, SWAPPED_AT)).toEqual({
+    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT)).toEqual({
       entryId: result.entryId,
       planId: CURRENT_PLAN_ID,
+      dayKey: PLAN_START_DATE,
       lastSwapSucceededAt: SWAPPED_AT
     })
-    expect(resolvePostLogBannerOrigin(unbound, result, null, SWAPPED_AT)).toBe(unbound)
+    expect(resolvePostLogBannerOrigin(unbound, result, null, PLAN_START_DATE, SWAPPED_AT)).toBe(unbound)
+  })
+
+  // Without a plan on screen the selected day is the session's own day, not a day of any plan, so binding it
+  // then would attribute the banner to a day the plan does not contain.
+  it('leaves the day unbound while no plan is on screen, exactly as it leaves the plan unbound', () => {
+    expect(resolvePostLogBannerOrigin(null, result, null, PLAN_START_DATE, SWAPPED_AT)).toEqual({
+      entryId: result.entryId,
+      planId: null,
+      dayKey: null,
+      lastSwapSucceededAt: SWAPPED_AT
+    })
   })
 
   it('carries the original watermark when it adopts a plan id, rather than restamping it', () => {
-    const unbound = makeOrigin({planId: null})
+    const unbound = makeOrigin({planId: null, dayKey: null})
 
-    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, SWAPPED_AT + 9_000)).toEqual({
+    expect(resolvePostLogBannerOrigin(unbound, result, CURRENT_PLAN_ID, PLAN_START_DATE, SWAPPED_AT + 9_000)).toEqual({
       entryId: result.entryId,
       planId: CURRENT_PLAN_ID,
+      dayKey: PLAN_START_DATE,
       lastSwapSucceededAt: SWAPPED_AT
     })
   })
 
-  it('keeps the plan it captured rather than following the plan on screen', () => {
+  it('keeps the plan and day it captured rather than following the plan on screen', () => {
     const origin = makeOrigin()
 
-    expect(resolvePostLogBannerOrigin(origin, result, UPCOMING_PLAN_ID, SWAPPED_AT)).toBe(origin)
+    expect(resolvePostLogBannerOrigin(origin, result, UPCOMING_PLAN_ID, UPCOMING_START_DATE, SWAPPED_AT)).toBe(origin)
   })
 })
 
@@ -1990,7 +2383,7 @@ describe('isPostLogBannerVisible', () => {
 
   const makeBannerInputs = (overrides: Partial<Parameters<typeof isPostLogBannerVisible>[0]> = {}) => ({
     result: makePostLogResult(),
-    origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: SWAPPED_AT},
+    origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, dayKey: PLAN_START_DATE, lastSwapSucceededAt: SWAPPED_AT},
     dismissedEntryId: null,
     planId: CURRENT_PLAN_ID,
     selectedDayKey: PLAN_START_DATE,
@@ -2013,6 +2406,16 @@ describe('isPostLogBannerVisible', () => {
     expect(isPostLogBannerVisible(makeBannerInputs({selectedDayKey: PLAN_END_DATE}))).toBe(false)
   })
 
+  // The defect this comparison exists to remove: an entry logged onto another diary date of the plan week is
+  // still the confirmation of the PLAN day the tab returned to (0.1.4 iii). Comparing the diary date against
+  // the selected day cleared the required banner on the frame it was raised.
+  it('shows it on the captured plan day even when the entry landed on another diary date', () => {
+    const steppedToThursday = makeBannerInputs({result: makePostLogResult({dateIso: PLAN_END_DATE})})
+
+    expect(isPostLogBannerVisible(steppedToThursday)).toBe(true)
+    expect(isPostLogBannerVisible({...steppedToThursday, selectedDayKey: PLAN_END_DATE})).toBe(false)
+  })
+
   it('hides it on another plan, including a replacement covering the same dates', () => {
     expect(isPostLogBannerVisible(makeBannerInputs({planId: UPCOMING_PLAN_ID}))).toBe(false)
     expect(isPostLogBannerVisible(makeBannerInputs({planId: 'plan-regenerated'}))).toBe(false)
@@ -2022,7 +2425,27 @@ describe('isPostLogBannerVisible', () => {
     expect(isPostLogBannerVisible(makeBannerInputs({origin: null}))).toBe(false)
     expect(
       isPostLogBannerVisible(
-        makeBannerInputs({origin: {entryId: 'entry-z', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: SWAPPED_AT}})
+        makeBannerInputs({
+          origin: {
+            entryId: 'entry-z',
+            planId: CURRENT_PLAN_ID,
+            dayKey: PLAN_START_DATE,
+            lastSwapSucceededAt: SWAPPED_AT
+          }
+        })
+      )
+    ).toBe(false)
+  })
+
+  // An origin captured before any plan was on screen names no day, so there is nothing to place the banner
+  // against yet; the caller keeps the payload until the plan read answers.
+  it('hides it while the origin has no plan day bound', () => {
+    expect(
+      isPostLogBannerVisible(
+        makeBannerInputs({
+          origin: {entryId: 'entry-a', planId: null, dayKey: null, lastSwapSucceededAt: SWAPPED_AT},
+          planId: null
+        })
       )
     ).toBe(false)
   })
@@ -2049,7 +2472,7 @@ describe('isPostLogBannerVisible', () => {
     expect(
       isPostLogBannerVisible(
         makeBannerInputs({
-          origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, lastSwapSucceededAt: 0},
+          origin: {entryId: 'entry-a', planId: CURRENT_PLAN_ID, dayKey: PLAN_START_DATE, lastSwapSucceededAt: 0},
           lastSwapSucceededAt: 0
         })
       )

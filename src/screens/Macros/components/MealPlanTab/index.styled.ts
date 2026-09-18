@@ -55,10 +55,23 @@ export default StyleSheet.create({
     letterSpacing: LetterSpacing.TITLE,
     color: Theme.colors.text
   },
+  // The negative bottom margin is the other half of the envelope below: the body block that follows opens with
+  // its own Spacing.MEDIUM top margin, and this gives that much back, so the envelope's reachable tail costs
+  // the layout the 4 px by which Sizes.TOUCH_TARGET exceeds the 8 + 16 + 16 the switch used to occupy — and no
+  // more. The two cancel exactly, so the following content starts at the envelope's edge and never over it.
   planSwitchRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: Spacing.X_SMALL
+    marginBottom: -Spacing.MEDIUM
+  },
+  // A real envelope rather than hitSlop: the row is only as tall as its label, and RN never extends slop past
+  // a parent's bounds. The label keeps the exact inset the row's former marginTop gave it — hence top-aligned
+  // with that same padding rather than centred, which would drop it 6 px — and the envelope's remaining height
+  // is reachable transparent space below it.
+  planSwitchButton: {
+    minHeight: Sizes.TOUCH_TARGET,
+    justifyContent: 'flex-start',
+    paddingTop: Spacing.X_SMALL
   },
   planSwitchLink: {
     fontSize: FontSize.LABEL,

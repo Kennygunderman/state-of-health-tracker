@@ -22,6 +22,13 @@ import {
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import type {RegenerateRequestSnapshot} from '@utility/IdempotencyUtility'
 import {formatPlanDayLabel, formatSlotTime, parseDayKey} from '@utility/MealPlanDateUtility'
+import {isRoutesMissingError} from '@utility/MealPlanEntitlementUtility'
+import {
+  classifyMealPlanRead,
+  MealPlanReadState,
+  MealPlanReadStatus,
+  worstMealPlanReadState
+} from '@utility/MealPlanReadStateUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {lookupLabel} from '@utility/TextUtility'
@@ -224,6 +231,10 @@ export interface RegenerateConfirmState {
  * the single `pendingIntents.regenerate` slot creates: an unresolved regeneration of a *different* plan holds
  * it, and recording over it would abandon a key whose write may have committed, so the press goes to the Meal
  * Plan tab, which owns replaying a stranded generation intent. `ignored` is a press that decides nothing.
+ *
+ * A launch's `intent` is the record to write before the request leaves, and it is null only where there is no
+ * account to scope that record to: the persisted slice is user-scoped, so an unattributable record could never
+ * be resolved.
  */
 export type RegenerateLaunchDecision =
   | {kind: 'ignored'; reason: RegenerateLaunchIgnoredReason}
@@ -231,10 +242,8 @@ export type RegenerateLaunchDecision =
   | {
       kind: 'launch'
       idempotencyKey: string
-      /** True when the key is one the server may already have answered, so its reply can be a stored result. */
       isReplay: boolean
       request: RegenerateRequestSnapshot
-      /** The record to write before the request leaves, or null when there is no account to scope it to. */
       intent: PendingIntent | null
       params: RegenerateGeneratingParams
     }
@@ -841,6 +850,25 @@ export const resolveRegenerateLaunch = (input: RegenerateLaunchInput): Regenerat
 /**
  * The whole body a zone reconciliation sends: the device's zone and the revision it is replacing. It carries
  * no answer of the user's, which is what makes the conflict handling below legitimate.
+ *
+ * THE SERVER ACCEPTS EXACTLY THIS SHAPE. `timeZone` is required on every full save AND a stored column, so
+ * `PUT /meal-planning/preferences` treats a body holding only these two keys as an edit of `time_zone` when
+ * the zone differs from the stored one, and refuses it as `400 invalid_request` with
+ * `details: [{field: 'body', code: 'required'}]` when it does not — a save that changes nothing would bump the
+ * preferences revision and invalidate every other client's pinned value. That is why the `not_needed` guard
+ * below is part of the contract rather than an optimisation: it is the client half of the same rule, so the
+ * request is issued only for a zone the server can be expected to store.
+ *
+ * WHAT THE GUARD DOES NOT GUARANTEE. It compares the two names as strings, while the server compares their
+ * CANONICAL forms. Both sides read their zone from `Intl`, and the server stores the canonical name it
+ * resolved, so the comparisons agree for every zone this app has written — but a stored name that is an ALIAS
+ * of the device's (`UTC` against a device reporting `Etc/UTC`, from a legacy row or another writer) looks
+ * different here and identical there. Such a body is sent and answered `400 invalid_request`, which is not
+ * `stale_revision` and so returns `failed` with the stored zone untouched: one silent refused request per
+ * screen open, no user-visible error, and the zone already resolving to the device's anyway. Reporting it as
+ * `already_current` would need to read the refusal's `details`, and `@utility/ApiErrorUtility` exposes only
+ * the machine code — telling that answer apart from a genuine `timeZone: invalid_time_zone` is not possible
+ * here, and guessing would swallow the real one.
  */
 export interface TimeZoneReconciliationRequest {
   timeZone: string
@@ -957,3 +985,77 @@ export const canSubmitRegeneration = ({
   hasTargetsRevision,
   isReconcilingTimeZone
 }: RegenerationReadiness): boolean => hasPlan && hasPreferences && hasTargetsRevision && !isReconcilingTimeZone
+
+export interface PlanSettingsReadStateInputs {
+  preferences: MealPlanReadStatus
+  targets: MealPlanReadStatus
+  currentPlan: MealPlanReadStatus
+  // Whether the plan this screen was routed to is present in the answer the current-plan read returned. The
+  // caller's own lookup, because only the caller knows the routed id; it is consulted here only once that read
+  // has actually answered, so a read still in flight or failed never reports the plan as gone.
+  hasRoutedPlan: boolean
+}
+
+export interface PlanSettingsReadState {
+  status: MealPlanReadState
+  // Whether the preferences read itself answered. It is what makes `preferences.revision` a pin this screen may
+  // send — both on the regeneration it hands to `MealPlanGenerating` and on the silent zone reconciliation —
+  // and it is reported separately from `status` because `status` is the worst of three reads: a current-plan
+  // failure must not be read as "the preferences revision is unusable".
+  isPreferencesAuthoritative: boolean
+  // The current-plan read answered, and the plan this screen was opened for is in neither the current nor the
+  // upcoming slot: it has been superseded, it has ended, or the week has rolled over. Every plan-scoped thing
+  // this screen offers — the regeneration, its counts, "Use for next plan" — is about that one plan, so there
+  // is nothing here to recover to and no retry that could bring it back. The screen leaves instead, which is
+  // the treatment the rest of the feature already gives a plan that has moved on (AAP 0.2.5).
+  isRoutedPlanMissing: boolean
+  // Which reads a "Try again" must refetch: each keyed on its own read's state, so the control never
+  // re-requests a read that answered and never stands there having nothing to ask for.
+  retryPreferences: boolean
+  retryTargets: boolean
+  retryCurrentPlan: boolean
+}
+
+/**
+ * What the settings screen's three reads have jointly said, which of them a retry would re-request, and
+ * whether the plan it was opened for is still there.
+ *
+ * It replaces two tests that could not state this. The first keyed the screen's failure state on
+ * `preferences === null`: TanStack keeps the last successful row on a refetch that failed, so a preferences
+ * read that had *stopped working* still reported a row — the retry card was skipped, the seven rows rendered as
+ * settled answers, and "Regenerate this week" stayed live pinning a revision the read no longer stood behind.
+ * The second omitted the current-plan read altogether, although the plan identity, revision, dates and the
+ * 16b counts all come from it: its absence left the regenerate control disabled with nothing on screen
+ * explaining it, beside rows that looked authoritative.
+ *
+ * Each read is classified with the errors it answers for itself:
+ *
+ *  - **preferences** and **current plan** — no answered error. Both are gated, resource-less GETs, so a bare
+ *    404 and a confirmed `503 feature_disabled` are the capability signals of AAP 0.2.5 and surface as
+ *    `unavailable`: neither a retry nor waiting can change them until the backend is put back, so that state
+ *    offers no control.
+ *  - **targets** — `isRoutesMissingError` is an answer rather than a failure. A rolled-back targets route means
+ *    the rows fall back to the local target and still render, exactly as for a user who never opted in (AAP
+ *    0.7.5), which is the treatment `selectNutritionTargets` already applies to the same error. Regeneration
+ *    still stays off in that state, because `targets_revision` has no answer to pin — the screen derives that
+ *    from the read's own success, not from this status.
+ */
+export const resolvePlanSettingsReadState = ({
+  preferences,
+  targets,
+  currentPlan,
+  hasRoutedPlan
+}: PlanSettingsReadStateInputs): PlanSettingsReadState => {
+  const preferencesState = classifyMealPlanRead(preferences)
+  const targetsState = classifyMealPlanRead(targets, isRoutesMissingError)
+  const currentPlanState = classifyMealPlanRead(currentPlan)
+
+  return {
+    status: worstMealPlanReadState([preferencesState, targetsState, currentPlanState]),
+    isPreferencesAuthoritative: preferencesState === 'ready',
+    isRoutedPlanMissing: currentPlanState === 'ready' && !hasRoutedPlan,
+    retryPreferences: preferencesState === 'failed',
+    retryTargets: targetsState === 'failed',
+    retryCurrentPlan: currentPlanState === 'failed'
+  }
+}

@@ -1,6 +1,7 @@
 import {CatalogFood, CatalogFoodSearchResult} from '@data/models/CatalogFood'
 import {searchCatalogFoods} from '@queries/api/catalog/searchCatalogFoods'
 import {queryKeys} from '@queries/keys'
+import {CATALOG_SEARCH_MAX_QUERY_LENGTH} from '@utility/CatalogSearchStateUtility'
 
 import {useCatalogSearchInfiniteQuery} from '../useCatalogSearchInfiniteQuery'
 
@@ -18,8 +19,9 @@ jest.mock('@queries/api/catalog/searchCatalogFoods', () => ({
 
 const QUERY = 'chicken'
 const PADDED_QUERY = '  chicken  '
-// Longer than the server's 60-character upper bound on `q`, which this hook does not police.
-const OVERLONG_QUERY = 'c'.repeat(80)
+// Exactly the server's upper bound on `q`, and one character past it.
+const BOUND_LENGTH_QUERY = 'c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH)
+const OVERLONG_QUERY = 'c'.repeat(CATALOG_SEARCH_MAX_QUERY_LENGTH + 1)
 // The page size `searchCatalogFoods` defaults to when the hook passes no limit.
 const API_DEFAULT_LIMIT = 25
 
@@ -124,8 +126,23 @@ describe('useCatalogSearchInfiniteQuery', () => {
       expect(optionsFor('  ab  ').enabled).toBe(true)
     })
 
-    it('runs for a query longer than the server bound, which is the server to answer and not this gate', () => {
-      expect(optionsFor(OVERLONG_QUERY).enabled).toBe(true)
+    it('runs at exactly the server bound', () => {
+      expect(optionsFor(BOUND_LENGTH_QUERY).enabled).toBe(true)
+    })
+
+    // The inverse of what this case used to assert. The server refuses a trimmed `q` above its bound with
+    // `400 invalid_request` just as it refuses a shorter one, and `searchCatalogFoods` records that refusal
+    // as a crash — so the gate has to refuse it here rather than leave it for the server to answer.
+    it('stays idle for a query longer than the server bound', () => {
+      expect(optionsFor(OVERLONG_QUERY).enabled).toBe(false)
+    })
+
+    it('runs for a bound-length term inside padding, which trims back within the bound', () => {
+      expect(optionsFor(` ${BOUND_LENGTH_QUERY} `).enabled).toBe(true)
+    })
+
+    it('stays idle for a term carrying a control character the server refuses', () => {
+      expect(optionsFor('chick\u0000en').enabled).toBe(false)
     })
   })
 

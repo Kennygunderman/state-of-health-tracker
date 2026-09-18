@@ -5,6 +5,10 @@ import {
   SaveNutritionTargetsPayload,
   SaveNutritionTargetsResult
 } from '@data/models/NutritionTargets'
+import {isNutritionTargetsReadFailure} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
+import {MealPlanReadStatus} from '@utility/MealPlanReadStateUtility'
 import {poundsToKilograms} from '@utility/UnitConversionUtility'
 
 import {
@@ -40,13 +44,17 @@ import {
   GenerateSequenceCommitments,
   GenerateSequencePlan,
   GeneratingRouteParams,
+  authoritativeEstimate,
+  isConfirmedEstimateUnavailableError,
   NO_GENERATE_COMMITMENTS,
   NO_TARGETS_REVISION,
   planGenerateSequence,
   resolveDisplayedTargets,
   resolveGenerateCtaState,
   resolveInitialStartDate,
+  resolveReviewReadState,
   resolveStartDateStepState,
+  ReviewReadStateInputs,
   runGenerateSequence,
   StartDateStepState
 } from '../index.util'
@@ -1264,6 +1272,291 @@ describe('resolveGenerateCtaState', () => {
   })
 })
 
+// The shapes the reads actually produce: an axios rejection carrying the response the server sent, a transport
+// failure carrying none, and — for the targets read, which classifies its own bare 404 — the typed error.
+const readError = (status: number, code?: string): unknown => ({
+  isAxiosError: true,
+  response: {status, data: code === undefined ? {} : {error: code}}
+})
+
+const NETWORK_ERROR = new Error('Network Error')
+
+const READ_ANSWERED: MealPlanReadStatus = {isSuccess: true, isError: false, error: null}
+
+const READ_PENDING: MealPlanReadStatus = {isSuccess: false, isError: false, error: null}
+
+const failedRead = (error: unknown): MealPlanReadStatus => ({isSuccess: false, isError: true, error})
+
+// The case these derivations exist for: TanStack has flipped the status to error and kept the last successful
+// row, so the read has stopped working while its data still reads as an answer.
+const failedReadWithRetainedRow = (error: unknown, data: unknown): MealPlanReadStatus & {data: unknown} => ({
+  isSuccess: false,
+  isError: true,
+  error,
+  data
+})
+
+const REVIEW_START_DATE = '2026-07-04'
+
+const makeFirstVisitPlan = (): GenerateSequencePlan =>
+  planGenerateSequence({
+    targets: null,
+    estimate: null,
+    preferences: makePreferences(),
+    startDate: REVIEW_START_DATE
+  })
+
+describe('isConfirmedEstimateUnavailableError', () => {
+  it('recognises the server own 409 verdict', () => {
+    expect(isConfirmedEstimateUnavailableError(readError(409, 'estimate_unavailable'))).toBe(true)
+  })
+
+  it('refuses the same code carried by an unconfirmed outcome', () => {
+    // A gateway 502 says nothing about the user inputs, so routing the press to manual entry on it would ask
+    // them to type figures the server never said it could not calculate (0.2.5).
+    expect(isConfirmedEstimateUnavailableError(readError(502, 'estimate_unavailable'))).toBe(false)
+  })
+
+  it('refuses a transport failure, an undecodable body and every other code', () => {
+    expect(isConfirmedEstimateUnavailableError(NETWORK_ERROR)).toBe(false)
+    expect(isConfirmedEstimateUnavailableError(readError(500))).toBe(false)
+    expect(isConfirmedEstimateUnavailableError(readError(409, 'stale_targets'))).toBe(false)
+    expect(isConfirmedEstimateUnavailableError(null)).toBe(false)
+  })
+})
+
+describe('resolveReviewReadState', () => {
+  const makeReadInputs = (overrides: Partial<ReviewReadStateInputs> = {}): ReviewReadStateInputs => ({
+    preferences: READ_ANSWERED,
+    targets: READ_ANSWERED,
+    estimate: READ_ANSWERED,
+    dependsOnEstimate: false,
+    ...overrides
+  })
+
+  it('renders the review, with nothing to retry, once all three reads have answered', () => {
+    expect(resolveReviewReadState(makeReadInputs({dependsOnEstimate: true}))).toEqual({
+      status: 'ready',
+      retryPreferences: false,
+      retryTargets: false,
+      retryEstimate: false
+    })
+  })
+
+  it('withholds the review when the preferences read failed while holding its retained row', () => {
+    // The finding case: `data` survives a refetch that failed, so a screen keying on data nullity reports a
+    // read that has stopped working as settled state and pins a revision nothing stands behind.
+    const state = resolveReviewReadState(
+      makeReadInputs({preferences: failedReadWithRetainedRow(readError(500), makePreferences())})
+    )
+
+    expect(state.status).toBe('failed')
+    expect(state.retryPreferences).toBe(true)
+  })
+
+  it('withholds the review for a generic estimate failure the press still depends on', () => {
+    const state = resolveReviewReadState(
+      makeReadInputs({estimate: failedRead(readError(500)), dependsOnEstimate: true})
+    )
+
+    expect(state).toEqual({
+      status: 'failed',
+      retryPreferences: false,
+      retryTargets: false,
+      retryEstimate: true
+    })
+  })
+
+  it('keeps the confirmed 409 an answer, so the estimate-unavailable card still shows', () => {
+    const state = resolveReviewReadState(
+      makeReadInputs({estimate: failedRead(readError(409, 'estimate_unavailable')), dependsOnEstimate: true})
+    )
+
+    expect(state.status).toBe('ready')
+    expect(state.retryEstimate).toBe(false)
+  })
+
+  it('reads an unconfirmed estimate_unavailable as the failure it is', () => {
+    const state = resolveReviewReadState(
+      makeReadInputs({estimate: failedRead(readError(502, 'estimate_unavailable')), dependsOnEstimate: true})
+    )
+
+    expect(state.status).toBe('failed')
+    expect(state.retryEstimate).toBe(true)
+  })
+
+  it('ignores an estimate failure the press does not depend on', () => {
+    // The user own confirmed figures lead the card and the press sends no estimate revision, so blocking the
+    // review on an estimate it never shows would replace a settled state with a retry card.
+    const state = resolveReviewReadState(
+      makeReadInputs({estimate: failedReadWithRetainedRow(NETWORK_ERROR, null), dependsOnEstimate: false})
+    )
+
+    expect(state).toEqual({
+      status: 'ready',
+      retryPreferences: false,
+      retryTargets: false,
+      retryEstimate: false
+    })
+  })
+
+  it('leaves a loading estimate to the card skeleton rather than the whole screen', () => {
+    // 0.2.5 gives the estimate read a card-level skeleton; the press waits for it through
+    // resolveGenerateCtaState instead, so the answers and the start date stay on screen meanwhile.
+    expect(resolveReviewReadState(makeReadInputs({estimate: READ_PENDING, dependsOnEstimate: true})).status).toBe(
+      'ready'
+    )
+  })
+
+  it('follows the plan about whether the estimate can still decide the press', () => {
+    const estimateDown = failedRead(readError(500))
+    const confirmedLead = planGenerateSequence({
+      targets: makeTargets(),
+      estimate: null,
+      preferences: makePreferences(),
+      startDate: REVIEW_START_DATE
+    })
+    const firstVisit = makeFirstVisitPlan()
+
+    expect(firstVisit.dependsOnEstimate).toBe(true)
+    expect(confirmedLead.dependsOnEstimate).toBe(false)
+    expect(
+      resolveReviewReadState(makeReadInputs({estimate: estimateDown, dependsOnEstimate: firstVisit.dependsOnEstimate}))
+        .status
+    ).toBe('failed')
+    expect(
+      resolveReviewReadState(
+        makeReadInputs({estimate: estimateDown, dependsOnEstimate: confirmedLead.dependsOnEstimate})
+      ).status
+    ).toBe('ready')
+  })
+
+  it('keeps the review on a routes-missing targets answer, in either form it arrives', () => {
+    // A rolled-back targets route is an answer, not a failure: the local target stands and the card renders
+    // exactly as it does for a user who never opted in (AAP 0.7.5).
+    const thrown = resolveReviewReadState(
+      makeReadInputs({targets: failedRead(new RoutesMissingError('/meal-planning/targets'))})
+    )
+    const bare404 = resolveReviewReadState(
+      makeReadInputs({targets: failedReadWithRetainedRow(readError(404), makeTargets())})
+    )
+
+    expect(thrown.status).toBe('ready')
+    expect(thrown.retryTargets).toBe(false)
+    expect(bare404.status).toBe('ready')
+    expect(bare404.retryTargets).toBe(false)
+  })
+
+  it('reproduces the targets read-failure treatment for every other targets error', () => {
+    const errors = [readError(500), NETWORK_ERROR, readError(404, 'Targets not found')]
+
+    errors.forEach(error => {
+      const read = failedReadWithRetainedRow(error, makeTargets())
+      const state = resolveReviewReadState(makeReadInputs({targets: read}))
+
+      expect(isNutritionTargetsReadFailure(read)).toBe(true)
+      expect(state.status).toBe('failed')
+      expect(state.retryTargets).toBe(true)
+    })
+  })
+
+  it('reports a gated read capability answer as unavailable, with nothing to retry', () => {
+    // /meal-planning/preferences is a gated, resource-less GET: a bare 404 means a backend rolled back past the
+    // routes and a confirmed 503 means the capability is switched off (0.2.5). Neither changes on a retry.
+    const bare404 = resolveReviewReadState(
+      makeReadInputs({preferences: failedReadWithRetainedRow(readError(404), makePreferences())})
+    )
+    const disabled = resolveReviewReadState(
+      makeReadInputs({preferences: failedRead(readError(503, 'feature_disabled'))})
+    )
+
+    expect(bare404).toEqual({
+      status: 'unavailable',
+      retryPreferences: false,
+      retryTargets: false,
+      retryEstimate: false
+    })
+    expect(disabled.status).toBe('unavailable')
+    expect(disabled.retryPreferences).toBe(false)
+  })
+
+  it('lets an absent capability outrank a failure, since no retry can change it', () => {
+    const state = resolveReviewReadState(
+      makeReadInputs({preferences: failedRead(readError(404)), targets: failedRead(readError(500))})
+    )
+
+    expect(state.status).toBe('unavailable')
+  })
+
+  it('waits while a read this screen is built on has not answered', () => {
+    expect(resolveReviewReadState(makeReadInputs({preferences: READ_PENDING})).status).toBe('loading')
+    expect(resolveReviewReadState(makeReadInputs({targets: READ_PENDING})).status).toBe('loading')
+  })
+
+  it('names exactly the reads a retry must refetch', () => {
+    const state = resolveReviewReadState(
+      makeReadInputs({
+        preferences: failedReadWithRetainedRow(readError(500), makePreferences()),
+        targets: failedRead(new RoutesMissingError('/meal-planning/targets')),
+        estimate: failedRead(NETWORK_ERROR),
+        dependsOnEstimate: true
+      })
+    )
+    const targetsOnly = resolveReviewReadState(makeReadInputs({targets: failedRead(NETWORK_ERROR)}))
+
+    expect(state).toEqual({
+      status: 'failed',
+      retryPreferences: true,
+      retryTargets: false,
+      retryEstimate: true
+    })
+    expect(targetsOnly).toEqual({
+      status: 'failed',
+      retryPreferences: false,
+      retryTargets: true,
+      retryEstimate: false
+    })
+  })
+
+  it('hands the CTA a read failure for both withholding states, so neither generates', () => {
+    const plan = makeFirstVisitPlan()
+    const preferencesReads = [failedRead(readError(500)), failedRead(readError(404))]
+
+    preferencesReads.forEach(preferences => {
+      const state = resolveReviewReadState(makeReadInputs({preferences, dependsOnEstimate: plan.dependsOnEstimate}))
+      const cta = resolveGenerateCtaState({
+        plan,
+        isEstimateLoading: false,
+        isPending: false,
+        hasReadFailure: state.status === 'failed' || state.status === 'unavailable'
+      })
+
+      expect(state.status).not.toBe('ready')
+      expect(cta.isEnabled).toBe(false)
+    })
+  })
+
+  it('stops a generic estimate failure from reaching the manual-entry press', () => {
+    const plan = makeFirstVisitPlan()
+    const state = resolveReviewReadState(
+      makeReadInputs({estimate: failedRead(readError(500)), dependsOnEstimate: plan.dependsOnEstimate})
+    )
+    const cta = resolveGenerateCtaState({
+      plan,
+      isEstimateLoading: false,
+      isPending: false,
+      hasReadFailure: state.status === 'failed' || state.status === 'unavailable'
+    })
+
+    // The plan still reads as figureless, because the estimate never arrived — so it is the read state that has
+    // to withhold the press the server never answered for.
+    expect(plan.blockedReason).toBe('estimate_unavailable')
+    expect(state.status).toBe('failed')
+    expect(cta.action).toBe('manual_targets')
+    expect(cta.isEnabled).toBe(false)
+  })
+})
+
 const START_DATE = '2026-07-06'
 
 const TIME_ZONE = 'America/New_York'
@@ -1894,5 +2187,81 @@ describe('runGenerateSequence idempotency key', () => {
 
     expect(navigating.mintedKeys).toHaveLength(2)
     expect(failing.mintedKeys).toHaveLength(0)
+  })
+})
+
+describe('authoritativeEstimate', () => {
+  const RETAINED = makeEstimate({estimateRevision: 9})
+  const CONFIRMED_UNAVAILABLE = readError(409, API_ERROR_CODES.estimateUnavailable)
+
+  it('returns the estimate while the read succeeded', () => {
+    expect(authoritativeEstimate({isSuccess: true, data: RETAINED})).toBe(RETAINED)
+  })
+
+  it('returns null for a successful read that carries no estimate', () => {
+    expect(authoritativeEstimate({isSuccess: true, data: undefined})).toBeNull()
+  })
+
+  it('withholds a retained estimate after a confirmed estimate_unavailable', () => {
+    // The whole point: `estimate_unavailable` is classified as an *answer* rather than a failure, so nothing
+    // else in the read state stops the retained estimate — this gate does.
+    expect(isConfirmedEstimateUnavailableError(CONFIRMED_UNAVAILABLE)).toBe(true)
+    expect(authoritativeEstimate({isSuccess: false, data: RETAINED})).toBeNull()
+  })
+
+  it('withholds a retained estimate after a generic failure too', () => {
+    expect(authoritativeEstimate({isSuccess: false, data: RETAINED})).toBeNull()
+  })
+
+  describe('a confirmed estimate_unavailable arriving after a good estimate', () => {
+    // The read as TanStack leaves it: status flipped to error, last successful estimate still in `data`.
+    const read = {isSuccess: false, isError: true, error: CONFIRMED_UNAVAILABLE, data: RETAINED}
+    const withheld = authoritativeEstimate(read)
+    const preferences = makePreferences()
+
+    it('shows the unavailable treatment instead of the retained figures', () => {
+      const displayed = resolveDisplayedTargets({targets: null, estimate: withheld, preferences})
+
+      // Were the estimate read, this would be 'estimate' and the card branch on it is tested before
+      // `isEstimateUnavailable`, so the stale figures would render over the manual-entry card.
+      expect(displayed.source).toBe('unavailable')
+      expect(resolveDisplayedTargets({targets: null, estimate: RETAINED, preferences}).source).toBe('estimate')
+    })
+
+    it('exposes no confirmation path for the withheld estimate', () => {
+      const plan = planGenerateSequence({
+        targets: null,
+        estimate: withheld,
+        preferences,
+        startDate: REVIEW_START_DATE
+      })
+
+      expect(plan.requiresTargetConfirmation).toBe(false)
+      expect(plan.estimateRevision).toBeNull()
+      expect(buildTargetConfirmationPayload(plan)).toBeNull()
+      // A blocked press routes to manual entry rather than confirming figures the server refused.
+      expect(plan.blockedReason).not.toBeNull()
+    })
+
+    it('still depends on the estimate, so the read state keeps composing its answer', () => {
+      const plan = planGenerateSequence({
+        targets: null,
+        estimate: withheld,
+        preferences,
+        startDate: REVIEW_START_DATE
+      })
+
+      // Withholding the estimate must not make the screen stop caring about the estimate read — that would
+      // undo the generic-failure composition this file also pins.
+      expect(plan.dependsOnEstimate).toBe(true)
+      expect(
+        resolveReviewReadState({
+          preferences: READ_ANSWERED,
+          targets: READ_ANSWERED,
+          estimate: failedRead(NETWORK_ERROR),
+          dependsOnEstimate: plan.dependsOnEstimate
+        })
+      ).toMatchObject({status: 'failed', retryEstimate: true})
+    })
   })
 })
