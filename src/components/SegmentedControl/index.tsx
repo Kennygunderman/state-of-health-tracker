@@ -8,7 +8,7 @@ import Animated, {SharedValue, useAnimatedStyle} from 'react-native-reanimated'
 import Text from '@components/Text'
 
 import styles, {indicatorWidth} from './index.styled'
-import {isFlexSegments, SegmentedControlVariant, segmentWidthFor} from './index.util'
+import {isFlexSegments, SegmentedControlVariant, segmentWidthFor, usesFixedLabelLayout} from './index.util'
 
 export interface SegmentedControlOption<T extends string> {
   key: T
@@ -33,11 +33,12 @@ const SegmentedControl = <T extends string>({
   selected,
   onChange,
   scrollProgress,
-  variant = 'large'
+  variant
 }: Props<T>): React.JSX.Element => {
   const [trackWidth, setTrackWidth] = useState(0)
 
   const flexSegments = isFlexSegments(variant)
+  const fixedLabelLayout = usesFixedLabelLayout(variant)
 
   const segmentWidth = segmentWidthFor(trackWidth, options.length, Sizes.SEGMENT_TRACK_INSET)
 
@@ -83,8 +84,8 @@ const SegmentedControl = <T extends string>({
               ]}>
               <Text
                 style={[styles.label, !flexSegments && styles.labelCompact, isSelected && styles.labelSelected]}
-                numberOfLines={1}
-                adjustsFontSizeToFit>
+                numberOfLines={fixedLabelLayout ? 1 : undefined}
+                adjustsFontSizeToFit={fixedLabelLayout}>
                 {option.label}
               </Text>
             </View>

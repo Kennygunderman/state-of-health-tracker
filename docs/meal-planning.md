@@ -15,7 +15,7 @@ documents are right.
 | Section                                                                                                 |                                                                         |
 | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | [1. Screen ↔ Figma map](#1-screen--figma-map)                                                          | Which frame is which screen, and what the frame numbering does not mean |
-| [2. Where the code lives](#2-where-the-code-lives)                                                      | Directory map and the one new module convention                         |
+| [2. Where the code lives](#2-where-the-code-lives)                                                      | Directory map, the one new module convention, and the delivered file scope |
 | [3. Running it locally](#3-running-it-locally)                                                          | Command order, and the two switches that make the feature appear at all |
 | [4. Environment and the API-origin guard](#4-environment-and-the-api-origin-guard)                      | Why a debug build refuses production, and how requests are held there   |
 | [5. Typeface](#5-typeface-helvetica-neue-vs-the-platform-default)                                       | A recorded, reversible deviation from Figma                             |
@@ -196,9 +196,9 @@ below.
 
 ### Copy that deliberately differs from the frames
 
-Two strings in `src/constants/strings.ts` do not match what the file draws. Both are decisions, not
-drift, so quote the constant rather than the frame when you write an assertion or a screenshot
-caption.
+Three strings in `src/constants/strings.ts` do not match what the file draws. All three are
+decisions, not drift, so quote the constant rather than the frame when you write an assertion or a
+screenshot caption.
 
 - **`MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'`** — the diary caption under a planned meal.
   Node `38:267` renders it with **no trailing period**, and so does the constant; the period that
@@ -213,6 +213,13 @@ caption.
   The activity factor multiplies BMR exactly once and already accounts for habitual training, which
   is what the option sub-copy anchors describe, so the original wording contradicted the calculation
   this screen feeds. Logged workouts and runs never change a target.
+- **`MEAL_PLAN_ACTIVITY_SUBTITLE = 'Your usual activity, including how often you train.'`** — screen
+  04's sub-copy, node `47:44`. The frame states the "don't include the workouts you log"
+  instruction **twice**, once here and once in the info card, so replacing only the card left the
+  screen telling the user to exclude and to include the same training at once. AAP 0.1.4 replaces
+  that instruction, not one of its two placements, so this sentence states the same model the info
+  card states. `src/__tests__/constants/strings.test.ts` pins both strings and fails if either one
+  reacquires an exclusion phrase.
 
 Everything else renders the frame's copy verbatim. The inferred states — the unconfirmed-outcome
 banners, the feature-unavailable card, the empty-grocery-list copy and the plural forms of the
@@ -295,6 +302,81 @@ React state or effects belongs to a screen-local `hooks/use*.ts`.
 must never import another component's `index.util.ts`. The selected fraction chip on 15 is
 deliberately identical to FoodDetail's existing convention — `greenTint` fill, `accentGreen` border
 and label — per note `38:152`.
+
+### Files this feature changes beyond the plan's list
+
+The plan this feature implements enumerates the existing files it expected to modify, and separately
+marks a set of paths as read-only reference. The delivered change modifies **70** existing files:
+**52** are on that list, **18** are not, and three of those 18 are on the read-only one. Nothing was
+reverted to close the gap, because each of the 18 is required either by another clause of the same
+plan or by this repository's own styling and helper rules, and every one is additive and
+default-preserving. The difference is declared here so that a reviewer comparing the plan against
+`git diff` finds it accounted for rather than unexplained.
+
+Both halves of the census are reproducible against the feature's reference commit — `788a36f`, which
+is also this branch's merge base (see [section 7](#the-gate-in-two-steps)):
+
+```bash
+git diff --name-status 788a36f -- .        # 70 `M` rows, beside the files this feature adds
+git diff --numstat 788a36f -- src/components/dialog/ConfirmModal/index.tsx \
+  src/components/SearchBar/index.tsx src/styles/shadow.ts
+```
+
+**Three of the 18 were marked reference or untouched, and each is forced by a different clause of the
+same plan.** They come first because they are the ones a reviewer is most likely to challenge.
+
+| Path                                             | Measured  | What changed                                                                                                                                                                                                                                                                | What requires it                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/components/dialog/ConfirmModal/index.tsx`   | `+20 / −3` | `confirmationBody` widened to optional and rendered only when given; new optional `cancelButtonText` (default `CANCEL_BUTTON_TEXT`, the literal it replaced), `isConfirmPending` (`false`) and `avoidKeyboard` (`false`); a backdrop press is ignored while a confirm is pending | The stale-revision prompt is specified as **this** dialog carrying "Your preferences changed on another device" with **Use theirs** / **Keep mine** — a dismiss label that is not "Cancel", and no body copy. Neither is expressible without these props. The plan's other instruction about this component is honoured: frame 16b is **not** routed through it but has its own `src/screens/PlanSettings/components/PlanConfirmDialog/` |
+| `src/components/SearchBar/index.tsx`             | `+7 / −2`  | One new optional `maxLength`, defaulting to `DEFAULT_SEARCH_MAX_LENGTH = 100` — the hardcoded `100` it replaced                                                                                                                                                              | The catalog search endpoint bounds its query at 60 characters (`CATALOG_SEARCH_MAX_QUERY_LENGTH`). A fixed 100 let a user type up to 40 characters more than the endpoint accepts, which it answers with `400 invalid_request`                                                                                                                                                          |
+| `src/styles/shadow.ts`                           | `+12 / −0` | One appended entry, `SHEET`; `MODAL`, `CARD`, `CTA_GLOW` and `ICON_GLOW` are byte-identical                                                                                                                                                                                  | The styling rule's migrate-on-touch clause, applied to `src/components/MinimumVersionSheet/index.styled.tsx` — [section 6](#added-value-tokens) carries the value and the reasoning                                                                                                                                                                                                    |
+
+**No existing caller's behaviour changes, and that is measured rather than argued.** `ConfirmModal`
+had **nine** caller files before this feature — ten usages, since `RunFlow` renders it twice; the
+plan's "five existing callers" undercounts them. All nine still pass `confirmationBody` and **zero**
+of the new props, so every one takes the default path, and each default is the value the component
+previously hardcoded (`avoidKeyboard: false` is also `react-native-modal`'s own default). The nine
+meal-planning screens are the only callers that pass them. `SearchBar` had **four** caller files; the
+three this feature does not touch — `AddExercise`, `CreateTemplate`, `SelectExercise` — pass no
+`maxLength` and keep the 100 they had, and the fourth, `AddFood`, is on the plan's own modification
+list and passes the shorter catalog bound. `Shadow.SHEET` is not a new design value either: it names
+the shadow that `src/components/GlobalBottomSheet/index.styled.tsx` still writes as a literal, and
+that file is untouched because the plan protects it — only the copy inside the touched file became a
+token.
+
+**The other fifteen**, in thirteen rows, because two rows pair a helper with its test. Four of them
+carry their full explanation in another section and are cross-linked rather than restated.
+
+| Path                                                                               | Why it changed                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.eslintrc.js`                                                                     | The scoped `parserOptions: {project: null}` override for the three root JavaScript configs this feature maintains — [section 7](#the-gate-in-two-steps) explains why a changed-file lint run cannot otherwise exit `0`, and why `metro.config.js` is deliberately left out |
+| `jest.config.js`                                                                   | The second Jest project, `mobile-dst` — [section 3](#3-running-it-locally)                                                                                                                                                                                                 |
+| `App.tsx`                                                                          | The per-account query-cache lifecycle (legacy-blob purge, foreign-partition sweep, session binding) and the `style={{flex: 1}}` the migrate-on-touch clause moved into the new `App.styled.ts`                                                                              |
+| `src/components/MinimumVersionSheet/index.tsx`                                     | A `.catch(CrashUtility.recordError)` on the app's single Remote Config fetch, whose rejection was previously unhandled, and the sheet background moved out of a JSX style object                                                                                            |
+| `src/components/MinimumVersionSheet/index.styled.tsx`                              | The migrate-on-touch token pass on that same component: `Theme.colors.sheetScrim`, `Shadow.SHEET`, `Spacing.GUTTER`/`LARGE`/`XX_LARGE`, `FontWeight.BOLD`/`EXTRA_LIGHT`. Every resolved value is the one that shipped                                                       |
+| `src/data/models/PersonalRecord.ts`                                                | Gains the `SessionSummary` interface — an addition only                                                                                                                                                                                                                    |
+| `src/screens/Progress/index.util.ts`                                               | The same interface moved out of here into the model and is re-exported as a type, so the declaration is byte-identical and every existing importer still resolves                                                                                                           |
+| `src/screens/Progress/components/ExercisesTab/index.util.ts` and `src/screens/Progress/components/ExercisesTab/__tests__/index.util.test.ts` | Import path only: they read `SessionSummary` from `@data/models/PersonalRecord` instead of reaching into the parent screen's `index.util.ts`, which the helper-scope rule forbids crossing                                                                                  |
+| `src/queries/api/macros/converter/convertFood.ts`                                  | `FoodSourceEnum.CATALOG` is filtered out of `KNOWN_SOURCES`, so `/api/foods` — the personal-food endpoint, which never returns it — keeps exactly the source set it had before the enum grew                                                                                |
+| `src/queries/macros/useDailyMacrosQuery.ts`                                         | An optional `enabled`, defaulting to `true`, so `Macros` can stop the diary query refetching while the Meal Plan segment is showing. A caller that passes nothing behaves as before                                                                                        |
+| `src/service/http/httpRequest.ts`                                                  | The API-origin containment on the legacy transport — [section 4](#4-environment-and-the-api-origin-guard)                                                                                                                                                                  |
+| `src/utility/CrashUtility.ts`                                                      | The redacting decode-failure describer the new codecs report through — [section 4](#4-environment-and-the-api-origin-guard)                                                                                                                                                |
+| `src/utility/TextUtility.ts` and `src/utility/__tests__/TextUtility.test.ts`       | Purely additive `lookupLabel` / `lookupMember` — the own-property guards every copy table is read through, so a code that arrives from the server can never resolve to an inherited `Object.prototype` member                                                               |
+
+**Three token entries the plan's token list does not name** — `Theme.colors.sheetScrim`,
+`Spacing.XX_LARGE` and `Shadow.SHEET` — exist for the same migrate-on-touch reason and are listed
+with their values in [section 6](#added-value-tokens). The `LineHeight`, `LetterSpacing` and
+`FontWeight` entries beyond the ones the plan enumerates (`LABEL`, `OPTION_SUBCOPY`, `ROW_VALUE`,
+`STEP_BODY`, `EYEBROW`, `EXTRA_LIGHT`) are the same kind of addition and are listed there too. None
+of them changes a rendered value.
+
+**Keeping this list true.** If you modify another file the plan does not list, add it here with its
+one-line reason in the same commit — this table and `git diff --name-status 788a36f` are meant to
+agree, and a census that has drifted is worse than none. Every one of the 18 paths appears above
+verbatim, including the two test files, so the agreement is checkable by matching path strings
+against that diff rather than by reading prose. A reader who needs the authoritative
+in-scope declaration for the API side will find the equivalent record in
+[`backend/docs/meal-planning/requirement-evidence-checklist.md`](../../backend/docs/meal-planning/requirement-evidence-checklist.md).
 
 ---
 
@@ -497,8 +579,7 @@ That allowance is what the additions below rest on.
 | `BorderRadius.BAR`          | `3`                    | `src/styles/borderRadius.ts` |
 | `BorderRadius.SEGMENT`      | `2`                    | `src/styles/borderRadius.ts` |
 
-Every other Figma colour, spacing value and radius already mapped 1:1 to an existing token, and
-`src/styles/shadow.ts` was not touched: `Shadow.CTA_GLOW` already is the design's single effect.
+Every other Figma colour, spacing value and radius already mapped 1:1 to an existing token.
 
 **Seven, and no eighth.** There is deliberately no generic 2px `Spacing` entry. Every 2px value in the
 design is a distinct purpose rather than a shared spacing step, so each one lives in `Sizes` under its
@@ -508,6 +589,28 @@ stacked label and its value is `Sizes.ROW_VALUE_INSET_T`, an option card's label
 chip's weekday-to-number gap is `Sizes.DAY_CHIP_NUMBER_INSET_T`. Adding one `Spacing` step for all of
 them would collapse five purposes onto one token, which is exactly what the naming principle below
 forbids.
+
+**Three more entries exist for a different reason, and one of them contradicts what the plan expected
+of this folder.** They carry no new Figma value: each names a literal that already shipped, in a file
+this feature touched, which is what the migrate-on-touch clause below requires. All three come from
+one component, `src/components/MinimumVersionSheet/`.
+
+| Token                    | Value                                                          | File                    | The literal it names                                    |
+| ------------------------ | -------------------------------------------------------------- | ----------------------- | ------------------------------------------------------- |
+| `Theme.colors.sheetScrim` | `rgba(0,0,0,0.7)`                                              | `src/styles/theme.ts`   | the forced-update sheet's blocking backdrop             |
+| `Spacing.XX_LARGE`       | `48`                                                           | `src/styles/spacing.ts` | that sheet's button margin                              |
+| `Shadow.SHEET`           | `#000`, offset `0 / −2`, opacity `0.25`, radius `8`, elevation `10` | `src/styles/shadow.ts`  | that sheet's `sheetShadow`, previously an inline object |
+
+So `src/styles/shadow.ts` **does** change, where the plan records that it needs none — the design
+adds no effect beyond `Shadow.CTA_GLOW`, and that part holds. What the plan did not anticipate is a
+shipped component with a literal shadow being touched at all. `MODAL`, `CARD`, `CTA_GLOW` and
+`ICON_GLOW` are byte-identical, `Shadow.SHEET` has exactly one consumer
+(`MinimumVersionSheet/index.styled.tsx`), and `src/components/GlobalBottomSheet/index.styled.tsx`
+still writes the identical literal because the plan protects that component and this feature does not
+touch it. The same scope note applies to the two `fontSize.ts` maps below, whose `LABEL`,
+`OPTION_SUBCOPY`, `ROW_VALUE`, `STEP_BODY`, `EYEBROW` and `EXTRA_LIGHT` entries the plan's token list
+does not enumerate. All of it is declared, with the rest of the delivered file scope, in
+[section 2](#files-this-feature-changes-beyond-the-plans-list).
 
 ### `src/styles/sizes.ts` — new file
 
@@ -594,9 +697,14 @@ and text keywords, and `flex`/`flexGrow`/`flexShrink`.
 
 The styling rule asks you to migrate a file's literals when you touch it, so shipped literals in
 untouched files were left alone while these were migrated to tokens: `Macros/index.styled.ts`,
-`FoodDetail/index.styled.ts`, and the stylesheets of `PrimaryButton`, `SecondaryButton`,
-`SegmentedControl` and `FoodListRow`. If you touch another shipped stylesheet, do the same there —
-that is also why the scan is fed a diff rather than a fixed file list.
+`FoodDetail/index.styled.ts`, the stylesheets of `PrimaryButton`, `SecondaryButton`,
+`SegmentedControl` and `FoodListRow`, and — the one outside this feature's own surface —
+`MinimumVersionSheet/index.styled.tsx`, which is where the three entries above came from and the
+reason `src/styles/shadow.ts` is in the changeset at all. `App.tsx`'s `style={{flex: 1}}` moved into
+a new `App.styled.ts` under the same clause. If you touch another shipped stylesheet, do the same
+there — that is also why the scan is fed a diff rather than a fixed file list, and why the census in
+[section 2](#files-this-feature-changes-beyond-the-plans-list) lists the shipped files this clause
+pulled in.
 
 The clause covers a design value written onto a component's props just as it covers one written in a
 stylesheet, so the `activeOpacity` literals on the shipped lines of the seven touched components were
@@ -710,7 +818,10 @@ comparator, in that order.
 Two files in this set are changed by this feature and both are clean under the override:
 `jest.config.js` (the two Jest projects, section 3) and `.eslintrc.js` (this override, plus three
 arrays reformatted to satisfy `prettier/prettier`, which the parse error had been masking).
-`babel.config.js`, `metro.config.js` and `App.tsx` are byte-identical to the reference commit.
+`babel.config.js` and `metro.config.js` are byte-identical to the reference commit. `App.tsx` is
+not in that set and is **not** byte-identical — this feature changes it (`+44 / −14`), and it lints
+clean; what changed is in the
+[section 2 census](#files-this-feature-changes-beyond-the-plans-list).
 
 > **The full `eslint .` run's own non-zero exit is expected and is not the gate.** ESLint exits `1`
 > while any pre-existing finding remains in an untouched file, which is why step 2 pipes it through
@@ -870,11 +981,48 @@ Why it could not be run:
   **untracked** files and **never committed**. `.gitignore` already ignores the plist; it does
   **not** ignore `google-services.json`, so check `git status` after adding that one.
 - **Android is unverified beyond `npx tsc --noEmit`** — no Android SDK and no Firebase file in this
-  environment. That line is **unrun** as well.
+  environment. That line is **unrun** as well. `adb`, `emulator`, `sdkmanager` and `avdmanager` are
+  absent, `ANDROID_HOME` is unset and `/dev/kvm` does not exist, so neither a device build nor an
+  emulator is reachable. The executable form of that line is in
+  [Shipped surfaces, beside the pre-feature build](#shipped-surfaces-beside-the-pre-feature-build).
+- **No renderer of any kind exists here — not even a browser one.** `react-native-web` and
+  `react-dom` are both absent from `node_modules`, and `npx expo export --platform web` exits 1
+  demanding `react-dom@19.2.3` and `react-native-web@^0.21.2`. Installing them would be a new mobile
+  dependency, which AAP §0.4.2 excludes, so the browser route to a rendered tree is closed as firmly
+  as the native one.
+- **`react-test-renderer` is present but runs no layout.** Version 19.2.3 resolves through
+  `jest-expo` and was leaned on heavily: it mounts the real components against real API payloads and
+  yields their style and prop trees, which is how the "what this screen would show" statements
+  behind this delivery were established. It does not run Yoga and does not apply native font
+  scaling, so it produces **no computed boxes**. Overflow, clipping, overlap, ellipsis points,
+  off-screen controls and scroll reachability are unobservable by any means available here, and
+  nothing in this delivery presents them as observed.
+- **No screen reader is reachable by any path.** `orca`, `accerciser` and `espeak-ng` are not
+  installed; `xcrun`, `simctl`, `xcodebuild` and `instruments` are absent, so there is no iOS
+  simulator; the Android tooling above is absent, so there is no emulator; and with no web renderer
+  there is no browser accessibility tree to read either. `@testing-library/react-native` is also
+  absent, so even the render-level accessibility assertions a test could make do not exist.
+- **This delivery therefore contains no screenshot at all.** `blitzy/screenshots` and
+  `blitzy/screen_recordings` hold zero files, and will stay empty until someone runs this section on
+  hardware. Every statement this delivery makes about how the feature looks rests on a style or
+  derivation harness, never on a pixel.
 
 Native configuration flows through `app.json` and Expo config plugins; the generated `ios/` and
 `android/` projects are git-ignored and are not present in the repository. Do not edit a generated
 native project — change the config and regenerate.
+
+**Six measurement passes are UNRUN in the strong sense** — not skipped, not inferred, and not
+covered in passing by the automated suites. Each is recorded below with what was run instead, the
+steps that close it, and the combinations still to be checked. Only the first blocks.
+
+| Pass                                                                | Recorded under                                 | Blocking |
+| ------------------------------------------------------------------- | ---------------------------------------------- | -------- |
+| Measured geometry per device class                                  | Layout and accessibility → Responsive geometry | **yes**  |
+| Dynamic type at the six scale × width combinations                  | Layout and accessibility → Dynamic type        | no       |
+| VoiceOver and TalkBack passes                                       | Layout and accessibility → Screen readers      | no       |
+| Native confirmation of the recipe and swap states                   | Recipe and swap                                | no       |
+| Pixel comparison, interactive states, gestures, console cleanliness | Screenshots                                    | no       |
+| Regression over the shipped surfaces this feature touched           | Shipped surfaces, beside the pre-feature build | no       |
 
 ### Making the failure states reachable
 
@@ -972,6 +1120,30 @@ would meet the same forced failure for as long as the process lives.
 - [ ] Airplane mode during the commit shows the neutral unconfirmed-outcome variant — no "unchanged"
       assurance — and its "Try again" replays the same key
 
+**Every swap-flow observation behind this delivery is harness-derived, and that matters here more
+than elsewhere.** Frames 12, 13, 13c, 13b, 13d and 13e were exercised by driving the shipped screen
+components under `react-test-renderer` with the `jest-expo` preset against a real backend, through
+the app's own `httpRequest.ts`, its io-ts codecs and its interceptors: real data and real code, and
+not one rendered pixel. Values, state selection and copy are therefore established from the shipped
+code. Timing and appearance are not, and the four items below are the ones only a device can settle.
+They stay **UNRUN**.
+
+- [ ] **The decisive one.** After a **successful** "Use this meal", keep watching the screen for
+      about a second. Record whether the error toast "That meal no longer fits your plan." becomes
+      visible after the success toast "Meal swapped. Grocery list updated.", and whether any
+      unexpected back navigation is visible. Off-device the three post-commit requests settle in
+      roughly 200 ms while a native pop transition takes roughly 300–350 ms, so which of the two
+      finishes first decides whether that contradictory toast is invisible plumbing or something a
+      user reads. Treat it as a user-visible defect if it is seen
+- [ ] Record the rendered ingredient-quantity strings on 12 **and** on 13b verbatim, at both
+      "Your portion" and "Full recipe", and compare them against the display convention the backend
+      already applies — a raw decimal where a fraction is drawn, or a unit word that should not be
+      there, is the divergence to look for. Both frames render through the same client helper, so one
+      device pass covers both
+- [ ] Force-quit the app mid-commit, relaunch, and confirm **exactly one** swap resulted
+- [ ] Judge the 13b → plan-day pop for native transition smoothness and for how long the toast
+      dwells — that dwell time is the timing the first item turns on
+
 ### Grocery list
 
 - [ ] The header cart opens 14
@@ -1047,16 +1219,321 @@ with a `302` to a host you control and can watch — and relaunch the app agains
 
 ### Layout and accessibility
 
-- [ ] iPhone SE (375×667): every screen scrolls clear of its pinned footer
-- [ ] iPhone 15 Pro Max (430×932): no stretched or clipped content
-- [ ] iPad: content column capped at 600 px and centred
-- [ ] VoiceOver reaches and labels every control on 11, 13b, 14 and 15
-- [ ] Dynamic type at 100 %, 135 % and 200 %: CTAs stay visible and dense rows grow rather than clip
+Three measurement passes live here, and all three are UNRUN for the reasons at the top of this
+section rather than merely unchecked. Each has its own record below: what was run instead, so the
+reader knows what is already covered; the steps that close it; and the combinations still to be
+checked. AAP §0.7.4 is the requirement all three answer to — screenshots at 100 %, 135 % and 200 %
+dynamic type on 375 px and 393 px, and a VoiceOver pass over 11, 13b, 14 and 15.
+
+#### Responsive geometry — UNRUN/BLOCKED, and the one gap here that blocks
+
+The responsive requirement asks for four things per screen per device class: **horizontal overflow,
+clipped text, overlapping elements, and a footer covering content**. All four are measurements, and
+none of them was taken at any device class — there is no renderer, and `react-test-renderer` returns
+no computed box. Nothing downstream re-tests this, which is why it is called out as blocking: it is
+closed by the steps below and by nothing else.
+
+**What is already covered, so the run below is confirmation rather than discovery.** Every one of
+the 18 routed screens resolves one byte-identical `ContentColumn` style at every width —
+`{flex: 1, width: '100%', alignSelf: 'center', maxWidth: Sizes.CONTENT_MAX_WIDTH}` over
+`Spacing.X_SMALL` top and `Spacing.GUTTER` horizontal padding — and no style anywhere carries a
+device width or a column width as a literal; every numeric `width` is an icon or control token. The
+flex-derived geometry matches its own unit tests at every width (content column 335 at 375 px, 353 at
+393 px, 560 inside the 600 px cap; day chip 42.71 at 375 px, 45.29 at 393 px; metric-grid cell 71.25
+at 393 px). Footers pad by `max(inset, Sizes.FOOTER_MIN_BOTTOM)` and sit as siblings of the
+scroller's parent rather than over it, so they occupy their own column space; RecipeDetail's action
+bar, the one surface genuinely pinned over content, reserves `ACTION_BAR_RESERVE` inset-awarely. The
+six surfaces whose Figma frames clip all place their last row inside a scroller with no clipping
+ancestor. That is style-tree and derivation evidence throughout. None of it is a measured box.
+
+**What is genuinely unmeasured**, and is therefore what a device pass is for: computed box geometry;
+horizontal overflow; text clipping; element overlap; whether `KeyboardAwareScrollView` actually
+scrolls the focused field above the keyboard; mid-token line breaking of an unbroken 60-character
+string; and every screenshot.
+
+| Device class                     | Style tree and derivations | Measured pixels, overflow, clipping, screenshots |
+| -------------------------------- | -------------------------- | ------------------------------------------------ |
+| 375×667 iPhone SE                | covered                    | **UNRUN/BLOCKED**                                |
+| 393×852 reference                | covered                    | **UNRUN/BLOCKED**                                |
+| 430×932 iPhone Pro Max           | covered                    | **UNRUN/BLOCKED**                                |
+| 834×1194 iPad                    | covered                    | **UNRUN/BLOCKED**                                |
+| 320×568 legacy (extra)           | covered                    | **UNRUN/BLOCKED**                                |
+| 320×1180 iPad Split View (extra) | covered                    | **UNRUN/BLOCKED**                                |
+| 1024×1366 iPad Pro (extra)       | covered                    | **UNRUN/BLOCKED**                                |
+| 393×600 short (extra)            | covered                    | **UNRUN/BLOCKED**                                |
+
+The first four classes are what the requirement names; the last four are the widths
+`ios.supportsTablet: true` without `requireFullScreen` can hand the app through Split View despite
+the portrait lock, and they are listed because the four named classes do not describe them.
+
+The steps, in order. The first five restate [Preconditions](#preconditions) with what a multi-device
+pass adds; from the sixth on, this is work no other part of this section describes.
+
+- [ ] macOS with Xcode, and — if the Android half is also wanted, which AAP §0.8.2 places out of
+      scope — an Android SDK and JDK
+- [ ] `mobile/GoogleService-Info.plist` (or `GOOGLE_SERVICES_INFO_PLIST_FILE`) and
+      `mobile/google-services.json` supplied as **untracked** files, never committed
+- [ ] `mobile/.env` carrying `SOH_API_BASE_URL=http://<dev-host>:<port>` — never a production origin
+      — confirmed by `assertNonProductionApi()` printing that origin
+- [ ] Development Firebase Remote Config `meal_planning_enabled=true`, fetched once, then a **cold
+      start** — the app fetches only at launch and throttles to 15 minutes, so flipping it under a
+      running app changes nothing
+- [ ] The dev API running with `MEAL_PLANNING_ENABLED=true` after `catalog:load --release v1` and
+      `recipes:seed`
+- [ ] `npm run ios` on iPhone SE (375×667), iPhone 14/15 (393×852), iPhone 15 Pro Max (430×932) and
+      an iPad **both full-screen and in Split View at 320, 507 and 694 pt**
+- [ ] At each class, walk the 33 screens and states — 01, 02, 03, 03b, 04, 05, 06, 06b idle and
+      results, 07 in both 3-meal and 3-meals-plus-snack shapes, 08, 09, 09b, 10, 10b, 10c, 11, 11b,
+      11c, 12, 13, 13b, 13d, 14, 14b, 14c, the empty-list variant of 14, 15, 15b, the unavailable
+      card and the inline error card — capturing one screenshot each and recording the four
+      measurements for each: horizontal overflow, clipped text, overlapping elements, and a footer
+      covering content. That is 8 classes × 4 measurements × 33 surfaces, and every cell is
+      currently unrecorded
+- [ ] Additionally capture the five input screens with the number pad open — 02 Goal, 03 About you,
+      08 Cooking and budget, 09b Edit targets, 15 Log planned meal — and confirm the focused field is
+      scrolled above the keyboard, not merely still mounted. Note while doing it that
+      `enableOnAndroid` is set on `LogPlannedMeal` alone, so the other four need the Android check
+      explicitly
+- [ ] Additionally scroll each of the six clipped surfaces to its **last** row: the seventh
+      Plan-settings row on 16, the last row of 14b's Checked card, Review rows 3–6 on 09, the 03b
+      form under the pinned footer, 13b's ingredient rows, and the last diary meal card above the tab
+      bar
+- [ ] Render a grocery row and an ingredient row whose quantity string is long beside a long name,
+      and an unbroken 60-character token in a body-text block, and record whether the quantity
+      truncates itself or collapses the name column, and where the token breaks
+
+#### Dynamic type — UNRUN/BLOCKED at 0 of 6 required combinations
+
+AAP §0.7.4 requires six combinations. **None of them rendered**, so every statement about how this
+feature behaves at an enlarged text size is a statement about declared styles, not about a scaled
+layout. `PixelRatio.getFontScale()` is 1 in every run this environment permits.
+
+| Combination    | Rendered          |
+| -------------- | ----------------- |
+| 100 % × 375 px | **UNRUN/BLOCKED** |
+| 100 % × 393 px | **UNRUN/BLOCKED** |
+| 135 % × 375 px | **UNRUN/BLOCKED** |
+| 135 % × 393 px | **UNRUN/BLOCKED** |
+| 200 % × 375 px | **UNRUN/BLOCKED** |
+| 200 % × 393 px | **UNRUN/BLOCKED** |
+
+**What is already covered, so the residual risk is narrow.** `allowFontScaling` and
+`maxFontSizeMultiplier` have zero occurrences in `src`, so nothing opts out of scaling or caps it,
+and an explicit `lineHeight` does scale with the user's text size on both platforms — this was read
+out of the framework sources rather than remembered. Line caps are rare and each is deliberate: the
+three controls that must stay on one line — `SegmentedControl`'s labels, `DeltaPill` and
+`InstructionStep`'s step number — pair `numberOfLines={1}` with `adjustsFontSizeToFit`, so the label
+shrinks rather than truncates, while `IngredientRow`'s quantity and `FoodListRow`'s name line and
+subtitle cap at one line without shrinking. Body copy is uncapped throughout. The day strip's chips
+are `flex: 1` over a `minHeight`, the badge row wraps with every pill free to shrink, and
+`SummaryRows` declares no height at all, so all three grow with the text; the wizard progress bar is
+the one deliberately fixed height in the feature and it holds no text. CTA labels are uncapped and
+the buttons use `minHeight` with padding, every one of the 18 routed screens puts its body in a
+scrollable sibling of its footer, and
+`PlanConfirmDialog` scrolls its badge, title, body and summary inside a window-derived `maxHeight`
+with the notice and both actions pinned outside that scroll region. What none of that can show is a
+scaled layout: the truncation, clipping, overlap and off-screen outcomes below are the point of the
+run.
+
+- [ ] macOS with Xcode and CocoaPods
+- [ ] The development `GoogleService-Info.plist` at `mobile/` (or `GOOGLE_SERVICES_INFO_PLIST_FILE`),
+      and `google-services.json` for the Android pass — never committed
+- [ ] A development Firebase test account for the `state-of-health-ea1ef` project
+- [ ] `npm ci --legacy-peer-deps`, `SOH_API_BASE_URL` pointed at the dev backend and confirmed
+      non-production through `assertNonProductionApi()`, then `npm run ios`
+- [ ] iOS **Settings → Accessibility → Display & Text Size → Larger Text**: capture at 100 %, at the
+      135 %-equivalent notch, and at 200 % — the top notch needs *Larger Accessibility Sizes* enabled
+- [ ] Repeat the whole walk at 375 px (iPhone SE) and at 393 px (iPhone 15/16), giving the six
+      combinations above
+- [ ] At **each** of the six combinations, walk all 18 routed screens plus the Meal Plan tab
+      (11/11b/11c) plus the five shipped screens this feature touched — Diary, Add Food with the
+      Catalog section visible, Food Detail, Account and Progress — screenshotting each and recording:
+      truncated body text; clipped dense rows, specifically the seven 63-tall Plan-settings rows on
+      16, the 46-tall grocery rows on 14/14b and the meal-card meta line on 11; overlapping elements;
+      a CTA pushed off-screen; and whether everything clipped is still reachable by scrolling
+- [ ] With the keyboard open on 02 Goal, 03 About you, 08 Cooking and budget, 09b Edit targets and
+      15 Log planned meal, confirm the value, the unit suffix and any inline validation message stay
+      visible at 200 %
+- [ ] Open the 16b regenerate dialog at 200 % and confirm the title, the body, **all three** summary
+      rows and **both** actions remain visible and reachable
+- [ ] Re-check the cap-and-shrink risks the static pass could only argue: the one-line rows above,
+      and the shipped `SegmentedControl` labels at the three legacy call sites, which now shrink
+      where they used to wrap
+
+#### Screen readers — UNRUN/BLOCKED on both platforms
+
+AAP §0.7.4 asks for a VoiceOver pass over **11, 13b, 14 and 15**. No VoiceOver or TalkBack pass was
+performed, and none is performable here. Both platforms matter and neither is optional: two of the
+reported defects are platform-split, where `accessibilityLiveRegion` is honoured by TalkBack and
+silent under VoiceOver, so a single-platform pass would record the opposite result on each.
+
+**What is already covered.** The accessibility tree each platform reader consumes was enumerated for
+30 screen states against real API payloads — effective role, computed accessible name,
+`accessibilityState`, `accessibilityValue`, hint, live region, modal flag, hidden-from-assistive-tech
+flags, declared geometry and `hitSlop`, in reading order — with every `announceForAccessibility` call
+recorded at the moment it fired, press drivers re-reading the tree after each state change, and a
+static inventory cross-checking 201 interactive elements across 60 files. Roles, labels, checked and
+selected states and the 44 px (`Sizes.TOUCH_TARGET`) hit areas are therefore established from
+executed code. What a tree cannot show is **what is spoken, when, and where focus goes** — which is
+the whole of the list below.
+
+Prerequisites, on top of [Preconditions](#preconditions):
+
+- [ ] iOS: `npm run ios` on macOS with Xcode, on a physical iPhone, **Settings → Accessibility →
+      VoiceOver ON**, and the Screen Curtain enabled (triple-tap with three fingers) so the pass is
+      genuinely non-visual
+- [ ] Android: `npm run android` on a physical device, **Settings → Accessibility → TalkBack ON**
+- [ ] A real plan generated through the app, so every screen carries real content
+
+The nine observations only a reader can settle:
+
+- [ ] **D1 — focus after a body-replacing state change.** No programmatic focus management exists
+      anywhere in the app, so each of these depends on a platform default that was never observed:
+      drive 10 → 10b (`MEAL_PLANNING_FAULT=generation`), 13c → 13d (a slot with no alternatives),
+      14 → 14c, and a day change on the 11 day strip. After each, swipe right once and record where
+      focus lands. Focus landing on the screen root, or on a node that no longer exists, is a defect
+- [ ] **D2 — whether the 16b dialog announces itself.** `accessibilityViewIsModal` is set on the
+      card and opening it fires only haptics. On 16 press "Regenerate this week" and record whether
+      the title and body are spoken unprompted; then swipe right repeatedly and confirm focus never
+      escapes the card to the settings rows behind the scrim
+- [ ] **D3 — validation silence on 02 and 07.** Both carry error text with no live region, no
+      alert or status role and no announcement. With nothing selected, double-tap "Continue" and
+      record what is spoken. Nothing at all is the defect. Repeat both screens under TalkBack
+- [ ] **D4 — the iOS/Android split.** 08, 06 and 03's sex group wrap their message in
+      `accessibilityLiveRegion="polite"`; 03 and 09b additionally fold the message into the field's
+      name. Press Continue with a missing answer on 08, 06 and 03, and press "Save targets" with
+      Carbs = 0 on 09b. TalkBack is expected to speak the message and VoiceOver to stay silent —
+      record **both** platforms for each of the four
+- [ ] **D5 — toasts.** Neither the project's toast module nor the vendored toast library carries any
+      accessibility property. Commit a swap on 13b with "Use this meal" and record whether "Meal
+      swapped. Grocery list updated." is spoken; then arm `MEAL_PLANNING_FAULT=swap` and record
+      whether the error toast is spoken. A failure that is never announced is the defect
+- [ ] **D6 — the LOGGED badge.** The card's own label overrides its children, and the meta template
+      carries no "logged" word. Log a meal, navigate to that card and record the announcement. It
+      being indistinguishable from an unlogged card's is the defect
+- [ ] **D7 — RecipeDetail's instruction steps.** They sat outside the test renderer's virtualised
+      window, so only their construction is verified. Open 12, swipe right through the entire
+      screen, and confirm every numbered step is reached and read as one stop
+- [ ] **D8 — the heading rotor.** Only three `header` roles exist across the whole new surface. On
+      13b (44 stops) and on 14b (50 stops), set the VoiceOver rotor to Headings and record what it
+      finds. Finding nothing on 13b is the defect
+- [ ] **D9 — focus on open and restoration on return.** Navigate 11 → 12 → back, 11 → 15 → back,
+      and 16 → 16b → dismiss, recording where focus lands on open and whether it returns to the
+      control that opened the screen
+
+The full pass, one line per surface. For each, swipe right through the entire reading order and
+record every element reached, the order, the exact announced text, and anything unreachable or
+announced meaninglessly:
+
+- [ ] **11 / 11b / 11c Meal Plan tab** — the day strip, the three action pills per meal, the totals
+      card, "Open plan settings", and on 11b the LOGGED card and the success banner. Covers D1, D6
+- [ ] **13b SwapPreview** — the delta pill, the calorie progress bar's name, and the macro grid's
+      stops. Covers D5, D8
+- [ ] **14 / 14b / 14c GroceryList** — every checkbox name carries its quantity, section headers act
+      as headings, "Uncheck all" is absent with nothing checked, and the flagged row reads in full
+      including its old amount, new amount and delta. Record whether the 14b banner is heard as one
+      message or as fragments
+- [ ] **15 LogPlannedMeal** — the "This adds" live region re-announces on **every** servings change
+      on both platforms, and the date steppers announce which direction they move
+- [ ] **Wizard 02–08** — all seven steps: nothing is preselected on first entry, every control is
+      reachable by name, and D3/D4's validation behaviour holds
+- [ ] **09 Review / 09b Edit targets** — the grouped targets card reads as one utterance, and 09b's
+      error behaviour matches D4
+- [ ] **10 / 10b / 10c Generating** — the pending header, the outcome announcements, and the
+      constraint rows on 10c including an empty allergen value
+- [ ] **13c / 13 / 13d / 13e Swap flow** — "Alternatives, 2 found" on 13 and 13d's empty state are
+      heard on both platforms
+- [ ] **16 PlanSettings + 16b dialog** — the seven value-first rows and the flagged-meal banner,
+      which needs a plan with incompatibilities: change the diet to vegan first. Covers D2
+- [ ] **Non-visual completion** — with the Screen Curtain on, complete each of: finish setup,
+      generate a plan, swap a meal, check groceries, log a meal. Record every dead end. The tree says
+      all five are completable; the swap's only success feedback is the toast in D5
+- [ ] **Sample data** — confirm no control announces a mock date, name or calorie figure. Frame 01's
+      example week announces the word "Sample" itself, which is correct
+- [ ] **Shipped screens with the reader on** — Diary (can Breakfast's add row be told from Dinner's
+      when the four are icon-only?), Add Food's Catalog rows and provenance badges, Food Detail's
+      glyph-only stepper and fraction chips, Account, Progress, and the tab bar: confirm "Macros,
+      tab, 1 of 5" and that the bar is genuinely absent from the reader on the 18 routed screens,
+      which could only be established here from the `display: 'none'` mechanism
 
 ### Screenshots
 
 - [ ] Capture a matched screenshot for each of the 31 frames at 393×852, and note the section 5 font
       delta on every one
+
+Capturing them is only the first half. **Five dimensions of the journey through this feature were
+never exercised**, because each needs a renderer, and every screen observation behind this delivery
+came instead from executing the shipped presentation layer — the `index.util.ts` derivations, the
+io-ts decoders, the converters and the mutation option factories — in-process against real HTTP
+payloads. That establishes values, state selection and copy. It establishes nothing about pixels,
+and the derived geometry it did confirm numerically is narrow: the day chip at 42.71 px on 375 px and
+45.29 px on 393 px, the metric-grid cell at 71.25 px on 393 px, and the content column at 335 px,
+353 px and 560 px for 375 px, 393 px and 1024 px. The five dimensions below are **UNRUN**.
+
+- [ ] Compare each captured screenshot pixel-for-pixel against its Figma node — at minimum frames
+      12, 13, 13b, 13c, 13d, 13e, 14, 14b, 14c and 16, which the journey passes through — and record
+      every difference that is not the section 5 typeface deviation
+- [ ] Exercise the interactive states no static pass can reach: press and hold each CTA, each day
+      chip and each pill and confirm it dims to 0.6 while held; confirm a disabled CTA dims to 0.5
+      and ignores the press in each of its three real cases — a swap commit in flight, a grocery
+      toggle in flight, and a read-only saved plan; and drive the gestures, meaning the grocery
+      `FlatList` scroll, the recipe `SectionList` scroll and the back swipe out of each pushed screen
+- [ ] Repeat the journey at each breakpoint on real hardware — 375×667, 393×852, 430×932 and an iPad
+      — confirming the content column caps at 600 px and stays centred and that every screen remains
+      scroll-reachable above its pinned footer
+- [ ] At **each** of those breakpoints confirm the JavaScript console is clean: no red box, no
+      warning and no error, recorded per breakpoint rather than once
+- [ ] Complete the accessibility half of the same walk — the Screen readers and Dynamic type records
+      above own it; this line exists so a screenshot pass is not mistaken for coverage of it
+- [ ] The continuity check needs a real relaunch: swap a meal, check four grocery items across
+      different sections, **force-quit** the app and launch it again. Confirm the Meal Plan tab shows
+      the swapped recipe, all four checks are still set and no flag was lost. Server-side durability
+      across an API restart is already proven; what is unproven is the client after a process death
+- [ ] Then relaunch with the device offline and confirm the saved-plan copy renders read-only under
+      its "Showing your last saved plan" banner, with no plan action offered
+
+### Shipped surfaces, beside the pre-feature build
+
+This feature reached into screens that already shipped — it extended `PrimaryButton`,
+`SecondaryButton` and `SegmentedControl`, changed how targets are read on Account, Diary and
+Progress, and added a Catalog section to Add Food. **Nothing native was run over any of them.**
+
+What stands in for it is a comparison rather than a recollection, and the same discipline applies to
+the device pass: both trees were rendered side by side — the pre-feature commit `788a36f` and this
+one — and their rendered trees and computed styles diffed screen by screen, over all 23 shipped
+screens and the touched components, with the feature on, off, and never fetched. That is how the
+deltas below are known to be the only ones. It is also why the human run must have **a build of
+`788a36f` on the bench next to the current one**: a one-pixel difference is only visible against the
+thing it differs from, and every step below is a two-build comparison.
+
+- [ ] Open a `ConfirmModal` — Account → "Log Out" is the real caller — and measure **both** button
+      heights against the pre-feature build. `PrimaryButton`'s inner box gained
+      `minHeight: ctaMinHeight(Sizes.CTA, Sizes.TOUCH_TARGET)` = 52, and `ConfirmModal` shrinks its
+      buttons with `padding: Spacing.X_SMALL` (8), which does not reset a `minHeight`. Because
+      `paddingVertical: Spacing.MEDIUM` (16) is present on both trees and wins by edge precedence,
+      the expected difference is about 1 px and none at all while loading. Record the measurement
+      either way — the point is to close it, not to assume it
+- [ ] Tap **4 px above and below** each `SegmentedControl` at its three shipped call sites — Progress,
+      Log with AI and Log Weight — and confirm no neighbouring control's tap is stolen. The option's
+      press box is raised to `Sizes.TOUCH_TARGET` and pulled back by a negative `marginVertical` of
+      the same inset, so the envelope bleeds 4 px past the drawn track in each direction while
+      occupying no layout space at all — which is exactly why a static read cannot settle it
+- [ ] At **200 %** text on the same three call sites, confirm the segment labels **shrink rather than
+      wrap** — they carry `numberOfLines={1}` with `adjustsFontSizeToFit`, which is a change from the
+      pre-feature build, and Log with AI's long meal names are where it shows
+- [ ] Put the device in **airplane mode** and confirm Account's "Daily calories" row still shows its
+      number while **losing its edit chevron**. This is a steady state, not a first-paint flicker:
+      the targets query is not persisted and spends its single retry, so it stays failed for the
+      session. Confirm the same on the Diary ring and on Progress → Activity, and record whether
+      each editor is reachable at all
+- [ ] Capture all 23 shipped screens beside the pre-feature build and diff the pairs — Diary, Add
+      Food with and without its Catalog section, Food Detail, Account, Progress and the rest —
+      recording every visible difference, including the tab bar on the 18 routed screens
+- [ ] **Android, explicitly UNRUN.** Inject `google-services.json` as an untracked file, then
+      `npx expo prebuild --platform android` followed by `./gradlew assembleDebug` in a configured
+      Android SDK environment. Nothing here covers Android beyond `npx tsc --noEmit`, and a
+      successful compile is the floor, not the pass: repeat the four steps above on the device with
+      TalkBack for the reader items
 
 ---
 
@@ -1079,6 +1556,16 @@ of the mobile repository, read them in `state-of-health-be` at the same paths un
 Read `api.md` before changing a decoder or a converter: the io-ts codecs in
 `src/queries/api/mealPlanning/decoder/` and `src/queries/api/catalog/decoder/` are the client half
 of the contract it describes, and the two must agree field for field.
+
+The checklist is also where the API's own unrun records live, and two of them bear on what section 10
+above can be compared against. Its
+[read figures measured elsewhere](../../backend/docs/meal-planning/requirement-evidence-checklist.md#read-figures-measured-elsewhere-and-what-they-exclude)
+publishes the plan-facing read latencies a device pass will feel, states that every one of them
+excludes Firebase token verification, and bounds that exclusion by measurement; its
+[what is unrun or unverified](../../backend/docs/meal-planning/requirement-evidence-checklist.md#what-is-unrun-or-unverified)
+records that no authenticated call was ever made against a running server and why, which is the same
+missing development test account that section 10's Preconditions ask for. A device run that cannot
+get that account is blocked on the API side too, and both documents say so.
 
 ### Delivery shape
 

@@ -2,7 +2,14 @@ import React, {useEffect} from 'react'
 
 import {Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
-import Animated, {Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming} from 'react-native-reanimated'
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming
+} from 'react-native-reanimated'
 
 import SpinnerArcIcon from '@components/icons/SpinnerArcIcon'
 
@@ -29,6 +36,9 @@ const IndeterminateSpinner = ({size = 'lg'}: Props): React.JSX.Element => {
       -1,
       false
     )
+
+    // The repeat count is -1, so only this cleanup ends the rotation — both callers unmount while it is running.
+    return () => cancelAnimation(rotation)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- shared values are stable references
   }, [])
 

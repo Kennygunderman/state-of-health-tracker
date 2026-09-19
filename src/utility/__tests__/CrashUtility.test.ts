@@ -247,6 +247,80 @@ describe('CrashUtility.recordError', () => {
   })
 })
 
+// The marker is module-private, so it is spelled out here: naming it is what lets these assertions distinguish
+// the own property `recordError` writes from an identically named one reached through a prototype.
+const RECORDED_FLAG = '__sohRecorded'
+
+// `Object.prototype` is shared by every object in the process, so the flag is removed in a `finally`: a leak
+// would silence recording for every test that runs afterwards, which is the exact failure being pinned here.
+const withInheritedFlag = (assertions: () => void): void => {
+  // eslint-disable-next-line no-extend-native -- extending Object.prototype is the condition under test
+  Object.defineProperty(Object.prototype, RECORDED_FLAG, {value: true, enumerable: false, configurable: true})
+
+  try {
+    assertions()
+  } finally {
+    Reflect.deleteProperty(Object.prototype, RECORDED_FLAG)
+  }
+}
+
+describe('CrashUtility.recordError — the marker is an own property', () => {
+  // A plain member read of the flag resolves it through the prototype chain, so a single polluted
+  // `Object.prototype.__sohRecorded` would make every error look already-reported and silence Crashlytics at
+  // every call site in the app. Three distinct errors must still reach it.
+  it('reports every distinct error while Object.prototype carries the flag', () => {
+    const errors = [new Error('first'), new Error('second'), new Error('third')]
+
+    withInheritedFlag(() => errors.forEach(error => CrashUtility.recordError(error)))
+
+    expect(recordError).toHaveBeenCalledTimes(3)
+    errors.forEach(error => expect(recordError).toHaveBeenCalledWith(error))
+  })
+
+  // The own marker written by the first call is what dedupes, and it still does while the inherited one exists.
+  it('still reports one error once while Object.prototype carries the flag', () => {
+    const error = new Error('boom')
+
+    withInheritedFlag(() => {
+      CrashUtility.recordError(error)
+      CrashUtility.recordError(error)
+    })
+
+    expect(recordError).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports an error that inherits the flag from its own prototype', () => {
+    const error = Object.create({[RECORDED_FLAG]: true}) as object
+
+    CrashUtility.recordError(error)
+
+    expect(recordError).toHaveBeenCalledTimes(1)
+    expect(recordError).toHaveBeenCalledWith(error)
+  })
+
+  // A rejected value is untrusted, so the ownership test may not be invoked on it: `error.hasOwnProperty(...)`
+  // would throw here and lose the report it was called to make.
+  it('reports an error whose own hasOwnProperty is not callable', () => {
+    const error = new Error('boom')
+
+    Object.defineProperty(error, 'hasOwnProperty', {value: 'not a function', enumerable: false, configurable: true})
+
+    expect(() => CrashUtility.recordError(error)).not.toThrow()
+    expect(recordError).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes the marker as an own property no legacy consumer of the error can see', () => {
+    const error = new Error('boom')
+
+    CrashUtility.recordError(error)
+
+    expect(Object.prototype.hasOwnProperty.call(error, RECORDED_FLAG)).toBe(true)
+    expect(Object.keys(error)).toEqual([])
+    expect(JSON.stringify({...error})).not.toContain(RECORDED_FLAG)
+    expect(error instanceof Error).toBe(true)
+  })
+})
+
 describe('CrashUtility.recordDecodeFailure', () => {
   // The route is read from the request rather than from the body, so the URL below deliberately shares no
   // value with the payload: every payload value must then be absent from the message, with nothing to argue

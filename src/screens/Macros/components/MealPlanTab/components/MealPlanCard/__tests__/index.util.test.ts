@@ -1,6 +1,11 @@
-import {MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT} from '@constants/strings'
+import {
+  MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT,
+  stringWithNamedParameters
+} from '@constants/strings'
 
-import {resolveWritePillAccessibility} from '../index.util'
+import {openRecipeAccessibilityLabel, resolveWritePillAccessibility} from '../index.util'
 
 // The card dims Swap and the unlogged primary together off one write verdict, and the tab offers stale-plan
 // recovery only when the day answered `isWritable === false`. Those are the two inputs under test.
@@ -8,6 +13,16 @@ const DIMMED = true
 const LIVE = false
 const RECOVERY_OFFERED = true
 const NO_RECOVERY = false
+
+// The card resolves `loggedState.kind` to this one boolean before it labels the open-recipe element:
+// only `logged` is true, and `loggedThenSwapped` renders its replacement unlogged.
+const LOGGED = true
+const UNLOGGED = false
+
+const RECIPE_NAME = 'Tuna and avocado breakfast bowl'
+// A comma and an apostrophe are exactly what a naive escape or a regex-based interpolation would mangle, and
+// the comma is also the separator the logged suffix uses — so this name proves the two never interfere.
+const PUNCTUATED_RECIPE_NAME = "Chef's bowl, extra greens"
 
 describe('resolveWritePillAccessibility', () => {
   it('keeps a dimmed pill pressable and unannounced as disabled when a press recovers the stale plan', () => {
@@ -69,5 +84,47 @@ describe('resolveWritePillAccessibility', () => {
 
     expect(disabled).toHaveLength(1)
     expect(disabled[0]).toEqual(resolveWritePillAccessibility(DIMMED, NO_RECOVERY))
+  })
+})
+
+describe('openRecipeAccessibilityLabel', () => {
+  // Everything after the placeholder in the logged template is the badge's text equivalent; deriving it here
+  // rather than writing it out keeps the assertion true if the copy is reworded.
+  const LOGGED_SUFFIX = MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE.split('{recipe}')[1]
+
+  it('ends a logged card name with the logged suffix', () => {
+    const label = openRecipeAccessibilityLabel(RECIPE_NAME, LOGGED)
+
+    expect(LOGGED_SUFFIX).not.toBe('')
+    expect(label).toBe(
+      stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE, {recipe: RECIPE_NAME})
+    )
+    expect(label.endsWith(LOGGED_SUFFIX)).toBe(true)
+  })
+
+  it('never announces a logged card the same way as an unlogged one for the same recipe', () => {
+    expect(openRecipeAccessibilityLabel(RECIPE_NAME, LOGGED)).not.toBe(
+      openRecipeAccessibilityLabel(RECIPE_NAME, UNLOGGED)
+    )
+  })
+
+  it('leaves the unlogged card announcing exactly what it announced before the logged state was named', () => {
+    const label = openRecipeAccessibilityLabel(RECIPE_NAME, UNLOGGED)
+
+    expect(label).toBe(stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {recipe: RECIPE_NAME}))
+    expect(label.endsWith(LOGGED_SUFFIX)).toBe(false)
+  })
+
+  it('interpolates a recipe name carrying a comma and an apostrophe verbatim in both states', () => {
+    expect(openRecipeAccessibilityLabel(PUNCTUATED_RECIPE_NAME, UNLOGGED)).toContain(PUNCTUATED_RECIPE_NAME)
+    expect(openRecipeAccessibilityLabel(PUNCTUATED_RECIPE_NAME, LOGGED)).toContain(PUNCTUATED_RECIPE_NAME)
+    expect(openRecipeAccessibilityLabel(PUNCTUATED_RECIPE_NAME, LOGGED)).toBe(
+      `${openRecipeAccessibilityLabel(PUNCTUATED_RECIPE_NAME, UNLOGGED)}${LOGGED_SUFFIX}`
+    )
+  })
+
+  it('leaves no placeholder in either name', () => {
+    expect(openRecipeAccessibilityLabel(RECIPE_NAME, LOGGED)).not.toContain('{recipe}')
+    expect(openRecipeAccessibilityLabel(RECIPE_NAME, UNLOGGED)).not.toContain('{recipe}')
   })
 })

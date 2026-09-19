@@ -15,6 +15,11 @@ import {MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} from '@constants/strings'
 
 import styles, {backButtonPosition} from './index.styled'
 
+// A stacking index rather than a design value, which is why it is named here instead of in the `@styles`
+// token maps: React Native paints and hit-tests siblings in tree order, so the back slot — rendered first
+// below for reading order — needs one layer above the content layer to keep its pixels and its touches.
+const BACK_SLOT_LAYER = 1
+
 /**
  * The recipe hero band. Omitting `onPress` presents the recipe (12); passing it makes the content itself
  * the control that opens the recipe (13b → 12).
@@ -56,9 +61,14 @@ const RecipeHero = (props: Props): React.JSX.Element => {
 
   // The back button is the pressable's sibling, never its child: as a descendant it would be an accessible
   // control inside another accessible control, which leaves a screen reader one button where there are two.
-  // Drawn after the content layer, it still sits above it, so its own touches and hit slop keep winning.
+  // It is drawn first so a reader reaches the escape before the hero's own action, and `BACK_SLOT_LAYER` is
+  // what keeps it painted and hit-tested above the content layer it now precedes.
   return (
     <View style={styles.band}>
+      <View style={[styles.backSlot, backButtonPosition(insets.top, BACK_SLOT_LAYER)]}>
+        <BackCircleButton variant="scrim" onPress={onBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
+      </View>
+
       {props.onPress ? (
         <TouchableOpacity
           style={styles.content}
@@ -71,10 +81,6 @@ const RecipeHero = (props: Props): React.JSX.Element => {
       ) : (
         <View style={styles.content}>{content}</View>
       )}
-
-      <View style={[styles.backSlot, backButtonPosition(insets.top)]}>
-        <BackCircleButton variant="scrim" onPress={onBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
-      </View>
     </View>
   )
 }

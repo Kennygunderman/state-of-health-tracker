@@ -41,7 +41,11 @@ export default StyleSheet.create({
     textDecorationLine: 'line-through',
     color: Theme.colors.textFaint
   },
+  // Capped and shrinkable so a long server-formatted amount wraps within its own half instead of
+  // collapsing the `flex: 1` name (basis 0) to zero. No line cap: AAP 0.7.4 forbids one on body text.
   quantity: {
+    flexShrink: 1,
+    maxWidth: '50%',
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.REGULAR,
     textAlign: 'right',

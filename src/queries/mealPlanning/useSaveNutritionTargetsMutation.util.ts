@@ -32,7 +32,8 @@ export function buildSaveNutritionTargetsMutationOptions(
     // the screen's equality recovery then resolves silently (0.7.2) with no other chance to refresh the
     // targets, the estimate, the diary and history macros or the plan. An unknown outcome may equally have
     // committed before the response was lost (0.2.5). Every other confirmed code (`estimate_stale`,
-    // `invalid_request`, `read_only_field`, …) means the server wrote nothing, so it touches no cache.
+    // `invalid_request`, whose `details[]` name the offending fields, …) means the server wrote
+    // nothing, so it touches no cache.
     onError: error => {
       if (getApiErrorCode(error) === API_ERROR_CODES.staleTargets || isUnknownOutcome(error)) {
         applyNutritionTargetsSaveCacheEffects(queryClient)

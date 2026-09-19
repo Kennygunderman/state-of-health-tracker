@@ -15,12 +15,9 @@ import {
   MEAL_PLAN_LOG_MEAL_BUTTON_TEXT,
   MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE,
   MEAL_PLAN_MEAL_CALORIES_TEMPLATE,
-  MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR,
-  MEAL_PLAN_MEAL_FLAG_TEMPLATES,
   MEAL_PLAN_MEAL_META_LOGGED_TEMPLATE,
   MEAL_PLAN_MEAL_META_TEMPLATE,
   MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE,
-  MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SWAP_BUTTON_TEXT,
   MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE,
@@ -29,10 +26,10 @@ import {
   stringWithNamedParameters
 } from '@constants/strings'
 
-import {MealLoggedState, resolveMealFlagReason} from '../../index.util'
+import {MealLoggedState, resolveMealFlagLine} from '../../index.util'
 import LoggedBadge from '../LoggedBadge'
 import styles from './index.styled'
-import {resolveWritePillAccessibility} from './index.util'
+import {openRecipeAccessibilityLabel, resolveWritePillAccessibility} from './index.util'
 
 const ACTION_PILL_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.PILL_SM) / 2
 
@@ -69,7 +66,12 @@ const MealPlanCard = ({
   const isLogged = IS_LOGGED_BY_STATE[loggedState.kind]
   const previousEntry = loggedState.kind === 'loggedThenSwapped' ? loggedState.entry : null
   const loggedEntry = loggedState.kind === 'unlogged' ? null : loggedState.entry
-  const flagReason = resolveMealFlagReason(meal.flags)
+  // Figma draws no flagged card: a meal the user's edited preferences no longer allow keeps its drawn structure
+  // and gains this line, so the reason is stated where the meal is rather than only in the settings banner.
+  //
+  // Null exactly when the meal carries no flags, so this doubles as "is this meal flagged" for the stroke
+  // below: a meal whose reason can only be stated generically is still a flagged meal and still looks flagged.
+  const flagText = resolveMealFlagLine(meal.flags)
   // "View in diary" is a read of an entry that already exists, so it stays available while the plan does not
   // accept writes; only Swap and Log follow the verdict.
   const isPrimaryWrite = !isLogged
@@ -92,14 +94,6 @@ const MealPlanCard = ({
     }
   }, [loggedEntry, onViewEntry])
 
-  // Figma draws no flagged card: a meal the user's edited preferences no longer allow keeps its drawn structure
-  // and gains this line, so the reason is stated where the meal is rather than only in the settings banner.
-  const flagText =
-    flagReason === null
-      ? null
-      : stringWithNamedParameters(MEAL_PLAN_MEAL_FLAG_TEMPLATES[flagReason], {
-          detail: meal.flags.flatMap(flag => flag.detail).join(MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR)
-        })
   const metaText = stringWithNamedParameters(MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE, {
     slot: MEAL_SLOT_LABELS[meal.slot],
     time: formatSlotTime(meal.slotTime)
@@ -132,9 +126,7 @@ const MealPlanCard = ({
       <TouchableOpacity
         activeOpacity={Opacity.PRESSED}
         accessibilityRole="button"
-        accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE, {
-          recipe: meal.recipe.name
-        })}
+        accessibilityLabel={openRecipeAccessibilityLabel(meal.recipe.name, isLogged)}
         onPress={onOpenPressed}>
         <View style={styles.metaRow}>
           <View style={styles.metaLeftGroup}>

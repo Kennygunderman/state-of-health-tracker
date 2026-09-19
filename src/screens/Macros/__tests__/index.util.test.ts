@@ -1,11 +1,4 @@
 import {MacroTargets} from '@data/models/Macros'
-import {NutritionTargets} from '@data/models/NutritionTargets'
-import {
-  NutritionTargetsReadResult,
-  resolveTargetAuthority,
-  TargetAuthorityDecision
-} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
-import {RoutesMissingError} from '@utility/MealPlanEntitlementUtility'
 
 import {
   calorieBalance,
@@ -15,7 +8,6 @@ import {
   formatCalories,
   formatMacroPair,
   progressFraction,
-  resolveAuthoritativeMacroTargets,
   resolveMacroTargets,
   resolveMacrosBodyKey
 } from '../index.util'
@@ -28,44 +20,8 @@ const makeTargets = (overrides: Partial<MacroTargets> = {}): MacroTargets => ({
   ...overrides
 })
 
+// The device's `useUserData.targetCalories`, which is what an unset field falls back to (AAP 0.7.5).
 const LOCAL_TARGET_CALORIES = 1800
-
-const CONFIRMED_SERVER_TARGETS: NutritionTargets = {
-  targets: {calories: 1940, protein: 146, carbs: 194, fat: 65},
-  complete: true,
-  source: 'manual',
-  stale: false,
-  revision: 3
-}
-
-// An account the server holds targets for but no calorie figure: the four columns are independently nullable
-// (AAP 0.5.2), so this is `'server'` authority with `serverCalories: null`.
-const MACRO_ONLY_SERVER_TARGETS: NutritionTargets = {
-  targets: {calories: null, protein: 150, carbs: null, fat: null},
-  complete: false,
-  source: 'legacy',
-  stale: false,
-  revision: 0
-}
-
-// Every decision below is built by `resolveTargetAuthority` from a read, not hand-assembled, so these cases
-// prove the Diary agrees with the authority Account and Progress Activity read rather than with a fixture.
-const authedDecision = (read: NutritionTargetsReadResult): TargetAuthorityDecision =>
-  resolveTargetAuthority({read, isAuthed: true})
-
-const succeededRead = (data: NutritionTargets | undefined): NutritionTargetsReadResult => ({
-  data,
-  isError: false,
-  error: null
-})
-
-// The state TanStack leaves behind when the targets route disappears under a read that had already succeeded:
-// the error channel carries the routes-missing signal while the last figures are retained.
-const routeMissingReadWithRetainedData = (): NutritionTargetsReadResult => ({
-  data: CONFIRMED_SERVER_TARGETS,
-  isError: true,
-  error: new RoutesMissingError('/meal-planning/targets')
-})
 
 describe('resolveMacroTargets', () => {
   it('uses server targets when every field is set', () => {
@@ -97,134 +53,47 @@ describe('resolveMacroTargets', () => {
   })
 })
 
-describe('resolveAuthoritativeMacroTargets', () => {
-  // The finding's own case: the backend has been rolled back past `/meal-planning/targets*`, so there is no
-  // server target at all, while `GET /macros/:date` still answers with a calorie figure. AAP 0.7.5 requires
-  // this surface to degrade to the device's target exactly as for a user who never opted in, which is what
-  // Account and Progress Activity already do from the same decision.
-  it('takes the local figure over a retained macros target when the targets route is missing', () => {
-    const decision = authedDecision(routeMissingReadWithRetainedData())
+describe("the Diary's target source", () => {
+  // The finding's own case, at the resolver that produces the figure the ring renders. `GET /macros/:date`
+  // answers with the user's targets embedded, and AAP 0.1.3 states verbatim that the Diary and Macros History
+  // keep reading them: routing the display through the separately cached canonical targets read instead made
+  // the ring show the device's number while the day's answer carried the confirmed one.
+  it("renders the day's embedded target rather than the device value", () => {
+    const resolved = resolveMacroTargets(makeTargets({calories: 2100}), 2000)
 
-    expect(decision.authority).toBe('local')
-
-    const macrosTargets = makeTargets({calories: 1940})
-    const resolved = resolveAuthoritativeMacroTargets(decision, macrosTargets, LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
-    // The per-field resolution on its own is what the card displayed before, and it is deliberately unchanged:
-    // this is the disagreement the authority layer closes, not a bug in `resolveMacroTargets`.
-    expect(resolveMacroTargets(macrosTargets, LOCAL_TARGET_CALORIES).calories).toBe(1940)
+    expect(resolved.calories).toBe(2100)
   })
 
-  it('takes the local figure for a signed-out device that still holds a macros target', () => {
-    const decision = resolveTargetAuthority({read: succeededRead(CONFIRMED_SERVER_TARGETS), isAuthed: false})
+  // A target of zero is an answer, not an absence: `??` keeps it where `||` would have fallen through to the
+  // device value, and the ring's "over" arithmetic is computed against it.
+  it('keeps an embedded target of zero instead of falling back to the device value', () => {
+    const resolved = resolveMacroTargets(makeTargets({calories: 0}), LOCAL_TARGET_CALORIES)
 
-    expect(decision.authority).toBe('local')
-
-    const resolved = resolveAuthoritativeMacroTargets(decision, makeTargets({calories: 1940}), LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
+    expect(resolved.calories).toBe(0)
   })
 
-  it('takes the canonical read figure under server authority, not the macros answer', () => {
-    const decision = authedDecision(succeededRead(CONFIRMED_SERVER_TARGETS))
+  // The other half of AAP 0.1.3's claim: the two reads resolve the same `users.target_*` columns, so when the
+  // embedded block carries a figure it is the server's, and only its absence reaches the never-opted-in
+  // device value AAP 0.7.5 preserves.
+  it('falls back to the device value only when the day carries no target', () => {
+    expect(resolveMacroTargets(makeTargets({calories: null}), LOCAL_TARGET_CALORIES).calories).toBe(
+      LOCAL_TARGET_CALORIES
+    )
 
-    expect(decision.authority).toBe('server')
-
-    const resolved = resolveAuthoritativeMacroTargets(decision, makeTargets({calories: 1750}), LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(1940)
+    expect(resolveMacroTargets(makeTargets({calories: 1940}), LOCAL_TARGET_CALORIES).calories).toBe(1940)
   })
 
-  // A macro-only server target, which the preserved legacy `PUT /api/user/targets` still writes: it applies an
-  // explicit `calories: null` and leaves the omitted macro columns alone. Another client clearing calories
-  // therefore produces server authority with no calorie in it, while this date's cached macros answer may
-  // still hold the figure from before that write. Preferring the embedded figure here would show a cleared
-  // target as current, on the Diary alone.
-  it('takes the local figure for a macro-only server target, never the retained macros figure', () => {
-    const decision = authedDecision(succeededRead(MACRO_ONLY_SERVER_TARGETS))
+  // Macros History reads the same embedded block through this same function and was never rerouted, so this is
+  // also what keeps the two diary surfaces showing one figure for one day.
+  it('resolves grams from the day and its own defaults, independently of the calorie figure', () => {
+    const resolved = resolveMacroTargets(makeTargets({calories: 2100, protein: 160}), LOCAL_TARGET_CALORIES)
 
-    expect(decision.authority).toBe('server')
-    expect(decision.serverCalories).toBeNull()
-
-    const macrosTargets = makeTargets({calories: 2050})
-    const resolved = resolveAuthoritativeMacroTargets(decision, macrosTargets, LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
-    // Account and Progress show exactly this for the same decision, and the retained figure is what the Diary
-    // used to show instead — the divergence AAP 0.1.4 forbids.
-    expect(decision.serverCalories ?? LOCAL_TARGET_CALORIES).toBe(LOCAL_TARGET_CALORIES)
-    expect(resolveMacroTargets(macrosTargets, LOCAL_TARGET_CALORIES).calories).toBe(2050)
-  })
-
-  it('takes the local figure for a macro-only server account with no calorie figure anywhere', () => {
-    const decision = authedDecision(succeededRead(MACRO_ONLY_SERVER_TARGETS))
-
-    const resolved = resolveAuthoritativeMacroTargets(decision, makeTargets(), LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
-  })
-
-  // Nobody owns the target yet, so `serverCalories` is null and every surface shows the local figure. Showing
-  // the device target for that first paint and the server one after is the behaviour Account and Progress
-  // already have; keeping the embedded figure here instead would make the Diary the one surface that reports a
-  // number the canonical read has not confirmed.
-  it('takes the local figure over a retained macros figure while the authority is unresolved', () => {
-    const decision = authedDecision(succeededRead(undefined))
-
-    expect(decision.authority).toBe('unresolved')
-
-    const macrosTargets = makeTargets({calories: 2200})
-    const resolved = resolveAuthoritativeMacroTargets(decision, macrosTargets, LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
-    expect(resolveMacroTargets(macrosTargets, LOCAL_TARGET_CALORIES).calories).toBe(2200)
-  })
-
-  it('takes the local figure while the authority is unresolved and the macros answer carries none', () => {
-    const decision = authedDecision(succeededRead(undefined))
-
-    const resolved = resolveAuthoritativeMacroTargets(decision, makeTargets(), LOCAL_TARGET_CALORIES)
-
-    expect(resolved.calories).toBe(LOCAL_TARGET_CALORIES)
-  })
-
-  // The convergence the finding asks for, stated as one property rather than case by case: whatever the
-  // decision and whatever the macros answer carries, the Diary figure equals the expression Account
-  // (`Account/index.tsx`) and Progress (`Progress/components/ActivityTab/index.tsx`) render.
-  it.each<[string, TargetAuthorityDecision]>([
-    ['route-missing rollback', authedDecision(routeMissingReadWithRetainedData())],
-    ['signed out', resolveTargetAuthority({read: succeededRead(CONFIRMED_SERVER_TARGETS), isAuthed: false})],
-    ['confirmed server targets', authedDecision(succeededRead(CONFIRMED_SERVER_TARGETS))],
-    ['macro-only server targets', authedDecision(succeededRead(MACRO_ONLY_SERVER_TARGETS))],
-    ['unresolved', authedDecision(succeededRead(undefined))]
-  ])('agrees with Account and Progress under %s', (_label, decision) => {
-    const accountAndProgress = decision.serverCalories ?? LOCAL_TARGET_CALORIES
-
-    for (const macrosTargets of [makeTargets(), makeTargets({calories: 2050}), makeTargets({calories: 1940})]) {
-      expect(resolveAuthoritativeMacroTargets(decision, macrosTargets, LOCAL_TARGET_CALORIES).calories).toBe(
-        accountAndProgress
-      )
-    }
-  })
-
-  // The card renders no gram target, so the authority decides the calorie figure alone and the grams stay
-  // exactly as the Diary's own per-field resolution produced them.
-  it.each<[string, TargetAuthorityDecision]>([
-    ['local', authedDecision(routeMissingReadWithRetainedData())],
-    ['server', authedDecision(succeededRead(CONFIRMED_SERVER_TARGETS))],
-    ['unresolved', authedDecision(succeededRead(undefined))]
-  ])('leaves the gram targets as resolveMacroTargets produced them under %s authority', (_authority, decision) => {
-    const targets = makeTargets({calories: 1940, protein: 160})
-    const resolved = resolveAuthoritativeMacroTargets(decision, targets, LOCAL_TARGET_CALORIES)
-    const perField = resolveMacroTargets(targets, LOCAL_TARGET_CALORIES)
-
-    expect(resolved.protein).toBe(perField.protein)
-    expect(resolved.carbs).toBe(perField.carbs)
-    expect(resolved.fat).toBe(perField.fat)
-    expect(resolved.protein).toBe(160)
-    expect(resolved.carbs).toBe(FALLBACK_CARBS_TARGET_G)
-    expect(resolved.fat).toBe(FALLBACK_FAT_TARGET_G)
+    expect(resolved).toEqual({
+      calories: 2100,
+      protein: 160,
+      carbs: FALLBACK_CARBS_TARGET_G,
+      fat: FALLBACK_FAT_TARGET_G
+    })
   })
 })
 

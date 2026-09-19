@@ -11,10 +11,15 @@ const NO_PLAN_KEY = ''
 /**
  * Builds the grocery-list read. Extracted from the hook so the aisle retention below is exercised without a
  * renderer, the way every other meal-planning read is built and tested.
+ *
+ * `isGatedReadAllowed` is required rather than defaulted, and that is the point: this is a gated route, so a
+ * caller that forgets the capability verdict would build a read that keeps probing a session the server has
+ * already refused (AAP 0.2.5). The hook reads it from `useMealPlanGatedRequestAllowed` so no screen has to.
  */
 export const buildGroceryListQueryOptions = (
   queryClient: QueryClient,
-  planId: string | null
+  planId: string | null,
+  isGatedReadAllowed: boolean
 ): UndefinedInitialDataOptions<GroceryList> => {
   const key = planId ?? NO_PLAN_KEY
 
@@ -32,6 +37,6 @@ export const buildGroceryListQueryOptions = (
 
       return retainKnownAisles(await fetchGroceryList(key), cachedList)
     },
-    enabled: planId !== null
+    enabled: isGatedReadAllowed && planId !== null
   }
 }

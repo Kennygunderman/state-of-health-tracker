@@ -15,6 +15,7 @@ import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {Theme} from '@styles/theme'
 import {useIsMutating} from '@tanstack/react-query'
+import {composeAccessibleName} from '@utility/AccessibilityUtility'
 import {
   API_ERROR_CODES,
   getApiErrorCode,
@@ -231,12 +232,23 @@ const SwapPreviewScreen = (): React.JSX.Element => {
 
   const dayName = useMemo(() => dayStripLabel(params.date).weekday, [params.date])
 
+  // Set by `onSwapCommitted` before it toasts and navigates, and read by every effect below. `popTo` unmounts
+  // only after the native transition, so this screen keeps rendering — and its observers keep answering — while
+  // the commit's own invalidations put the day's NEW revision and an emptied preview cache in front of those
+  // effects. The re-read preview then names the recipe this commit has just made the slot's current one, which
+  // the server refuses, and recovering from that refusal would contradict the success already on screen: the
+  // documented outcome is one toast and one navigation (AAP 0.7.4). A ref, not state, so the same commit's
+  // effects observe it as true without re-rendering a screen that is leaving.
+  const hasCommitted = useRef(false)
+
   const hasRecoveredIneligible = useRef(false)
 
   useEffect(() => {
     // Once per outcome: the effect re-runs whenever a query object's identity changes, and a second pass would
-    // toast and pop again for a refusal already recovered from.
-    if (!isRecipeIneligible || hasRecoveredIneligible.current) {
+    // toast and pop again for a refusal already recovered from. Skipped outright after a successful commit,
+    // whose own re-preview is what earns that refusal — a 422 reaching a user still on this screen is still
+    // recovered the way 0.2.5 draws it.
+    if (!isRecipeIneligible || hasRecoveredIneligible.current || hasCommitted.current) {
       return
     }
 
@@ -250,8 +262,10 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   useEffect(() => {
     // Said once, and the screen is left standing: the candidate is still worth reading even though it can no
     // longer be taken, and the plan it belonged to is a tap away. The ANSWERED refusal only — a verdict still
-    // in flight is not a dead plan and gets no copy of its own.
-    if (!commitGate.isWriteRefused || hasWarnedWriteRefused.current) {
+    // in flight is not a dead plan and gets no copy of its own. Nothing is said after a successful commit: the
+    // write this copy warns about has already landed, so a stale-plan toast on top of the success one would
+    // report a refusal that never happened.
+    if (!commitGate.isWriteRefused || hasWarnedWriteRefused.current || hasCommitted.current) {
       return
     }
 
@@ -259,28 +273,21 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     showToast('error', MEAL_PLAN_STALE_PLAN_TOAST)
   }, [commitGate.isWriteRefused])
 
-  const hasAskedForWriteVerdict = useRef(false)
-
-  useEffect(() => {
-    // The day query is seeded from the cached week and stamped with that entry's own `dataUpdatedAt`, so a
-    // plan cached inside the 60s staleTime mounts this query already fresh: the route is never asked, and the
-    // seed's verdict is `null` by design because writeability is judged in the user's saved zone and no local
-    // value may stand in for it. Gating the commit on a positive verdict without asking would then leave the
-    // CTA inert for the whole visit. So the route is asked once per mount while the verdict is unknown, which
-    // is the only thing that can replace that `null`. Guarded by the ref rather than by the verdict so an
-    // answer that somehow leaves it unknown is not asked for in a loop, and skipped while a read is already in
-    // flight, which will answer it anyway.
-    if (!commitGate.isAwaitingWriteVerdict || hasAskedForWriteVerdict.current || dayQuery.isFetching) {
-      return
-    }
-
-    hasAskedForWriteVerdict.current = true
-    dayQuery.refetch()
-  }, [commitGate.isAwaitingWriteVerdict, dayQuery])
+  // No effect asks the day route for the write verdict the seed reports as unknown, and none is needed: the
+  // seeded entry is stamped as already stale in `buildMealPlanDayQueryOptions`, so the observer fetches at
+  // mount and on every key change, focus and reconnect that finds it stale. An effect calling `refetch()` here
+  // would also defeat the gate that same factory applies — `refetch` fetches whatever the option says,
+  // `enabled` and all — and send one day read out on a session a gated route has already refused (AAP 0.2.5).
 
   const refetchedForRevision = useRef<number | null>(null)
 
   useEffect(() => {
+    // The revision this commit itself advanced is not another client's write: re-binding a preview the user is
+    // leaving buys nothing, and the request it sends is the one the server answers 422 for.
+    if (hasCommitted.current) {
+      return
+    }
+
     const dayRevision = dayQuery.data?.planRevision
 
     // This preview answers for the revision its route named, so a day that has since advanced leaves its
@@ -301,6 +308,10 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   }, [dayQuery.data?.planRevision, preview, refetchPreview])
 
   const onSwapCommitted = useCallback((): void => {
+    // Latched first, ahead of the toast and the navigation: the invalidations this commit has already fired
+    // reach the effects above through the next render, and every one of them must find the commit settled.
+    hasCommitted.current = true
+
     // A server answer to the key resolves the intent, whether it committed now or replayed a stored result.
     clearPendingIntent('swap')
     showToast('success', SWAP_SUCCESS_TOAST)
@@ -671,10 +682,20 @@ const SwapPreviewScreen = (): React.JSX.Element => {
       alternative.recipe.yieldServings
     )
 
+    // The day's figure and the target it is measured against are one fact drawn as two text nodes, so they are
+    // announced as one stop. Composed from the same two strings the row draws, so what is spoken and what is
+    // on screen cannot disagree about which day total this is.
+    const totalsFigure = formatCalories(dayTotalsIfSwapped.calories)
+    const totalsUnit = stringWithNamedParameters(SWAP_PREVIEW_OF_TARGET_TEMPLATE, {
+      calories: formatCalories(targets.calories)
+    })
+
     return (
       <>
         <View style={styles.titleBlock}>
-          <Text style={styles.title}>{alternative.recipe.name}</Text>
+          <Text style={styles.title} accessibilityRole="header">
+            {alternative.recipe.name}
+          </Text>
 
           <Text style={styles.subtitle}>
             {formatPreviewSubtitle(alternative.portionText, alternative.recipe.totalMinutes)}
@@ -682,7 +703,7 @@ const SwapPreviewScreen = (): React.JSX.Element => {
         </View>
 
         <View style={styles.thisMealSection}>
-          <SectionOverline text={SWAP_PREVIEW_THIS_MEAL_LABEL} />
+          <SectionOverline text={SWAP_PREVIEW_THIS_MEAL_LABEL} isHeading />
 
           <MetricGrid4 items={buildThisMealMetrics(alternative.nutrition)} />
         </View>
@@ -702,14 +723,11 @@ const SwapPreviewScreen = (): React.JSX.Element => {
             )}
           </View>
 
-          <View style={styles.totalsFigureRow}>
-            <BigNumberRow
-              size="stat"
-              figure={formatCalories(dayTotalsIfSwapped.calories)}
-              unit={stringWithNamedParameters(SWAP_PREVIEW_OF_TARGET_TEMPLATE, {
-                calories: formatCalories(targets.calories)
-              })}
-            />
+          <View
+            style={styles.totalsFigureRow}
+            accessible
+            accessibilityLabel={composeAccessibleName([totalsFigure, totalsUnit])}>
+            <BigNumberRow size="stat" figure={totalsFigure} unit={totalsUnit} />
           </View>
 
           <View style={styles.totalsBar}>
@@ -737,8 +755,17 @@ const SwapPreviewScreen = (): React.JSX.Element => {
           <Text style={styles.ingredientsHeading}>{RECIPE_DETAIL_INGREDIENTS_HEADER}</Text>
 
           <View style={styles.ingredientsList}>
+            {/* An ingredient and its quantity are one fact, and read ungrouped they are two stops with nothing
+                tying them together — the same rows already read as one stop on the recipe screen, whose list
+                wrapper is `accessible`. The wrapper carries no style because the row inside it stretches, so
+                the list's own row gap and every row's geometry are unchanged. */}
             {ingredients.map(ingredient => (
-              <IngredientRow key={ingredient.key} name={ingredient.name} quantityText={ingredient.quantityText} />
+              <View
+                key={ingredient.key}
+                accessible
+                accessibilityLabel={composeAccessibleName([ingredient.name, ingredient.quantityText])}>
+                <IngredientRow name={ingredient.name} quantityText={ingredient.quantityText} />
+              </View>
             ))}
           </View>
         </View>

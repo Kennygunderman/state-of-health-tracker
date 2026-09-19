@@ -17,7 +17,9 @@ interface Props {
   variant: 'unchecked' | 'checkedMuted'
   isFirst: boolean
   isPending: boolean
-  onToggle: () => void
+  // Takes the row back rather than closing over it, which is what lets the screen hand every row one reader:
+  // a per-item closure would be a new prop for every row on each of the three renders a toggle costs.
+  onToggle: (item: GroceryItem) => void
 }
 
 const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): React.JSX.Element => {
@@ -34,7 +36,7 @@ const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): R
       return
     }
 
-    onToggle()
+    onToggle(item)
   }
 
   return (
@@ -63,4 +65,9 @@ const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): R
   )
 }
 
-export default GroceryItemRow
+/**
+ * Memoized because one optimistic toggle renders the screen three times — pending, cache write, settle — over a
+ * list whose other rows are unchanged: the cache hands back the same row objects, so a row that is given the
+ * same item, variant, position, pending flag and reader does not re-run its body with the screen above it.
+ */
+export default React.memo(GroceryItemRow)

@@ -4,11 +4,20 @@ import type {
   NutritionTargets
 } from '@data/models/NutritionTargets'
 
-import {MEAL_PLAN_TARGET_WARNING_LABELS} from '@constants/strings'
+import {
+  MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+  MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT,
+  MEAL_PLAN_TARGET_WARNING_LABELS,
+  targetFieldErrorText
+} from '@constants/strings'
 
 import {
   CALORIES_MAX,
   CALORIES_MIN,
+  EditTargetsFieldKey,
   EditTargetsFields,
   EditTargetsReadinessInputs,
   feasibilityBannerBody,
@@ -22,6 +31,7 @@ import {
   shouldOfferRecalculate,
   targetFieldAccessibilityLabel,
   targetFieldDisplayText,
+  TargetFieldErrorCode,
   targetFieldMaxLength,
   targetFieldText,
   TargetsSaveInputs,
@@ -323,6 +333,164 @@ describe('validateEditTargets', () => {
       expect(Object.keys(validation.errors)).toHaveLength(4)
       expect(validation.isValid).toBe(false)
     })
+  })
+})
+
+// The composition index.tsx performs for each field: its own bounds as text, grouped by the formatter the field
+// displays its value with, resolved into a sentence by the code validateEditTargets returned. The bounds are
+// read from the exported constants rather than typed as '800' and '6,000' here, so a bound moved without its
+// copy fails these assertions instead of shipping a message naming a limit nothing enforces.
+const FIELD_BOUND_TEXTS: Record<EditTargetsFieldKey, {minText: string; maxText: string}> = {
+  calories: {
+    minText: targetFieldDisplayText(String(CALORIES_MIN)),
+    maxText: targetFieldDisplayText(String(CALORIES_MAX))
+  },
+  protein: {minText: targetFieldDisplayText(String(MACRO_MIN)), maxText: targetFieldDisplayText(String(MACRO_MAX))},
+  carbs: {minText: targetFieldDisplayText(String(MACRO_MIN)), maxText: targetFieldDisplayText(String(MACRO_MAX))},
+  fat: {minText: targetFieldDisplayText(String(MACRO_MIN)), maxText: targetFieldDisplayText(String(MACRO_MAX))}
+}
+
+const messageFor = (field: EditTargetsFieldKey, code: TargetFieldErrorCode): string =>
+  targetFieldErrorText({field, code, ...FIELD_BOUND_TEXTS[field]})
+
+// The code the validator actually returns for an entry, so the pairs under test are the ones 09b can reach
+// rather than a list written by hand beside it.
+const codeForEntry = (field: EditTargetsFieldKey, entry: string): TargetFieldErrorCode => {
+  const code = validateEditTargets({...makeFields(), [field]: entry}).errors[field]
+
+  if (code === undefined) {
+    throw new Error(`${field} accepted ${JSON.stringify(entry)}, so 09b has no message to render for it`)
+  }
+
+  return code
+}
+
+const messageForEntry = (field: EditTargetsFieldKey, entry: string): string =>
+  messageFor(field, codeForEntry(field, entry))
+
+const ERROR_FIELD_KEYS: EditTargetsFieldKey[] = ['calories', 'protein', 'carbs', 'fat']
+
+const ERROR_CODES: TargetFieldErrorCode[] = ['required', 'not_a_number', 'below_min', 'above_max']
+
+// An entry reaching each code, per field. The calorie floor is 800 and a macro's is 1 g, so 500 and 0 are what
+// below_min is reached by; both above_max entries are inside the field's own maxLength (five grouped
+// characters), so they are typeable rather than theoretical.
+const ENTRY_FOR_CODE: Record<EditTargetsFieldKey, Record<TargetFieldErrorCode, string>> = {
+  calories: {required: '', not_a_number: 'abc', below_min: '500', above_max: '60001'},
+  protein: {required: '', not_a_number: 'abc', below_min: '0', above_max: '9999'},
+  carbs: {required: '', not_a_number: '1.5', below_min: '0', above_max: '9999'},
+  fat: {required: '   ', not_a_number: '-5', below_min: '0', above_max: '9999'}
+}
+
+const EXPECTED_MESSAGES: Record<EditTargetsFieldKey, Record<TargetFieldErrorCode, string>> = {
+  calories: {
+    required: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+    not_a_number: 'Enter your calorie target as a whole number',
+    below_min: `Enter a calorie target of at least ${FIELD_BOUND_TEXTS.calories.minText} kcal`,
+    above_max: `Enter a calorie target of ${FIELD_BOUND_TEXTS.calories.maxText} kcal or less`
+  },
+  protein: {
+    required: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+    not_a_number: 'Enter your protein target as a whole number',
+    below_min: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+    above_max: `Enter a protein target of ${FIELD_BOUND_TEXTS.protein.maxText} g or less`
+  },
+  carbs: {
+    required: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+    not_a_number: 'Enter your carb target as a whole number',
+    below_min: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+    above_max: `Enter a carb target of ${FIELD_BOUND_TEXTS.carbs.maxText} g or less`
+  },
+  fat: {
+    required: MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+    not_a_number: 'Enter your fat target as a whole number',
+    below_min: MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+    above_max: `Enter a fat target of ${FIELD_BOUND_TEXTS.fat.maxText} g or less`
+  }
+}
+
+describe('the message 09b renders for a refused field', () => {
+  it('states one sentence per field and code, over every pair the validator produces', () => {
+    ERROR_FIELD_KEYS.forEach(field => {
+      ERROR_CODES.forEach(code => {
+        expect(messageFor(field, code)).toBe(EXPECTED_MESSAGES[field][code])
+      })
+    })
+  })
+
+  it('reaches each of those sentences from an entry the field accepts keystrokes for', () => {
+    ERROR_FIELD_KEYS.forEach(field => {
+      ERROR_CODES.forEach(code => {
+        const entry = ENTRY_FOR_CODE[field][code]
+
+        expect(codeForEntry(field, entry)).toBe(code)
+        expect(messageForEntry(field, entry)).toBe(EXPECTED_MESSAGES[field][code])
+      })
+    })
+  })
+
+  // The regression this exists for: one fixed sentence per field told a 500 kcal entry it needed a figure
+  // "above 0 kcal" — a bound it already satisfied — and never named the 800 it had broken.
+  it('never answers an out-of-range entry with a bound it already satisfies', () => {
+    expect(messageForEntry('calories', '500')).not.toBe(messageFor('calories', 'required'))
+    expect(messageForEntry('calories', '500')).toBe('Enter a calorie target of at least 800 kcal')
+    expect(messageForEntry('calories', '60001')).toBe('Enter a calorie target of 6,000 kcal or less')
+    expect(messageForEntry('protein', '9999')).toBe('Enter a protein target of 1,000 g or less')
+    expect(messageForEntry('carbs', '9999')).toBe('Enter a carb target of 1,000 g or less')
+    expect(messageForEntry('fat', '9999')).toBe('Enter a fat target of 1,000 g or less')
+  })
+
+  // The coupling: the figure in the sentence is the figure the validator enforces, read from the same export.
+  // A bound edited in index.util without its copy fails here rather than at a user.
+  it('names the bound it enforces, from the constants the validator bounds the field with', () => {
+    expect(messageFor('calories', 'below_min')).toContain(targetFieldDisplayText(String(CALORIES_MIN)))
+    expect(messageFor('calories', 'above_max')).toContain(targetFieldDisplayText(String(CALORIES_MAX)))
+
+    ERROR_FIELD_KEYS.filter(field => field !== 'calories').forEach(field => {
+      expect(messageFor(field, 'above_max')).toContain(targetFieldDisplayText(String(MACRO_MAX)))
+    })
+  })
+
+  // 34:251 draws "Enter a carb target above 0 g" on a field holding 0, and the same sentence is the right
+  // prompt for an empty one — so the drawn copy is what both of those codes still render, byte for byte.
+  it('keeps the drawn sentence for the empty field and for the macro zero Figma draws it on', () => {
+    expect(messageFor('calories', 'required')).toBe(MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT)
+    expect(messageFor('protein', 'required')).toBe(MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT)
+    expect(messageFor('carbs', 'required')).toBe(MEAL_PLAN_CARBS_TARGET_ERROR_TEXT)
+    expect(messageFor('fat', 'required')).toBe(MEAL_PLAN_FAT_TARGET_ERROR_TEXT)
+
+    expect(messageForEntry('protein', '0')).toBe(MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT)
+    expect(messageForEntry('carbs', '0')).toBe('Enter a carb target above 0 g')
+    expect(messageForEntry('fat', '0')).toBe(MEAL_PLAN_FAT_TARGET_ERROR_TEXT)
+  })
+
+  it('leaves no placeholder standing in any sentence it renders', () => {
+    ERROR_FIELD_KEYS.forEach(field => {
+      ERROR_CODES.forEach(code => {
+        expect(messageFor(field, code)).not.toContain('{')
+        expect(messageFor(field, code)).not.toContain('}')
+      })
+    })
+  })
+
+  // Every pair this screen can reach has copy, so the total resolver's fallback sentence is unreachable from
+  // here — it covers a field or a code that does not exist, not a state 09b renders.
+  it('has copy for every pair, rather than falling back to the generic sentence', () => {
+    ERROR_FIELD_KEYS.forEach(field => {
+      ERROR_CODES.forEach(code => {
+        expect(messageFor(field, code)).not.toBe(MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT)
+      })
+    })
+  })
+
+  // Both consumption sites read one derived message: the row beneath the field and the field's own
+  // accessibility name cannot state different reasons for the same refusal.
+  it('carries the same sentence into the field name a screen reader announces', () => {
+    const message = messageForEntry('calories', '500')
+
+    expect(targetFieldAccessibilityLabel({label: 'Calories', unitText: 'kilocalories', errorMessage: message})).toBe(
+      `Calories, kilocalories, ${message}`
+    )
   })
 })
 

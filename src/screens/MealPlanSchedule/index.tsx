@@ -12,7 +12,6 @@ import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMu
 import {useNavigation, useRoute} from '@react-navigation/native'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
-import {formatSlotTime} from '@utility/MealPlanDateUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
@@ -52,7 +51,8 @@ import styles from './index.styled'
 import {
   buildMealTimePickerItems,
   buildMealTimesPayload,
-  mealSlotsForSchedule,
+  mealSlotsForScheduleCard,
+  mealTimePillLabel,
   validateMealScheduleStep
 } from './index.util'
 
@@ -104,7 +104,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   const pickerItems = useMemo(() => buildMealTimePickerItems(), [])
 
   const wizardSteps = stepsForRoute(preferences?.targetRoute ?? 'estimated')
-  const slots = mealSlotsForSchedule(draft.mealSchedule)
+  const cardSlots = mealSlotsForScheduleCard(draft.mealSchedule)
   const scheduleError = hasSubmitted ? validateMealScheduleStep(draft.mealSchedule) : null
 
   const timeFor = useCallback(
@@ -232,14 +232,19 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
+        {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
+            back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
         <WizardHeader
           step={wizardSteps.indexOf('schedule') + 1}
           totalSteps={wizardSteps.length}
           onBack={navigation.goBack}
+          isProgressVisible={params.mode !== 'edit'}
         />
 
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.headline}>{MEAL_PLAN_SCHEDULE_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_SCHEDULE_TITLE}
+          </Text>
 
           <View style={styles.optionGroup} accessibilityRole="radiogroup">
             {SCHEDULE_ORDER.map(schedule => (
@@ -252,36 +257,41 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
             ))}
           </View>
 
-          {scheduleError !== null && <InlineError message={scheduleError} />}
+          {/* Mounted whether or not it carries a message: a live region announces what changes inside it,
+              so one that appears already holding its error is never read out. */}
+          <View accessibilityLiveRegion="polite">
+            {scheduleError !== null && <InlineError message={scheduleError} />}
+          </View>
 
-          {slots.length > 0 && (
-            <>
-              <Text style={styles.sectionLabel}>{MEAL_PLAN_USUAL_TIMES_HEADER}</Text>
+          {/* The card is not conditional on an answer. Frame 47:471 draws it, the dashed snack placeholder
+              and the footnote on a screen with nothing selected, and AAP 0.7.4 opens this step that way, so
+              gating it on a chosen schedule would hide what the day looks like and what the snack option
+              adds until after the choice they inform. Every pill opens the picker from first entry; an
+              unseeded one reads as the action it offers rather than as a time already chosen. */}
+          <Text style={styles.sectionLabel}>{MEAL_PLAN_USUAL_TIMES_HEADER}</Text>
 
-              <View style={styles.timesCardWrapper}>
-                <View style={styles.timesCard}>
-                  {slots.map((slot, index) => (
-                    <TimeRow
-                      key={slot}
-                      slot={slot}
-                      name={MEAL_SLOT_LABELS[slot]}
-                      time={formatSlotTime(timeFor(slot))}
-                      isFirst={index === 0}
-                      onPress={() => openGlobalBottomSheet(timeSheetContent(slot))}
-                    />
-                  ))}
-                </View>
-              </View>
+          <View style={styles.timesCardWrapper}>
+            <View style={styles.timesCard}>
+              {cardSlots.map((slot, index) => (
+                <TimeRow
+                  key={slot}
+                  slot={slot}
+                  name={MEAL_SLOT_LABELS[slot]}
+                  time={mealTimePillLabel(timeFor(slot))}
+                  isFirst={index === 0}
+                  onPress={() => openGlobalBottomSheet(timeSheetContent(slot))}
+                />
+              ))}
+            </View>
+          </View>
 
-              {!slots.includes(SNACK_SLOT) && (
-                <View style={styles.placeholderWrapper}>
-                  <DashedPlaceholder message={MEAL_PLAN_SNACK_PLACEHOLDER_TEXT} />
-                </View>
-              )}
-
-              <Text style={styles.footnote}>{MEAL_PLAN_SCHEDULE_FOOTNOTE}</Text>
-            </>
+          {!cardSlots.includes(SNACK_SLOT) && (
+            <View style={styles.placeholderWrapper}>
+              <DashedPlaceholder message={MEAL_PLAN_SNACK_PLACEHOLDER_TEXT} />
+            </View>
           )}
+
+          <Text style={styles.footnote}>{MEAL_PLAN_SCHEDULE_FOOTNOTE}</Text>
         </ScrollView>
       </ContentColumn>
 

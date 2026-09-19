@@ -34,15 +34,25 @@ export const TOTALS_PLACEHOLDER_HEIGHTS: readonly number[] = [
   Sizes.CONTROL_LG
 ]
 
+// Applied to both widths below, and to each of them in its own right: Skeleton sizes its sweep from the number
+// it is given, and the card's padding can exhaust a column the gutters have already left positive.
+const clampedPlaceholder = (width: number): number => {
+  if (!Number.isFinite(width) || width <= 0) {
+    return 0
+  }
+
+  return width
+}
+
 // The gutter and the card padding are each subtracted once per side, written as the two sides they are
 // rather than as a doubling: the token-literal gate counts a `* 2` as a magic number, and naming both
 // sides also says which insets the placeholder is clearing.
 export const placeholderWidth = (windowWidth: number): number =>
-  Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - (Spacing.GUTTER + Spacing.GUTTER)
+  clampedPlaceholder(Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - (Spacing.GUTTER + Spacing.GUTTER))
 
 /** Inside a card, the same column width less the card's own padding on both sides. */
 export const placeholderCardWidth = (windowWidth: number): number =>
-  placeholderWidth(windowWidth) - (Spacing.MEDIUM + Spacing.MEDIUM)
+  clampedPlaceholder(placeholderWidth(windowWidth) - (Spacing.MEDIUM + Spacing.MEDIUM))
 
 export default StyleSheet.create({
   container: {

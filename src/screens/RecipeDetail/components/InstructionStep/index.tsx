@@ -15,9 +15,7 @@ const InstructionStep = ({index, text}: Props): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <View style={styles.badge}>
-        <Text style={styles.stepNumber} numberOfLines={1} adjustsFontSizeToFit>
-          {index}
-        </Text>
+        <Text style={styles.stepNumber}>{index}</Text>
       </View>
 
       <Text style={styles.instructionText}>{text}</Text>

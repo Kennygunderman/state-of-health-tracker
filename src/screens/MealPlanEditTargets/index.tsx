@@ -42,8 +42,6 @@ import {
   CANCEL_BUTTON_TEXT,
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
   MEAL_PLAN_CALORIES_HEADER,
-  MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
-  MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
   MEAL_PLAN_CHOSEN_TARGETS_CAPTION,
   MEAL_PLAN_CHOSEN_TARGETS_OVERLINE,
   MEAL_PLAN_DONE_BUTTON_TEXT,
@@ -51,7 +49,6 @@ import {
   MEAL_PLAN_EDIT_TARGETS_TITLE,
   MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT,
   MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE,
-  MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
   MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE,
   MEAL_PLAN_GENERATION_TERMINAL_COPY,
   MEAL_PLAN_GRAMS_UNIT,
@@ -63,7 +60,6 @@ import {
   MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_MACRO_LABELS,
   MEAL_PLAN_MANUAL_MACROS_BANNER_BODY,
-  MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
   MEAL_PLAN_RECALCULATE_LINK_TEXT,
   MEAL_PLAN_REVIEW_HEADER_LABEL,
   MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT,
@@ -74,14 +70,19 @@ import {
   MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
   MEAL_PLAN_UNAVAILABLE_TEXT,
   stringWithNamedParameters,
+  targetFieldErrorText,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
 import styles, {RECALCULATE_HIT_SLOP} from './index.styled'
 import {
+  CALORIES_MAX,
+  CALORIES_MIN,
   EditTargetsFieldKey,
   EditTargetsFields,
   feasibilityBannerBody,
+  MACRO_MAX,
+  MACRO_MIN,
   resolveEditTargetsIntent,
   resolveEditTargetsReadiness,
   resolveTargetsSave,
@@ -99,21 +100,27 @@ interface TargetFieldSpec {
   readonly label: string
   readonly unit: string
   readonly unitAccessibilityText: string
-  readonly errorMessage: string
+  // The field's own bounds as the message states them, already grouped by the formatter the field displays its
+  // value with, so '6,000' in the error reads the way '6,000' reads in the input. What the message is stays in
+  // @constants/strings, keyed by field and by the validator's code; the numbers stay in index.util, which is
+  // what enforces them. Holding the text here is what keeps a bound and the sentence naming it from drifting.
+  readonly minText: string
+  readonly maxText: string
   readonly maxLength: number
 }
 
-// The four fields in the order 34:214 draws them, each with the message 09b shows for it. Each field stops
-// accepting characters at the width of its own upper bound, so a figure the server would refuse outright cannot
-// be typed — the bounds stay declared once, in index.util, and the limit is read off them in the grouped
-// presentation the field actually displays, which is one character wider than the bare number.
+// The four fields in the order 34:214 draws them. Each field stops accepting characters at the width of its own
+// upper bound, so a figure the server would refuse outright cannot be typed — the bounds stay declared once, in
+// index.util, and the limit is read off them in the grouped presentation the field actually displays, which is
+// one character wider than the bare number.
 const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
   Object.freeze({
     key: 'calories',
     label: MEAL_PLAN_CALORIES_HEADER,
     unit: MEAL_PLAN_KCAL_UNIT,
     unitAccessibilityText: MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT,
-    errorMessage: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+    minText: targetFieldDisplayText(String(CALORIES_MIN)),
+    maxText: targetFieldDisplayText(String(CALORIES_MAX)),
     maxLength: targetFieldMaxLength('calories')
   } as const),
   Object.freeze({
@@ -121,7 +128,8 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     label: MEAL_PLAN_MACRO_LABELS.protein,
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
-    errorMessage: MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+    minText: targetFieldDisplayText(String(MACRO_MIN)),
+    maxText: targetFieldDisplayText(String(MACRO_MAX)),
     maxLength: targetFieldMaxLength('protein')
   } as const),
   Object.freeze({
@@ -129,7 +137,8 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     label: MEAL_PLAN_MACRO_LABELS.carbs,
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
-    errorMessage: MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+    minText: targetFieldDisplayText(String(MACRO_MIN)),
+    maxText: targetFieldDisplayText(String(MACRO_MAX)),
     maxLength: targetFieldMaxLength('carbs')
   } as const),
   Object.freeze({
@@ -137,7 +146,8 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     label: MEAL_PLAN_MACRO_LABELS.fat,
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
-    errorMessage: MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+    minText: targetFieldDisplayText(String(MACRO_MIN)),
+    maxText: targetFieldDisplayText(String(MACRO_MAX)),
     maxLength: targetFieldMaxLength('fat')
   } as const)
 ])
@@ -487,6 +497,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <View style={styles.header}>
@@ -495,7 +506,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
             <Text style={styles.headerLabel}>{MEAL_PLAN_REVIEW_HEADER_LABEL}</Text>
           </View>
 
-          <Text style={styles.headline}>
+          <Text style={styles.headline} accessibilityRole="header">
             {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_EDIT_TARGETS_TITLE}
           </Text>
 
@@ -557,36 +568,55 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
           {readiness.showFields && (
             <>
               <View style={styles.fieldGroup}>
-                {TARGET_FIELDS.map(field => (
-                  <View key={field.key} style={styles.fieldBlock}>
-                    <Text style={styles.fieldLabel}>{field.label}</Text>
+                {TARGET_FIELDS.map(field => {
+                  const errorCode = errors[field.key]
 
-                    <TextField
-                      // Grouped for display while the stored field keeps the bare digits the estimate
-                      // comparison and the save payload are built from.
-                      value={targetFieldDisplayText(fields[field.key])}
-                      onChangeText={text => onChangeField(field.key, text)}
-                      placeholder={field.label}
-                      unit={field.unit}
-                      state={errors[field.key] === undefined ? 'default' : 'error'}
-                      keyboardType="numeric"
-                      maxLength={field.maxLength}
-                      // The field names its own unit, and a field reporting an error carries the reason in its
-                      // name too, so both are announced with the input and not only by the row beneath it.
-                      accessibilityLabel={targetFieldAccessibilityLabel({
-                        label: field.label,
-                        unitText: field.unitAccessibilityText,
-                        errorMessage: errors[field.key] === undefined ? undefined : field.errorMessage
-                      })}
-                    />
+                  // What went wrong, not merely that something did: the validator distinguishes an empty field
+                  // from an unreadable one and both bounds from each other, so the message is resolved from its
+                  // code rather than fixed per field. A 500 kcal entry told "above 0 kcal" is told a bound it
+                  // already satisfies and never learns the floor is 800. Derived once and read by the field's
+                  // name and by the row beneath it, so the two can never state different reasons.
+                  const errorMessage =
+                    errorCode === undefined
+                      ? undefined
+                      : targetFieldErrorText({
+                          field: field.key,
+                          code: errorCode,
+                          minText: field.minText,
+                          maxText: field.maxText
+                        })
 
-                    {errors[field.key] !== undefined && (
-                      <View accessibilityLiveRegion="polite">
-                        <InlineError message={field.errorMessage} />
-                      </View>
-                    )}
-                  </View>
-                ))}
+                  return (
+                    <View key={field.key} style={styles.fieldBlock}>
+                      <Text style={styles.fieldLabel}>{field.label}</Text>
+
+                      <TextField
+                        // Grouped for display while the stored field keeps the bare digits the estimate
+                        // comparison and the save payload are built from.
+                        value={targetFieldDisplayText(fields[field.key])}
+                        onChangeText={text => onChangeField(field.key, text)}
+                        placeholder={field.label}
+                        unit={field.unit}
+                        state={errorCode === undefined ? 'default' : 'error'}
+                        keyboardType="numeric"
+                        maxLength={field.maxLength}
+                        // The field names its own unit, and a field reporting an error carries the reason in
+                        // its name too, so both are announced with the input and not only by the row beneath it.
+                        accessibilityLabel={targetFieldAccessibilityLabel({
+                          label: field.label,
+                          unitText: field.unitAccessibilityText,
+                          errorMessage
+                        })}
+                      />
+
+                      {errorMessage !== undefined && (
+                        <View accessibilityLiveRegion="polite">
+                          <InlineError message={errorMessage} />
+                        </View>
+                      )}
+                    </View>
+                  )
+                })}
               </View>
 
               {/* The recalculated figure and the link that adopts it, shown while the saved set this editor

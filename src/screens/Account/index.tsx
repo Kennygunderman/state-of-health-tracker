@@ -158,11 +158,15 @@ const AccountScreen = () => {
           // remounts the row to close a legacy modal the device no longer owns the target for
           key={targetAuthorityKey(targetAuthority)}
           type="target-calories"
-          clickable={targetAuthority.isEditable}
           label={ACCOUNT_DAILY_CALORIES_LABEL}
           value={displayedTargetCalories.toLocaleString()}
           tileVariant="danger"
           icon={<FlameIcon color={Theme.colors.danger} size={TILE_ICON_SIZE} />}
+          // Overridden only for the canonical editor. Leaving it undefined is what keeps the row's shipped
+          // behaviour intact for every other authority: the frozen `AccountListItem` then opens the legacy
+          // `TargetCaloriesModal` it renders itself, which is the `otherwise` of AAP 0.1.4 and exactly what this
+          // row did before the planner existed. The row stays `clickable` in both cases, so it always shows its
+          // chevron and always responds to a press.
           onPressOverride={targetAuthority.editor === 'canonical' ? openTargetsEditor : undefined}
         />
 

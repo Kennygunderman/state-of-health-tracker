@@ -1,3 +1,5 @@
+import {formatCatalogPortionText} from '@utility/NutritionFormatUtility'
+
 import {SOURCED_NUTRITION_PROVENANCES, SourcedNutritionProvenance} from './NutritionProvenance'
 
 export enum FoodSourceEnum {
@@ -70,9 +72,23 @@ export function isCatalogFood(food: Food): food is CatalogSourcedFood {
   return food.source === FoodSourceEnum.CATALOG
 }
 
+/**
+ * The serving a food is shown at, as the row and the detail subtitle read it.
+ *
+ * Two kinds of food reach this, and only one of them can be printed verbatim. A personal food's serving was
+ * TYPED by its owner — '1 bowl', '0.5 cup' — so the amount and the word are already the ones they chose, and
+ * reformatting either would rewrite the user's own entry. A catalog food's serving is a generated
+ * `catalog_food_portions` row, where the amount is a raw number and the unit is whatever the source dataset
+ * called it, so it is formatted by `formatCatalogPortionText` — the rules the server applied when it wrote
+ * those labels. Every non-catalog path below is byte-for-byte what it has always been.
+ */
 export function formatServingText(food: Food): string {
   if (!food.servingUnit) {
     return food.servingAmount === 1 ? '1 serving' : `${food.servingAmount} servings`
+  }
+
+  if (isCatalogFood(food)) {
+    return formatCatalogPortionText(food.servingAmount, food.servingUnit)
   }
 
   return `${food.servingAmount} ${food.servingUnit}`

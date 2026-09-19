@@ -1,6 +1,6 @@
 import {STATUS_ANNOUNCEMENT_TEMPLATE, stringWithNamedParameters} from '@constants/strings'
 
-import {composeStatusMessage, resolveStatusSemantics} from '../index.util'
+import {composeStatusMessage, resolveDefaultStatusRole, resolveStatusSemantics} from '../index.util'
 
 const TITLE = "We couldn't confirm that"
 
@@ -48,5 +48,27 @@ describe('resolveStatusSemantics', () => {
   it('resolves no semantics at all for an omitted role, so no accessibility props are rendered', () => {
     expect(resolveStatusSemantics(undefined)).toBeNull()
     expect(resolveStatusSemantics(null)).toBeNull()
+  })
+})
+
+describe('resolveDefaultStatusRole', () => {
+  it('announces the grocery list post-swap confirmation, which the tick is drawn only for', () => {
+    expect(resolveDefaultStatusRole('tick')).toBe('status')
+  })
+
+  it('announces the grocery list amount-increase banner, which the warning triangle is drawn only for', () => {
+    expect(resolveDefaultStatusRole('warning')).toBe('status')
+  })
+
+  it('leaves the info glyph silent, because it carries on-screen prose rather than an event', () => {
+    expect(resolveDefaultStatusRole('info')).toBeNull()
+  })
+
+  it('leaves the disc silent, because 11b announces its post-log banner itself', () => {
+    expect(resolveDefaultStatusRole('disc')).toBeNull()
+  })
+
+  it('leaves the alert glyph silent, so an untyped error banner keeps announcing only where asked', () => {
+    expect(resolveDefaultStatusRole('alert')).toBeNull()
   })
 })

@@ -6,6 +6,8 @@ import {
   persistQueryClientSave
 } from '@tanstack/react-query-persist-client'
 
+import {queryKeys} from '../keys'
+
 // An in-memory AsyncStorage keeps the suite free of native modules while still exercising the real
 // persister: what these cases assert is which key a write lands under, what a read hands back, and —
 // the point of the dedupe — whether a write happened at all.
@@ -68,6 +70,11 @@ const loadQueryClientModule = (): FreshQueryClientModule => {
 
   const {default: storage} = jest.requireMock<{default: AsyncStorageMock}>('@react-native-async-storage/async-storage')
   const cache = jest.requireActual<typeof import('../queryClient')>('../queryClient')
+
+  // The module's own client is cleared with the rest: resolveLegacyQueryCache hydrates an adopted cache
+  // into it, and a hydrated query schedules a 24-hour garbage-collection timer that would hold the run
+  // open.
+  hydrationClients.push(cache.queryClient)
 
   return {
     storage,
@@ -706,6 +713,427 @@ describe('purgeLegacyQueryCache', () => {
   })
 })
 
+// REGC-cache-key-purge: partitioning moved the key a persisted cache lives under, so a device upgrading
+// across that change holds a whole cache — diary, exercises, foods, avatar — under a key nothing reads.
+// These cases are the migration and its boundary: which account may claim that blob, that claiming it
+// really does make it hydrate, and that every other account gets nothing.
+
+// The four keys earlier builds persisted, dehydrated the way those builds wrote them. `buster` is ''
+// because base App.tsx passed none at all, which is exactly why a verbatim copy cannot be hydrated.
+const LEGACY_CACHE_ENTRIES: readonly (readonly [readonly string[], unknown])[] = [
+  [['exercises'], [{id: 'ex-1', name: 'Bench press'}]],
+  [['dailyMacros', '2026-07-05'], {calories: 1940}],
+  [['foods'], [{id: 'food-1', name: 'Oats'}]],
+  [['userAvatar'], {url: 'https://example.test/a.png'}]
+]
+
+const legacyCacheBlob = (): PersistedClient => ({
+  buster: '',
+  timestamp: now,
+  clientState: {
+    mutations: [],
+    queries: LEGACY_CACHE_ENTRIES.map(([queryKey, data]) => ({
+      queryHash: JSON.stringify(queryKey),
+      queryKey: [...queryKey],
+      state: {
+        data,
+        dataUpdateCount: 1,
+        dataUpdatedAt: DATA_UPDATED_AT,
+        error: null,
+        errorUpdateCount: 0,
+        errorUpdatedAt: 0,
+        fetchFailureCount: 0,
+        fetchFailureReason: null,
+        fetchMeta: null,
+        isInvalidated: false,
+        status: 'success' as const,
+        fetchStatus: 'idle' as const
+      }
+    }))
+  }
+})
+
+// A session Firebase restored: signed in comfortably before this launch began.
+const restoredSessionAt = (msBeforeLaunch: number): string => new Date(now - msBeforeLaunch).toISOString()
+
+const PRE_LAUNCH_SIGN_IN = restoredSessionAt(6 * 60_000)
+
+describe('claimsLegacyQueryCache', () => {
+  it('claims the blob for an account that was already signed in before this launch', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.claimsLegacyQueryCache(PRE_LAUNCH_SIGN_IN, now)).toBe(true)
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(90 * 24 * 60 * 60_000), now)).toBe(true)
+  })
+
+  it('refuses a session established during this launch', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(0), now)).toBe(false)
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(60_000), now)).toBe(false)
+  })
+
+  // The margin is what keeps a server clock and a device clock from deciding ownership between them.
+  it('claims exactly at the margin and refuses one millisecond inside it', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(cache.LEGACY_CLAIM_MARGIN_MS), now)).toBe(true)
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(cache.LEGACY_CLAIM_MARGIN_MS - 1), now)).toBe(false)
+  })
+
+  it('refuses a sign-in the device clock reads as being in the future', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.claimsLegacyQueryCache(restoredSessionAt(-60 * 60_000), now)).toBe(false)
+  })
+
+  it('refuses an absent or unreadable timestamp rather than guessing', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.claimsLegacyQueryCache(null, now)).toBe(false)
+    expect(cache.claimsLegacyQueryCache('', now)).toBe(false)
+    expect(cache.claimsLegacyQueryCache('not a date', now)).toBe(false)
+  })
+})
+
+describe('rebusteredLegacyQueryCache', () => {
+  it("rewrites the payload's buster to the adopting account and changes nothing else", () => {
+    const {cache} = loadQueryClientModule()
+    const blob = legacyCacheBlob()
+
+    const rebustered = cache.rebusteredLegacyQueryCache(JSON.stringify(blob), USER_A)
+
+    expect(rebustered).not.toBeNull()
+    expect(JSON.parse(rebustered ?? '')).toEqual({...blob, buster: USER_A})
+  })
+
+  it('keeps the original save timestamp, so adoption does not extend an expired cache', () => {
+    const {cache} = loadQueryClientModule()
+    const blob = legacyCacheBlob()
+
+    const rebustered = cache.rebusteredLegacyQueryCache(JSON.stringify(blob), USER_A) ?? ''
+
+    expect((JSON.parse(rebustered) as PersistedClient).timestamp).toBe(blob.timestamp)
+  })
+
+  it('refuses a payload it cannot parse', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.rebusteredLegacyQueryCache('{"clientState":', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('', USER_A)).toBeNull()
+  })
+
+  it('refuses a payload that is not a dehydrated cache', () => {
+    const {cache} = loadQueryClientModule()
+
+    expect(cache.rebusteredLegacyQueryCache('"a string"', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('null', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('[{"clientState":{"queries":[]}}]', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('{"buster":"","timestamp":1}', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('{"clientState":{"mutations":[]}}', USER_A)).toBeNull()
+    expect(cache.rebusteredLegacyQueryCache('{"clientState":{"queries":{}}}', USER_A)).toBeNull()
+  })
+})
+
+describe('resolveLegacyQueryCache', () => {
+  const restoredInto = async (module: FreshQueryClientModule, userId: string): Promise<QueryClient> => {
+    const client = makeHydrationClient()
+
+    await persistQueryClientRestore({
+      queryClient: client,
+      ...module.cache.sessionCacheBindingFor(userId).persistOptions
+    })
+
+    return client
+  }
+
+  const seedLegacyBlob = async (module: FreshQueryClientModule): Promise<void> => {
+    await module.storage.setItem(module.cache.LEGACY_QUERY_CACHE_KEY, JSON.stringify(legacyCacheBlob()))
+  }
+
+  // What the app does at launch: the auth store commits the published identity — which is what opens the
+  // partition — and the resolution runs with that identity and the launch timestamp.
+  const resolveForPublishedAccount = async (
+    module: FreshQueryClientModule,
+    userId: string,
+    lastSignInTime: string | null
+  ): Promise<string> => {
+    module.cache.activateQueryCachePartition(userId)
+
+    return module.cache.resolveLegacyQueryCache({userId, lastSignInTime}, now)
+  }
+
+  it('reports nothing to do and writes nothing when there is no blob', async () => {
+    const module = loadQueryClientModule()
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('absent')
+    expect(module.storage.removeItem).not.toHaveBeenCalled()
+    expect(module.storage.setItem).not.toHaveBeenCalled()
+  })
+
+  it('adopts the blob into the partition of the account that was already signed in here', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('adopted')
+
+    const adopted = await module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))
+
+    expect(JSON.parse(adopted ?? '')).toEqual({...legacyCacheBlob(), buster: USER_A})
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+  })
+
+  // The case the finding is actually about: an upgrading user's offline cache still restores.
+  it('leaves the adopted cache hydrating every key earlier builds persisted', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    await resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)
+
+    const client = await restoredInto(module, USER_A)
+
+    LEGACY_CACHE_ENTRIES.forEach(([queryKey, data]) => {
+      expect(client.getQueryData(queryKey)).toEqual(data)
+    })
+  })
+
+  // Writing it to the device is not enough on the launch that adopts it. The provider restores once per
+  // session tree and then saves after every cache event, and on this launch its restore reads the
+  // account's key while the adoption is still in flight — so a payload that only reached the device
+  // would be written straight over by the launch's first save. Hydrating it puts it where no later save
+  // can erase it, and makes the upgrading user's screens render from it on this launch rather than the
+  // one after.
+  it('hydrates the adopted cache into the live client, not only onto the device', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    await resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)
+
+    LEGACY_CACHE_ENTRIES.forEach(([queryKey, data]) => {
+      expect(module.client.getQueryData(queryKey)).toEqual(data)
+    })
+  })
+
+  it('hydrates nothing into the live client on any outcome but adoption', async () => {
+    const discarding = loadQueryClientModule()
+
+    await seedLegacyBlob(discarding)
+    await resolveForPublishedAccount(discarding, USER_A, restoredSessionAt(60_000))
+
+    expect(discarding.client.getQueryData(['exercises'])).toBeUndefined()
+
+    const superseding = loadQueryClientModule()
+
+    await activePersisterFor(superseding, USER_A).persistClient(persistedClient({owner: USER_A}))
+    await seedLegacyBlob(superseding)
+    await resolveForPublishedAccount(superseding, USER_A, PRE_LAUNCH_SIGN_IN)
+
+    expect(superseding.client.getQueryData(['exercises'])).toBeUndefined()
+  })
+
+  // Every step of the resolution is awaited, so an account change can land inside it. These two cases
+  // are the two places that matters: before the write, where the blob stops being provably this
+  // account's, and between the write and the read back, where a late hydration would pour one account's
+  // diary, avatar and plan into the next account's live cache.
+  it('writes nothing once the account changes before the payload is adopted', async () => {
+    const module = loadQueryClientModule()
+    const readStoredValue = module.storage.getItem.getMockImplementation()
+    let reads = 0
+
+    await seedLegacyBlob(module)
+    module.cache.activateQueryCachePartition(USER_A)
+
+    module.storage.getItem.mockImplementation(async (key: string) => {
+      reads += 1
+
+      // Read two is the existence check on the account's own key; the account changes as it is answered.
+      if (reads === 2) {
+        module.cache.activateQueryCachePartition(USER_B)
+      }
+
+      return readStoredValue?.(key)
+    })
+
+    await expect(
+      module.cache.resolveLegacyQueryCache({userId: USER_A, lastSignInTime: PRE_LAUNCH_SIGN_IN}, now)
+    ).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+    expect(module.client.getQueryData(['exercises'])).toBeUndefined()
+  })
+
+  it('hydrates nothing once the account changes between the write and the read back', async () => {
+    const module = loadQueryClientModule()
+    const writeStoredValue = module.storage.setItem.getMockImplementation()
+
+    await seedLegacyBlob(module)
+    module.cache.activateQueryCachePartition(USER_A)
+
+    module.storage.setItem.mockImplementation(async (key: string, value: string) => {
+      await writeStoredValue?.(key, value)
+      module.cache.activateQueryCachePartition(USER_B)
+    })
+
+    await expect(
+      module.cache.resolveLegacyQueryCache({userId: USER_A, lastSignInTime: PRE_LAUNCH_SIGN_IN}, now)
+    ).resolves.toBe('adopted')
+
+    expect(module.client.getQueryData(['exercises'])).toBeUndefined()
+  })
+
+  // Why the adoption rewrites the buster rather than copying the blob across: restore compares the
+  // stored buster with the account's own and removes the payload on a mismatch, so a verbatim copy is
+  // the same data loss by a longer route. This is that copy, and it does not survive.
+  it('would not have hydrated had the payload been copied across verbatim', async () => {
+    const module = loadQueryClientModule()
+
+    await module.storage.setItem(module.cache.queryCacheKeyForUser(USER_A), JSON.stringify(legacyCacheBlob()))
+    module.cache.activateQueryCachePartition(USER_A)
+
+    const client = await restoredInto(module, USER_A)
+
+    expect(client.getQueryData(['exercises'])).toBeUndefined()
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+  })
+
+  it('discards the blob for an account that signed in during this launch', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+
+    await expect(resolveForPublishedAccount(module, USER_A, restoredSessionAt(60_000))).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+  })
+
+  it('adopts exactly at the margin and discards one millisecond inside it', async () => {
+    const adopting = loadQueryClientModule()
+
+    await seedLegacyBlob(adopting)
+    await expect(
+      resolveForPublishedAccount(adopting, USER_A, restoredSessionAt(adopting.cache.LEGACY_CLAIM_MARGIN_MS))
+    ).resolves.toBe('adopted')
+
+    const discarding = loadQueryClientModule()
+
+    await seedLegacyBlob(discarding)
+    await expect(
+      resolveForPublishedAccount(discarding, USER_A, restoredSessionAt(discarding.cache.LEGACY_CLAIM_MARGIN_MS - 1))
+    ).resolves.toBe('discarded')
+  })
+
+  it('discards the blob when nobody is signed in', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    module.cache.sealQueryCachePartition()
+
+    await expect(
+      module.cache.resolveLegacyQueryCache({userId: null, lastSignInTime: PRE_LAUNCH_SIGN_IN}, now)
+    ).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+  })
+
+  it('discards the blob when the account has not reported a sign-in time at all', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+
+    await expect(resolveForPublishedAccount(module, USER_A, null)).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+  })
+
+  // The interlock behind the identity check: the partition is opened by the auth store committing an
+  // account, so a resolution for an account that has not been committed writes nothing.
+  it('discards the blob while the claiming account has no open partition', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    module.cache.activateQueryCachePartition(USER_B)
+
+    await expect(
+      module.cache.resolveLegacyQueryCache({userId: USER_A, lastSignInTime: PRE_LAUNCH_SIGN_IN}, now)
+    ).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+  })
+
+  // An account that has already run this build has its own partition, and that partition is the newer
+  // truth — overwriting it with a pre-upgrade blob would put stale macros back on the diary screen.
+  it("leaves an account's existing partition untouched and drops the blob", async () => {
+    const module = loadQueryClientModule()
+    const ownPayload = persistedClient({owner: USER_A, calories: 2100})
+
+    await activePersisterFor(module, USER_A).persistClient(ownPayload)
+    await seedLegacyBlob(module)
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('superseded')
+
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBe(
+      JSON.stringify(ownPayload)
+    )
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+  })
+
+  it('discards a blob it cannot parse rather than adopting it', async () => {
+    const module = loadQueryClientModule()
+
+    await module.storage.setItem(module.cache.LEGACY_QUERY_CACHE_KEY, '{"clientState":')
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.LEGACY_QUERY_CACHE_KEY)).resolves.toBeNull()
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+  })
+
+  it('discards a value on that key that is not a dehydrated cache', async () => {
+    const module = loadQueryClientModule()
+
+    await module.storage.setItem(module.cache.LEGACY_QUERY_CACHE_KEY, '{"state":{"targetCalories":1940}}')
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('discarded')
+
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_A))).resolves.toBeNull()
+  })
+
+  // Running on every launch is only free because the first one leaves nothing behind to resolve.
+  it('is idempotent — a second resolution finds nothing and rewrites nothing', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    await resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)
+
+    const writesAfterAdoption = module.storage.setItem.mock.calls.length
+
+    await expect(resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)).resolves.toBe('absent')
+
+    expect(module.storage.setItem.mock.calls.length).toBe(writesAfterAdoption)
+
+    const client = await restoredInto(module, USER_A)
+
+    expect(client.getQueryData(['dailyMacros', '2026-07-05'])).toEqual({calories: 1940})
+  })
+
+  it('never hands the blob to a different account than the one that adopted it', async () => {
+    const module = loadQueryClientModule()
+
+    await seedLegacyBlob(module)
+    await resolveForPublishedAccount(module, USER_A, PRE_LAUNCH_SIGN_IN)
+
+    module.cache.activateQueryCachePartition(USER_B)
+
+    const otherAccountClient = await restoredInto(module, USER_B)
+
+    expect(otherAccountClient.getQueryData(['exercises'])).toBeUndefined()
+    await expect(module.storage.getItem(module.cache.queryCacheKeyForUser(USER_B))).resolves.toBeNull()
+  })
+})
+
 // The case the account boundary has to survive: the process dies between a sign-out and the next
 // launch — or the sign-out's own removal is rejected — so the previous account's cache is still on
 // the device when somebody else signs in.
@@ -833,15 +1261,172 @@ describe('shouldRetryQuery', () => {
     expect(shouldRetryQuery(1, apiError(429))).toBe(false)
     expect(shouldRetryQuery(2, apiError(500))).toBe(false)
   })
+})
 
-  // The predicate is a default rather than a per-hook option, which is the whole of how a resource read
-  // inherits it by declaring no `retry` of its own.
-  it('is the retry every query inherits, beside the unchanged cache windows', () => {
-    const {client, shouldRetryQuery} = loadQueryClientModule()
+// REGC-retry-policy-appwide: the predicate above is a meal-planning read policy, so it is registered per
+// family and the app-wide default stays the plain attempt budget every legacy query has always had. These
+// cases are that boundary from both sides — which keys resolve the predicate, which resolve the budget,
+// and what either one costs in real attempts.
+describe('which queries the retry classification applies to', () => {
+  // Every family root the module registers, named through `queryKeys` so a root renamed there is a
+  // compile error here rather than a silently unregistered family.
+  const CLASSIFIED_ROOTS: readonly (readonly string[])[] = [
+    queryKeys.mealPlanPreferences,
+    queryKeys.nutritionTargets,
+    queryKeys.targetEstimate,
+    queryKeys.mealPlanCurrent,
+    queryKeys.mealPlanDayAll,
+    queryKeys.swapAlternativesAll,
+    queryKeys.swapPreviewAll,
+    queryKeys.groceryListAll,
+    queryKeys.affectedMealsAll,
+    queryKeys.catalogSuggestions,
+    queryKeys.recipeVersion('rv-1').slice(0, 1),
+    queryKeys.catalogSearch('oats').slice(0, 1)
+  ]
+
+  // A detail key under each family that has one: `getQueryDefaults` matches partially, so registering the
+  // root is what covers every plan, meal, recipe and query string beneath it.
+  const CLASSIFIED_DETAIL_KEYS: readonly (readonly unknown[])[] = [
+    queryKeys.mealPlanDay('plan-1', '2026-07-05'),
+    queryKeys.swapAlternatives('plan-1', 'meal-1', 3),
+    queryKeys.swapPreview('plan-1', 'meal-1', 'rv-1', 3),
+    queryKeys.groceryList('plan-1'),
+    queryKeys.affectedMeals('plan-1'),
+    queryKeys.recipeVersion('rv-1'),
+    queryKeys.catalogSearch('oats')
+  ]
+
+  // The queries that existed before meal planning. Their behaviour on a 4xx is the whole of this finding.
+  const LEGACY_KEYS: readonly (readonly string[])[] = [
+    queryKeys.exercises,
+    queryKeys.dailyMacros('2026-07-05'),
+    queryKeys.foods,
+    queryKeys.foodSearch('oats'),
+    queryKeys.userAvatar,
+    queryKeys.templates,
+    queryKeys.records,
+    queryKeys.runs,
+    queryKeys.weighIns,
+    queryKeys.brandedFoodSearch('oats')
+  ]
+
+  it('leaves the app-wide default at the plain attempt budget, beside the unchanged cache windows', () => {
+    const {client} = loadQueryClientModule()
     const {queries} = client.getDefaultOptions()
 
-    expect(queries?.retry).toBe(shouldRetryQuery)
+    expect(queries?.retry).toBe(1)
     expect(queries?.staleTime).toBe(60_000)
     expect(queries?.gcTime).toBe(24 * 60 * 60_000)
+  })
+
+  it('resolves the predicate for every meal-planning and catalog family root', () => {
+    const {client, shouldRetryQuery} = loadQueryClientModule()
+
+    CLASSIFIED_ROOTS.forEach(queryKey => {
+      expect(client.defaultQueryOptions({queryKey}).retry).toBe(shouldRetryQuery)
+    })
+  })
+
+  it('resolves the predicate for a detail key beneath a registered root', () => {
+    const {client, shouldRetryQuery} = loadQueryClientModule()
+
+    CLASSIFIED_DETAIL_KEYS.forEach(queryKey => {
+      expect(client.defaultQueryOptions({queryKey}).retry).toBe(shouldRetryQuery)
+    })
+  })
+
+  it('leaves every legacy query on the app-wide budget', () => {
+    const {client} = loadQueryClientModule()
+
+    LEGACY_KEYS.forEach(queryKey => {
+      expect(client.defaultQueryOptions({queryKey}).retry).toBe(1)
+    })
+  })
+
+  // Nothing fetches this entry — it has no queryFn and is written only by the entitlement recorder — so
+  // registering a classification for it would describe a failure it cannot have.
+  it('registers nothing for the capability verdict', () => {
+    const {client} = loadQueryClientModule()
+
+    expect(client.defaultQueryOptions({queryKey: queryKeys.mealPlanCapability}).retry).toBe(1)
+  })
+
+  // The precedence the two hooks that decline a retry of their own terminal answer depend on:
+  // `useNutritionTargetsQuery` and `useMealPlanDayQuery` declare a `retry` and must keep it.
+  it("is beaten by a query's own retry option", () => {
+    const {client, shouldRetryQuery} = loadQueryClientModule()
+    const ownRetry = () => false
+
+    expect(client.defaultQueryOptions({queryKey: queryKeys.nutritionTargets, retry: ownRetry}).retry).toBe(ownRetry)
+    expect(
+      client.defaultQueryOptions({queryKey: queryKeys.mealPlanDay('plan-1', '2026-07-05'), retry: ownRetry}).retry
+    ).not.toBe(shouldRetryQuery)
+  })
+})
+
+// What the two policies cost in requests. A resolved config field is not the behaviour; the attempt count
+// a rejecting queryFn actually records is.
+describe('the attempts a failing query makes', () => {
+  type OwnRetry = (failureCount: number, error: Error) => boolean
+
+  const attemptsFor = async (
+    client: QueryClient,
+    queryKey: readonly string[],
+    error: Error,
+    ownRetry?: OwnRetry
+  ): Promise<number> => {
+    let attempts = 0
+
+    const queryFn = (): Promise<never> => {
+      attempts += 1
+
+      return Promise.reject(error)
+    }
+
+    // `retryDelay: 0` only removes the backoff wait; the number of attempts is decided by the policy alone.
+    await client
+      .fetchQuery(
+        ownRetry === undefined
+          ? {queryKey, queryFn, retryDelay: 0}
+          : {queryKey, queryFn, retryDelay: 0, retry: ownRetry}
+      )
+      .catch(() => undefined)
+
+    client.clear()
+
+    return attempts
+  }
+
+  it('spends the budget on a legacy query whatever the server answered', async () => {
+    const {client} = loadQueryClientModule()
+
+    await expect(attemptsFor(client, queryKeys.exercises, apiError(404, 'Not found'))).resolves.toBe(2)
+    await expect(attemptsFor(client, queryKeys.foodSearch('oats'), apiError(400))).resolves.toBe(2)
+    await expect(attemptsFor(client, queryKeys.dailyMacros('2026-07-05'), new Error('Network Error'))).resolves.toBe(2)
+    await expect(attemptsFor(client, queryKeys.records, apiError(500))).resolves.toBe(2)
+  })
+
+  it('asks once for a decoded answer on a meal-planning or catalog read', async () => {
+    const {client} = loadQueryClientModule()
+
+    await expect(attemptsFor(client, queryKeys.mealPlanCurrent, apiError(503, 'feature_disabled'))).resolves.toBe(1)
+    await expect(attemptsFor(client, queryKeys.groceryList('plan-1'), apiError(409, 'stale_plan'))).resolves.toBe(1)
+    await expect(attemptsFor(client, queryKeys.catalogSearch('oats'), apiError(400))).resolves.toBe(1)
+  })
+
+  it('still retries a meal-planning read whose failure nothing described', async () => {
+    const {client} = loadQueryClientModule()
+
+    await expect(attemptsFor(client, queryKeys.mealPlanCurrent, new Error('Network Error'))).resolves.toBe(2)
+    await expect(attemptsFor(client, queryKeys.affectedMeals('plan-1'), apiError(429))).resolves.toBe(2)
+  })
+
+  it("lets a query's own retry decide instead of the family default", async () => {
+    const {client} = loadQueryClientModule()
+    const noRetry: OwnRetry = () => false
+
+    await expect(attemptsFor(client, queryKeys.mealPlanCurrent, apiError(500), noRetry)).resolves.toBe(1)
+    await expect(attemptsFor(client, queryKeys.exercises, apiError(404, 'Not found'), () => false)).resolves.toBe(1)
   })
 })

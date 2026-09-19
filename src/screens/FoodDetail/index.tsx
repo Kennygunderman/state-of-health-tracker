@@ -31,7 +31,12 @@ import {
   ADDING_TO_EYEBROW,
   CAL_LABEL,
   CAL_PER_SERVING_SUFFIX,
+  MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL,
+  MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL,
+  MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_SERVING_FRACTION_NAMES,
   SERVINGS_HEADER,
+  stringWithNamedParameters,
   THIS_ADDS_LABEL,
   TOAST_ADDED_TO_MEAL_PREFIX,
   TOAST_GENERIC_ERROR,
@@ -232,10 +237,14 @@ const FoodDetailScreen = () => {
         <View style={styles.servingsRow}>
           <Text style={styles.servingsLabel}>{SERVINGS_HEADER}</Text>
 
+          {/* The stepper and the chips below carry the same accessible names as their twin on the Log meal
+              screen (LogPlannedMeal's ServingsStepper and FractionChips), so the two surfaces cannot drift. */}
           <View style={styles.stepper}>
             <TouchableOpacity
               style={styles.stepperButton}
               activeOpacity={Opacity.PRESSED_SUBTLE}
+              accessibilityRole="button"
+              accessibilityLabel={MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL}
               onPress={() => setServings(current => stepServings(current, -1))}>
               <Text style={styles.stepperButtonText}>−</Text>
             </TouchableOpacity>
@@ -245,6 +254,8 @@ const FoodDetailScreen = () => {
             <TouchableOpacity
               style={styles.stepperButton}
               activeOpacity={Opacity.PRESSED_SUBTLE}
+              accessibilityRole="button"
+              accessibilityLabel={MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL}
               onPress={() => setServings(current => stepServings(current, 1))}>
               <Text style={styles.stepperButtonText}>+</Text>
             </TouchableOpacity>
@@ -260,6 +271,12 @@ const FoodDetailScreen = () => {
                 key={fraction.glyph}
                 style={[styles.fractionChip, isSelected && styles.fractionChipSelected]}
                 activeOpacity={Opacity.PRESSED_SUBTLE}
+                accessibilityRole="button"
+                // Screen readers pronounce ¼ ⅓ ½ ⅔ ¾ inconsistently, so the name spells the fraction out.
+                accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE, {
+                  fraction: MEAL_PLAN_SERVING_FRACTION_NAMES[fraction.glyph] ?? fraction.glyph
+                })}
+                accessibilityState={{selected: isSelected}}
                 onPress={() => setServings(current => applyFractionPart(current, fraction.value))}>
                 <Text style={[styles.fractionChipText, isSelected && styles.fractionChipTextSelected]}>
                   {fraction.glyph}

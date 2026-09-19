@@ -19,12 +19,12 @@ export const API_ERROR_CODES = {
   planOverlap: 'plan_overlap',
   upcomingExists: 'upcoming_exists',
   preferencesIncomplete: 'preferences_incomplete',
-  readOnlyField: 'read_only_field',
   recipeIneligible: 'recipe_ineligible',
   invalidRequest: 'invalid_request',
   invalidPayload: 'invalid_payload',
   catalogFoodNotFound: 'catalog_food_not_found',
   invalidServing: 'invalid_serving',
+  userNotFound: 'user_not_found',
   planGenerationFailed: 'plan_generation_failed',
   swapFailed: 'swap_failed',
   estimationFailed: 'estimation_failed',
@@ -32,6 +32,60 @@ export const API_ERROR_CODES = {
 } as const
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES]
+
+// The SECOND vocabulary, and a different one: these appear only as a `details[]` entry's `code`, never as the
+// body's top-level `error`. A refusal that names fields answers `{error: 'invalid_request', details: [{field,
+// code}]}` — `invalid_request` above is what `getApiErrorCode` sees, and one of the codes below is what says
+// what is wrong with which field.
+//
+// THEY ARE SEPARATE BECAUSE MIXING THEM DECLARES A LIE. `read_only_field` sat in the map above, so every
+// `getApiErrorCode(error) === API_ERROR_CODES.readOnlyField` a screen could write was dead on arrival: the
+// server has never put that string in `error`, and three mutation fixtures had encoded the impossible shape
+// (a 409 whose top-level code is `read_only_field`) as the thing under test. A code the client can compare
+// against but the server cannot send is worse than a missing one, because it reads as covered.
+//
+// One client vocabulary for six server ones. `preferences.logic.ts`, `targets.logic.ts`,
+// `plannedMealLog.logic.ts`, `mealPlan.logic.ts`, `swap.logic.ts` and `grocery.logic.ts` each declare their
+// own field-code map, deliberately overlapping so that — in that code's own words — "the client maps one
+// vocabulary and not four". This is that one vocabulary; the union is what keeps it true.
+export const API_ERROR_DETAIL_CODES = {
+  required: 'required',
+  invalidType: 'invalid_type',
+  invalidId: 'invalid_id',
+  invalidDate: 'invalid_date',
+  invalidTime: 'invalid_time',
+  invalidTimeZone: 'invalid_time_zone',
+  invalidServings: 'invalid_servings',
+  invalidCharacters: 'invalid_characters',
+  notAnInteger: 'not_an_integer',
+  belowMinimum: 'below_minimum',
+  aboveMaximum: 'above_maximum',
+  outOfRange: 'out_of_range',
+  outsidePlanWeek: 'outside_plan_week',
+  unknownValue: 'unknown_value',
+  unknownStep: 'unknown_step',
+  unknownField: 'unknown_field',
+  readOnlyField: 'read_only_field',
+  notAllowed: 'not_allowed',
+  tooMany: 'too_many',
+  mutuallyExclusive: 'mutually_exclusive',
+  unsupportedCurrency: 'unsupported_currency',
+  slotMismatch: 'slot_mismatch',
+  notBelowCurrentWeight: 'not_below_current_weight',
+  notAboveCurrentWeight: 'not_above_current_weight',
+  conflictingFoodReference: 'conflicting_food_reference',
+  unrecognizedPayload: 'unrecognized_payload'
+} as const
+
+export type ApiErrorDetailCode = (typeof API_ERROR_DETAIL_CODES)[keyof typeof API_ERROR_DETAIL_CODES]
+
+// One entry of a refusal's `details[]`: which field, and what is wrong with it. `field` is sometimes the
+// client's own object key (an unrecognised key is reported under the name the request used), so it is never
+// shown to a user as-is and never used to index anything.
+export interface ApiErrorDetail {
+  field: string
+  code: string
+}
 
 export type ApiOutcome = 'confirmed' | 'unknown'
 
@@ -61,6 +115,54 @@ export function getApiErrorStatus(error: unknown): number | null {
   const status = (error as {response?: {status?: unknown}} | null)?.response?.status
 
   return typeof status === 'number' ? status : null
+}
+
+// The per-field half of a refusal, read the same way its code is: an empty array when the body carries none,
+// so a caller can iterate unconditionally and never reach into an axios shape of its own.
+//
+// It exists because the server had been sending `details[]` that nothing on this side ever opened. Every
+// refusal that names fields — `PUT /meal-planning/preferences` with a server-owned key, a malformed path id
+// on the diary routes, a log date outside the plan week — carries the field and the reason, and the client
+// was reducing all of them to one generic toast, discarding the only part of the answer that says what to
+// fix. Reading them cannot be optional-but-available and still be true, so this is the accessor a caller
+// uses; `getApiErrorCode` alone can never distinguish two `invalid_request`s.
+//
+// Defensive per entry rather than per array: a body is untrusted input (a proxy's error page, a truncated
+// payload, a future server field), so a non-array `details`, a non-object entry, or an entry missing either
+// string is dropped and the rest still read. A partially-decodable refusal is more useful than none.
+export function getApiErrorDetails(error: unknown): ApiErrorDetail[] {
+  const details = (error as {response?: {data?: {details?: unknown}}} | null)?.response?.data?.details
+
+  if (!Array.isArray(details)) {
+    return []
+  }
+
+  return details.reduce<ApiErrorDetail[]>((accumulated, entry) => {
+    const candidate = entry as {field?: unknown; code?: unknown} | null
+
+    if (typeof candidate?.field === 'string' && typeof candidate.code === 'string') {
+      accumulated.push({field: candidate.field, code: candidate.code})
+    }
+
+    return accumulated
+  }, [])
+}
+
+// Did the refusal report this field-level reason at all? The detail-code equivalent of comparing
+// `getApiErrorCode`, and the test a caller wants for a code whose presence is the whole signal — a
+// `read_only_field` entry means the body carried a key the client should never have sent, whichever field
+// it was.
+export function hasApiErrorDetailCode(error: unknown, code: string): boolean {
+  return getApiErrorDetails(error).some(detail => detail.code === code)
+}
+
+// The fields one reason was reported against, in the order the server listed them. Separate from the
+// predicate above because a refusal can name several fields under one code, and a caller that means to act
+// on them needs all of them rather than the first.
+export function apiErrorDetailFields(error: unknown, code: string): string[] {
+  return getApiErrorDetails(error)
+    .filter(detail => detail.code === code)
+    .map(detail => detail.field)
 }
 
 // 'confirmed' means the server described the outcome of this attempt in a decodable body — a 4xx carrying

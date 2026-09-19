@@ -4,7 +4,7 @@ import axios, {AxiosRequestConfig, Method} from 'axios'
 import {isLeft} from 'fp-ts/lib/Either'
 import * as io from 'io-ts'
 
-import {isConfiguredApiOriginUrl} from '@constants/endpoints'
+import {isConfiguredApiOriginUrl, isConfiguredApiSiteUrl} from '@constants/endpoints'
 
 export interface HttpResponse<T> {
   data: T
@@ -15,14 +15,17 @@ export interface HttpRequestOptions {
   useAuth?: boolean
 }
 
+// Redirects are left to whichever adapter is in use, which is why no
+// `maxRedirects` is pinned here. React Native's XHR adapter hands the request to
+// the platform's networking stack, which follows redirects itself and never
+// consults the option; the adapters that decide in JS — the Node http adapter a
+// Jest or CI runner uses — follow up to axios's own default. Pinning it to 0
+// would only turn a legitimate hop into a hard failure on those runners, since
+// axios then swaps follow-redirects for the raw transport and a 3xx comes back
+// as a status no `validateStatus` accepts. Where a response may have come from
+// is bounded instead by the same-site check on the final URL below.
 const axiosInstance = axios.create({
-  timeout: 25_000,
-  // Binds only the adapters that decide in JS — the Node http adapter a Jest or
-  // CI runner uses, where this turns a 3xx into a failure instead of a hop.
-  // React Native's XHR adapter follows redirects inside the native HTTP stack
-  // and never consults this, which is why the response below is also checked
-  // against the final URL the transport reports.
-  maxRedirects: 0
+  timeout: 25_000
 })
 
 axiosInstance.interceptors.response.use(
@@ -31,14 +34,14 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config as AxiosRequestConfig & {_retry?: boolean}
 
     // The final-URL check belongs on the failure path too, and ahead of the
-    // refresh below: a redirect that landed on another origin can answer 401 or
+    // refresh below: a redirect that landed on another site can answer 401 or
     // 5xx as readily as 200, and treating that 401 as our own would mint a fresh
     // token and replay the request — sending a new credential after the first.
     // An escaped response is a failure in its own right, never an
     // authentication failure to recover from, so it is reported as one.
     const escapedFinalUrl = reportedFinalUrl(error.response?.request ?? error.request)
 
-    if (escapedFinalUrl !== null && !isConfiguredApiOriginUrl(escapedFinalUrl)) {
+    if (escapedFinalUrl !== null && !isConfiguredApiSiteUrl(escapedFinalUrl)) {
       const escape = originEscapeError(originalRequest?.method, originalRequest?.url, escapedFinalUrl)
 
       CrashUtility.recordError(escape)
@@ -154,14 +157,19 @@ async function httpRequest<T>(
 
   // React Native's XMLHttpRequest reports responseURL on both platforms, but
   // only once the native stack has already followed any redirect: this contains
-  // the response rather than preventing the hop, and maxRedirects above plus the
-  // request check before the token is attached are the preventive halves. What
-  // no JavaScript here can do is refuse the hop itself — that needs a transport
-  // whose redirect callback the app controls, which on this stack means native
-  // configuration (see docs/meal-planning.md). The residual on this side is an
-  // adapter that reports no final URL at all: those bytes are accepted, because
-  // failing closed on silence would break every request made through one.
-  if (finalUrl !== null && !isConfiguredApiOriginUrl(finalUrl)) {
+  // the response rather than preventing the hop, and the request check before
+  // the token is attached is the preventive half. The rule applied here is
+  // same-site, not same-origin: a deployment that redirects http to https, a
+  // bare domain to `www`, or through a proxy on another port has not left the
+  // site, and holding the response to the configured origin exactly would
+  // discard every byte such a deployment serves — so scheme and port are
+  // ignored and only a hop onto another host is refused. What no JavaScript
+  // here can do is refuse the hop itself — that needs a transport whose
+  // redirect callback the app controls, which on this stack means native
+  // configuration. The residual on this side is an adapter that reports no
+  // final URL at all: those bytes are accepted, because failing closed on
+  // silence would break every request made through one.
+  if (finalUrl !== null && !isConfiguredApiSiteUrl(finalUrl)) {
     const error = originEscapeError(method, url, finalUrl)
 
     CrashUtility.recordError(error)

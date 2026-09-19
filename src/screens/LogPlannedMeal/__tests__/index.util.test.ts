@@ -16,6 +16,8 @@ import {
   CARBS_LABEL,
   FAT_LABEL,
   LOG_WEIGHT_TODAY_LABEL,
+  MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_NAMES,
   MEAL_PLAN_STALE_PLAN_TOAST,
@@ -41,6 +43,7 @@ import {
   isServingsDraftStale,
   LogAttempt,
   LogAttemptPlan,
+  logDateStepAccessibilityLabel,
   logDateStepperLabel,
   LogLaunchBlockReason,
   LogLaunchDecision,
@@ -696,6 +699,68 @@ describe('logDateStepperLabel', () => {
   it('labels any other day with its short plan date', () => {
     expect(logDateStepperLabel('2026-07-05', now)).toBe('Jul 5')
     expect(logDateStepperLabel('2026-07-11', now)).toBe('Jul 11')
+  })
+})
+
+describe('logDateStepAccessibilityLabel', () => {
+  const now = new Date(2026, 6, 8, 12, 0, 0)
+  const planStartDate = '2026-07-05'
+  const planEndDate = '2026-07-11'
+
+  it('names the backward arrow with the previous-day template', () => {
+    expect(logDateStepAccessibilityLabel('2026-07-07', -1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Jul 7'})
+    )
+  })
+
+  it('names the forward arrow with the next-day template', () => {
+    expect(logDateStepAccessibilityLabel('2026-07-09', 1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Jul 9'})
+    )
+  })
+
+  // The regression this pins: on the first plan day the backward step clamps onto the day already shown, so
+  // both arrows receive the same key. A label built from the date alone would name them identically — and
+  // would repeat the visible date verbatim.
+  it('keeps the two arrows distinct when both receive the same clamped day key', () => {
+    const clampedBackward = stepLogDate(planStartDate, -1, planStartDate, planEndDate)
+
+    expect(clampedBackward).toBe(planStartDate)
+
+    const backward = logDateStepAccessibilityLabel(clampedBackward, -1, now)
+    const forward = logDateStepAccessibilityLabel(planStartDate, 1, now)
+
+    expect(backward).toBe(stringWithNamedParameters(MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Jul 5'}))
+    expect(forward).toBe(stringWithNamedParameters(MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Jul 5'}))
+    expect(backward).not.toBe(forward)
+    expect(backward).not.toBe(logDateStepperLabel(planStartDate, now))
+  })
+
+  it('does the same at the last plan day, where the forward step clamps', () => {
+    const clampedForward = stepLogDate(planEndDate, 1, planStartDate, planEndDate)
+
+    expect(clampedForward).toBe(planEndDate)
+    expect(logDateStepAccessibilityLabel(clampedForward, 1, now)).not.toBe(
+      logDateStepAccessibilityLabel(planEndDate, -1, now)
+    )
+  })
+
+  it('uses the shared today label when the target day is today', () => {
+    expect(logDateStepAccessibilityLabel('2026-07-08', -1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE, {date: LOG_WEIGHT_TODAY_LABEL})
+    )
+    expect(logDateStepAccessibilityLabel('2026-07-08', 1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE, {date: LOG_WEIGHT_TODAY_LABEL})
+    )
+  })
+
+  it('formats a target day in another month or year through the stepper label', () => {
+    expect(logDateStepAccessibilityLabel('2026-09-14', -1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Sep 14'})
+    )
+    expect(logDateStepAccessibilityLabel('2027-01-01', 1, now)).toBe(
+      stringWithNamedParameters(MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE, {date: 'Jan 1'})
+    )
   })
 })
 

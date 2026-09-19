@@ -30,8 +30,17 @@ export const PLACEHOLDER_ROW_HEIGHTS: readonly number[] = [Sizes.CONTROL_LG, Siz
 // style value.
 const PAGE_GUTTERS = Spacing.GUTTER + Spacing.GUTTER
 
-export const placeholderWidth = (windowWidth: number): number =>
-  Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - PAGE_GUTTERS
+// Clamped because Skeleton sizes its sweep from this number: a window the gutters exhaust has to collapse the
+// placeholder to nothing rather than hand the component a negative or a NaN width.
+export const placeholderWidth = (windowWidth: number): number => {
+  const column = Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - PAGE_GUTTERS
+
+  if (!Number.isFinite(column) || column <= 0) {
+    return 0
+  }
+
+  return column
+}
 
 export default StyleSheet.create({
   screen: {

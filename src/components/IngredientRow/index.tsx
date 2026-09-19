@@ -16,9 +16,7 @@ const IngredientRow = ({name, quantityText}: Props): React.JSX.Element => {
     <View style={styles.container}>
       <Text style={styles.name}>{name}</Text>
 
-      <Text style={styles.quantity} numberOfLines={1}>
-        {quantityText}
-      </Text>
+      <Text style={styles.quantity}>{quantityText}</Text>
     </View>
   )
 }

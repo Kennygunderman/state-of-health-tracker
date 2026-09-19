@@ -1,9 +1,10 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import {ScrollView, View} from 'react-native'
+import {ScrollView, Text as NativeText, TextProps, View} from 'react-native'
 
 import type {CurrentMealPlans} from '@data/models/MealPlan'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
+import {useAccessibilityFocusOnChange} from '@hooks/useAccessibilityFocusOnChange'
 import type {RootStackParamList, StepMode} from '@navigation/types'
 import {MealPlanGeneratingRouteProp, Navigation} from '@navigation/types'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -51,6 +52,16 @@ import {
   resolveTerminalRecovery,
   resolveUpcomingPlanId
 } from './index.util'
+
+/**
+ * The headline, typed so it can hold the ref the focus move needs.
+ *
+ * `@components/Text` is a plain function component: React 19 hands `ref` to it as an ordinary prop and its own
+ * spread passes it to the React Native `Text` underneath, so the ref resolves to that element — but its props
+ * type does not declare `ref` and the component is shared app-wide. Naming the instance the ref actually lands
+ * on is the whole of the difference; the element rendered, its props and its styles are unchanged.
+ */
+const HeadlineText: React.ComponentType<TextProps & {ref?: React.Ref<React.ComponentRef<typeof NativeText>>}> = Text
 
 const MealPlanGeneratingScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -484,6 +495,17 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
     attempt()
   }, [attempt, intentRefusal, retryIntentsHydration])
 
+  // The screen replaces its whole body in place when the generation resolves — 10 becomes 10b, 10c or the
+  // unconfirmed variant with no navigation — so the node the reader was on is unmounted and its cursor is left
+  // on nothing. The headline's `accessibilityLiveRegion` covers that for TalkBack and nothing covered it for
+  // VoiceOver, which is why the cursor is moved to the new headline instead of announcing it: iOS reads what it
+  // focuses, so a focus move here IS the announcement and saying it as well would say it twice. Arriving on the
+  // screen moves nothing — `focusesOnMount` defaults to false, and the pending headline is part of what the
+  // platform reads on entry.
+  const headlineRef = useRef<React.ComponentRef<typeof NativeText>>(null)
+
+  useAccessibilityFocusOnChange(headlineRef, view.headline.length > 0 ? view.headline : null, {scope: 'voiceOver'})
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ContentColumn>
@@ -517,7 +539,8 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
 
             {!!view.headline && (
               <View style={isInFlight ? styles.headlineBlockPending : styles.headlineBlock}>
-                <Text
+                <HeadlineText
+                  ref={headlineRef}
                   accessibilityRole={isInFlight ? 'header' : 'alert'}
                   accessibilityLiveRegion={isInFlight ? 'polite' : 'assertive'}
                   style={[
@@ -526,7 +549,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
                     view.isCentered && styles.textCentered
                   ]}>
                   {view.headline}
-                </Text>
+                </HeadlineText>
               </View>
             )}
 

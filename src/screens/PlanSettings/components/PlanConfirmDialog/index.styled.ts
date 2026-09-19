@@ -2,6 +2,7 @@ import {StyleSheet, ViewStyle} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -11,17 +12,24 @@ export const cardMaxHeight = (available: number): ViewStyle => ({
   maxHeight: available
 })
 
+// The card lines up with the settings cards on the column behind it, so its cap is the content column less
+// both page gutters. The gutter itself has to live on the container rather than the card: a width: '100%' box
+// carrying horizontal margins overflows its parent by both gutters and is pushed off-screen.
+const CARD_MAX_WIDTH = Sizes.CONTENT_MAX_WIDTH - (Spacing.GUTTER + Spacing.GUTTER)
+
 export default StyleSheet.create({
   modal: {
     margin: 0
   },
   container: {
     flex: 1,
-    justifyContent: 'center'
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.GUTTER
   },
   card: {
-    alignSelf: 'stretch',
-    marginHorizontal: Spacing.GUTTER,
+    width: '100%',
+    maxWidth: CARD_MAX_WIDTH,
     padding: Spacing.GUTTER,
     borderRadius: BorderRadius.MODAL,
     backgroundColor: Theme.colors.card
@@ -60,5 +68,12 @@ export default StyleSheet.create({
   },
   dismissAction: {
     marginTop: Spacing.X_SMALL
+  },
+  // The scrim behind the dialog. react-native-modal paints its own backdrop wrapper transparent as
+  // soon as a custom backdrop is supplied, so the colour is applied here rather than through its
+  // backdropColor prop; the wrapper still animates to Opacity.SCRIM, composing rgba(0,0,0,0.62).
+  backdrop: {
+    flex: 1,
+    backgroundColor: Theme.colors.overlayBackdrop
   }
 })

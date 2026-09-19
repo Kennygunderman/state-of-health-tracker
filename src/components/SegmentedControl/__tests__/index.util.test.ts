@@ -8,6 +8,7 @@ import {
   optionBoxHeightFor,
   segmentEnvelopeInsetFor,
   segmentWidthFor,
+  usesFixedLabelLayout,
   visualTrackHeightFor
 } from '../index.util'
 
@@ -104,6 +105,30 @@ describe('segmentWidthFor', () => {
   describe('inset injected by the caller', () => {
     it('reclaims both insets for the segments when the caller passes a zero inset', () => {
       expect(segmentWidthFor(353, 2, 0)).toBe(176.5)
+    })
+  })
+
+  describe('insets wider than the measured track', () => {
+    it('collapses to zero rather than returning the -0.5 the bare division gives', () => {
+      expect(segmentWidthFor(3, 2, 2)).toBe(0)
+    })
+
+    it('collapses to zero for three segments inside a track narrower than both insets', () => {
+      expect(segmentWidthFor(4, 3, 2)).toBe(0)
+    })
+
+    it('collapses to zero for a single segment, where the shortfall is not divided down', () => {
+      expect(segmentWidthFor(1, 1, 2)).toBe(0)
+    })
+
+    it('collapses to zero on the exact boundary, where the insets consume the whole track', () => {
+      expect(segmentWidthFor(4, 2, 2)).toBe(0)
+    })
+
+    it('never returns a negative width, which the indicator and its translateX would both carry', () => {
+      ;[1, 2, 3, 3.5, 4, 4.5].forEach(trackWidth => {
+        expect(segmentWidthFor(trackWidth, 2, 2)).toBeGreaterThanOrEqual(0)
+      })
     })
   })
 })
@@ -325,5 +350,33 @@ describe('isFlexSegments', () => {
 
   it('is false for unit, whose two segments hug their labels', () => {
     expect(isFlexSegments('unit')).toBe(false)
+  })
+
+  it('is true for a caller that declares no variant, which renders the large geometry', () => {
+    expect(isFlexSegments(undefined)).toBe(true)
+    expect(isFlexSegments(undefined)).toBe(isFlexSegments('large'))
+  })
+})
+
+describe('usesFixedLabelLayout', () => {
+  it('is true for large, whose labels sit in a track of a fixed height', () => {
+    expect(usesFixedLabelLayout('large')).toBe(true)
+  })
+
+  it('is true for small', () => {
+    expect(usesFixedLabelLayout('small')).toBe(true)
+  })
+
+  it('is true for unit', () => {
+    expect(usesFixedLabelLayout('unit')).toBe(true)
+  })
+
+  it('is false for a caller that declares no variant, whose labels wrap as they did before', () => {
+    expect(usesFixedLabelLayout(undefined)).toBe(false)
+  })
+
+  it('separates an absent variant from the large geometry it renders', () => {
+    expect(isFlexSegments(undefined)).toBe(isFlexSegments('large'))
+    expect(usesFixedLabelLayout(undefined)).not.toBe(usesFixedLabelLayout('large'))
   })
 })

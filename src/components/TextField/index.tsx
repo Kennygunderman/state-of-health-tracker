@@ -52,7 +52,14 @@ const TextField = (props: Props): React.JSX.Element => {
         onBlur={() => setIsFocused(false)}
       />
 
-      {!!unit && <Text style={styles.unit}>{unit}</Text>}
+      {/* Drawn, never announced: the unit is already inside the input's own accessible name ("Carbs, grams"),
+          so as an element of its own this suffix is a reading stop that says "g" and means nothing. Both
+          properties are needed — `accessibilityElementsHidden` is iOS, `importantForAccessibility` Android. */}
+      {!!unit && (
+        <Text style={styles.unit} accessibilityElementsHidden importantForAccessibility="no">
+          {unit}
+        </Text>
+      )}
     </View>
   )
 }

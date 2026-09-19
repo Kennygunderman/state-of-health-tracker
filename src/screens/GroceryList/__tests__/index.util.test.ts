@@ -48,6 +48,7 @@ const PLAN_RANGE_TEXT = 'Jul 5 – Jul 11'
 const CHECKED_PROGRESS_TEXT = '6 of 14 checked'
 const FLAGGED_ITEM_NAME = 'Chicken breast'
 const CURRENT_PLAN_ID = 'plan-current-3a1d'
+const UPCOMING_PLAN_ID = 'plan-upcoming-9b4e'
 const UNKNOWN_CATEGORY = 'frozen'
 const UNKNOWN_MEAL_SLOT = 'brunch'
 const INHERITED_KEY = 'toString'
@@ -170,6 +171,17 @@ describe('resolveGroceryPlanScope', () => {
         expect(resolveGroceryPlanScope({routePlanId: PLAN_ID, currentPlan})).toEqual(makeScope(PLAN_ID))
       })
     })
+
+    // The pin outranks the whole answer, not just its `current` member: while the route names a plan, neither
+    // of the two plans may take the screen over, so only dropping the pin can move this screen off it.
+    it('wins over both a current and an upcoming plan', () => {
+      expect(
+        resolveGroceryPlanScope({
+          routePlanId: PLAN_ID,
+          currentPlan: {isError: false, data: makePlans(makePlan(CURRENT_PLAN_ID), makePlan(UPCOMING_PLAN_ID))}
+        })
+      ).toEqual(makeScope(PLAN_ID))
+    })
   })
 
   describe('no route plan id', () => {
@@ -191,18 +203,38 @@ describe('resolveGroceryPlanScope', () => {
       ).toEqual(makeScope(CURRENT_PLAN_ID))
     })
 
+    it('prefers the current plan when both a current and an upcoming plan exist', () => {
+      expect(
+        resolveGroceryPlanScope({
+          routePlanId: null,
+          currentPlan: {isError: false, data: makePlans(makePlan(CURRENT_PLAN_ID), makePlan(UPCOMING_PLAN_ID))}
+        })
+      ).toEqual(makeScope(CURRENT_PLAN_ID))
+    })
+
+    // AAP 0.7.4 selects `current ?? upcoming` for an unset plan id, and it forbids a second upcoming plan — so
+    // a user whose only plan starts next week has exactly one list to shop, and claiming "No active plan" with
+    // a "Create my plan" CTA would both misreport it and offer something the plan rules refuse.
+    it('shops the upcoming plan when there is no current plan', () => {
+      expect(
+        resolveGroceryPlanScope({
+          routePlanId: null,
+          currentPlan: {isError: false, data: makePlans(null, makePlan(UPCOMING_PLAN_ID))}
+        })
+      ).toEqual(makeScope(UPCOMING_PLAN_ID))
+    })
+
     it('reports no plan once the server has said there is none', () => {
       expect(
         resolveGroceryPlanScope({routePlanId: null, currentPlan: {isError: false, data: makePlans(null)}})
       ).toEqual(NO_PLAN_SCOPE)
     })
 
-    it('reports no plan to shop when only an upcoming plan exists', () => {
+    // The 14c body's one producer, and the state an unpinned screen degrades into: both members decoded and
+    // both absent. Stated explicitly so the `?? upcoming` fallback can never be widened into swallowing it.
+    it('reports no plan when the decoded answer holds neither a current nor an upcoming plan', () => {
       expect(
-        resolveGroceryPlanScope({
-          routePlanId: null,
-          currentPlan: {isError: false, data: makePlans(null, makePlan(CURRENT_PLAN_ID))}
-        })
+        resolveGroceryPlanScope({routePlanId: null, currentPlan: {isError: false, data: makePlans(null, null)}})
       ).toEqual(NO_PLAN_SCOPE)
     })
 
@@ -392,7 +424,7 @@ describe('classifyGroceryWriteFailure', () => {
       expect(classifyGroceryWriteFailure(apiError(409, code))).toEqual({
         toast: MEAL_PLAN_STALE_PLAN_TOAST,
         refetchCurrentPlan: true,
-        leaveStalePlan: true
+        unpinStalePlan: true
       })
     }
   )
@@ -401,7 +433,7 @@ describe('classifyGroceryWriteFailure', () => {
     expect(classifyGroceryWriteFailure(ECHOED_PLAN_CODE_ERROR)).toEqual({
       toast: TOAST_GENERIC_ERROR,
       refetchCurrentPlan: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
   })
 
@@ -409,12 +441,12 @@ describe('classifyGroceryWriteFailure', () => {
     expect(classifyGroceryWriteFailure(NETWORK_ERROR)).toEqual({
       toast: TOAST_GENERIC_ERROR,
       refetchCurrentPlan: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
     expect(classifyGroceryWriteFailure(UNDECODABLE_ERROR)).toEqual({
       toast: TOAST_GENERIC_ERROR,
       refetchCurrentPlan: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
   })
 
@@ -422,19 +454,19 @@ describe('classifyGroceryWriteFailure', () => {
     expect(classifyGroceryWriteFailure(apiError(409, API_ERROR_CODES.idempotencyConflict))).toEqual({
       toast: TOAST_GENERIC_ERROR,
       refetchCurrentPlan: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
     expect(classifyGroceryWriteFailure(apiError(404, 'Grocery item not found'))).toEqual({
       toast: TOAST_GENERIC_ERROR,
       refetchCurrentPlan: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
   })
 
-  // The handover is what stops the shopper repeating a write the plan can never accept: a refusal is about the
-  // plan, so every other row on this list would be refused the same way, and a re-read alone cannot move a
-  // route-pinned screen off it.
-  it('hands the flow back to the plan tab on a confirmed refusal, and on nothing else', () => {
+  // Dropping the pin is what stops the shopper repeating a write the plan can never accept: a refusal is about
+  // the plan, so every other row on this list would be refused the same way, and the re-read alone cannot move
+  // a route-pinned screen off it.
+  it('drops the plan pin on a confirmed refusal, and on nothing else', () => {
     const refusals: unknown[] = [apiError(409, API_ERROR_CODES.stalePlan), apiError(409, API_ERROR_CODES.planNotActive)]
     const others: unknown[] = [
       ECHOED_PLAN_CODE_ERROR,
@@ -445,11 +477,11 @@ describe('classifyGroceryWriteFailure', () => {
     ]
 
     refusals.forEach(error => {
-      expect(classifyGroceryWriteFailure(error).leaveStalePlan).toBe(true)
+      expect(classifyGroceryWriteFailure(error).unpinStalePlan).toBe(true)
     })
 
     others.forEach(error => {
-      expect(classifyGroceryWriteFailure(error).leaveStalePlan).toBe(false)
+      expect(classifyGroceryWriteFailure(error).unpinStalePlan).toBe(false)
     })
   })
 
@@ -476,7 +508,7 @@ describe('groceryReadRecovery', () => {
         toast: MEAL_PLAN_STALE_PLAN_TOAST,
         refetchCurrentPlan: true,
         isPlanStateFailure: true,
-        leaveStalePlan: true
+        unpinStalePlan: true
       })
     }
   )
@@ -486,7 +518,7 @@ describe('groceryReadRecovery', () => {
       toast: null,
       refetchCurrentPlan: false,
       isPlanStateFailure: true,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
   })
 
@@ -499,23 +531,23 @@ describe('groceryReadRecovery', () => {
           toast: null,
           refetchCurrentPlan: false,
           isPlanStateFailure: false,
-          leaveStalePlan: false
+          unpinStalePlan: false
         })
       })
     })
   })
 
-  // A list the plan will not answer for is not a list to retry, so the read failure hands back exactly as a
+  // A list the plan will not answer for is not a list to retry, so the read failure drops the pin exactly as a
   // refused write does — once, on the first classification, and never for a failure a retry could resolve.
-  it('hands the flow back to the plan tab once, and only for a confirmed plan-state read failure', () => {
+  it('drops the plan pin once, and only for a confirmed plan-state read failure', () => {
     expect(
-      groceryReadRecovery({error: apiError(409, API_ERROR_CODES.planNotActive), hasAnnounced: false}).leaveStalePlan
+      groceryReadRecovery({error: apiError(409, API_ERROR_CODES.planNotActive), hasAnnounced: false}).unpinStalePlan
     ).toBe(true)
     expect(
-      groceryReadRecovery({error: apiError(409, API_ERROR_CODES.planNotActive), hasAnnounced: true}).leaveStalePlan
+      groceryReadRecovery({error: apiError(409, API_ERROR_CODES.planNotActive), hasAnnounced: true}).unpinStalePlan
     ).toBe(false)
-    expect(groceryReadRecovery({error: NETWORK_ERROR, hasAnnounced: false}).leaveStalePlan).toBe(false)
-    expect(groceryReadRecovery({error: ECHOED_PLAN_CODE_ERROR, hasAnnounced: false}).leaveStalePlan).toBe(false)
+    expect(groceryReadRecovery({error: NETWORK_ERROR, hasAnnounced: false}).unpinStalePlan).toBe(false)
+    expect(groceryReadRecovery({error: ECHOED_PLAN_CODE_ERROR, hasAnnounced: false}).unpinStalePlan).toBe(false)
   })
 
   it('does nothing for a read that has not failed', () => {
@@ -523,13 +555,13 @@ describe('groceryReadRecovery', () => {
       toast: null,
       refetchCurrentPlan: false,
       isPlanStateFailure: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
     expect(groceryReadRecovery({error: undefined, hasAnnounced: false})).toEqual({
       toast: null,
       refetchCurrentPlan: false,
       isPlanStateFailure: false,
-      leaveStalePlan: false
+      unpinStalePlan: false
     })
   })
 })
@@ -1144,5 +1176,54 @@ describe('contentColumnWidth', () => {
 
   it('stops growing once the window is past the tablet maximum', () => {
     expect(contentColumnWidth(1024)).toBe(contentColumnWidth(2048))
+  })
+
+  it('keeps the phone widths the frames are authored at', () => {
+    expect([320, 375, 393, 430, 834].map(contentColumnWidth)).toEqual([280, 335, 353, 390, 560])
+  })
+
+  describe('widths the gutters exhaust', () => {
+    it('collapses to zero rather than a negative width at a zero window', () => {
+      expect(contentColumnWidth(0)).toBe(0)
+    })
+
+    it('collapses to zero for a negative window', () => {
+      expect(contentColumnWidth(-1)).toBe(0)
+    })
+
+    it('collapses to zero once the gutters exceed the window', () => {
+      expect(contentColumnWidth(2)).toBe(0)
+    })
+
+    it('returns zero at the window the gutters exactly consume', () => {
+      expect(contentColumnWidth(40)).toBe(0)
+    })
+
+    it('returns the one pixel left over just past that window', () => {
+      expect(contentColumnWidth(41)).toBe(1)
+    })
+
+    it('collapses to zero for a width that is not a number', () => {
+      expect(contentColumnWidth(NaN)).toBe(0)
+    })
+
+    it('collapses to zero for a negatively infinite width', () => {
+      expect(contentColumnWidth(-Infinity)).toBe(0)
+    })
+
+    it('caps a positively infinite width at the tablet maximum', () => {
+      expect(contentColumnWidth(Infinity)).toBe(560)
+    })
+
+    it('is never negative and never non-finite across the whole range', () => {
+      const widths = [-Infinity, -1000, -1, 0, 0.5, 2, 39.5, 40, 41, 320, 393, 600, 1024, 2048, Infinity, NaN]
+
+      widths.forEach(width => {
+        const column = contentColumnWidth(width)
+
+        expect(Number.isFinite(column)).toBe(true)
+        expect(column).toBeGreaterThanOrEqual(0)
+      })
+    })
   })
 })

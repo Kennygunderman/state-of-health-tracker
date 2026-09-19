@@ -1,4 +1,9 @@
-import {MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT} from '@constants/strings'
+import {
+  MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 export interface WritePillAccessibility {
   isDisabled: boolean
@@ -38,3 +43,15 @@ export const resolveWritePillAccessibility = (
 
   return offersStalePlanRecovery ? PRESSABLE_WITH_RECOVERY_HINT : DISABLED
 }
+
+/**
+ * The name the card's open-recipe element announces. An explicit label on an accessible pressable replaces
+ * every descendant, so the visible LOGGED badge inside that element cannot speak for itself and the logged
+ * template's suffix is the badge's only text equivalent: without it a logged and an unlogged card announce
+ * identically and the primary element contradicts what is drawn.
+ */
+export const openRecipeAccessibilityLabel = (recipeName: string, isLogged: boolean): string =>
+  stringWithNamedParameters(
+    isLogged ? MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE : MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE,
+    {recipe: recipeName}
+  )

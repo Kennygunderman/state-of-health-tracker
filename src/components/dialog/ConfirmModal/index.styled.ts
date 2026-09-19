@@ -3,6 +3,7 @@ import {StyleSheet, ViewStyle} from 'react-native'
 import BorderRadius from '@styles/borderRadius'
 import FontSize from '@styles/fontSize'
 import Shadow from '@styles/shadow'
+import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -40,7 +41,11 @@ export default StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: Spacing.LARGE
   },
+  // Two compact answers sit side by side here, not a full-width CTA, so this dialog deliberately overrides
+  // `PrimaryButton`'s 52px Figma CTA floor with the touch-target floor — the shared component composes the
+  // caller's style last, and `padding` alone cannot lower a `minHeight`.
   button: {
+    minHeight: Sizes.TOUCH_TARGET,
     padding: Spacing.X_SMALL
   }
 })

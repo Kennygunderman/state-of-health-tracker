@@ -89,7 +89,12 @@ const formatPaceSubcopy = (pace: PaceLbPerWeek, paceSubcopy: Readonly<Record<Pac
 
 export const isPaceVisible = (goal: Goal | null): boolean => goalDirection(goal) !== null
 
-export const isGoalWeightVisible = (goal: Goal | null): boolean => isPaceVisible(goal)
+// Only an answered Maintain hides the goal weight (Figma note 46:252); an unanswered goal is not that
+// answer, so the optional field opens present and empty, as AAP 0.7.4's first-entry state for 02 requires
+// ("no goal, no pace; goal weight empty") — pace is the conditional section here, not the goal weight.
+// Reading the exclusion out of GOAL_DIRECTIONS rather than comparing against the 'maintain' literal keeps
+// the record's promise that a fourth Goal member becomes a compile error rather than a hidden control.
+export const isGoalWeightVisible = (goal: Goal | null): boolean => goal === null || goalDirection(goal) !== null
 
 export const parseGoalWeightInput = (text: string): number | null => {
   const normalized = text.replace(',', '.').trim()

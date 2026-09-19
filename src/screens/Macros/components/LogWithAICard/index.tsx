@@ -25,12 +25,21 @@ interface Props {
 
 const LogWithAICard = ({onPress}: Props) => {
   return (
-    <TouchableOpacity style={styles.card} activeOpacity={0.6} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.6}
+      accessibilityRole="button"
+      accessibilityLabel={LOG_WITH_AI_TITLE}
+      accessibilityHint={LOG_WITH_AI_CARD_SUBTITLE}
+      onPress={onPress}>
+      {/* The sparkle is decoration: read aloud it is a glyph name in front of the card's own label. */}
       <LinearGradient
         colors={[Theme.colors.greenOnTint, Theme.colors.accentGreen]}
         start={GRADIENT_START}
         end={GRADIENT_END}
-        style={styles.aiTile}>
+        style={styles.aiTile}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants">
         <Text style={styles.aiTileGlyph}>{SPARKLE_GLYPH}</Text>
       </LinearGradient>
 
@@ -42,7 +51,13 @@ const LogWithAICard = ({onPress}: Props) => {
         </Text>
       </View>
 
-      <TouchableOpacity style={styles.cameraButton} activeOpacity={0.6} onPress={onPress}>
+      {/* The camera button opens no camera: it repeats the card's own onPress, so it is a duplicate stop. */}
+      <TouchableOpacity
+        style={styles.cameraButton}
+        activeOpacity={0.6}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        onPress={onPress}>
         <Svg width={CAMERA_ICON_SIZE} height={CAMERA_ICON_SIZE} viewBox="0 0 24 24" fill="none">
           <Path
             d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2v11z"

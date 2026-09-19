@@ -113,6 +113,24 @@ export const catalogProvenanceLabel = (provenance: NutritionProvenance | null | 
 // What the screen renders and acts on: either a food it has validated, or an entry it is editing.
 export type FoodDetailSource = {path: 'add'; food: Food} | {path: 'update'; entry: MealEntry}
 
+// States the two display-only fields as null when the param leaves them unstated, so parseRouteFood reads an
+// omitted brand or servingUnit the way it already reads an explicit null. Only a strictly undefined value is
+// filled — a present-but-malformed one (brand: 42) reaches the parse and is still rejected — and no other
+// member is introduced, because a personal food carrying any catalog member at all is refused by design.
+const withUnstatedDisplayFields = (value: unknown): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  return {
+    ...candidate,
+    ...(candidate.brand === undefined ? {brand: null} : {}),
+    ...(candidate.servingUnit === undefined ? {servingUnit: null} : {})
+  }
+}
+
 // Resolves the route params into the source the screen may trust, or null when it may trust neither.
 //
 // The 'add' param is re-validated rather than taken as given, because React Navigation rehydrates persisted
@@ -120,12 +138,18 @@ export type FoodDetailSource = {path: 'add'; food: Food} | {path: 'update'; entr
 // verified must not have its numbers shown or be logged. Failing closed to null is the only honest outcome —
 // the repairs available are inventing a catalog id or discarding a provenance, and either would make this
 // client the author of a claim the server never made.
+//
+// brand and servingUnit are the single exception, and they are stated rather than repaired: the model declares
+// both `string | null`, so an absent one already means "not stated" — precisely what null says — and naming it
+// asserts nothing the server did not. Identity and provenance stay fail-closed: a catalog food whose
+// catalogFoodId, nutritionProvenance or catalogServingDescription is missing or malformed still resolves to
+// null, as does any brand or servingUnit that is present and not a string.
 export const resolveFoodDetailSource = (params: FoodDetailParams): FoodDetailSource | null => {
   if (params.path === 'update') {
     return {path: 'update', entry: params.entry}
   }
 
-  const food = parseRouteFood(params.food)
+  const food = parseRouteFood(withUnstatedDisplayFields(params.food))
 
   return food ? {path: 'add', food} : null
 }

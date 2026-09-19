@@ -17,7 +17,7 @@ import RunIcon from '@components/icons/RunIcon'
 import Screens from '@constants/screens'
 import {MACROS_TITLE, PROGRESS_TITLE, WORKOUTS_TITLE} from '@constants/strings'
 
-import styles from './HomeTabs.styled'
+import styles, {tabBarHiddenStyle, tabBarVisibleStyle} from './HomeTabs.styled'
 import MacrosStack from './MacrosStack'
 import ProgressStack from './ProgressStack'
 import RunsStack from './RunsStack'
@@ -94,7 +94,7 @@ const HomeTabs = (): React.JSX.Element => {
           tabBarActiveTintColor: Theme.colors.accentGreen,
           tabBarInactiveTintColor: Theme.colors.textFaint,
           tabBarLabelStyle: styles.tabBarLabel,
-          tabBarStyle: [styles.tabBar, hideTabBar ? styles.tabBarHidden : styles.tabBarVisible]
+          tabBarStyle: hideTabBar ? tabBarHiddenStyle : tabBarVisibleStyle
         }
       }}>
       <Tab.Screen name={'MacrosStack'} component={MacrosStack} options={{title: MACROS_TITLE}} />

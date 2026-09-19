@@ -15,8 +15,17 @@ interface RecordedMarker {
   [RECORDED_FLAG]?: boolean
 }
 
+// The flag is an OWN property this module wrote with `Object.defineProperty` below, so a flag reached through
+// a prototype is by definition not one of ours. Reading it as a plain member would resolve the chain, and a
+// single polluted `Object.prototype.__sohRecorded` would then make every error look already reported and
+// silence every crash report this app makes. `Object.prototype.hasOwnProperty.call` rather than
+// `error.hasOwnProperty(...)`: the argument is an untrusted rejected value that may shadow or lack that
+// method. Same guard, same reason as `TextUtility.hasOwnEntry`.
 const isRecorded = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null && (error as RecordedMarker)[RECORDED_FLAG] === true
+  typeof error === 'object' &&
+  error !== null &&
+  Object.prototype.hasOwnProperty.call(error, RECORDED_FLAG) &&
+  (error as RecordedMarker)[RECORDED_FLAG] === true
 
 const markRecorded = (error: unknown): void => {
   if (typeof error !== 'object' || error === null) {

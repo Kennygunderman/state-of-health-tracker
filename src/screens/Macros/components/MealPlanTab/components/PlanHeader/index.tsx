@@ -4,6 +4,7 @@ import {TouchableOpacity, View} from 'react-native'
 
 import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
+import {composeAccessibleName} from '@utility/AccessibilityUtility'
 
 import GroceryCartIcon from '@components/icons/GroceryCartIcon'
 import SectionOverline from '@components/SectionOverline'
@@ -21,7 +22,15 @@ interface Props {
 const PlanHeader = ({rangeText, onGroceryPressed}: Props): React.JSX.Element => {
   return (
     <View style={styles.row}>
-      <View style={styles.titleBlock}>
+      {/* One element for the eyebrow and the title it heads, so the week the plan covers is spoken with the
+          title rather than as a stop of its own — and named explicitly, because the segment below this header
+          also announces "Meal Plan" and two stops of that name are indistinguishable by rotor or by swipe. The
+          grocery button stays outside this group: it is a control, and grouping it here would swallow it. */}
+      <View
+        style={styles.titleBlock}
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={composeAccessibleName([rangeText, MEAL_PLAN_TITLE])}>
         <SectionOverline text={rangeText} tone="green" />
 
         <Text style={styles.title}>{MEAL_PLAN_TITLE}</Text>

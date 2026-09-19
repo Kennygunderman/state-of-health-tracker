@@ -1,10 +1,9 @@
-import React, {useEffect} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 
-import {ScrollView, useWindowDimensions, View} from 'react-native'
+import {AccessibilityInfo, ScrollView, useWindowDimensions, View} from 'react-native'
 
 import {Opacity} from '@styles/sizes'
 import Spacing from '@styles/spacing'
-import {Theme} from '@styles/theme'
 import * as Haptics from 'expo-haptics'
 import Modal from 'react-native-modal'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
@@ -15,6 +14,8 @@ import StatusBadgeCircle from '@components/StatusBadgeCircle'
 import SummaryRows, {SummaryRow} from '@components/SummaryRows'
 import TertiaryTextButton from '@components/TertiaryTextButton'
 import Text from '@components/Text'
+
+import {STATUS_ANNOUNCEMENT_TEMPLATE, stringWithNamedParameters} from '@constants/strings'
 
 import styles, {cardMaxHeight} from './index.styled'
 
@@ -69,12 +70,41 @@ const PlanConfirmDialog = (props: Props): React.JSX.Element => {
   // engages only under scaled text. Both actions sit outside the scroll region so they stay
   // reachable at that point, which also keeps the confirm button's glow clear of the viewport.
   const availableCardHeight = windowHeight - insets.top - insets.bottom - Spacing.GUTTER * 2
+  const [heading, setHeading] = useState<View | null>(null)
+  const hasAnnouncedRef = useRef(false)
+  // The title and the body are two text nodes, and read as two unrelated fragments, so the pair is
+  // spoken as one sentence. Announced on both platforms rather than iOS only, as elsewhere in this
+  // feature: there is no live region here to carry it on Android, because the card mounts complete
+  // and nothing about it afterwards changes for a region to report.
+  const announcement = stringWithNamedParameters(STATUS_ANNOUNCEMENT_TEMPLATE, {title, body})
 
   useEffect(() => {
     if (isVisible) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     }
   }, [isVisible])
+
+  useEffect(() => {
+    if (!isVisible) {
+      hasAnnouncedRef.current = false
+
+      return
+    }
+
+    // The heading mounts a commit later than isVisible turns true — react-native-modal holds its
+    // content back until its own show state settles — so the heading arriving is what opens this,
+    // not the prop. Once per open: the dialog is re-rendered by every pending and notice change,
+    // and none of those is the dialog opening again.
+    if (heading === null || hasAnnouncedRef.current) {
+      return
+    }
+
+    hasAnnouncedRef.current = true
+    AccessibilityInfo.announceForAccessibility(announcement)
+    // Focus lands on the heading, so the body is the next swipe and the announcement is not the only
+    // way the dialog's reason reaches a screen reader.
+    AccessibilityInfo.sendAccessibilityEvent(heading, 'focus')
+  }, [announcement, heading, isVisible])
 
   return (
     <Modal
@@ -90,7 +120,15 @@ const PlanConfirmDialog = (props: Props): React.JSX.Element => {
       animationOut="fadeOut"
       animationInTiming={300}
       animationOutTiming={100}
-      backdropColor={Theme.colors.overlayBackdrop}
+      // Supplying a backdrop replaces the TouchableWithoutFeedback react-native-modal wraps its own
+      // in, which is a nameless, roleless, full-screen reading stop in front of the dialog for
+      // assistive technology; ours is hidden from it outright. The library paints its own wrapper
+      // transparent as soon as a custom backdrop is given, so backdropColor would be inert and the
+      // scrim colour moves to the stylesheet — backdropOpacity still animates that wrapper, so the
+      // composed rgba(0,0,0,0.62) is unchanged.
+      customBackdrop={
+        <View style={styles.backdrop} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+      }
       backdropOpacity={Opacity.SCRIM}
       isVisible={isVisible}
       // onBackdropPress is deliberately not wired, unlike ConfirmModal: the design draws no
@@ -102,7 +140,9 @@ const PlanConfirmDialog = (props: Props): React.JSX.Element => {
           <ScrollView style={styles.scrollRegion} alwaysBounceVertical={false}>
             <StatusBadgeCircle variant="dialog" />
 
-            <Text style={styles.title}>{title}</Text>
+            <View accessible accessibilityRole="header" ref={setHeading}>
+              <Text style={styles.title}>{title}</Text>
+            </View>
 
             <Text style={styles.body}>{body}</Text>
 

@@ -645,7 +645,9 @@ const PlanSettingsScreen = (): React.JSX.Element => {
               <Text style={styles.backLabel}>{MEAL_PLAN_TITLE}</Text>
             </View>
 
-            <Text style={styles.title}>{PLAN_SETTINGS_TITLE}</Text>
+            <Text style={styles.title} accessibilityRole="header">
+              {PLAN_SETTINGS_TITLE}
+            </Text>
 
             {banner !== null && (
               // Announced as an alert here rather than inside InfoBanner, which serves ten frames in tones that

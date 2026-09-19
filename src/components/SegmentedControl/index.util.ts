@@ -4,14 +4,15 @@ export type SegmentedControlVariant = 'large' | 'small' | 'unit'
 
 /**
  * The segments divide what the track's leading and trailing insets leave behind.
- * Returns 0 while the track is unmeasured (before onLayout) or has no segments to divide.
+ * Returns 0 while the track is unmeasured (before onLayout), has no segments to divide, or is
+ * narrower than the two insets it must give away.
  */
 export const segmentWidthFor = (trackWidth: number, optionCount: number, trackInset: number): number => {
   if (trackWidth <= 0 || optionCount <= 0) {
     return 0
   }
 
-  return (trackWidth - trackInset - trackInset) / optionCount
+  return Math.max(0, (trackWidth - trackInset - trackInset) / optionCount)
 }
 
 /**
@@ -50,4 +51,13 @@ export const optionBoxHeightFor = (segmentHeight: number, envelopeInset: number,
   return segmentHeight + inset + inset
 }
 
-export const isFlexSegments = (variant: SegmentedControlVariant): boolean => variant === 'large'
+export const isFlexSegments = (variant: SegmentedControlVariant | undefined): boolean =>
+  (variant ?? 'large') === 'large'
+
+/**
+ * Keyed on the variant's presence rather than its value: the feature's Figma-authored controls
+ * declare a variant and require single-line labels that scale down inside their fixed track
+ * (AAP 0.2.3, 0.7.4), while a caller that declares none is the generic pre-feature control whose
+ * rendering AAP 0.6.2 requires to be unchanged — its labels wrap.
+ */
+export const usesFixedLabelLayout = (variant: SegmentedControlVariant | undefined): boolean => variant !== undefined

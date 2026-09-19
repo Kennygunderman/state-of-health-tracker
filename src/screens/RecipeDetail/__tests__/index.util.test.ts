@@ -5,6 +5,7 @@ import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {DisplayedIngredient} from '@utility/ServingsUtility'
 
 import RecipeRow from '../components/RecipeRow'
+import {placeholderWidth} from '../index.styled'
 import {
   buildContextPillText,
   buildMetricGridItems,
@@ -162,7 +163,7 @@ describe('resolveDisplayedIngredients', () => {
     it('multiplies the per-serving share by the planned portion multiplier', () => {
       const displayed = resolveDisplayedIngredients([ingredient({quantity: 3})], 'portion', 2, 4)
 
-      expect(displayed[0].quantityText).toBe('1½ cup')
+      expect(displayed[0].quantityText).toBe('1½ cups')
     })
 
     it('leaves the full-recipe amount alone whatever the portion multiplier and yield are', () => {
@@ -176,11 +177,14 @@ describe('resolveDisplayedIngredients', () => {
 
   describe('quantity formatting', () => {
     it('renders each fraction stop as its glyph', () => {
-      const quarter = resolveDisplayedIngredients([ingredient({quantity: 1, unit: ''})], 'portion', 1, 4)
-      const third = resolveDisplayedIngredients([ingredient({quantity: 1, unit: ''})], 'portion', 1, 3)
-      const half = resolveDisplayedIngredients([ingredient({quantity: 1, unit: ''})], 'portion', 1, 2)
-      const twoThirds = resolveDisplayedIngredients([ingredient({quantity: 1.32, unit: ''})], 'portion', 1, 2)
-      const threeQuarters = resolveDisplayedIngredients([ingredient({quantity: 1.5, unit: ''})], 'portion', 1, 2)
+      // Each row here is a bare count, so it carries no published text naming a unit; a row whose
+      // stored columns and published text disagree would have the text's phrasing carried forward.
+      const counted = {unit: '', displayText: ''}
+      const quarter = resolveDisplayedIngredients([ingredient({quantity: 1, ...counted})], 'portion', 1, 4)
+      const third = resolveDisplayedIngredients([ingredient({quantity: 1, ...counted})], 'portion', 1, 3)
+      const half = resolveDisplayedIngredients([ingredient({quantity: 1, ...counted})], 'portion', 1, 2)
+      const twoThirds = resolveDisplayedIngredients([ingredient({quantity: 1.32, ...counted})], 'portion', 1, 2)
+      const threeQuarters = resolveDisplayedIngredients([ingredient({quantity: 1.5, ...counted})], 'portion', 1, 2)
 
       expect([quarter, third, half, twoThirds, threeQuarters].map(([item]) => item.quantityText)).toEqual([
         '¼',
@@ -192,19 +196,21 @@ describe('resolveDisplayedIngredients', () => {
     })
 
     it('renders a whole amount without a fraction glyph', () => {
-      expect(resolveDisplayedIngredients([ingredient({quantity: 2})], 'full', 1, 1)[0].quantityText).toBe('2 cup')
+      // Scaled rather than whole-recipe, so the amount is re-derived instead of read from the
+      // recipe's own published text.
+      expect(resolveDisplayedIngredients([ingredient({quantity: 4})], 'portion', 1, 2)[0].quantityText).toBe('2 cups')
     })
 
     it('combines the whole part with the fraction glyph', () => {
       expect(resolveDisplayedIngredients([ingredient({quantity: 1.5})], 'full', 1, 1)[0].quantityText).toBe('1½ cup')
     })
 
-    it('falls back to a decimal for an amount off the fraction ladder', () => {
-      const stored = resolveDisplayedIngredients([ingredient({quantity: 1.2})], 'full', 1, 1)
+    it('snaps an amount off the fraction ladder to the nearest stop rather than printing a decimal', () => {
+      const stored = resolveDisplayedIngredients([ingredient({quantity: 1.2, displayText: ''})], 'full', 1, 1)
       const scaled = resolveDisplayedIngredients([ingredient({quantity: 2})], 'portion', 1, 3)
 
-      expect(stored[0].quantityText).toBe('1.2 cup')
-      expect(scaled[0].quantityText).toBe('0.67 cup')
+      expect(stored[0].quantityText).toBe('1¼ cups')
+      expect(scaled[0].quantityText).toBe('⅔ cup')
     })
 
     it('appends the unit and leaves a unit-less count bare', () => {
@@ -216,13 +222,18 @@ describe('resolveDisplayedIngredients', () => {
     })
 
     it('treats a blank unit as unit-less', () => {
-      const displayed = resolveDisplayedIngredients([ingredient({quantity: 1, unit: '  '})], 'full', 1, 1)
+      const displayed = resolveDisplayedIngredients(
+        [ingredient({quantity: 2, unit: '  ', displayText: ''})],
+        'portion',
+        1,
+        2
+      )
 
       expect(displayed[0].quantityText).toBe('1')
     })
 
     it('renders a zero amount as 0', () => {
-      const measured = resolveDisplayedIngredients([ingredient({quantity: 0})], 'full', 1, 1)
+      const measured = resolveDisplayedIngredients([ingredient({quantity: 0, displayText: ''})], 'full', 1, 1)
       const counted = resolveDisplayedIngredients([ingredient({quantity: 0, unit: ''})], 'portion', 1, 2)
 
       expect(measured[0].quantityText).toBe('0 cup')
@@ -1329,5 +1340,68 @@ describe("the row's memo boundary", () => {
     pairs.forEach(([previous, next]) =>
       expect(boundary.compare?.({row: previous}, {row: next})).toBe(isSameRecipeRow(previous, next))
     )
+  })
+})
+
+describe('placeholderWidth', () => {
+  it('measures the loading placeholder at the content column width on a 375 px device', () => {
+    expect(placeholderWidth(375)).toBe(335)
+  })
+
+  it('measures it at 353 px at the 393 px reference width', () => {
+    expect(placeholderWidth(393)).toBe(353)
+  })
+
+  it('caps it at the 600 px tablet maximum', () => {
+    expect(placeholderWidth(1024)).toBe(560)
+  })
+
+  it('keeps the phone widths the frames are authored at', () => {
+    expect([320, 430, 834, 2048].map(placeholderWidth)).toEqual([280, 390, 560, 560])
+  })
+
+  describe('widths the gutters exhaust', () => {
+    it('collapses to zero rather than a negative width at a zero window', () => {
+      expect(placeholderWidth(0)).toBe(0)
+    })
+
+    it('collapses to zero for a negative window', () => {
+      expect(placeholderWidth(-1)).toBe(0)
+    })
+
+    it('collapses to zero once the gutters exceed the window', () => {
+      expect(placeholderWidth(2)).toBe(0)
+    })
+
+    it('returns zero at the window the gutters exactly consume', () => {
+      expect(placeholderWidth(40)).toBe(0)
+    })
+
+    it('returns the one pixel left over just past that window', () => {
+      expect(placeholderWidth(41)).toBe(1)
+    })
+
+    it('collapses to zero for a width that is not a number', () => {
+      expect(placeholderWidth(NaN)).toBe(0)
+    })
+
+    it('collapses to zero for a negatively infinite width', () => {
+      expect(placeholderWidth(-Infinity)).toBe(0)
+    })
+
+    it('caps a positively infinite width at the tablet maximum', () => {
+      expect(placeholderWidth(Infinity)).toBe(560)
+    })
+
+    it('is never negative and never non-finite across the whole range', () => {
+      const widths = [-Infinity, -1000, -1, 0, 0.5, 2, 39.5, 40, 41, 320, 393, 600, 1024, 2048, Infinity, NaN]
+
+      widths.forEach(width => {
+        const placeholder = placeholderWidth(width)
+
+        expect(Number.isFinite(placeholder)).toBe(true)
+        expect(placeholder).toBeGreaterThanOrEqual(0)
+      })
+    })
   })
 })

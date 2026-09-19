@@ -536,7 +536,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
       </View>
 
       <View style={styles.answersOverlineWrapper}>
-        <SectionOverline text={MEAL_PLAN_YOUR_ANSWERS_OVERLINE} />
+        <SectionOverline text={MEAL_PLAN_YOUR_ANSWERS_OVERLINE} isHeading />
       </View>
 
       <View style={styles.answersCardWrapper}>
@@ -561,7 +561,9 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
             <Text style={styles.headerLabel}>{MEAL_PLAN_REVIEW_HEADER_LABEL}</Text>
           </View>
 
-          <Text style={styles.headline}>{MEAL_PLAN_REVIEW_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_REVIEW_TITLE}
+          </Text>
 
           {readState.status === 'loading' && loadingBlock()}
 

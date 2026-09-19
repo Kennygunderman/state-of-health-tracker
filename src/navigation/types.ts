@@ -135,6 +135,17 @@ export type SwapPreviewRouteProp = RouteProp<RootStackParamList, 'Swap Preview'>
 
 export type GroceryListRouteProp = RouteProp<RootStackParamList, 'Grocery List'>
 
+/**
+ * The grocery list's own navigation prop, route-scoped where every other screen uses the generic `Navigation`.
+ *
+ * It is the one screen that rewrites its own params: a confirmed `stale_plan` / `plan_not_active` drops the
+ * plan pin with `setParams({planId: null})` so the refreshed current-plan answer decides what is shopped —
+ * which is also how the `planId: null` state AAP 0.7.4 assigns to frame 14c is reached. `setParams` is typed
+ * against the route's own params, so it needs the route named; the unscoped prop types it against the union of
+ * every route's params, where `{planId: null}` is not assignable.
+ */
+export type GroceryListNavigation = NativeStackNavigationProp<RootStackParamList, 'Grocery List'>
+
 export type LogPlannedMealRouteProp = RouteProp<RootStackParamList, 'Log Planned Meal'>
 
 export type PlanSettingsRouteProp = RouteProp<RootStackParamList, 'Plan Settings'>

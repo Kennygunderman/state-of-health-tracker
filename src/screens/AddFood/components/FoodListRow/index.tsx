@@ -38,11 +38,17 @@ const FoodListRow = ({name, detail, subtitle, calories, onPress, badge}: Props):
       onPress={onPress}>
       <View style={styles.textColumn}>
         <View style={styles.nameRow}>
-          <Text numberOfLines={1} style={styles.nameLine}>
-            <Text style={styles.name}>{name}</Text>
+          {/* The name and the serving are siblings rather than children of one capped Text, because a single
+              Text ellipsizes its whole string at the end — which made the serving, the row's only statement
+              of what the calories are for, the first thing a long catalog name pushed out. Each is capped on
+              its own and only the name may shrink, so the name is what truncates. */}
+          <View style={styles.nameGroup}>
+            <Text numberOfLines={1} style={styles.name}>
+              {name}
+            </Text>
 
-            {!!detail && <Text style={styles.detail}>{` · ${detail}`}</Text>}
-          </Text>
+            {!!detail && <Text numberOfLines={1} style={styles.detail}>{` · ${detail}`}</Text>}
+          </View>
 
           {badge && badgeVariant !== 'none' && <BadgePill label={badge.label} tone={badgeVariant} />}
         </View>

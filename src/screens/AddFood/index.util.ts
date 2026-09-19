@@ -2,21 +2,9 @@ import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood, CatalogNutritionBasis} from '@data/models/CatalogFood'
 import {CatalogSourcedFood, FoodSourceEnum, PersonalFood} from '@data/models/Food'
 import {SourcedNutritionProvenance} from '@data/models/NutritionProvenance'
-import {CATALOG_SEARCH_MAX_QUERY_LENGTH, CatalogSearchState} from '@utility/CatalogSearchStateUtility'
+import {CatalogSearchState} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
-
-/**
- * What the screen's one search field accepts, which is the catalog's bound because the catalog is the
- * strictest of the three searches that field drives.
- *
- * Capping all three at 60 costs nothing reachable: `/foods` and branded search declare no upper bound on
- * their query, and the longest personal food name the app can create is 30 characters
- * (`src/screens/CreateFood/index.tsx`), so no library row can need a longer term to be found by. The
- * catalog, by contrast, refuses a trimmed `q` above 60 with `400 invalid_request` — a request the field
- * must therefore be unable to produce.
- */
-export const ADD_FOOD_SEARCH_MAX_QUERY_LENGTH = CATALOG_SEARCH_MAX_QUERY_LENGTH
 
 // '1g P · 50g C · 3g F'
 export const formatMacroSummary = (protein: number, carbs: number, fat: number): string =>

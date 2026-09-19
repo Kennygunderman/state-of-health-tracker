@@ -189,6 +189,75 @@ export const isConfiguredApiOriginUrl = (url: string, configuredOrigin: string =
   return requested.scheme === expected.scheme && requested.host === expected.host && requested.port === expected.port
 }
 
+const WWW_LABEL_PREFIX = 'www.'
+
+const withoutWwwLabel = (host: string): string =>
+  host.startsWith(WWW_LABEL_PREFIX) ? host.slice(WWW_LABEL_PREFIX.length) : host
+
+// Full label sequences, never a suffix of characters: `host` must carry every
+// label of `parentHost` in order at its end and at least one label of its own,
+// so `api.example.com` is below `example.com` while `notexample.com` and
+// `example.com.evil.net` are below nothing.
+const isBelowHost = (host: string, parentHost: string): boolean => {
+  const labels = host.split('.')
+  const parentLabels = parentHost.split('.')
+  const offset = labels.length - parentLabels.length
+
+  return offset > 0 && parentLabels.every((label, index) => label === labels[offset + index])
+}
+
+// The rule is "same host, or below it" — deliberately not "same registrable
+// domain", which would need a public-suffix list to state and would make
+// `evil.co.uk` a match for `example.co.uk` if approximated by comparing the
+// last two labels. Comparing whole label sequences needs no such list.
+const isSameSiteHost = (host: string, configuredHost: string): boolean => {
+  if (host === configuredHost) {
+    return true
+  }
+
+  // The two spellings of loopback name one machine, so a development origin
+  // reached by the other one has not left it.
+  if (LOOPBACK_HOSTS.includes(host) && LOOPBACK_HOSTS.includes(configuredHost)) {
+    return true
+  }
+
+  // Either direction of the `www`/bare pair: the subdomain rule already covers a
+  // configured bare domain answering on `www`, and this covers the inverse.
+  return isBelowHost(host, configuredHost) || withoutWwwLabel(host) === withoutWwwLabel(configuredHost)
+}
+
+// The response-side companion to the origin predicate above, and a deliberately
+// weaker rule: scheme and port are ignored because they are exactly what a
+// legitimate redirect changes — http to https, a bare domain to `www`, a proxy
+// answering on another port — and holding a response to the configured origin
+// exactly would discard every byte such a deployment serves. What it still
+// refuses is a hop onto another site, which is the case worth refusing: a
+// foreign host's body must never be decoded as this app's data, and a foreign
+// host's 401 must never mint a fresh token. The parameterized origin mirrors the
+// predicate above for the same reason — `module:react-native-dotenv` inlines
+// SOH_API_BASE_URL at every reference site, so a test cannot drive these
+// branches by mocking `@env`.
+export const isConfiguredApiSiteUrl = (url: string, configuredOrigin: string = CONFIGURED_API_ORIGIN): boolean => {
+  const expected = parseRequestUrl(configuredOrigin)
+
+  // Inert rather than closed on an unreadable configured origin, exactly as
+  // above: there is no authority to compare against, and refusing an origin the
+  // platform accepts would fail every request a release build makes.
+  // Development and Jest cannot reach this branch — the preflight below throws
+  // at module load on an origin this cannot parse.
+  if (!expected) {
+    return true
+  }
+
+  const requested = parseRequestUrl(url)
+
+  if (!requested) {
+    return false
+  }
+
+  return isSameSiteHost(requested.host, expected.host)
+}
+
 const MALFORMED_ORIGIN_MESSAGE =
   'SOH_API_BASE_URL is not a bare http(s) origin. Expected http(s)://host[:port] with no path, credentials or query. The configured value is not logged.'
 

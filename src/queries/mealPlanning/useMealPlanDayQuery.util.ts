@@ -46,11 +46,37 @@ export const selectSeededMealPlanDay = (
 }
 
 /**
+ * The age the seeded entry is stamped with: none at all, so the entry is stale from the moment it is created
+ * and the day route is asked for the verdict the seed cannot carry.
+ *
+ * Zero rather than the source entry's own `dataUpdatedAt`, which is what this read used to carry. That stamp
+ * made a week cached inside the app-wide 60s `staleTime` mount as already fresh, so `GET .../days/:date` was
+ * never asked and `isWritable` stayed `null` for the whole visit — and a `null` verdict is what withholds Swap
+ * and Log (`arePlanActionsOffered`, `isWriteAllowedByVerdict`), leaving a fully rendered day with no actions
+ * and no request in flight to earn them. Tapping another day chip reproduced it exactly, because a new key
+ * gets a new seed. The seed's age was never the question: the entry is incomplete however recently its source
+ * was read, and a stamp of zero is how that is said to TanStack.
+ *
+ * It says it on every path at once, which a `refetchOnMount` would not: a mount, a day-chip key change, a
+ * focus and a reconnect all decide through `isStale`, and only a key change goes through `refetchOnMount`. The
+ * cost is one day read per plan and date per `staleTime` window, and nothing on a remount inside it.
+ *
+ * Zero survives being read: query-core coalesces this stamp with `??`, so an explicit zero is kept where a
+ * falsy-test would have replaced it with the current time. It is a constant rather than a function because
+ * nothing about the cache can change the answer — a seeded day always needs the route.
+ */
+const DISPLAY_ONLY_SEED_UPDATED_AT = 0
+
+/**
  * The options `useMealPlanDayQuery` hands to `useQuery`, for one plan day.
  *
- * `initialData` and `initialDataUpdatedAt` are FUNCTIONS, not values: they are re-evaluated per render against
- * the live cache, so a day that had no seed when the screen mounted picks one up as soon as the current-plan
- * read resolves, and neither reads the cache at build time.
+ * `initialData` is a FUNCTION, not a value: it is re-evaluated per render against the live cache, so a day that
+ * had no seed when the screen mounted picks one up as soon as the current-plan read resolves, and it never
+ * reads the cache at build time.
+ *
+ * The pair composes to "render now, ask anyway": the seed puts the cached week's day on screen immediately,
+ * and the stamp above keeps the entry stale so exactly one request resolves the writeability verdict the seed
+ * reports as unknown.
  */
 export const buildMealPlanDayQueryOptions = (
   queryClient: QueryClient,
@@ -65,9 +91,7 @@ export const buildMealPlanDayQueryOptions = (
   // because that verdict is computed in the user's saved zone and only the day route can answer it.
   initialData: () =>
     selectSeededMealPlanDay(queryClient.getQueryData<CurrentMealPlans>(queryKeys.mealPlanCurrent), planId, date),
-  // Stamped with the source entry's own dataUpdatedAt so the normal staleTime still decides the refetch: a
-  // plan restored from AsyncStorage hours ago would otherwise be treated as freshly fetched.
-  initialDataUpdatedAt: () => queryClient.getQueryState(queryKeys.mealPlanCurrent)?.dataUpdatedAt,
+  initialDataUpdatedAt: DISPLAY_ONLY_SEED_UPDATED_AT,
   // One retry for a lost or unexplained answer, none for an answer that disowns the plan: a replaced or ended
   // plan and a resource 404 return the same refusal however many times they are asked, and the recovery for
   // them is a current-plan refetch rather than another read of this day. Mirrors the targets read, which

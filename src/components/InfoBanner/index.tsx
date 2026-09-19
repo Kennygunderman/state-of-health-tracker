@@ -15,7 +15,13 @@ import WarningTriangleIcon from '@components/icons/WarningTriangleIcon'
 import Text from '@components/Text'
 
 import styles from './index.styled'
-import {composeStatusMessage, resolveStatusSemantics, StatusRole} from './index.util'
+import {
+  BannerGlyph,
+  composeStatusMessage,
+  resolveDefaultStatusRole,
+  resolveStatusSemantics,
+  StatusRole
+} from './index.util'
 
 const LINK_ACTION_HIT_SLOP_V = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) / 2)
 
@@ -32,7 +38,7 @@ const DISC_VIEW_BOX = '0 0 20 20'
 
 interface Props {
   tone?: 'neutral' | 'success' | 'error'
-  glyph?: 'info' | 'tick' | 'disc' | 'warning' | 'alert'
+  glyph?: BannerGlyph
   title?: string
   body: string
   statusRole?: StatusRole
@@ -114,7 +120,9 @@ const InfoBanner = ({
       {isError ? <View style={styles.errorBodyWrapper}>{bodyElement}</View> : bodyElement}
     </>
   )
-  const statusSemantics = resolveStatusSemantics(statusRole)
+  // A glyph the plan draws only for news carries its own status semantics, so the announcement does not depend
+  // on the call site asking for it; an explicitly passed `statusRole` still decides.
+  const statusSemantics = resolveStatusSemantics(statusRole ?? resolveDefaultStatusRole(resolvedGlyph))
   const statusMessage = composeStatusMessage({title: drawnTitle, body})
   const announcedStatus = statusSemantics === null ? null : statusMessage
   const lastAnnouncedStatus = useRef<string | null>(null)

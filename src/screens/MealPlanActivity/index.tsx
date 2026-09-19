@@ -264,17 +264,21 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
         {/* The header scrolls with the body rather than pinning above it, so every answer and the footer
             stay reachable at the largest supported text sizes. */}
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Reopened from Plan settings' "Activity and pace" row this screen is one step on its own, so it
+              carries the back button alone: the segments and the "n of m" counter state setup-flow progress
+              the user is not making (0.7.4). */}
           <WizardHeader
             step={wizardSteps.indexOf('activity') + 1}
             totalSteps={wizardSteps.length}
             onBack={navigation.goBack}
+            isProgressVisible={params.mode !== 'edit'}
           />
 
           {/* The headline is the group's visible heading and, unlike the option list's wrapper, a real
               accessibility element: a `View` becomes one only with `accessible`, which here would collapse
               the four radios into a single node and hide them. So the error rides on the heading, where a
               screen reader can still reach it once the announcement has passed. */}
-          <Text style={styles.headline} accessibilityLabel={activityGroupAccessibilityLabel}>
+          <Text style={styles.headline} accessibilityRole="header" accessibilityLabel={activityGroupAccessibilityLabel}>
             {MEAL_PLAN_ACTIVITY_TITLE}
           </Text>
 

@@ -185,8 +185,8 @@ describe('buildCatalogLogPayload', () => {
   it('builds the portion text from the stored description, never from the amount-unit pair', () => {
     const food = makeCatalogFood({
       name: 'Strawberries, raw',
-      // The portion's amount and unit reconstruct as '0.5 cup', which is not what the catalog stores
-      // for this portion — sending it would be rejected as invalid_serving.
+      // The portion's amount and unit render as '½ cup', which is not what the catalog stores for this
+      // portion — sending the rendered text would be rejected as invalid_serving.
       servingAmount: 0.5,
       servingUnit: 'cup',
       catalogServingDescription: '1 cup, halves',
@@ -198,8 +198,9 @@ describe('buildCatalogLogPayload', () => {
 
     const payload = buildCatalogLogPayload(food, 1)
 
-    expect(formatServingText(food)).toBe('0.5 cup')
+    expect(formatServingText(food)).toBe('½ cup')
     expect(payload.servingText).toBe('1 cup, halves')
+    expect(Object.values(payload)).not.toContain('½ cup')
     expect(Object.values(payload)).not.toContain('0.5 cup')
   })
 
@@ -224,8 +225,10 @@ describe('buildCatalogLogPayload', () => {
   })
 })
 
-// The two Food model helpers below are asserted here rather than beside the model: this screen is their only
-// consumer, and index.tsx is a component with no suite of its own.
+// `isCatalogFood` is asserted here because this screen branches its whole add path on it (a catalog food is
+// logged by id, a personal one by its macros) and index.tsx is a component with no suite of its own. The
+// model's own suite is `src/data/models/__tests__/Food.test.ts`, which is where `formatServingText` — read by
+// Add Food's rows as well as this screen's subtitle — is covered.
 const makeManualFood = (overrides: Partial<PersonalFood> = {}): PersonalFood => ({
   id: 'food-2',
   name: 'Overnight oats',
@@ -238,18 +241,6 @@ const makeManualFood = (overrides: Partial<PersonalFood> = {}): PersonalFood => 
   brand: null,
   source: FoodSourceEnum.MANUAL,
   ...overrides
-})
-
-describe('formatServingText', () => {
-  it('counts servings when the food carries no unit', () => {
-    expect(formatServingText(makeManualFood({servingAmount: 1, servingUnit: null}))).toBe('1 serving')
-    expect(formatServingText(makeManualFood({servingAmount: 2, servingUnit: null}))).toBe('2 servings')
-    expect(formatServingText(makeManualFood({servingAmount: 0.5, servingUnit: null}))).toBe('0.5 servings')
-  })
-
-  it('reads a blank unit as no unit, so a serving never renders with a trailing space', () => {
-    expect(formatServingText(makeManualFood({servingAmount: 1, servingUnit: ''}))).toBe('1 serving')
-  })
 })
 
 describe('isCatalogFood', () => {
@@ -387,5 +378,87 @@ describe('resolveFoodDetailSource', () => {
     expect(resolveFoodDetailSource(addParams(undefined))).toBeNull()
     expect(resolveFoodDetailSource(addParams('food-1'))).toBeNull()
     expect(resolveFoodDetailSource(addParams([makePersonalFood()]))).toBeNull()
+  })
+
+  // brand and servingUnit are display-only and declared `string | null`, so a param that omits one states
+  // nothing rather than claiming something: the screen renders it as absent instead of refusing the food.
+  describe('unstated brand and serving unit', () => {
+    it('accepts a food that omits the brand, reading the unstated field as null', () => {
+      const {brand, ...withoutBrand} = makePersonalFood({brand: 'Chobani'})
+
+      expect(brand).toBe('Chobani')
+      expect('brand' in withoutBrand).toBe(false)
+      expect(resolveFoodDetailSource(addParams(withoutBrand))).toEqual({
+        path: 'add',
+        food: {...withoutBrand, brand: null}
+      })
+    })
+
+    it('accepts a food that omits the serving unit, so its servings still count as plain servings', () => {
+      const {servingUnit, ...withoutUnit} = makePersonalFood({servingAmount: 2, servingUnit: 'bowl'})
+      const source = resolveFoodDetailSource(addParams(withoutUnit))
+
+      expect(servingUnit).toBe('bowl')
+      expect(source).toEqual({path: 'add', food: {...withoutUnit, servingUnit: null}})
+      expect(source?.path === 'add' && formatServingText(source.food)).toBe('2 servings')
+    })
+
+    it('accepts a food that omits both display fields', () => {
+      const {brand, servingUnit, ...withoutEither} = makePersonalFood({brand: 'Chobani', servingUnit: 'bowl'})
+      const source = resolveFoodDetailSource(addParams(withoutEither))
+
+      expect([brand, servingUnit]).toEqual(['Chobani', 'bowl'])
+      expect(source).toEqual({path: 'add', food: {...withoutEither, brand: null, servingUnit: null}})
+      expect(source?.path === 'add' && formatDetailSubtitle(source.food.brand, null, 320, 'cal per serving')).toBe(
+        '320 cal per serving'
+      )
+    })
+
+    it('keeps a catalog food’s id, provenance and stored serving description when its brand is absent', () => {
+      const {brand, ...withoutBrand} = makeCatalogFood({
+        brand: 'Chobani',
+        catalogServingDescription: '1 cup, halves'
+      })
+      const source = resolveFoodDetailSource(addParams(withoutBrand))
+
+      expect(brand).toBe('Chobani')
+      expect(source).toEqual({path: 'add', food: {...withoutBrand, brand: null}})
+      expect(source?.path === 'add' && source.food.source).toBe(FoodSourceEnum.CATALOG)
+      expect(source?.path === 'add' && source.food.catalogFoodId).toBe('catalog-food-1')
+      expect(source?.path === 'add' && source.food.nutritionProvenance).toBe('source_backed')
+      expect(source?.path === 'add' && source.food.catalogServingDescription).toBe('1 cup, halves')
+    })
+
+    it('treats an explicitly undefined display field exactly as an absent one', () => {
+      const source = resolveFoodDetailSource(addParams({...makePersonalFood(), brand: undefined}))
+
+      expect(source?.path === 'add' && source.food.brand).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...makePersonalFood(), servingUnit: undefined}))).toEqual(
+        resolveFoodDetailSource(addParams({...makePersonalFood(), servingUnit: null}))
+      )
+    })
+
+    it('still refuses a display field that is present and not a string, which is a param this client cannot read', () => {
+      expect(resolveFoodDetailSource(addParams({...makePersonalFood(), brand: 42}))).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...makePersonalFood(), servingUnit: 42}))).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...makeCatalogFood(), brand: 42}))).toBeNull()
+    })
+
+    it('still refuses a personal food that omits the brand and carries a catalog member', () => {
+      const {brand, ...withoutBrand} = makePersonalFood()
+
+      expect(brand).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...withoutBrand, catalogFoodId: 'catalog-food-9'}))).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...withoutBrand, nutritionProvenance: 'source_backed'}))).toBeNull()
+      expect(resolveFoodDetailSource(addParams({...withoutBrand, catalogServingDescription: '4 oz'}))).toBeNull()
+    })
+
+    it('leaves the update path untouched, which carries an entry rather than a food to default', () => {
+      const entry = makeEntry()
+      const source = resolveFoodDetailSource({path: 'update', mealId: 'meal-1', mealName: 'Breakfast', entry})
+
+      expect(source).toEqual({path: 'update', entry})
+      expect(source?.path === 'update' && source.entry).toBe(entry)
+    })
   })
 })

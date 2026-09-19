@@ -1,16 +1,11 @@
 import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {FoodSourceEnum, formatServingText} from '@data/models/Food'
-import {
-  CATALOG_SEARCH_MAX_QUERY_LENGTH,
-  isCatalogQuerySearchable,
-  resolveCatalogSearchState
-} from '@utility/CatalogSearchStateUtility'
+import {resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
 import {
-  ADD_FOOD_SEARCH_MAX_QUERY_LENGTH,
   CATALOG_SKELETON_ROWS,
   catalogProvenanceBadge,
   catalogServingPresentation,
@@ -54,22 +49,6 @@ const makeCatalogFood = (overrides: Partial<CatalogFood> = {}): CatalogFood => (
   allergenStatus: 'known',
   foodGroup: 'rice',
   ...overrides
-})
-
-// The field drives three searches and takes the strictest of their bounds, so this is the catalog's bound
-// rather than a length the screen chose for itself.
-describe('ADD_FOOD_SEARCH_MAX_QUERY_LENGTH', () => {
-  it('is the catalog search bound the server enforces', () => {
-    expect(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH).toBe(CATALOG_SEARCH_MAX_QUERY_LENGTH)
-  })
-
-  it('is sixty characters', () => {
-    expect(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH).toBe(60)
-  })
-
-  it('accepts what it caps the field at, so a full-length field cannot produce a refused request', () => {
-    expect(isCatalogQuerySearchable('c'.repeat(ADD_FOOD_SEARCH_MAX_QUERY_LENGTH))).toBe(true)
-  })
 })
 
 describe('formatMacroSummary', () => {
@@ -359,6 +338,52 @@ describe('mapCatalogFoodToFood', () => {
     })
 
     expect(mapCatalogFoodToFood(halfCup).catalogServingDescription).toBe('½ cup')
+  })
+
+  // The whole path a catalog row's serving text travels — response portion → mapped food → rendered detail —
+  // asserted with portions the shipped releases/v1 catalog actually holds. The amount takes the app's
+  // fraction glyphs, a unit that names nothing but counting is dropped, and any other unit word agrees with
+  // the amount; the portion's own gram weight is what the macros stay pinned to, so no amount is snapped.
+  describe('the serving text a catalog row renders', () => {
+    const portionRow = (amount: number, unit: string, gramWeight: number): CatalogFood =>
+      makeCatalogFood({defaultPortion: {description: `${String(amount)} ${unit}`, amount, unit, gramWeight}})
+
+    it.each([
+      [0.25, 'cup', 49, '¼ cup'],
+      [0.33, 'cup', 64, '⅓ cup'],
+      [0.5, 'cup', 98, '½ cup'],
+      [0.75, 'cup', 146, '¾ cup'],
+      [0.33, 'each', 40, '⅓'],
+      [10, 'each', 80, '10'],
+      [2, 'each', 100, '2'],
+      [1, 'whole', 180, '1'],
+      [3, 'pieces', 45, '3'],
+      [2, 'tablespoon', 30, '2 tablespoons'],
+      [60, 'milliliter', 60, '60 milliliters'],
+      [10, 'slices', 280, '10 slices'],
+      [3, 'oz', 85, '3 oz'],
+      [0.5, 'lb', 227, '½ lb'],
+      [1.33, 'tbsp', 20, '1⅓ tbsp'],
+      [6.75, 'fl oz', 200, '6¾ fl oz']
+    ])('renders the %p %s portion of %p g as %p', (amount, unit, gramWeight, expected) => {
+      expect(formatServingText(mapCatalogFoodToFood(portionRow(amount, unit, gramWeight)))).toBe(expected)
+    })
+
+    it('shows the formatted serving beside macros that still describe the stored gram weight', () => {
+      const quarterCup = mapCatalogFoodToFood(portionRow(0.25, 'cup', 49))
+
+      expect(formatServingText(quarterCup)).toBe('¼ cup')
+      expect(quarterCup.servingAmount).toBe(0.25)
+      expect(quarterCup.calories).toBe(Math.round(123 * (49 / 100)))
+    })
+
+    it('states no serving rather than a NaN one for a portion whose amount is unusable', () => {
+      const unusable = makeCatalogFood({
+        defaultPortion: {description: 'RACC', amount: Number.NaN, unit: 'cup', gramWeight: 195}
+      })
+
+      expect(formatServingText(mapCatalogFoodToFood(unusable))).toBe('')
+    })
   })
 })
 

@@ -22,7 +22,9 @@ interface Props {
   item: GroceryItem
   isFirst: boolean
   isPending: boolean
-  onToggle: () => void
+  // Takes the row back rather than closing over it, which is what lets the screen hand every row one reader:
+  // a per-item closure would be a new prop for every row on each of the three renders a toggle costs.
+  onToggle: (item: GroceryItem) => void
 }
 
 const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.Element => {
@@ -53,7 +55,7 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
       return
     }
 
-    onToggle()
+    onToggle(item)
   }
 
   return (
@@ -94,4 +96,8 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
   )
 }
 
-export default GroceryFlagRow
+/**
+ * Memoized for the same reason as the plain row: a toggle renders the screen three times over a checked card
+ * whose other rows are the same objects, and this row's body also composes three templated strings.
+ */
+export default React.memo(GroceryFlagRow)

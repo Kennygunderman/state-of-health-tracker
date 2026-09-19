@@ -9,11 +9,8 @@ import {useMealPlanEntitlement} from '@hooks/mealPlanning/useMealPlanEntitlement
 import {Navigation} from '@navigation/types'
 import {useDailyMacrosQuery} from '@queries/macros/useDailyMacrosQuery'
 import {useDeleteMealEntryMutation} from '@queries/macros/useDeleteMealEntryMutation'
-import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {resolveTargetAuthority} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
 import {useNavigation} from '@react-navigation/native'
 import {isLogWithAiEnabled} from '@service/remoteConfig/initRemoteConfig'
-import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore, {MacrosSegment} from '@store/mealPlan/useMealPlanStore'
 import {useSessionStore} from '@store/session/useSessionStore'
 import useUserDataStore from '@store/userData/useUserData'
@@ -38,7 +35,7 @@ import MacrosSkeleton from './components/MacrosSkeleton'
 import MealCard from './components/MealCard'
 import MealPlanTab from './components/MealPlanTab'
 import styles from './index.styled'
-import {resolveAuthoritativeMacroTargets, resolveMacrosBodyKey} from './index.util'
+import {resolveMacroTargets, resolveMacrosBodyKey} from './index.util'
 
 const listSwipeItemManager = new ListSwipeItemManager()
 
@@ -58,17 +55,8 @@ const MacrosScreen = () => {
   const fallbackTargetCalories = useUserDataStore(state => state.targetCalories)
   const macrosSegment = useMealPlanStore(state => state.macrosSegment)
   const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
-  const isAuthed = useAuthStore(state => state.isAuthed)
 
   const {isSegmentedControlVisible} = useMealPlanEntitlement()
-
-  // No extra request: `useMealPlanEntitlement` above already observes this key, so this is a second observer of
-  // the same cache entry. The authority is resolved here, not in the card, because the local target and the
-  // macros answer's own figure are both in hand here; the card reads the same decision from the same query for
-  // its editor routing, so the figure it displays and the editor it opens cannot disagree.
-  const nutritionTargetsRead = useNutritionTargetsQuery()
-
-  const targetAuthority = resolveTargetAuthority({read: nutritionTargetsRead, isAuthed})
 
   const {mutateAsync: deleteMealEntry} = useDeleteMealEntryMutation(dateIso)
 
@@ -134,7 +122,10 @@ const MacrosScreen = () => {
     )
 
   const renderDay = (day: DailyMacros) => {
-    const targets = resolveAuthoritativeMacroTargets(targetAuthority, day.targets, fallbackTargetCalories)
+    // The day's own answer carries the user's targets, and it is what the ring reads (AAP 0.1.3): the same
+    // `users.target_*` columns the canonical targets read resolves, delivered with the totals they are compared
+    // against, so the ring can never show a target from a different fetch than the consumption beside it.
+    const targets = resolveMacroTargets(day.targets, fallbackTargetCalories)
 
     listSwipeItemManager.setRows(day.meals)
 

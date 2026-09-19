@@ -26,6 +26,7 @@ import {
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
+import {placeholderCardWidth, placeholderWidth} from '../index.styled'
 import {
   buildSwapMacroLegend,
   buildThisMealMetrics,
@@ -1156,17 +1157,21 @@ describe('resolvePreviewIngredients', () => {
     it('applies the multiplier and the yield together when both differ from one', () => {
       const rows = resolvePreviewIngredients([makeIngredient({quantity: 6, unit: 'cup'})], 1.5, 4)
 
-      expect(rows[0].quantityText).toBe('2¼ cup')
+      expect(rows[0].quantityText).toBe('2¼ cups')
     })
 
     it('scales a portion larger than one serving upwards', () => {
-      const rows = resolvePreviewIngredients([makeIngredient({quantity: 4, unit: 'tbsp'})], 2, 2)
+      // A multiplier above the yield is the only way this row scales up: two servings of a
+      // one-serving recipe doubles the stored amount.
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 2, unit: 'tbsp'})], 2, 1)
 
       expect(rows[0].quantityText).toBe('4 tbsp')
     })
 
     it('leaves a single-serving recipe at its stored amount when the portion is one serving', () => {
-      const rows = resolvePreviewIngredients([makeIngredient({quantity: 3, unit: 'oz'})], 1, 1)
+      // One serving of a one-serving recipe is the whole recipe, so the row keeps the amount the
+      // recipe was published with rather than a re-derived one.
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 3, unit: 'oz', displayText: '3 oz'})], 1, 1)
 
       expect(rows[0].quantityText).toBe('3 oz')
     })
@@ -1214,19 +1219,23 @@ describe('resolvePreviewIngredients', () => {
 
   describe('a yield or multiplier that cannot divide', () => {
     it('falls back to the stored whole-recipe amount for a zero yield', () => {
-      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, 0)
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz', displayText: '10 oz'})], 1, 0)
 
       expect(rows[0].quantityText).toBe('10 oz')
     })
 
     it('falls back to the stored whole-recipe amount for a multiplier that never arrived as a number', () => {
-      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], Number.NaN, 2)
+      const rows = resolvePreviewIngredients(
+        [makeIngredient({quantity: 10, unit: 'oz', displayText: '10 oz'})],
+        Number.NaN,
+        2
+      )
 
       expect(rows[0].quantityText).toBe('10 oz')
     })
 
     it('renders neither an infinity nor a NaN amount for a negative yield', () => {
-      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz'})], 1, -2)
+      const rows = resolvePreviewIngredients([makeIngredient({quantity: 10, unit: 'oz', displayText: '10 oz'})], 1, -2)
 
       expect(rows[0].quantityText).toBe('10 oz')
       expect(rows[0].quantityText).not.toContain('Infinity')
@@ -1342,6 +1351,136 @@ describe('resolvePreviewIngredients', () => {
       resolvePreviewIngredients(ingredients, 1, 2)
 
       expect(JSON.stringify(ingredients)).toBe(snapshot)
+    })
+  })
+})
+
+describe('placeholderWidth', () => {
+  it('measures the loading placeholder at 353 px at the 393 px reference width', () => {
+    expect(placeholderWidth(393)).toBe(353)
+  })
+
+  it('caps it at the 600 px tablet maximum', () => {
+    expect(placeholderWidth(1024)).toBe(560)
+  })
+
+  it('keeps the phone widths the frames are authored at', () => {
+    expect([320, 375, 430, 834, 2048].map(placeholderWidth)).toEqual([280, 335, 390, 560, 560])
+  })
+
+  describe('widths the gutters exhaust', () => {
+    it('collapses to zero rather than a negative width at a zero window', () => {
+      expect(placeholderWidth(0)).toBe(0)
+    })
+
+    it('collapses to zero for a negative window', () => {
+      expect(placeholderWidth(-1)).toBe(0)
+    })
+
+    it('collapses to zero once the gutters exceed the window', () => {
+      expect(placeholderWidth(2)).toBe(0)
+    })
+
+    it('returns zero at the window the gutters exactly consume', () => {
+      expect(placeholderWidth(40)).toBe(0)
+    })
+
+    it('returns the one pixel left over just past that window', () => {
+      expect(placeholderWidth(41)).toBe(1)
+    })
+
+    it('collapses to zero for a width that is not a number', () => {
+      expect(placeholderWidth(NaN)).toBe(0)
+    })
+
+    it('collapses to zero for a negatively infinite width', () => {
+      expect(placeholderWidth(-Infinity)).toBe(0)
+    })
+
+    it('caps a positively infinite width at the tablet maximum', () => {
+      expect(placeholderWidth(Infinity)).toBe(560)
+    })
+
+    it('is never negative and never non-finite across the whole range', () => {
+      const widths = [-Infinity, -1000, -1, 0, 0.5, 2, 39.5, 40, 41, 320, 393, 600, 1024, 2048, Infinity, NaN]
+
+      widths.forEach(width => {
+        const placeholder = placeholderWidth(width)
+
+        expect(Number.isFinite(placeholder)).toBe(true)
+        expect(placeholder).toBeGreaterThanOrEqual(0)
+      })
+    })
+  })
+})
+
+describe('placeholderCardWidth', () => {
+  it('takes the card padding off the column at the 393 px reference width', () => {
+    expect(placeholderCardWidth(393)).toBe(321)
+  })
+
+  it('caps it at the tablet maximum less the card padding', () => {
+    expect(placeholderCardWidth(1024)).toBe(528)
+  })
+
+  it('keeps the phone widths the frames are authored at', () => {
+    expect([320, 375, 430, 834].map(placeholderCardWidth)).toEqual([248, 303, 358, 528])
+  })
+
+  it('stays inside the column it is nested in', () => {
+    ;[320, 375, 393, 430, 834, 1024].forEach(width =>
+      expect(placeholderCardWidth(width)).toBeLessThan(placeholderWidth(width))
+    )
+  })
+
+  describe('widths the gutters and the card padding exhaust', () => {
+    it('collapses to zero rather than a negative width at a zero window', () => {
+      expect(placeholderCardWidth(0)).toBe(0)
+    })
+
+    it('collapses to zero for a negative window', () => {
+      expect(placeholderCardWidth(-1)).toBe(0)
+    })
+
+    it('collapses to zero once the gutters exceed the window', () => {
+      expect(placeholderCardWidth(2)).toBe(0)
+    })
+
+    // The card padding eats a column the gutters have already reduced, so this clamp has to hold at widths
+    // where the column's own clamp does not fire: at 41 the column is a positive 1 px and the card is not.
+    it('collapses to zero where the column is already zero', () => {
+      expect([placeholderWidth(40), placeholderCardWidth(40)]).toEqual([0, 0])
+    })
+
+    it('collapses to zero where the column is still positive', () => {
+      expect([placeholderWidth(41), placeholderCardWidth(41)]).toEqual([1, 0])
+    })
+
+    it('returns the one pixel left over once both insets are cleared', () => {
+      expect(placeholderCardWidth(73)).toBe(1)
+    })
+
+    it('collapses to zero for a width that is not a number', () => {
+      expect(placeholderCardWidth(NaN)).toBe(0)
+    })
+
+    it('collapses to zero for a negatively infinite width', () => {
+      expect(placeholderCardWidth(-Infinity)).toBe(0)
+    })
+
+    it('caps a positively infinite width at the tablet maximum less the card padding', () => {
+      expect(placeholderCardWidth(Infinity)).toBe(528)
+    })
+
+    it('is never negative and never non-finite across the whole range', () => {
+      const widths = [-Infinity, -1000, -1, 0, 0.5, 2, 39.5, 40, 41, 72, 73, 320, 393, 1024, Infinity, NaN]
+
+      widths.forEach(width => {
+        const placeholder = placeholderCardWidth(width)
+
+        expect(Number.isFinite(placeholder)).toBe(true)
+        expect(placeholder).toBeGreaterThanOrEqual(0)
+      })
     })
   })
 })

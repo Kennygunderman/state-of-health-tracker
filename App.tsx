@@ -5,8 +5,8 @@ import {AppState, LogBox, StatusBar, TouchableOpacity} from 'react-native'
 import {Ionicons} from '@expo/vector-icons'
 import {
   discardForeignPersistedQueryCaches,
-  purgeLegacyQueryCache,
   queryClient,
+  resolveLegacyQueryCache,
   sessionCacheBindingFor
 } from '@queries/queryClient'
 import {NavigationContainer} from '@react-navigation/native'
@@ -33,22 +33,17 @@ const Stack = createNativeStackNavigator()
 
 LogBox.ignoreAllLogs(true)
 
+// The instant this launch began, read when the JS bundle loads — the same point `useSessionStore`
+// captures "today" at. It has to be this instant and not the one the auth listener fires at: it is what
+// decides whether the account Firebase publishes had already been signed in here *before* this launch,
+// and the listener runs after that restore, by which time the clock no longer answers that question.
+const launchedAtMs = Date.now()
+
 const App = (): React.JSX.Element => {
   const {isAuthed, userId} = useAuthStore()
 
   useEffect(() => {
     SplashScreen.hideAsync()
-  }, [])
-
-  // Earlier builds kept one device-wide cache blob. Nothing reads it now that a cache is keyed by
-  // account, so it belongs to whichever account signed in here last and leaves the device at the
-  // first launch after this change. A failure is reported as a fixed code, never thrown and never
-  // with the storage error itself: it must not be the reason the app fails to start, and a native
-  // storage rejection carries paths and module detail that do not belong in a device log.
-  useEffect(() => {
-    purgeLegacyQueryCache().catch(() => {
-      console.error('legacy_query_cache_purge_failed')
-    })
   }, [])
 
   // The partition of the account being replaced is removed as the account changes, but that removal
@@ -77,6 +72,25 @@ const App = (): React.JSX.Element => {
   useEffect(() => {
     const unsubscribe = authService.subscribeToAuthChanges(user => {
       useAuthStore.getState().syncAuthState(user)
+
+      // Earlier builds kept one device-wide cache blob, under a key nothing reads now that a cache is
+      // keyed by account. It is resolved here rather than in a mount effect because it cannot be
+      // resolved before an identity exists: the account that adopts it is the one Firebase publishes,
+      // and the syncAuthState call above is what commits that identity and opens its cache partition.
+      // Firebase does not call this listener until native has reported, so the first call already
+      // carries the restored session, or a settled null when there is none — and a launch with no
+      // session discards, which is also what closes the clock-skew path, because an account signing in
+      // for the first time here never finds the blob.
+      //
+      // A failure is reported as a fixed code, never thrown and never with the storage error itself: it
+      // must not be the reason the app fails to start, and a native storage rejection carries paths and
+      // module detail that do not belong in a device log.
+      resolveLegacyQueryCache(
+        {userId: user?.uid ?? null, lastSignInTime: user?.metadata?.lastSignInTime ?? null},
+        launchedAtMs
+      ).catch(() => {
+        console.error('legacy_query_cache_resolve_failed')
+      })
     })
 
     return unsubscribe

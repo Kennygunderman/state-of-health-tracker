@@ -96,6 +96,25 @@ export const MacroTargetsResponse = io.type({
   fat: NullableNumber
 })
 
+// nutritionProvenance names a server-owned vocabulary on an optional member, so it is decoded leniently
+// rather than strictly: a string of any value passes through for the converter to resolve with its named
+// fallback, and a value of any other shape is read as "no provenance" instead of failing the decode of the
+// whole day. One field the server changes the shape of must not cost an older client the user's diary.
+//
+// Failing on `undefined` is deliberate and load-bearing. io.partial validates every declared key with
+// `a[k]`, which is `undefined` for a key the payload never carried: a failure there is discarded and leaves
+// the key absent, while the output of a success is assigned whenever it differs from the input
+// [io-ts/lib/index.js:partial]. Answering `undefined` with success(null) would therefore materialise
+// `nutritionProvenance: null` on responses from a server that predates meal planning, turning an absent
+// member into a present one and reporting a provenance the server never sent.
+const LenientProvenanceString: io.Type<string | null> = new io.Type<string | null>(
+  'LenientProvenanceString',
+  (input): input is string | null => typeof input === 'string' || input === null,
+  (input, context) =>
+    input === undefined ? io.failure(input, context) : io.success(typeof input === 'string' ? input : null),
+  io.identity
+)
+
 export const MealEntryResponse = io.intersection([
   io.type({
     id: io.string,
@@ -112,10 +131,11 @@ export const MealEntryResponse = io.intersection([
     inputMethod: io.string,
     loggedAt: TimestampString
   }),
-  // null on legacy diary rows; absent when the server predates meal planning
+  // null on legacy diary rows; absent when the server predates meal planning. mealPlanMealId stays strict:
+  // it links a diary row to a planned meal, so a coerced null there would silently unlink a logged meal.
   io.partial({
     mealPlanMealId: NullableString,
-    nutritionProvenance: NullableString
+    nutritionProvenance: LenientProvenanceString
   })
 ])
 

@@ -16,8 +16,9 @@ export type CatalogSearchState = 'hidden' | 'idle' | 'rows' | 'loading' | 'error
 export const CATALOG_SEARCH_MIN_QUERY_LENGTH = 2
 
 /**
- * The longest query the catalog answers, and the bound both search fields cap their input at
- * (`CatalogSearchField`, and Add Food's `SearchBar` through `ADD_FOOD_SEARCH_MAX_QUERY_LENGTH`).
+ * The longest query the catalog answers: the bound the wizard's `CatalogSearchField` caps its input at, and
+ * the bound `searchCatalogFoods` cuts the trimmed `q` to for every caller — including Add Food, whose one
+ * search bar also drives two legacy searches that accept the shared 100 characters.
  */
 export const CATALOG_SEARCH_MAX_QUERY_LENGTH = 60
 

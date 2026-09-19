@@ -33,7 +33,11 @@ export default StyleSheet.create({
     textTransform: 'capitalize',
     color: Theme.colors.textSecondary
   },
+  // Capped and shrinkable so a long value wraps within its own half instead of collapsing the
+  // `flex: 1` label (basis 0) to zero -- the second line `textAlign: 'right'` already anticipates.
   value: {
+    flexShrink: 1,
+    maxWidth: '50%',
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.SEMIBOLD,
     textAlign: 'right',

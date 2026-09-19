@@ -1,13 +1,15 @@
 import {MealTimeEntry} from '@data/models/MealPlanPreferences'
 import {formatSlotTime} from '@utility/MealPlanDateUtility'
 
-import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT} from '@constants/strings'
+import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT, MEAL_PLAN_TIME_PICKER_PLACEHOLDER} from '@constants/strings'
 
 import {
   buildMealTimePickerItems,
   buildMealTimesPayload,
   mealSlotIconKey,
   mealSlotsForSchedule,
+  mealSlotsForScheduleCard,
+  mealTimePillLabel,
   PICKER_MINUTE_STEP,
   validateMealScheduleStep
 } from '../index.util'
@@ -36,6 +38,56 @@ describe('mealSlotsForSchedule', () => {
 
   it('derives no slots until the user has picked a schedule', () => {
     expect(mealSlotsForSchedule(null)).toEqual([])
+  })
+})
+
+describe('mealSlotsForScheduleCard', () => {
+  it('shows the three-meal day once that schedule is chosen', () => {
+    expect(mealSlotsForScheduleCard('three')).toEqual(['breakfast', 'lunch', 'dinner'])
+  })
+
+  it('adds the snack row when the snack schedule is chosen', () => {
+    expect(mealSlotsForScheduleCard('three_plus_snack')).toEqual(['breakfast', 'lunch', 'dinner', 'snack'])
+  })
+
+  // Frame 47:471 draws the "Usual times" card and the dashed snack placeholder on a screen with nothing
+  // selected, and AAP 0.7.4 opens the step that way, so the card has rows from first entry — otherwise the
+  // affordance that explains what the snack option adds only appears after the option has been picked.
+  it('shows the three main rows before any schedule is chosen, so the card is never empty', () => {
+    expect(mealSlotsForScheduleCard(null)).toEqual(['breakfast', 'lunch', 'dinner'])
+  })
+
+  it('leaves the snack out until it is chosen, which is what keeps the dashed placeholder on screen', () => {
+    expect(mealSlotsForScheduleCard(null)).not.toContain('snack')
+    expect(mealSlotsForScheduleCard('three')).not.toContain('snack')
+  })
+
+  // The unchosen state borrows the three-meal day's rows rather than naming its own list, so the two can
+  // never disagree about the main slots or their order.
+  it('renders the unchosen card exactly as the three-meal day', () => {
+    expect(mealSlotsForScheduleCard(null)).toEqual(mealSlotsForSchedule('three'))
+  })
+})
+
+describe('mealTimePillLabel', () => {
+  it('labels a seeded slot with the time, formatted as every other surface formats it', () => {
+    expect(mealTimePillLabel('08:00')).toBe(formatSlotTime('08:00'))
+    expect(mealTimePillLabel('18:30')).toBe(formatSlotTime('18:30'))
+  })
+
+  // An unseeded pill states the action it offers. Times are seeded only when a schedule is chosen, and AAP
+  // 0.1.2 forbids showing the mockup's times as answers the user already gave, so neither an empty pill nor
+  // a borrowed default is acceptable here.
+  it('labels a slot with no time yet with the picker placeholder', () => {
+    expect(mealTimePillLabel('')).toBe(MEAL_PLAN_TIME_PICKER_PLACEHOLDER)
+  })
+
+  it('treats a whitespace-only time as no time at all', () => {
+    expect(mealTimePillLabel('   ')).toBe(MEAL_PLAN_TIME_PICKER_PLACEHOLDER)
+  })
+
+  it('never renders an empty pill', () => {
+    expect(mealTimePillLabel('').trim().length).toBeGreaterThan(0)
   })
 })
 

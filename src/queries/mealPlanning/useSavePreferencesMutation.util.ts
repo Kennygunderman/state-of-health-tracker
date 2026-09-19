@@ -29,7 +29,8 @@ export function buildSavePreferencesMutationOptions(
     // first time and only its response was lost — and the screen's equality recovery then resolves silently
     // (0.7.2), with no other chance to refresh what the write changed. An unknown outcome may equally have
     // committed before the response was lost (0.2.5). Every other confirmed code (`invalid_request`,
-    // `read_only_field`, `feature_disabled`, …) means the server wrote nothing, so it touches no cache.
+    // whose `details[]` name the offending fields, `feature_disabled`, …) means the server wrote
+    // nothing, so it touches no cache.
     onError: error => {
       if (getApiErrorCode(error) === API_ERROR_CODES.staleRevision || isUnknownOutcome(error)) {
         applyPreferencesSaveCacheEffects(queryClient)

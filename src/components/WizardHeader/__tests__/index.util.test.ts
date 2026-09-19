@@ -5,7 +5,7 @@ import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 import styles from '../index.styled'
-import {filledSegmentCount} from '../index.util'
+import {filledSegmentCount, shouldRenderProgress} from '../index.util'
 
 // The progress bar has no width derivation of its own: `ProgressSegments` renders `total` segments
 // that each take `flex: 1` inside a `flex: 1` track and lets Yoga size them, which is the AAP's
@@ -190,6 +190,37 @@ describe('filledSegmentCount', () => {
 
     it('returns zero for a negative total', () => {
       expect(filledSegmentCount(3, -2)).toBe(0)
+    })
+  })
+})
+
+describe('shouldRenderProgress', () => {
+  describe('inside the setup flow', () => {
+    it('shows the progress on either route, at every step of it', () => {
+      WIZARD_STEPS.forEach(() => {
+        expect(shouldRenderProgress(true, ESTIMATED_ROUTE_STEPS)).toBe(true)
+        expect(shouldRenderProgress(true, MANUAL_ROUTE_STEPS)).toBe(true)
+      })
+    })
+  })
+
+  describe('a step reopened on its own', () => {
+    // Edit mode reopens one step from a Review or Plan settings row and returns to where it was opened
+    // from, so the user is not moving through a numbered flow and the header must not say they are — the
+    // segments and the counter are one claim and are refused together (AAP 0.7.4).
+    it('shows no progress however many steps the route has', () => {
+      expect(shouldRenderProgress(false, ESTIMATED_ROUTE_STEPS)).toBe(false)
+      expect(shouldRenderProgress(false, MANUAL_ROUTE_STEPS)).toBe(false)
+    })
+  })
+
+  describe('degenerate totals', () => {
+    it('shows no progress for a track with no segments, even when the flow asks for one', () => {
+      expect(shouldRenderProgress(true, 0)).toBe(false)
+    })
+
+    it('shows no progress for a negative total', () => {
+      expect(shouldRenderProgress(true, -2)).toBe(false)
     })
   })
 })

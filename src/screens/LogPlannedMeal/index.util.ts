@@ -45,6 +45,8 @@ import {
   CARBS_LABEL,
   FAT_LABEL,
   LOG_WEIGHT_TODAY_LABEL,
+  MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_SERVING_FRACTION_NAMES,
   MEAL_PLAN_STALE_PLAN_TOAST,
@@ -281,6 +283,22 @@ export function buildPlannedLogRequest(inputs: PlannedLogInputs): LogRequestSnap
 
 export function logDateStepperLabel(dayKey: string, now: Date): string {
   return dayKey === formatDayKey(now) ? LOG_WEIGHT_TODAY_LABEL : formatPlanDayLabel(dayKey)
+}
+
+/**
+ * The accessible name of one date-stepper arrow: its direction followed by the day it lands on.
+ *
+ * The target date alone cannot name these buttons. `stepLogDate` clamps to the plan week, so at either end
+ * the arrow's target is the day already displayed — the two arrows would then carry the same name, and the
+ * backward one would also repeat the visible date verbatim. Leading with the direction keeps both names
+ * distinct in every position and tells a reader what pressing does, matching the servings stepper's
+ * "Decrease servings" / "Increase servings" on this same screen.
+ */
+export function logDateStepAccessibilityLabel(dayKey: string, direction: 1 | -1, now: Date): string {
+  const template =
+    direction === 1 ? MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE : MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE
+
+  return stringWithNamedParameters(template, {date: logDateStepperLabel(dayKey, now)})
 }
 
 /**

@@ -40,6 +40,7 @@ const SecondaryButton = (props: Props): React.JSX.Element => {
   return (
     <TouchableOpacity
       accessibilityRole="button"
+      accessibilityLabel={label}
       accessibilityState={{disabled}}
       disabled={disabled}
       onPress={onPress}

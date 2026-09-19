@@ -3,9 +3,13 @@ import {AxiosError, AxiosResponse} from 'axios'
 
 import {
   API_ERROR_CODES,
+  API_ERROR_DETAIL_CODES,
+  apiErrorDetailFields,
   classifyOutcome,
   getApiErrorCode,
+  getApiErrorDetails,
   getApiErrorStatus,
+  hasApiErrorDetailCode,
   isConfirmedFeatureDisabledError,
   isConfirmedPlanStateError,
   isFeatureDisabledError,
@@ -35,6 +39,220 @@ describe('API_ERROR_CODES', () => {
 
     expect(noMatchingMealsStatus).toBe('no_matching_meals')
     expect(planGenerationFailedStatus).toBe('plan_generation_failed')
+  })
+
+  it('declares user_not_found, the answer an unprovisioned identity now receives instead of a 500', () => {
+    expect(API_ERROR_CODES.userNotFound).toBe('user_not_found')
+  })
+
+  // The separation is the fix, so the separation is what is pinned: a code that only ever appears inside a
+  // `details[]` entry must not sit in the map screens compare `getApiErrorCode` against, because the server
+  // never puts it in `error` and the comparison is therefore unreachable.
+  it('keeps the two vocabularies disjoint so no top-level comparison can name a details-only code', () => {
+    const topLevel = Object.values(API_ERROR_CODES)
+    const detailOnly = Object.values(API_ERROR_DETAIL_CODES)
+    const shared = topLevel.filter(code => (detailOnly as string[]).includes(code))
+
+    expect(shared).toEqual([])
+  })
+
+  it('carries read_only_field in the detail vocabulary only, never as a top-level code', () => {
+    expect(API_ERROR_DETAIL_CODES.readOnlyField).toBe('read_only_field')
+    expect(Object.values(API_ERROR_CODES)).not.toContain('read_only_field')
+  })
+})
+
+describe('API_ERROR_DETAIL_CODES', () => {
+  // One client vocabulary for the six server-side field-code maps. Each entry below is a string one of
+  // preferences.logic.ts / targets.logic.ts / plannedMealLog.logic.ts / mealPlan.logic.ts / swap.logic.ts /
+  // grocery.logic.ts / nutrition.logic.ts actually emits, so a drift on either side shows up here.
+  it.each([
+    ['required', 'required'],
+    ['invalidType', 'invalid_type'],
+    ['invalidId', 'invalid_id'],
+    ['invalidDate', 'invalid_date'],
+    ['invalidTime', 'invalid_time'],
+    ['invalidTimeZone', 'invalid_time_zone'],
+    ['invalidServings', 'invalid_servings'],
+    ['invalidCharacters', 'invalid_characters'],
+    ['notAnInteger', 'not_an_integer'],
+    ['belowMinimum', 'below_minimum'],
+    ['aboveMaximum', 'above_maximum'],
+    ['outOfRange', 'out_of_range'],
+    ['outsidePlanWeek', 'outside_plan_week'],
+    ['unknownValue', 'unknown_value'],
+    ['unknownStep', 'unknown_step'],
+    ['unknownField', 'unknown_field'],
+    ['readOnlyField', 'read_only_field'],
+    ['notAllowed', 'not_allowed'],
+    ['tooMany', 'too_many'],
+    ['mutuallyExclusive', 'mutually_exclusive'],
+    ['unsupportedCurrency', 'unsupported_currency'],
+    ['slotMismatch', 'slot_mismatch'],
+    ['notBelowCurrentWeight', 'not_below_current_weight'],
+    ['notAboveCurrentWeight', 'not_above_current_weight'],
+    ['conflictingFoodReference', 'conflicting_food_reference'],
+    ['unrecognizedPayload', 'unrecognized_payload']
+  ])('maps %s to the wire string %s', (key, wire) => {
+    expect(API_ERROR_DETAIL_CODES[key as keyof typeof API_ERROR_DETAIL_CODES]).toBe(wire)
+  })
+})
+
+describe('getApiErrorDetails', () => {
+  // The exact body PUT /meal-planning/preferences answers when the client sends a server-owned key, recorded
+  // from the running service: the top-level code says only "invalid_request", and everything that says which
+  // field and why lives in details[].
+  const READ_ONLY_FIELD_REFUSAL = {
+    response: {
+      status: 400,
+      data: {
+        error: API_ERROR_CODES.invalidRequest,
+        details: [
+          {field: 'setupStatus', code: API_ERROR_DETAIL_CODES.readOnlyField},
+          {field: 'timeZone', code: API_ERROR_DETAIL_CODES.required}
+        ]
+      }
+    }
+  }
+
+  it('extracts every field/code pair from a refusal, in the order the server listed them', () => {
+    expect(getApiErrorDetails(READ_ONLY_FIELD_REFUSAL)).toEqual([
+      {field: 'setupStatus', code: 'read_only_field'},
+      {field: 'timeZone', code: 'required'}
+    ])
+  })
+
+  it('recovers the reason getApiErrorCode alone cannot see', () => {
+    expect(getApiErrorCode(READ_ONLY_FIELD_REFUSAL)).toBe('invalid_request')
+    expect(getApiErrorDetails(READ_ONLY_FIELD_REFUSAL).map(detail => detail.code)).toContain('read_only_field')
+  })
+
+  it('returns an empty array when the body carries no details, so callers may iterate unconditionally', () => {
+    expect(getApiErrorDetails({response: {status: 409, data: {error: API_ERROR_CODES.stalePlan}}})).toEqual([])
+  })
+
+  it('returns an empty array for an error with no response payload at all', () => {
+    expect(getApiErrorDetails(new Error('network down'))).toEqual([])
+  })
+
+  it('returns an empty array for null and undefined', () => {
+    expect(getApiErrorDetails(null)).toEqual([])
+    expect(getApiErrorDetails(undefined)).toEqual([])
+  })
+
+  it('returns an empty array when details is present but not an array', () => {
+    expect(getApiErrorDetails({response: {data: {details: 'setupStatus is read only'}}})).toEqual([])
+    expect(getApiErrorDetails({response: {data: {details: {field: 'setupStatus', code: 'read_only_field'}}}})).toEqual(
+      []
+    )
+    expect(getApiErrorDetails({response: {data: {details: null}}})).toEqual([])
+  })
+
+  it('returns an empty array when the response body is not an object, the undecodable-proxy case', () => {
+    expect(getApiErrorDetails({response: {status: 502, data: '<html>Bad Gateway</html>'}})).toEqual([])
+  })
+
+  // Per entry rather than per array: a truncated or future-shaped payload should still yield the entries it
+  // does carry, because a partially-decodable refusal is more useful than none.
+  it('drops only the malformed entries and keeps the well-formed ones', () => {
+    const error = {
+      response: {
+        data: {
+          details: [
+            null,
+            undefined,
+            'setupStatus',
+            42,
+            {field: 'setupStatus'},
+            {code: 'read_only_field'},
+            {field: 7, code: 'read_only_field'},
+            {field: 'hasActivePlan', code: 9},
+            {field: 'revision', code: API_ERROR_DETAIL_CODES.readOnlyField, extra: 'ignored'}
+          ]
+        }
+      }
+    }
+
+    expect(getApiErrorDetails(error)).toEqual([{field: 'revision', code: 'read_only_field'}])
+  })
+
+  it('preserves an unrecognised detail code verbatim rather than discarding the entry', () => {
+    const error = {response: {data: {details: [{field: 'somethingNew', code: 'a_future_reason'}]}}}
+
+    expect(getApiErrorDetails(error)).toEqual([{field: 'somethingNew', code: 'a_future_reason'}])
+  })
+})
+
+describe('hasApiErrorDetailCode', () => {
+  const refusal = {
+    response: {
+      status: 400,
+      data: {
+        error: API_ERROR_CODES.invalidRequest,
+        details: [
+          {field: 'setupStatus', code: API_ERROR_DETAIL_CODES.readOnlyField},
+          {field: 'timeZone', code: API_ERROR_DETAIL_CODES.required}
+        ]
+      }
+    }
+  }
+
+  it('is true when any entry reports the code, whichever field it named', () => {
+    expect(hasApiErrorDetailCode(refusal, API_ERROR_DETAIL_CODES.readOnlyField)).toBe(true)
+    expect(hasApiErrorDetailCode(refusal, API_ERROR_DETAIL_CODES.required)).toBe(true)
+  })
+
+  it('is false for a code the refusal did not report', () => {
+    expect(hasApiErrorDetailCode(refusal, API_ERROR_DETAIL_CODES.outsidePlanWeek)).toBe(false)
+  })
+
+  it('is false when the error carries no details, and for a transport failure', () => {
+    expect(hasApiErrorDetailCode({response: {status: 409, data: {error: 'stale_plan'}}}, 'required')).toBe(false)
+    expect(hasApiErrorDetailCode(new Error('timeout'), 'required')).toBe(false)
+  })
+})
+
+describe('apiErrorDetailFields', () => {
+  it('returns every field one reason was reported against, in server order', () => {
+    const error = {
+      response: {
+        status: 400,
+        data: {
+          error: API_ERROR_CODES.invalidRequest,
+          details: [
+            {field: 'setupStatus', code: API_ERROR_DETAIL_CODES.readOnlyField},
+            {field: 'timeZone', code: API_ERROR_DETAIL_CODES.required},
+            {field: 'revision', code: API_ERROR_DETAIL_CODES.readOnlyField}
+          ]
+        }
+      }
+    }
+
+    expect(apiErrorDetailFields(error, API_ERROR_DETAIL_CODES.readOnlyField)).toEqual(['setupStatus', 'revision'])
+    expect(apiErrorDetailFields(error, API_ERROR_DETAIL_CODES.required)).toEqual(['timeZone'])
+  })
+
+  it('returns an empty array for a code the refusal did not report, and for a transport failure', () => {
+    const error = {response: {status: 400, data: {error: API_ERROR_CODES.invalidRequest, details: []}}}
+
+    expect(apiErrorDetailFields(error, API_ERROR_DETAIL_CODES.required)).toEqual([])
+    expect(apiErrorDetailFields(new Error('timeout'), API_ERROR_DETAIL_CODES.required)).toEqual([])
+  })
+
+  // The diary routes answer `{error: 'invalid_request', details: [{field: 'mealId', code: 'invalid_id'}]}`;
+  // the field name is the only part of that answer that says which id was rejected.
+  it('names the path parameter a malformed-id refusal rejected', () => {
+    const error = {
+      response: {
+        status: 400,
+        data: {
+          error: API_ERROR_CODES.invalidRequest,
+          details: [{field: 'mealId', code: API_ERROR_DETAIL_CODES.invalidId}]
+        }
+      }
+    }
+
+    expect(apiErrorDetailFields(error, API_ERROR_DETAIL_CODES.invalidId)).toEqual(['mealId'])
   })
 })
 
@@ -124,6 +342,33 @@ describe('classifyOutcome', () => {
       const error = {response: {status: 404, data: {error: 'Plan not found'}}}
 
       expect(classifyOutcome(error)).toBe('confirmed')
+    })
+
+    // The orphan-principal answer. It used to be a 500 whose body read `internal_error`, which is not a
+    // recognised 5xx failure code, so it classified as `unknown` — and per AAP 0.7.2 the four keyed
+    // mutations then spent their automatic same-key retry and drew the unconfirmed-outcome state over a
+    // permanent condition that had written nothing. As a 404 carrying a decodable code it is confirmed, so
+    // the retry never fires and the screen may state plainly that nothing changed.
+    it('classifies the 404 user_not_found of an unprovisioned identity as confirmed, never unknown', () => {
+      const error = {response: {status: 404, data: {error: API_ERROR_CODES.userNotFound}}}
+
+      expect(classifyOutcome(error)).toBe('confirmed')
+      expect(isUnknownOutcome(error)).toBe(false)
+    })
+
+    it('classifies the legacy family variant of the same condition as confirmed', () => {
+      const error = {response: {status: 404, data: {error: 'User not found'}}}
+
+      expect(classifyOutcome(error)).toBe('confirmed')
+      expect(isUnknownOutcome(error)).toBe(false)
+    })
+
+    // What the fix replaces, pinned so the regression is visible if the guard is ever removed.
+    it('classifies the 500 internal_error the guard replaces as unknown, the defect being closed', () => {
+      const error = {response: {status: 500, data: {error: 'internal_error'}}}
+
+      expect(classifyOutcome(error)).toBe('unknown')
+      expect(isUnknownOutcome(error)).toBe(true)
     })
 
     it('classifies a 503 carrying feature_disabled as confirmed', () => {

@@ -8,8 +8,12 @@ import {Theme} from '@styles/theme'
 
 // Figma places the hero back button 4px below the 50px status band it draws (y 54) — 4px higher than the
 // plain back rows elsewhere in the flow. That band is never drawn here, so the live inset replaces it.
-export const backButtonPosition = (topInset: number): ViewStyle => ({
-  top: topInset + Spacing.XX_SMALL
+// `layer` is the slot's stacking index, which the caller owns because it is not a design value and so has
+// no token to resolve against: it maps to nothing in Figma and only says that the slot, now the band's
+// first child, still paints above the content layer it precedes.
+export const backButtonPosition = (topInset: number, layer: number): ViewStyle => ({
+  top: topInset + Spacing.XX_SMALL,
+  zIndex: layer
 })
 
 export default StyleSheet.create({

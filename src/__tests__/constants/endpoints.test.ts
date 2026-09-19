@@ -6,6 +6,7 @@ import Endpoints, {
   assertNonProductionApiOrigin,
   CONFIGURED_API_ORIGIN,
   isConfiguredApiOriginUrl,
+  isConfiguredApiSiteUrl,
   isNonProductionApiOrigin,
   isOriginPreflightEnforced,
   PRODUCTION_API_FALLBACK_ORIGIN,
@@ -375,6 +376,164 @@ describe('isConfiguredApiOriginUrl', () => {
         expect(isConfiguredApiOriginUrl('http://localhost:3000/api/user', configuredOrigin)).toBe(true)
       }
     )
+  })
+})
+
+// The response-side rule, which is deliberately weaker than the origin rule above: a deployment that redirects
+// http to https, a bare domain to `www`, or through a proxy on another port never left the site, and the strict
+// origin comparison would discard every response it serves. The domain shapes are driven through an explicit
+// configured origin, because the one this bundle carries is a loopback host.
+describe('isConfiguredApiSiteUrl', () => {
+  const CONFIGURED_ORIGIN = 'http://localhost:3000'
+  const CONFIGURED_DOMAIN = 'https://example.com'
+
+  describe('the origin this bundle was configured with', () => {
+    it('accepts a final URL on that origin, path and query included', () => {
+      expect(isConfiguredApiSiteUrl(`${CONFIGURED_API_ORIGIN}/api/catalog/foods?q=rice&page=1&limit=25`)).toBe(true)
+      expect(isConfiguredApiSiteUrl(Endpoints.User)).toBe(true)
+      expect(isConfiguredApiSiteUrl(Endpoints.CatalogFoodSearch('chicken breast', 1, 25))).toBe(true)
+    })
+
+    it('rejects a production-fallback URL while a non-production origin is configured', () => {
+      expect(CONFIGURED_API_ORIGIN).not.toBe(PRODUCTION_API_FALLBACK_ORIGIN)
+      expect(isConfiguredApiSiteUrl(`${PRODUCTION_API_FALLBACK_ORIGIN}/api/user`)).toBe(false)
+    })
+  })
+
+  describe('a final URL differing from the configured origin only in scheme, port or loopback spelling', () => {
+    it.each([
+      `${CONFIGURED_ORIGIN}/api/user`,
+      CONFIGURED_ORIGIN,
+      'https://localhost:3000/api/user',
+      'https://localhost/api/user',
+      'http://localhost/api/user',
+      'http://localhost:8443/api/user',
+      'http://127.0.0.1:3000/api/user',
+      'http://127.0.0.1:8081/api/user',
+      'HTTPS://LOCALHOST:8443/api/user',
+      'http://localhost.:8443/api/user'
+    ])('accepts %s', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_ORIGIN)).toBe(true)
+    })
+
+    it('accepts either spelling of loopback whichever one is configured', () => {
+      expect(isConfiguredApiSiteUrl('http://localhost:3000/api/user', 'http://127.0.0.1:3000')).toBe(true)
+      expect(isConfiguredApiSiteUrl('http://127.0.0.1:3000/api/user', 'http://localhost:3000')).toBe(true)
+    })
+  })
+
+  describe('a host at or below the configured one', () => {
+    it.each([
+      `${CONFIGURED_DOMAIN}/api/user`,
+      'https://api.example.com/api/user',
+      'https://www.example.com/api/user',
+      'https://eu.api.example.com/api/user',
+      'http://api.example.com:8443/api/user'
+    ])('accepts %s against a configured example.com', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_DOMAIN)).toBe(true)
+    })
+
+    it('accepts the bare domain when the www form is configured, and the www form either way', () => {
+      expect(isConfiguredApiSiteUrl('https://example.com/api/user', 'https://www.example.com')).toBe(true)
+      expect(isConfiguredApiSiteUrl('https://www.example.com/api/user', 'https://www.example.com')).toBe(true)
+      expect(isConfiguredApiSiteUrl('https://www.example.com/api/user', 'https://example.com')).toBe(true)
+    })
+
+    it('accepts a subdomain under a multi-label public suffix', () => {
+      expect(isConfiguredApiSiteUrl('https://api.example.co.uk/api/user', 'https://example.co.uk')).toBe(true)
+    })
+  })
+
+  describe('a host that is neither the configured one nor below it', () => {
+    it.each([
+      'https://notexample.com/api/user',
+      'https://example.com.evil.net/api/user',
+      'https://example.com.evil.net:443/api/user',
+      'https://unrelated.org/api/user',
+      `${PRODUCTION_ORIGIN}/api/user`
+    ])('rejects %s against a configured example.com', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_DOMAIN)).toBe(false)
+    })
+
+    // The case a "compare the last two labels" shortcut would let through, which is why whole label sequences
+    // are compared and no public-suffix list is needed.
+    it('rejects a sibling domain under a multi-label public suffix', () => {
+      expect(isConfiguredApiSiteUrl('https://evil.co.uk/api/user', 'https://example.co.uk')).toBe(false)
+    })
+
+    it('rejects the parent of the configured host, because the rule is same host or below it', () => {
+      expect(isConfiguredApiSiteUrl('https://example.com/api/user', 'https://api.example.com')).toBe(false)
+    })
+
+    it('rejects a www sibling rather than every host sharing the configured tail', () => {
+      expect(isConfiguredApiSiteUrl('https://www.evil.com/api/user', 'https://www.example.com')).toBe(false)
+    })
+  })
+
+  describe('a final URL no transport on this stack can report', () => {
+    it.each([
+      '',
+      '   ',
+      'localhost:3000/api/user',
+      '//localhost:3000/api/user',
+      'ftp://localhost:3000/api/user',
+      'http://local host:3000/api/user',
+      'http://localhost:99999/api/user',
+      'http://[::1]:3000/api/user',
+      'http://localhost。stateofhealthapi.com:3000/api/user',
+      'http://localhost:3000/api/user\nHost: stateofhealthapi.com'
+    ])('rejects %j', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+
+    // Userinfo moves the host a URL parser resolves, so a final URL carrying any is refused rather than read.
+    it.each([
+      'http://user@localhost:3000/api/user',
+      `${BACKSLASH_USERINFO_ORIGIN}/api/user`,
+      'http://localhost:3000\\@stateofhealthapi.com/api/user',
+      'http://localhost:3000@stateofhealthapi.com/api/user',
+      'http://stateofhealthapi.com#@localhost:3000/api/user'
+    ])('rejects %j', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+  })
+
+  describe('a configured origin the parser cannot read', () => {
+    it.each(['', '   ', 'localhost:3000', 'ftp://localhost:3000', 'http://local host', 'http://localhost:99999'])(
+      'is inert for %j instead of discarding every response the build receives',
+      configuredOrigin => {
+        expect(isConfiguredApiSiteUrl(`${PRODUCTION_ORIGIN}/api/user`, configuredOrigin)).toBe(true)
+        expect(isConfiguredApiSiteUrl('http://localhost:3000/api/user', configuredOrigin)).toBe(true)
+      }
+    )
+  })
+
+  // The origin predicate is unchanged by this one existing: it still refuses everything its own rows say it
+  // refuses, and these are the inputs where the two rules deliberately disagree.
+  describe('the origin rule it does not replace', () => {
+    it.each(['https://localhost:3000/api/user', 'http://localhost:8443/api/user', 'http://127.0.0.1:3000/api/user'])(
+      'reads %s as the same site while the origin rule still refuses it',
+      url => {
+        expect(isConfiguredApiSiteUrl(url, CONFIGURED_ORIGIN)).toBe(true)
+        expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+      }
+    )
+
+    it.each([
+      `${PRODUCTION_ORIGIN}/api/user`,
+      'http://notlocalhost:3000/api/user',
+      'http://localhost.evil.com:3000/api/user',
+      'http://user@localhost:3000/api/user',
+      'localhost:3000/api/user'
+    ])('refuses %j under both rules', url => {
+      expect(isConfiguredApiSiteUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+      expect(isConfiguredApiOriginUrl(url, CONFIGURED_ORIGIN)).toBe(false)
+    })
+
+    it('accepts the configured origin itself under both rules', () => {
+      expect(isConfiguredApiSiteUrl(`${CONFIGURED_ORIGIN}/api/user`, CONFIGURED_ORIGIN)).toBe(true)
+      expect(isConfiguredApiOriginUrl(`${CONFIGURED_ORIGIN}/api/user`, CONFIGURED_ORIGIN)).toBe(true)
+    })
   })
 })
 

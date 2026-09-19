@@ -3,11 +3,14 @@ import {createAsyncStoragePersister} from '@tanstack/query-async-storage-persist
 import {QueryClient} from '@tanstack/react-query'
 import {
   AsyncStorage as PersistedCacheStorage,
+  persistQueryClientRestore,
   PersistedClient,
   Persister,
   PersistQueryClientProviderProps
 } from '@tanstack/react-query-persist-client'
 import {classifyOutcome, getApiErrorStatus} from '@utility/ApiErrorUtility'
+
+import {queryKeys} from './keys'
 
 // Only whitelisted queries are persisted to AsyncStorage — everything else is
 // memory-only and refetches on app launch. Exercises are kept on device so the
@@ -19,7 +22,9 @@ import {classifyOutcome, getApiErrorStatus} from '@utility/ApiErrorUtility'
 // the plan is read-only until reconnect and no plan writes are queued).
 export const PERSISTED_QUERY_KEYS: string[] = ['exercises', 'dailyMacros', 'foods', 'userAvatar', 'mealPlanCurrent']
 
-// One retry remains the app-wide budget for a query; what changes is which failures spend it.
+// One retry is the budget every query in this app has always had, and it stays the app-wide default
+// below. The predicate underneath spends it differently, but it never gets a different budget — the
+// two read the same constant so they cannot drift apart.
 const QUERY_RETRY_BUDGET = 1
 
 // The three client statuses a second attempt can legitimately resolve: a request timeout, an early-data
@@ -27,7 +32,8 @@ const QUERY_RETRY_BUDGET = 1
 const RETRYABLE_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 425, 429])
 
 /**
- * Whether a failed query is worth attempting again, shared by every query through `defaultOptions`.
+ * Whether a failed query is worth attempting again, applied to the meal-planning and catalog resource
+ * reads alone (see RETRY_CLASSIFIED_QUERY_ROOTS below).
  *
  * A decoded terminal answer is requested once and not twice: `classifyOutcome(error) === 'confirmed'`
  * is the app's single definition of "the server described this outcome" (AAP 0.2.5 — a 4xx carrying
@@ -64,9 +70,54 @@ export const queryClient = new QueryClient({
       staleTime: 60_000,
       // gcTime must outlive an offline session for persisted queries to restore
       gcTime: 24 * 60 * 60_000,
-      retry: shouldRetryQuery
+      // A plain attempt budget, which is the contract every query in this app has always had and the
+      // one `src/queries/mealPlanning/useNutritionTargetsQuery.ts` documents as "the client default is
+      // `retry: 1`". The classification above is a meal-planning read policy, so it is registered per
+      // family rather than here: as an app-wide default it would silently change how the diary, the
+      // exercise list, the food search and every other legacy query behave on a 4xx.
+      retry: QUERY_RETRY_BUDGET
     }
   }
+})
+
+// The query families the classification above applies to: the meal-planning and catalog resource
+// reads, and nothing else. `setQueryDefaults` is what scopes it — query-core resolves a query's
+// options as `{...defaultOptions.queries, ...getQueryDefaults(queryKey), ...options}` and
+// `getQueryDefaults` merges every *partial* key match, so a family root here covers its own detail
+// keys, beats the app-wide budget above, and still loses to a hook that declares a `retry` of its own
+// (`useNutritionTargetsQuery` and `useMealPlanDayQuery` both do, to decline a retry of their own
+// terminal answer).
+//
+// Why it is registered at all: PERFMOB-F19 asked for the classification on these reads, because a
+// decoded terminal answer — not found, stale plan, ineligible recipe, feature unavailable — is what
+// their recovery states render, and a second identical request only delays that. Why it is registered
+// *here* rather than on the client's defaults: REGC-cache-key-purge's sibling finding
+// REGC-retry-policy-appwide refuses it app-wide, and AAP 0.7.2 scopes the new retry classification to
+// the four keyed mutations, which declare it themselves.
+//
+// The roots are read out of `queryKeys` rather than written again as literals. Two families exist
+// only as detail factories, so their root is the first segment of a key the factory builds.
+// `mealPlanCapability` is deliberately absent: it has no `queryFn`, is written only by the entitlement
+// recorder, and therefore never fails.
+const rootOf = (detailKey: readonly string[]): readonly string[] => detailKey.slice(0, 1)
+
+const RETRY_CLASSIFIED_QUERY_ROOTS: readonly (readonly string[])[] = [
+  queryKeys.mealPlanPreferences,
+  queryKeys.nutritionTargets,
+  queryKeys.targetEstimate,
+  queryKeys.mealPlanCurrent,
+  queryKeys.mealPlanDayAll,
+  queryKeys.swapAlternativesAll,
+  queryKeys.swapPreviewAll,
+  queryKeys.groceryListAll,
+  queryKeys.affectedMealsAll,
+  queryKeys.catalogSuggestions,
+  rootOf(queryKeys.recipeVersion('')),
+  rootOf(queryKeys.catalogSearch(''))
+]
+
+RETRY_CLASSIFIED_QUERY_ROOTS.forEach(root => {
+  queryClient.setQueryDefaults(root, {retry: shouldRetryQuery})
 })
 
 // Everything above is shared by every account that ever signs in on this device; everything below
@@ -77,9 +128,11 @@ export const queryClient = new QueryClient({
 // relied on either. The boundary is therefore structural: the storage key carries the account.
 export const QUERY_CACHE_KEY_PREFIX = 'soh-query-cache'
 
-// The device-wide key every build before this one wrote to. Nothing reads it any more, so it is
-// removed once at launch (purgeLegacyQueryCache) rather than migrated — its contents belong to
-// whichever account happened to be signed in last.
+// The device-wide key every build before this one wrote to. Its contents belong to whichever account
+// happened to be signed in here last, so nothing reads it as it stands; it is resolved once per launch
+// instead (resolveLegacyQueryCache), which adopts it into that account's own partition when the device
+// can be shown to have been signed into it before this launch, and otherwise takes it off the device
+// unread.
 export const LEGACY_QUERY_CACHE_KEY = QUERY_CACHE_KEY_PREFIX
 
 export const queryCacheKeyForUser = (userId: string): string => `${QUERY_CACHE_KEY_PREFIX}:${userId}`
@@ -309,8 +362,207 @@ export const discardForeignPersistedQueryCaches = async (userId: string): Promis
 
 /**
  * Removes the pre-partition device-wide cache written by earlier builds. Safe to call at any time and
- * on every launch: nothing writes that key any more, so it can only ever be leftover data.
+ * on every launch: nothing writes that key any more, so it can only ever be leftover data. This is the
+ * discard half of resolveLegacyQueryCache below — every path that cannot prove who owns the blob ends
+ * here rather than leaving health data at rest under a key no account can read.
  */
 export const purgeLegacyQueryCache = async (): Promise<void> => {
   await AsyncStorage.removeItem(LEGACY_QUERY_CACHE_KEY)
+}
+
+// How far the account's last sign-in has to predate this launch before the pre-partition blob is
+// treated as that account's. Five minutes rather than zero because the two timestamps are read from
+// different clocks (see claimsLegacyQueryCache).
+export const LEGACY_CLAIM_MARGIN_MS = 5 * 60_000
+
+/**
+ * Whether the account published at this launch may claim the pre-partition cache blob as its own.
+ *
+ * The blob carries no owner at all — there is no uid in the payload, none in any persisted query key
+ * and none in the persisted state of `useUserData` — so ownership cannot be read; it can only be
+ * inferred. The one sound inference is that the device was *already* signed into this account before
+ * this launch began: a session Firebase restored rather than one created here was established by an
+ * earlier run of the app, which is the only run that could have written the blob.
+ *
+ * The margin is what keeps two clocks from deciding it. `lastSignInTime` is an ISO string stamped by
+ * the server clock and documented by the SDK as accurate only to a two-minute granularity for
+ * consecutive sign-ins, while the launch timestamp is device time; a bare `<` comparison would let a
+ * few seconds of skew read a sign-in that has just happened as one that predates the launch, and the
+ * account would inherit a blob it never wrote. Five minutes clears the documented granularity with
+ * room to spare and costs an upgrading user nothing: their session was restored, not created, so its
+ * sign-in is as old as their last real sign-in.
+ */
+export const claimsLegacyQueryCache = (lastSignInTime: string | null, launchedAtMs: number): boolean => {
+  if (lastSignInTime === null) {
+    return false
+  }
+
+  const signedInAtMs = Date.parse(lastSignInTime)
+
+  if (!Number.isFinite(signedInAtMs)) {
+    return false
+  }
+
+  return launchedAtMs - signedInAtMs >= LEGACY_CLAIM_MARGIN_MS
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// The shape a restore can actually hydrate: an object whose `clientState.queries` is an array. Anything
+// else found on that key — a truncated write, another library's value, a payload a future version
+// writes differently — is not adopted into an account's partition, because `hydrate` iterates that
+// array unguarded and the provider answers a throw there by removing the cache and re-raising, so an
+// adopted foreign payload would turn one launch's cold start into a rejected restore.
+const dehydratedCachePayloadOf = (raw: string): Record<string, unknown> | null => {
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+
+  if (!isRecord(parsed) || !isRecord(parsed.clientState) || !Array.isArray(parsed.clientState.queries)) {
+    return null
+  }
+
+  return parsed
+}
+
+/**
+ * The pre-partition payload rewritten to belong to one account, or null when what is on that key is not
+ * a dehydrated cache at all.
+ *
+ * Rewriting `buster` is not cosmetic — it is the whole of why a verbatim copy would not work. Restore
+ * compares the stored buster with the one the provider passes (`sessionCacheBindingFor` passes the uid)
+ * and *removes* the payload on a mismatch, and a blob written before this app passed a buster at all
+ * carries `''`. Copied as it stands it would be deleted at the next restore instead of hydrated, which
+ * is the same data loss by a longer route.
+ *
+ * `timestamp` is deliberately left alone: the 24-hour `maxAge` the provider applies at restore must go
+ * on measuring from the last write that actually happened, not from this migration, or an adoption
+ * would silently extend the life of a cache that had already expired.
+ */
+export const rebusteredLegacyQueryCache = (raw: string, userId: string): string | null => {
+  const payload = dehydratedCachePayloadOf(raw)
+
+  if (payload === null) {
+    return null
+  }
+
+  return JSON.stringify({...payload, buster: userId})
+}
+
+/**
+ * What became of the pre-partition cache blob at this launch.
+ *
+ * - `absent` — nothing is on that key. Every launch after the first reports this, which is what makes
+ *   the resolution free to run unconditionally.
+ * - `adopted` — the blob is now the signed-in account's own partition, and has been hydrated into the
+ *   live cache so this launch renders from it rather than the one after.
+ * - `superseded` — that account already has a partition of its own. That partition is authoritative, so
+ *   the blob is dropped and the partition is left exactly as it was.
+ * - `discarded` — nobody here can be shown to own the blob, so it leaves the device unread.
+ */
+export type LegacyQueryCacheOutcome = 'absent' | 'adopted' | 'superseded' | 'discarded'
+
+export interface LegacyQueryCacheSession {
+  /** The uid Firebase has just published, or none when nobody is signed in. */
+  userId: string | null
+  /** `user.metadata.lastSignInTime` — a server-clock ISO string, or none when it was not reported. */
+  lastSignInTime: string | null
+}
+
+/**
+ * Resolves the pre-partition cache blob once per launch: adopted into the signed-in account's partition
+ * when that account can be shown to have owned it, and off the device in every other case.
+ *
+ * This exists because partitioning the persisted cache by account changed the key it lives under. A
+ * device upgrading across that change holds a whole cache — diary macros, the exercise list, the food
+ * list, the profile photo — under a key nothing reads any more, so simply removing it costs an
+ * upgrading user a cold start on every one of those screens. Adoption keeps the account boundary the
+ * partitioning was introduced for: the blob becomes *one* account's partition, never a value every
+ * account can read, and an account that cannot be shown to have written it gets nothing.
+ *
+ * Called with the identity Firebase has just published, after the auth store has committed it — the
+ * commit is what opens this account's partition, and the write below goes through the same gate as
+ * every other write to a partition.
+ */
+export const resolveLegacyQueryCache = async (
+  session: LegacyQueryCacheSession,
+  launchedAtMs: number
+): Promise<LegacyQueryCacheOutcome> => {
+  const raw = await AsyncStorage.getItem(LEGACY_QUERY_CACHE_KEY)
+
+  if (raw === null) {
+    return 'absent'
+  }
+
+  const {userId, lastSignInTime} = session
+
+  if (userId === null) {
+    await purgeLegacyQueryCache()
+
+    return 'discarded'
+  }
+
+  const ownKey = queryCacheKeyForUser(userId)
+
+  // Either half failing means this account cannot be shown to own the blob: a session established
+  // during this launch was not the one that wrote it, and a partition that is not open belongs to
+  // somebody other than whoever the auth store has committed.
+  if (!claimsLegacyQueryCache(lastSignInTime, launchedAtMs) || !isPartitionActive(ownKey)) {
+    await purgeLegacyQueryCache()
+
+    return 'discarded'
+  }
+
+  if ((await AsyncStorage.getItem(ownKey)) !== null) {
+    await purgeLegacyQueryCache()
+
+    return 'superseded'
+  }
+
+  const adopted = rebusteredLegacyQueryCache(raw, userId)
+
+  if (adopted === null) {
+    await purgeLegacyQueryCache()
+
+    return 'discarded'
+  }
+
+  // Re-read because every step above is awaited: an account change in between moves the partition, and
+  // the storage gate would then drop this write rather than misfile it — leaving the legacy key removed
+  // and nothing written in its place. The blob is not provably this account's at that point either, and
+  // the incoming account's sweep (discardForeignPersistedQueryCaches) would remove this partition
+  // anyway, so discarding is both the honest outcome and the same end state.
+  if (!isPartitionActive(ownKey)) {
+    await purgeLegacyQueryCache()
+
+    return 'discarded'
+  }
+
+  await partitionedCacheStorage.setItem(ownKey, adopted)
+
+  // Writing it is not enough, and this is the second way the migration can silently do nothing. The
+  // provider restores once per mounted session tree and attaches its save subscription as soon as that
+  // restore resolves; on this launch its restore is dispatched while the reads above are still in
+  // flight, so it finds the account's key still empty, hydrates nothing, and the launch's first cache
+  // event then saves the unhydrated cache straight over what was just adopted (the persister's throttle
+  // does not delay a first write). Restoring here instead puts the payload where no later save can
+  // erase it — the live cache — and the provider's next save writes it back out. Whichever of the two
+  // reads wins, the outcome is the same: a duplicate hydration of identical data is a no-op.
+  //
+  // It goes through this account's own persister rather than reading storage directly, because that
+  // persister is where the ordering guard lives: an account change between the write above and this
+  // read makes `restoreClient` answer "nothing stored", so a resolution that lands late cannot pour one
+  // account's diary, avatar and plan into another's cache. A payload that has outlived the provider's
+  // 24-hour window is dropped by this restore, exactly as the pre-partition build's own restore would
+  // have dropped it.
+  await persistQueryClientRestore({queryClient, persister: queryCachePersisterFor(userId), buster: userId})
+
+  await purgeLegacyQueryCache()
+
+  return 'adopted'
 }

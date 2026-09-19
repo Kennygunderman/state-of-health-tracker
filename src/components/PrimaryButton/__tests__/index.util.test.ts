@@ -1,9 +1,9 @@
 import {StyleSheet, ViewStyle} from 'react-native'
 
-import {Sizes} from '@styles/sizes'
+import {Opacity, Sizes} from '@styles/sizes'
 
 import styles from '../index.styled'
-import {ctaMinHeight, isDimmed, isPressBlocked} from '../index.util'
+import {ctaMinHeight, isDimmed, isPressBlocked, isStyleDimmed} from '../index.util'
 
 // `StyleSheet.create` may hand back either the style objects or registered ids depending on the React
 // Native version, so the rendered box is read through `flatten`, exactly as the renderer resolves it. The
@@ -44,6 +44,40 @@ describe('isDimmed', () => {
 
   it('dims when disabled while loading', () => {
     expect(isDimmed(true, true)).toBe(true)
+  })
+})
+
+describe('isStyleDimmed', () => {
+  it('reads the disabled opacity itself as dimmed', () => {
+    expect(isStyleDimmed(Opacity.DISABLED, Opacity.DISABLED)).toBe(true)
+  })
+
+  it('reads an opacity under the disabled token as dimmed', () => {
+    expect(isStyleDimmed(Opacity.CONTENT_DIM, Opacity.DISABLED)).toBe(true)
+  })
+
+  it('does not read a fully opaque button as dimmed', () => {
+    expect(isStyleDimmed(1, Opacity.DISABLED)).toBe(false)
+  })
+
+  it('does not read an opacity above the disabled token as dimmed', () => {
+    expect(isStyleDimmed(Opacity.PRESSED_SUBTLE, Opacity.DISABLED)).toBe(false)
+  })
+
+  it('does not read a style without an opacity as dimmed', () => {
+    expect(isStyleDimmed(undefined, Opacity.DISABLED)).toBe(false)
+  })
+
+  it('does not read NaN as dimmed', () => {
+    expect(isStyleDimmed(Number.NaN, Opacity.DISABLED)).toBe(false)
+  })
+
+  it('does not read an animated opacity node as dimmed, because its current value is not a number', () => {
+    expect(isStyleDimmed({value: Opacity.DISABLED}, Opacity.DISABLED)).toBe(false)
+  })
+
+  it('does not read a numeric string as dimmed', () => {
+    expect(isStyleDimmed(String(Opacity.DISABLED), Opacity.DISABLED)).toBe(false)
   })
 })
 

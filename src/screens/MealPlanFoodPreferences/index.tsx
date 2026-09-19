@@ -5,6 +5,7 @@ import {ScrollView, View} from 'react-native'
 import type {DislikedFoodSummary} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
+import {useAccessibilityAnnouncement} from '@hooks/useAccessibilityAnnouncement'
 import {MealPlanFoodPreferencesRouteProp, Navigation} from '@navigation/types'
 import {useCatalogSuggestionsQuery} from '@queries/catalog/useCatalogSuggestionsQuery'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
@@ -127,6 +128,13 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
   // enforces on the distinct count. A refused tap returns the identical selection, so without this the
   // suggestion chips would simply stop responding; the caption below says why while removal keeps working.
   const isSelectionAtCap = isDislikeSelectionAtCap(draft.dislikedFoodIds)
+  const dislikesCapMessage = stringWithNamedParameters(MEAL_PLAN_DISLIKES_CAP_TEMPLATE, {
+    count: MAX_DISLIKED_FOOD_IDS
+  })
+
+  // The caption is the only answer a refused tap gets, and the live region that carries it is Android-only in
+  // RN 0.86, so VoiceOver is told the same sentence when the cap is reached and only there.
+  useAccessibilityAnnouncement(isSelectionAtCap ? dislikesCapMessage : null, {scope: 'voiceOver'})
 
   // The chips render names while the payload carries ids, so all three sources of a name are merged into one
   // lookup — and the flow's own index is what names a food staged from catalog search, which neither the
@@ -246,7 +254,9 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <WizardHeader step={progress.step} totalSteps={progress.totalSteps} onBack={navigation.goBack} />
 
-          <Text style={styles.headline}>{MEAL_PLAN_FOOD_PREFERENCES_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_FOOD_PREFERENCES_TITLE}
+          </Text>
 
           <Text style={styles.subCopy}>{MEAL_PLAN_FOOD_PREFERENCES_SUBTITLE}</Text>
 
@@ -265,6 +275,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
               <View style={[styles.sectionWrapper, styles.sectionWrapperFirst]}>
                 <SectionOverline
                   text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedDislikes.count})}
+                  isHeading
                 />
               </View>
 
@@ -275,7 +286,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
           )}
 
           <View style={[styles.sectionWrapper, selectedDislikes.count === 0 && styles.sectionWrapperFirst]}>
-            <SectionOverline text={MEAL_PLAN_SUGGESTIONS_HEADER} />
+            <SectionOverline text={MEAL_PLAN_SUGGESTIONS_HEADER} isHeading />
           </View>
 
           <View style={styles.cloudWrapper}>
@@ -313,11 +324,11 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
 
           <Text style={styles.helperText}>{MEAL_PLAN_FOOD_PREFERENCES_HELPER_TEXT}</Text>
 
-          {isSelectionAtCap && (
-            <Text style={styles.helperText} accessibilityLiveRegion="polite">
-              {stringWithNamedParameters(MEAL_PLAN_DISLIKES_CAP_TEMPLATE, {count: MAX_DISLIKED_FOOD_IDS})}
-            </Text>
-          )}
+          {/* Mounted whether or not it carries the notice: a live region announces what changes inside it,
+              so one that appears already holding its text is never read out. */}
+          <View accessibilityLiveRegion="polite">
+            {isSelectionAtCap && <Text style={styles.helperText}>{dislikesCapMessage}</Text>}
+          </View>
         </ScrollView>
       </ContentColumn>
 

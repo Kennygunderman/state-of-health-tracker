@@ -13,6 +13,7 @@ import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+import {composeAccessibleName} from '@utility/AccessibilityUtility'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {kilogramsToPounds, weightUnitPrefFor} from '@utility/UnitConversionUtility'
@@ -34,6 +35,7 @@ import WizardHeader from '@components/WizardHeader'
 import Screens from '@constants/screens'
 import {
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
+  MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_GOAL_LABELS,
   MEAL_PLAN_GOAL_TITLE,
   MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT,
@@ -49,7 +51,8 @@ import {
   MEAL_PLAN_STALE_REVISION_DIALOG_TITLE,
   MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT,
-  TOAST_GENERIC_ERROR
+  TOAST_GENERIC_ERROR,
+  stringWithNamedParameters
 } from '@constants/strings'
 
 import PaceCards from './components/PaceCards'
@@ -73,6 +76,13 @@ const WEIGHT_UNIT_LABELS: Readonly<Record<WeightUnitPref, string>> = Object.free
 // Matches the shipped weight input, and is exactly the widest value the 30-300 kg envelope admits at one
 // decimal: 661.3 lb, since 661.4 converts to 300.006 kg and is rejected.
 const MAX_GOAL_WEIGHT_INPUT_LENGTH = 5
+
+// The label row above the field draws the header and its optional qualifier, and is hidden from assistive
+// technology because the field already announces the header — two stops saying "Goal weight" are
+// indistinguishable by rotor. The qualifier is the only thing that row said and the field did not, so it rides
+// on the field's own name instead of being lost with the row.
+const GOAL_WEIGHT_ACCESSIBILITY_LABEL =
+  composeAccessibleName([MEAL_PLAN_GOAL_WEIGHT_HEADER, MEAL_PLAN_OPTIONAL_LABEL]) ?? MEAL_PLAN_GOAL_WEIGHT_HEADER
 
 // The three goal-weight codes deliberately differ: an out-of-range weight and one on the wrong side of the
 // current weight are cleared by different edits.
@@ -281,13 +291,29 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
     discardEdits()
   }, [discardEdits, preferences, seedFromPreferences])
 
+  // The field carries its error in its own name too, so reaching the input later still says what is wrong
+  // with it; the row below it announces itself once, when validation runs. Both forms are built on
+  // `GOAL_WEIGHT_ACCESSIBILITY_LABEL` rather than the bare header, so the "Optional" qualifier the hidden
+  // label row would otherwise have taken with it rides on the name in the error case as well as the clean one.
+  const goalWeightFieldLabel =
+    errors?.goalWeight == null
+      ? GOAL_WEIGHT_ACCESSIBILITY_LABEL
+      : stringWithNamedParameters(MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE, {
+          label: GOAL_WEIGHT_ACCESSIBILITY_LABEL,
+          message: GOAL_ERROR_COPY[errors.goalWeight]
+        })
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
+        {/* Progress belongs to the setup flow. Reopened from a Review or Plan settings row this screen is one
+            step on its own, returning to where it was opened from rather than continuing to the next step, so
+            the segments and the "n of m" counter would assert a flow the user is not in (0.7.4 edit mode). */}
         <WizardHeader
           step={wizardSteps.indexOf('goal') + 1}
           totalSteps={wizardSteps.length}
           onBack={navigation.goBack}
+          isProgressVisible={params.mode !== 'edit'}
         />
 
         {/* The goal-weight field is a number pad away from covering itself, so the scroll region carries the
@@ -295,9 +321,12 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
-          <Text style={styles.headline}>{MEAL_PLAN_GOAL_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_GOAL_TITLE}
+          </Text>
 
           {!isPaceScope && (
             <View style={styles.optionList} accessibilityRole="radiogroup">
@@ -312,10 +341,14 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
             </View>
           )}
 
-          {errors?.goal != null && <InlineError message={GOAL_ERROR_COPY[errors.goal]} />}
+          {/* Mounted whether or not it carries a message: a live region announces what changes inside it,
+              so one that appears already holding its error is never read out. */}
+          <View accessibilityLiveRegion="polite">
+            {errors?.goal != null && <InlineError message={GOAL_ERROR_COPY[errors.goal]} />}
+          </View>
 
           {!isPaceScope && isGoalWeightVisible(draft.goal) && (
-            <View style={styles.labelRow}>
+            <View style={styles.labelRow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
               <Text style={styles.controlLabel}>{MEAL_PLAN_GOAL_WEIGHT_HEADER}</Text>
 
               <Text style={styles.optionalLabel}>{MEAL_PLAN_OPTIONAL_LABEL}</Text>
@@ -336,12 +369,14 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
                 state={errors?.goalWeight == null ? 'default' : 'error'}
                 keyboardType="decimal-pad"
                 maxLength={MAX_GOAL_WEIGHT_INPUT_LENGTH}
-                accessibilityLabel={MEAL_PLAN_GOAL_WEIGHT_HEADER}
+                accessibilityLabel={goalWeightFieldLabel}
               />
             </View>
           )}
 
-          {errors?.goalWeight != null && <InlineError message={GOAL_ERROR_COPY[errors.goalWeight]} />}
+          <View accessibilityLiveRegion="polite">
+            {errors?.goalWeight != null && <InlineError message={GOAL_ERROR_COPY[errors.goalWeight]} />}
+          </View>
 
           {isPaceVisible(draft.goal) && (
             <View style={styles.paceSection}>
@@ -351,7 +386,9 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
             </View>
           )}
 
-          {errors?.pace != null && <InlineError message={GOAL_ERROR_COPY[errors.pace]} />}
+          <View accessibilityLiveRegion="polite">
+            {errors?.pace != null && <InlineError message={GOAL_ERROR_COPY[errors.pace]} />}
+          </View>
         </KeyboardAwareScrollView>
       </ContentColumn>
 

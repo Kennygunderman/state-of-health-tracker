@@ -1,10 +1,11 @@
 import React, {ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 
-import {AccessibilityInfo, LayoutChangeEvent, Platform, TouchableOpacity, useWindowDimensions, View} from 'react-native'
+import {LayoutChangeEvent, TouchableOpacity, useWindowDimensions, View} from 'react-native'
 
 import {LoggedPlannedEntry, MealPlan, MealPlanDay, MealPlanMeal} from '@data/models/MealPlan'
 import {useMealPlanEntitlement} from '@hooks/mealPlanning/useMealPlanEntitlement'
 import {useSetupResumeNavigation} from '@hooks/mealPlanning/useSetupResumeNavigation'
+import {useAccessibilityAnnouncement} from '@hooks/useAccessibilityAnnouncement'
 import {Navigation} from '@navigation/types'
 import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -23,6 +24,7 @@ import {Opacity, Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {useIsMutating, useMutationState} from '@tanstack/react-query'
+import {composeAnnouncement} from '@utility/AccessibilityAnnouncementUtility'
 import {formatIsoDayMonthDay} from '@utility/DateUtility'
 import {
   addDaysToDayKey,
@@ -51,7 +53,6 @@ import {
   MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_MACRO_LABELS,
-  MEAL_PLAN_MEAL_COUNT_TEMPLATE,
   MEAL_PLAN_NEXT_WEEK_LINK_TEXT,
   MEAL_PLAN_OFFLINE_BANNER_TEXT,
   MEAL_PLAN_PLAN_ANOTHER_WEEK_BUTTON_TEXT,
@@ -88,6 +89,7 @@ import {
   isStalePlanError,
   LastDayAction,
   MealCardModel,
+  mealCountUnitText,
   planDayWeekdayName,
   PlanSwitchLink,
   resolveEmptyPlanCtaLabel,
@@ -608,12 +610,38 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
   const announcement = outcome.kind === 'error' || isDayReadFailed ? MEAL_PLAN_LOAD_ERROR_TITLE : bannerBody
 
   // The blocks below carry a polite live region, which Android announces on its own; iOS does not, so it is
-  // announced here and only there, so neither platform says it twice.
-  useEffect(() => {
-    if (announcement !== null && Platform.OS === 'ios') {
-      AccessibilityInfo.announceForAccessibility(announcement)
-    }
-  }, [announcement])
+  // announced here and only there, so neither platform says it twice. Routed through the shared service rather
+  // than called directly so that a message raised in the same pass as the day announcement below — a log
+  // confirmation the user reaches by a day change, say — reaches VoiceOver as one sentence instead of two
+  // utterances that cut each other off.
+  useAccessibilityAnnouncement(announcement, {scope: 'voiceOver'})
+
+  /**
+   * The day the strip has just selected, as one sentence (F10).
+   *
+   * Pressing a chip moves `accessibilityState.selected` and then replaces the totals card and every meal card
+   * below it, a change nothing on screen tells a reader about — the cursor is still on the chip. The sentence
+   * is composed from the very strings `totalsBlock` draws, so what is spoken and what is drawn cannot drift,
+   * and from the LOADED day alone: while the day's read is pending there is nothing true to say yet.
+   *
+   * `allScreenReaders` because the totals card carries no live region, so on neither platform is anything else
+   * speaking this text — and none is added there, which would make Android say it twice. `announcesOnMount:
+   * false` because arriving on this segment must not stack an utterance onto the screen-change announcement the
+   * reader is already making; only a later change is news.
+   */
+  const dayAnnouncement = useMemo(
+    () =>
+      day === null
+        ? null
+        : composeAnnouncement([
+            stringWithNamedParameters(MEAL_PLAN_PLANNED_FOR_TEMPLATE, {day: planDayWeekdayName(day.date)}),
+            formatCalories(day.plannedTotals.calories),
+            mealCountUnitText(day.meals.length)
+          ]),
+    [day]
+  )
+
+  useAccessibilityAnnouncement(dayAnnouncement, {scope: 'allScreenReaders', announcesOnMount: false})
 
   const onColumnLayout = (event: LayoutChangeEvent): void => setColumnWidth(event.nativeEvent.layout.width)
 
@@ -854,7 +882,9 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     <View style={styles.macrosHeader}>
       <SectionOverline text={formatIsoDayMonthDay(sessionDayKey)} tone="green" />
 
-      <Text style={styles.screenTitle}>{MACROS_TITLE}</Text>
+      <Text style={styles.screenTitle} accessibilityRole="header">
+        {MACROS_TITLE}
+      </Text>
     </View>
   )
 
@@ -1012,7 +1042,7 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
           calories: formatCalories(activePlan.targets.calories)
         })}
         figure={formatCalories(plannedDay.plannedTotals.calories)}
-        unitText={stringWithNamedParameters(MEAL_PLAN_MEAL_COUNT_TEMPLATE, {n: plannedDay.meals.length})}
+        unitText={mealCountUnitText(plannedDay.meals.length)}
         legend={totalsLegend}
       />
 

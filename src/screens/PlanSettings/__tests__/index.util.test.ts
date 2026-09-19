@@ -1879,7 +1879,10 @@ describe('reconcilePreferencesTimeZone', () => {
     it('treats a refusal that is not a stale revision as an ordinary failure', async () => {
       const deps = collaborators()
 
-      deps.savePreferences.mockRejectedValueOnce(apiError('read_only_field', 400))
+      // The shape a server-owned key really earns: `400 invalid_request` whose `details[]` carry
+      // `read_only_field`. `read_only_field` is a details-only code — it is never the body's top-level
+      // `error` — so building it as one would assert this branch against a body no handler can send.
+      deps.savePreferences.mockRejectedValueOnce(apiError('invalid_request', 400))
 
       await expect(run(deps)).resolves.toBe('failed')
 

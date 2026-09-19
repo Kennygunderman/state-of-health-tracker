@@ -1,10 +1,10 @@
-import {StyleSheet} from 'react-native'
+import {StyleSheet, ViewStyle} from 'react-native'
 
 import FontSize, {FontWeight} from '@styles/fontSize'
 import {Stroke} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
-export default StyleSheet.create({
+const styles = StyleSheet.create({
   scene: {
     backgroundColor: Theme.colors.background
   },
@@ -26,3 +26,13 @@ export default StyleSheet.create({
     display: 'none'
   }
 })
+
+// The navigator calls `screenOptions` once per tab on every navigation state change, so composing the
+// base bar with its hide/show variant there handed it a new `tabBarStyle` array on every call even when
+// the decision was unchanged. Both states are composed here instead: two objects for the app's lifetime,
+// so the prop identity only differs when the decision does.
+export const tabBarVisibleStyle: ViewStyle = StyleSheet.flatten<ViewStyle>([styles.tabBar, styles.tabBarVisible])
+
+export const tabBarHiddenStyle: ViewStyle = StyleSheet.flatten<ViewStyle>([styles.tabBar, styles.tabBarHidden])
+
+export default styles

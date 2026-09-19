@@ -31,6 +31,7 @@ import Screens from '@constants/screens'
 import {
   MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
   MEAL_PLAN_CREATE_BUTTON_TEXT,
+  MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT,
   MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT,
   MEAL_SLOT_LABELS
 } from '@constants/strings'
@@ -47,6 +48,7 @@ import {
   isPostLogBannerVisible,
   isStalePlanError,
   latestLoggedEntry,
+  mealCountUnitText,
   MealPlanBodyInputs,
   MealPlanBodyOutcome,
   MealPlanGeneratingParams,
@@ -58,6 +60,7 @@ import {
   resolveHandoffLatch,
   resolveLastDayAction,
   resolveLogOwnership,
+  resolveMealFlagLine,
   resolveMealFlagReason,
   resolveMealLoggedState,
   resolveMealPlanBody,
@@ -97,6 +100,11 @@ const makeFlag = (overrides: Partial<MealPlanFlag> = {}): MealPlanFlag => ({
   detail: ['milk'],
   ...overrides
 })
+
+// A fifth flag code, which the model's closed union cannot express and only an assertion can build: the codec
+// decodes the code as an open string, so a newer server — or a plan rehydrated from a persisted cache another
+// build wrote — can put one in front of the card. It is the value F08 crashed the render with.
+const UNRECOGNISED_FLAG_CODE = 'something_new' as MealPlanFlag['code']
 
 const makeLoggedEntry = (overrides: Partial<LoggedPlannedEntry> = {}): LoggedPlannedEntry => ({
   entryId: 'entry-a',
@@ -2028,6 +2036,119 @@ describe('resolveMealFlagReason', () => {
   it('states no reason for a meal with no flags', () => {
     expect(resolveMealFlagReason([])).toBeNull()
   })
+
+  // A deliberate behaviour change, not a test bent to fit the code: the reason is only ever read to look copy
+  // up, so a code this build has no copy for resolves to the generic reason here rather than being carried
+  // through to a lookup that answers nothing — which is the TypeError the card's render threw.
+  it('resolves a code this build has no copy for to the generic reason instead of carrying it through', () => {
+    const reason = resolveMealFlagReason([makeFlag({code: UNRECOGNISED_FLAG_CODE, detail: ['x']})])
+
+    expect(reason).not.toBe(UNRECOGNISED_FLAG_CODE)
+    expect(reason).toBe(resolveMealFlagReason([makeFlag({code: 'allergen'}), makeFlag({code: 'dislike'})]))
+  })
+})
+
+// The line a flagged card states, asserted whole rather than as the template it came from: the detail means
+// something different per code — the user's own allergen or diet code, the offending ingredients' display
+// names, the recipe's own minutes — and it is the rendered sentence that was wrong.
+describe('resolveMealFlagLine', () => {
+  // The generic sentence, aliased for the table below only: most of the matrix is a way for a specific
+  // sentence to be impossible, and each of those rows answers with this one.
+  const GENERIC_LINE = MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT
+
+  const lineCases: [string, MealPlanFlag[], string | null][] = [
+    ['a diet flag', [makeFlag({code: 'diet', detail: ['vegan']})], "Doesn't fit your vegan diet"],
+    ['an allergen flag', [makeFlag({detail: ['tree_nuts']})], 'Contains tree nuts'],
+    [
+      'a dislike flag',
+      [makeFlag({code: 'dislike', detail: ['Mushrooms, white']})],
+      'Contains Mushrooms, white · an ingredient you skip'
+    ],
+    [
+      'a cooking-time flag',
+      [makeFlag({code: 'cooking_time', detail: ['30']})],
+      'Takes 30 minutes · longer than your cooking time'
+    ],
+    [
+      'two flags of one code, each detail stated once',
+      [makeFlag(), makeFlag({detail: ['milk', 'soy']})],
+      'Contains milk, soy'
+    ],
+    [
+      'two cooking-time flags, stated by the longer',
+      [makeFlag({code: 'cooking_time', detail: ['20']}), makeFlag({code: 'cooking_time', detail: ['45']})],
+      'Takes 45 minutes · longer than your cooking time'
+    ],
+    [
+      'a padded cooking-time detail',
+      [makeFlag({code: 'cooking_time', detail: [' 30 ']})],
+      'Takes 30 minutes · longer than your cooking time'
+    ],
+    ['flags whose codes differ', [makeFlag(), makeFlag({code: 'dislike'})], GENERIC_LINE],
+    ['an unrecognised code', [makeFlag({code: UNRECOGNISED_FLAG_CODE, detail: ['x']})], GENERIC_LINE],
+    ['an unrecognised code carrying no detail', [makeFlag({code: UNRECOGNISED_FLAG_CODE, detail: []})], GENERIC_LINE],
+    ['an allergen flag carrying no detail', [makeFlag({detail: []})], GENERIC_LINE],
+    ['a blank allergen detail', [makeFlag({detail: ['']})], GENERIC_LINE],
+    ['the allergen sentinel, which names nothing a meal contains', [makeFlag({detail: ['none']})], GENERIC_LINE],
+    ['one unstateable allergen among stateable ones', [makeFlag({detail: ['milk', 'none']})], GENERIC_LINE],
+    ['a diet that excludes nothing', [makeFlag({code: 'diet', detail: ['none']})], GENERIC_LINE],
+    ['a diet code this build has no sentence for', [makeFlag({code: 'diet', detail: ['carnivore']})], GENERIC_LINE],
+    ['a whitespace-only dislike name', [makeFlag({code: 'dislike', detail: ['   ']})], GENERIC_LINE],
+    ['a fractional cooking time', [makeFlag({code: 'cooking_time', detail: ['30.5']})], GENERIC_LINE],
+    ['a zero cooking time', [makeFlag({code: 'cooking_time', detail: ['0']})], GENERIC_LINE],
+    ['a negative cooking time', [makeFlag({code: 'cooking_time', detail: ['-30']})], GENERIC_LINE],
+    ['a non-numeric cooking time', [makeFlag({code: 'cooking_time', detail: ['soon']})], GENERIC_LINE],
+    [
+      'a cooking time alongside one that cannot be read',
+      [makeFlag({code: 'cooking_time', detail: ['45']}), makeFlag({code: 'cooking_time', detail: ['soon']})],
+      GENERIC_LINE
+    ],
+    ['a meal with no flags', [], null]
+  ]
+
+  it.each(lineCases)('states the line for %s', (_name, flags, expected) => {
+    expect(resolveMealFlagLine(flags)).toBe(expected)
+  })
+
+  // The consequence of the substitution helper dropping an unsupplied value: a template whose detail could not
+  // be formatted must never be substituted, or the card reads "Contains " with a gap where the detail belongs.
+  it('leaves no placeholder and no trailing gap in any line of the matrix', () => {
+    const lines = lineCases
+      .map(([, flags]) => resolveMealFlagLine(flags))
+      .filter((line): line is string => line !== null)
+
+    expect(lines).toHaveLength(lineCases.length - 1)
+
+    lines.forEach(line => {
+      expect(line).not.toContain('{')
+      expect(line).not.toMatch(/\s$/)
+      expect(line.length).toBeGreaterThan(0)
+    })
+  })
+
+  // The crash F08 reported, at the function that now owns the lookup.
+  it('does not throw for a code this build has no copy for', () => {
+    expect(() => resolveMealFlagLine([makeFlag({code: UNRECOGNISED_FLAG_CODE, detail: ['x']})])).not.toThrow()
+  })
+
+  // The card keys its flagged stroke on this answer, so a meal whose reason can only be stated generically has
+  // to keep a line: null is "not flagged", never "flagged but unstateable".
+  it('answers null only for a meal carrying no flags', () => {
+    expect(resolveMealFlagLine([makeFlag({code: UNRECOGNISED_FLAG_CODE, detail: []})])).not.toBeNull()
+    expect(resolveMealFlagLine([makeFlag({detail: []})])).not.toBeNull()
+    expect(resolveMealFlagLine([])).toBeNull()
+  })
+})
+
+describe('mealCountUnitText', () => {
+  it.each([
+    [0, 'kcal across 0 meals'],
+    [1, 'kcal across 1 meal'],
+    [2, 'kcal across 2 meals'],
+    [3, 'kcal across 3 meals']
+  ])('states the unit line for a day of %p meals', (count, expected) => {
+    expect(mealCountUnitText(count)).toBe(expected)
+  })
 })
 
 describe('resolveViewTarget', () => {
@@ -2065,6 +2186,21 @@ describe('flexItemWidth', () => {
   it('returns 0 for a non-positive item count', () => {
     expect(flexItemWidth(353, 6, 0)).toBe(0)
     expect(flexItemWidth(353, 6, -2)).toBe(0)
+  })
+
+  it('collapses to zero when the gaps exceed the available width', () => {
+    expect(flexItemWidth(20, 6, 7)).toBe(0)
+    expect(flexItemWidth(8, 8, 2)).toBe(0)
+  })
+
+  it('collapses to zero on the exact boundary, where the gaps consume the whole width', () => {
+    expect(flexItemWidth(36, 6, 7)).toBe(0)
+  })
+
+  it('never returns a negative width for the skeleton it sizes', () => {
+    ;[4, 12, 20, 30, 36, 40].forEach(availableWidth => {
+      expect(flexItemWidth(availableWidth, 6, 7)).toBeGreaterThanOrEqual(0)
+    })
   })
 })
 

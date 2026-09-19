@@ -7,7 +7,7 @@ import {
 } from '@data/models/MealPlanPreferences'
 import {mutationKeys, queryKeys} from '@queries/keys'
 import {MutationFunctionContext, QueryClient, QueryKey} from '@tanstack/react-query'
-import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
+import {API_ERROR_CODES, API_ERROR_DETAIL_CODES} from '@utility/ApiErrorUtility'
 
 import {buildSaveSetupStepMutationOptions} from '../useSaveSetupStepMutation.util'
 
@@ -167,13 +167,18 @@ const invokeOnSuccess = async (options: SetupStepOptions, onMutateResult: unknow
 
 // Thrown Errors carrying a response shape, which is what the axios transport rejects with: classification
 // reads only `response.status` and `response.data.error`, so this suite owes the transport no dependency.
-const makeApiError = (status: number, code?: string): Error =>
+const makeApiError = (status: number, code?: string, details?: {field: string; code: string}[]): Error =>
   Object.assign(new Error(`Request failed with status code ${status}`), {
-    response: {status, data: code === undefined ? {} : {error: code}}
+    response: {
+      status,
+      data: code === undefined ? {} : {error: code, ...(details === undefined ? {} : {details})}
+    }
   })
 
 const STALE_REVISION_ERROR = makeApiError(409, API_ERROR_CODES.staleRevision)
-const READ_ONLY_FIELD_ERROR = makeApiError(409, API_ERROR_CODES.readOnlyField)
+const READ_ONLY_FIELD_ERROR = makeApiError(400, API_ERROR_CODES.invalidRequest, [
+  {field: 'setupStatus', code: API_ERROR_DETAIL_CODES.readOnlyField}
+])
 const INVALID_REQUEST_ERROR = makeApiError(400, API_ERROR_CODES.invalidRequest)
 const FEATURE_DISABLED_ERROR = makeApiError(503, API_ERROR_CODES.featureDisabled)
 const TRANSPORT_LOSS_ERROR = new Error('Network Error')

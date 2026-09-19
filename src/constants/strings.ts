@@ -664,13 +664,46 @@ export function stringWithParameters(str: string = '', ...parameters: string[]):
   return updatedStr
 }
 
-export function stringWithNamedParameters(template: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce((result, [key, value]) => result.split(`{${key}}`).join(String(value)), template)
+/**
+ * A template's `{name}` placeholders replaced by the matching values, in exactly one pass over the template.
+ *
+ * One pass, because a value is finished text rather than a template. Composing copy by feeding one formatted
+ * string in as another's value is this feature's normal pattern — a flagged meal's `{detail}` arrives already
+ * formatted through MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, and an accessibility label is assembled from a food
+ * name the server sent — so a scan per key would substitute a placeholder that a value merely contains, and the
+ * result would depend on the order the caller happened to write the object in. Scanning the template once and
+ * resolving each placeholder where it stands removes both.
+ *
+ * A placeholder with no value is dropped rather than left standing: a raw `{name}` is never something to show a
+ * user, so the sentence reads short instead of reading like a bug. Lookups are own-property only and accept a
+ * string or a number only, so a key naming `constructor` or `__proto__` resolves to nothing instead of
+ * rendering a function or an object — the rule the label lookups in @utility/TextUtility are built on, and it
+ * matters here because some of these values are server text.
+ */
+export function stringWithNamedParameters(template: string = '', values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) {
+      return ''
+    }
+
+    const value: unknown = values[key]
+
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+  })
 }
 
 // --- Macros (nutrition) feature ---
 
 export const EMPTY_MEAL_CTA = 'Add food or log with AI'
+
+// The diary draws one icon-only "+" per meal card and one empty-state row per empty card, so four cards give
+// four identical glyphs and four identical CTA strings. Both names carry the bucket, which is the only thing
+// that tells a reader the Breakfast control from the Dinner one.
+export const MEAL_CARD_ADD_FOOD_ACCESSIBILITY_TEMPLATE = 'Add food to {meal}'
+
+// Opens with the CTA exactly as drawn so the spoken name stays a superset of the visible one for voice
+// control (WCAG 2.5.3), then adds the bucket the row belongs to.
+export const MEAL_CARD_EMPTY_CTA_ACCESSIBILITY_TEMPLATE = '{cta}, {meal}'
 
 export const LOG_WITH_AI_TITLE = 'Log with AI'
 
@@ -1076,14 +1109,20 @@ export const MEAL_PLAN_WEIGHT_ERROR_TEXT = 'Enter your weight to continue'
 
 export const MEAL_PLAN_ACTIVITY_TITLE = 'How active are you?'
 
-export const MEAL_PLAN_ACTIVITY_SUBTITLE = 'Outside of workouts you log in the app.'
+// Both of screen 04's own sentences diverge from the drawn copy, for one reason. AAP 0.1.4 replaces the
+// "don't include the workouts you log" instruction because it contradicts the model the feature implements: the
+// level is the user's habitual overall activity INCLUDING their usual training — which is exactly what the
+// option sub-copy anchors below describe ("1–2 workouts a week", "3–5", "6+") — so its factor multiplies BMR
+// once and the workouts and runs the user logs are tracked separately, never added to the targets (AAP 0.7.3).
+// The frame states that instruction twice, as this sub-copy (node `47:44`, "Outside of workouts you log in the
+// app.") and again in the info card (`47:95`, "…counted separately, so don't include them here."), and AAP
+// 0.1.4 quotes the sub-copy's wording while citing the card's node. Replacing one and keeping the other left
+// the screen telling the user to include and to exclude the same training at once, so both are replaced and
+// neither drawn sentence is restored. The divergence is recorded in AAP 0.7.4's copy inventory.
+export const MEAL_PLAN_ACTIVITY_SUBTITLE = 'Your usual activity, including how often you train.'
 
-// The 04 info-card body, and a deliberate divergence from the drawn copy: AAP 0.1.4 replaces the info-card
-// sentence it cites at node `47:95` ("Outside of workouts you log in the app.") because that sentence
-// contradicts the model the feature implements — the level is the user's habitual overall activity INCLUDING
-// their usual training, so its factor multiplies BMR exactly once and the workouts and runs the user logs are
-// tracked separately, never added to the targets (AAP 0.7.3). The divergence is recorded in AAP 0.7.4's copy
-// inventory, so the drawn body is not restored. The sub-copy above (node `47:44`) is untouched drawn copy.
+// The 04 info-card body: the replacement AAP 0.1.4 specifies verbatim, which is also the sentence that states
+// this policy in the Settings "Activity and pace" helper text.
 export const MEAL_PLAN_ACTIVITY_INFO_BODY =
   'Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.'
 
@@ -1362,6 +1401,69 @@ export const MEAL_PLAN_CARBS_TARGET_ERROR_TEXT = 'Enter a carb target above 0 g'
 
 export const MEAL_PLAN_FAT_TARGET_ERROR_TEXT = 'Enter a fat target above 0 g'
 
+// What each 09b field says per validation code, keyed '<field>.<code>' over the four fields and the four codes
+// the screen's validator produces (required, not_a_number, below_min, above_max).
+//
+// One sentence per field is not enough, because three of those codes break a different bound: an entry of 500
+// told "above 0 kcal" is told a bound it already satisfies and never learns that the floor is 800, and the same
+// message on a 60,001 entry is simply untrue. So the two range codes name their bound, substituted from the
+// validator's own constants by the caller ({min}, {max}, already grouped by the field's display formatter) so
+// the copy cannot drift from the numbers actually enforced.
+//
+// The drawn sentences are reused rather than reworded: 34:251 draws "Enter a carb target above 0 g" on a field
+// holding 0, which is this screen's below_min for a macro — macros are whole numbers with a minimum of 1, so 0
+// is the only entry that can reach that code — and the same sentence is the right prompt for an empty field.
+// Both codes therefore point at the constant above, and the calorie floor is the one below_min that has a real
+// number to state.
+export const MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS: Partial<Record<string, string>> = {
+  'calories.required': MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+  'calories.not_a_number': 'Enter your calorie target as a whole number',
+  'calories.below_min': 'Enter a calorie target of at least {min} kcal',
+  'calories.above_max': 'Enter a calorie target of {max} kcal or less',
+
+  'protein.required': MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  'protein.not_a_number': 'Enter your protein target as a whole number',
+  'protein.below_min': MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  'protein.above_max': 'Enter a protein target of {max} g or less',
+
+  'carbs.required': MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  'carbs.not_a_number': 'Enter your carb target as a whole number',
+  'carbs.below_min': MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  'carbs.above_max': 'Enter a carb target of {max} g or less',
+
+  'fat.required': MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  'fat.not_a_number': 'Enter your fat target as a whole number',
+  'fat.below_min': MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  'fat.above_max': 'Enter a fat target of {max} g or less'
+}
+
+// Stated only if a field or a code ever reaches this resolver without copy. Both are closed unions where the
+// screen calls from, so this is the read being total rather than a message anyone should see; it still has to
+// be a sentence, because the alternative is an empty error row under a refused field.
+export const MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT = 'Enter a target we can use'
+
+export interface TargetFieldErrorCopyInputs {
+  // 'calories' | 'protein' | 'carbs' | 'fat', as the screen's field key spells it.
+  field: string
+  // The validator's code for this field.
+  code: string
+  // The field's own bounds, formatted exactly as the field formats its value, so '6,000' in the message and
+  // '6,000' in the input are the same notation.
+  minText: string
+  maxText: string
+}
+
+// The one read of the table above: own-property only, because a bare index answers an inherited name with a
+// function that no `?? fallback` can catch, and total, because an error row with no message is a field that
+// refuses a value and will not say why.
+export function targetFieldErrorText({field, code, minText, maxText}: TargetFieldErrorCopyInputs): string {
+  const template = lookupLabel(MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS, `${field}.${code}`)
+
+  return template === undefined
+    ? MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT
+    : stringWithNamedParameters(template, {min: minText, max: maxText})
+}
+
 export const MEAL_PLAN_MANUAL_MACROS_BANNER_BODY =
   "Macros don't have to add up to your calorie target. We won't adjust them for you."
 
@@ -1492,7 +1594,13 @@ export const MEAL_PLAN_PLANNED_FOR_TEMPLATE = 'Planned for {day}'
 
 export const MEAL_PLAN_DAY_TARGET_TEMPLATE = 'Target {calories}'
 
+// The planned-totals unit line, in the two forms the count needs. A one-meal day is a real day — a plan whose
+// schedule holds one slot, or a day the user has swapped down to one — and "across 1 meals" is not copy this
+// app ships: every other counted line in this file keeps a singular of its own (the flagged-banner titles, the
+// grocery flagged-amount banner). Zero keeps the plural, which is how English counts nothing.
 export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {n} meals'
+
+export const MEAL_PLAN_MEAL_COUNT_SINGULAR_TEMPLATE = 'kcal across {n} meal'
 
 export const MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE = '{slot} · {time}'
 
@@ -1526,14 +1634,50 @@ export const MEAL_PLAN_TARGETS_STALE_CAPTION = 'Targets changed since this plan 
 
 export const MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE = 'You logged {recipe} for this slot'
 
+// What a flagged card states when the reason cannot be stated specifically: a set of flags whose codes differ,
+// a code this build has no copy for, or a detail it cannot render. Borrowing a specific reason instead would
+// tell the user, for instance, that an ingredient they merely dislike is an allergen.
+export const MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT = "Doesn't match your preferences"
+
 // The flagged-card meta line, keyed by the server's flag code. The allergen entry is the only one Figma draws
-// (0.2.5, "Contains milk"); the rest exist so a dislike or a cooking-time overrun is never shown as an allergen.
-export const MEAL_PLAN_MEAL_FLAG_TEMPLATES: Record<string, string> = {
-  diet: 'Contains {detail} · outside your diet',
+// (0.2.5, "Contains milk"); the rest exist so a dislike or a cooking-time overrun is never shown as an
+// allergen.
+//
+// '{detail}' means something different per code, because the server's flag detail does: an ingredient the
+// recipe contains for 'allergen' and 'dislike', the USER's own diet for 'diet', and the RECIPE's own duration
+// for 'cooking_time' (backend recipe.logic.ts emits `[preferences.diet]` and `[String(total_minutes)]`
+// respectively). Hence only the first two say "contains" — stating a diet name or a minute count as something
+// the meal contains is false however well the value itself is formatted — and hence 'cooking_time' does not
+// call the number "yours". That is the same rule, and deliberately the same phrasing, as the settings banner's
+// PLAN_SETTINGS_FLAGGED_BANNER_BODY_* templates further down; the card states it as a terse meta line with '·'
+// joining the qualifying clause, and the banner as a sentence.
+//
+// The caller formats the detail before substituting it — allergen and diet codes through the sentence-label
+// maps, a duration through MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, dislike names as sent — so no template here
+// ever splices in a raw server token. Declared partial because the key is an open server string: a bare index
+// is then honestly `string | undefined`, and mealFlagTemplate below is the read that cannot fail.
+export const MEAL_PLAN_MEAL_FLAG_TEMPLATES: Partial<Record<string, string>> = {
+  diet: "Doesn't fit your {detail} diet",
   allergen: 'Contains {detail}',
   dislike: 'Contains {detail} · an ingredient you skip',
-  cooking_time: 'Over your {detail} cooking time',
-  mixed: "Doesn't match your preferences"
+  cooking_time: 'Takes {detail} · longer than your cooking time',
+  mixed: MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT
+}
+
+// Whether this build can state a flag code specifically. The card decides its reason with this before it reads
+// the table, exactly as the settings banner does, so an unrecognised code becomes the generic reason at the
+// point the reason is chosen rather than an absent template at the point the line is rendered.
+export function hasMealFlagTemplate(code: string): boolean {
+  return lookupLabel(MEAL_PLAN_MEAL_FLAG_TEMPLATES, code) !== undefined
+}
+
+// The total read of the table above: every input answers with copy. An own-property read is the only correct
+// one here because the code is an open server string — a bare index answers an inherited name ('constructor',
+// '__proto__') with a function, which is not nullish, so a `?? fallback` would never fire and a non-string
+// would reach React text; and an absent code answered `undefined` is what crashed this card's render before
+// (TypeError on `.split` of undefined).
+export function mealFlagTemplate(code: string): string {
+  return lookupLabel(MEAL_PLAN_MEAL_FLAG_TEMPLATES, code) ?? MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT
 }
 
 export const MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR = ', '
@@ -1882,6 +2026,11 @@ export const MEAL_PLAN_DAY_CHIP_ACCESSIBILITY_TEMPLATE = 'Show meals for {day}'
 
 export const MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE = 'Open {recipe}'
 
+// The logged card's own name says it is logged. The card's explicit label replaces every descendant for a
+// reader, so the visible LOGGED badge cannot speak for itself from inside it — this suffix is that badge's
+// text equivalent, and without it a logged and an unlogged card announce identically.
+export const MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE = 'Open {recipe}, logged'
+
 export const MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE = 'Swap {recipe}'
 
 export const MEAL_PLAN_LOG_MEAL_ACCESSIBILITY_TEMPLATE = 'Log {recipe}'
@@ -1891,6 +2040,12 @@ export const MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE = 'View {recipe} in 
 export const MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE = 'Add {name}'
 
 export const MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE = 'Remove {name}'
+
+// A date stepper's glyph carries no direction and its target date alone cannot say which way it moves — at
+// the ends of the plan week the clamped target is the day already shown. Each arrow names both.
+export const MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE = 'Previous day, {date}'
+
+export const MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE = 'Next day, {date}'
 
 export const MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Decrease servings'
 
@@ -1954,6 +2109,11 @@ export const SWAP_ALTERNATIVE_ACCESSIBILITY_TEMPLATE = '{name}, {meta}'
 export const SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE = '{calories} calories lower'
 
 export const SWAP_PREVIEW_DELTA_UP_ACCESSIBILITY_TEMPLATE = '{calories} calories higher'
+
+// The bar declares a progressbar role and a min/max/now value, and a role declared without a name announces
+// as an unnamed progress bar. This names what the value measures; the figures themselves are read from the
+// card above it.
+export const SWAP_PREVIEW_CALORIE_PROGRESS_ACCESSIBILITY_LABEL = 'Calories against your daily target'
 
 export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
 

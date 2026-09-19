@@ -10,7 +10,13 @@ import {Swipeable} from 'react-native-gesture-handler'
 
 import Text from '@components/Text'
 
-import {CAL_LABEL, EMPTY_MEAL_CTA} from '@constants/strings'
+import {
+  CAL_LABEL,
+  EMPTY_MEAL_CTA,
+  MEAL_CARD_ADD_FOOD_ACCESSIBILITY_TEMPLATE,
+  MEAL_CARD_EMPTY_CTA_ACCESSIBILITY_TEMPLATE,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 import MealEntryRow from '../MealEntryRow'
 import styles from './index.styled'
@@ -42,7 +48,14 @@ const MealCard = (props: Props) => {
           {hasEntries && <Text style={styles.headerCalories}>{`${meal.totals.calories} ${CAL_LABEL}`}</Text>}
         </View>
 
-        <TouchableOpacity style={styles.addButton} activeOpacity={0.6} onPress={onAddFoodPressed}>
+        <TouchableOpacity
+          style={styles.addButton}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel={stringWithNamedParameters(MEAL_CARD_ADD_FOOD_ACCESSIBILITY_TEMPLATE, {
+            meal: meal.name
+          })}
+          onPress={onAddFoodPressed}>
           <AntDesign name="plus" size={ADD_ICON_SIZE} color={Theme.colors.textSecondary} />
         </TouchableOpacity>
       </View>
@@ -62,7 +75,15 @@ const MealCard = (props: Props) => {
       ))}
 
       {!hasEntries && (
-        <TouchableOpacity style={styles.emptyCta} activeOpacity={0.6} onPress={onAddFoodPressed}>
+        <TouchableOpacity
+          style={styles.emptyCta}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel={stringWithNamedParameters(MEAL_CARD_EMPTY_CTA_ACCESSIBILITY_TEMPLATE, {
+            cta: EMPTY_MEAL_CTA,
+            meal: meal.name
+          })}
+          onPress={onAddFoodPressed}>
           <Text style={styles.emptyCtaText}>{EMPTY_MEAL_CTA}</Text>
         </TouchableOpacity>
       )}

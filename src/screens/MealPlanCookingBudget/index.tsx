@@ -286,16 +286,26 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
-        <WizardHeader step={progress.step} totalSteps={progress.totalSteps} onBack={navigation.goBack} />
+        {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
+            back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
+        <WizardHeader
+          step={progress.step}
+          totalSteps={progress.totalSteps}
+          onBack={navigation.goBack}
+          isProgressVisible={params.mode !== 'edit'}
+        />
 
         {/* The weekly amount sits under the chips with the summary card below it, so the scroll region
             carries the number pad's inset while the footer stays pinned outside it (0.7.2). */}
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="always"
+          enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
-          <Text style={styles.headline}>{MEAL_PLAN_COOKING_BUDGET_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_COOKING_BUDGET_TITLE}
+          </Text>
 
           <View style={styles.cookingSection}>
             <Text style={styles.controlLabel}>{MEAL_PLAN_COOKING_TIME_HEADER}</Text>

@@ -57,7 +57,9 @@ const MealPlanIntroScreen = (): React.JSX.Element => {
             <SectionOverline text={MEAL_PLAN_OVERLINE} tone="green" />
           </View>
 
-          <Text style={styles.headline}>{MEAL_PLAN_INTRO_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_INTRO_TITLE}
+          </Text>
 
           <Text style={styles.body}>{MEAL_PLAN_INTRO_BODY}</Text>
 

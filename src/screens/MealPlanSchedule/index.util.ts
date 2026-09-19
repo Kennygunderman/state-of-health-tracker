@@ -5,7 +5,7 @@ import {formatSlotTime} from '@utility/MealPlanDateUtility'
 
 import {PickerItem} from '@components/Picker'
 
-import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT} from '@constants/strings'
+import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT, MEAL_PLAN_TIME_PICKER_PLACEHOLDER} from '@constants/strings'
 
 export const PICKER_MINUTE_STEP = 15
 
@@ -25,6 +25,10 @@ const UNSET_TIME_VALUE = ''
 const PICKER_OPTION_COUNT = (HOURS_PER_DAY * MINUTES_PER_HOUR) / PICKER_MINUTE_STEP
 
 const NO_SLOTS: readonly MealSlot[] = Object.freeze([] as const)
+
+// Which schedule's rows the card borrows while none is chosen: the three-meal day, so the snack row is the
+// one thing choosing 'three_plus_snack' adds and the dashed placeholder explains it until then.
+const UNCHOSEN_SCHEDULE_CARD_SHAPE: MealSchedule = 'three'
 
 const SLOT_ICON_KEYS: Record<MealSlot, RecipeIconKey> = {
   breakfast: 'crosshair',
@@ -47,6 +51,23 @@ const timeValueFromMinutes = (minutesFromMidnight: number): string => {
 // setup provider holds can never disagree about which slots a schedule plans.
 export const mealSlotsForSchedule = (schedule: MealSchedule | null): readonly MealSlot[] =>
   schedule ? MEAL_SLOTS_BY_SCHEDULE[schedule] : NO_SLOTS
+
+// The rows the "Usual times" card shows, which is not the same question as which slots a schedule plans.
+// Frame 47:471 draws the card and the dashed snack placeholder on a screen with no schedule chosen, and
+// AAP 0.7.4 opens this step with nothing selected, so the card is on screen from first entry: it is the
+// affordance that shows what the day looks like and, through the placeholder, what the snack option would
+// add — both of which have to be legible before the option is picked. A chosen schedule therefore only
+// adds or removes the snack row, and the unchosen state borrows the three-meal day's rows rather than
+// naming its own list, so this can never disagree with MEAL_SLOTS_BY_SCHEDULE about the main slots.
+export const mealSlotsForScheduleCard = (schedule: MealSchedule | null): readonly MealSlot[] =>
+  mealSlotsForSchedule(schedule ?? UNCHOSEN_SCHEDULE_CARD_SHAPE)
+
+// What a time pill reads before its slot has a time. Times are seeded only when a schedule is chosen
+// (0.7.4), and AAP 0.1.2 forbids showing the mockup's times as answers the user already gave, so an
+// unseeded pill states the action it offers instead of rendering an empty pill or a borrowed time. It is
+// the same sentence the picker this pill opens uses as its own placeholder, so the two cannot diverge.
+export const mealTimePillLabel = (time: string): string =>
+  time.trim() === UNSET_TIME_VALUE ? MEAL_PLAN_TIME_PICKER_PLACEHOLDER : formatSlotTime(time)
 
 export const mealSlotIconKey = (slot: MealSlot): RecipeIconKey => SLOT_ICON_KEYS[slot]
 

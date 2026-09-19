@@ -505,10 +505,13 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
+        {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
+            back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
         <WizardHeader
           step={ABOUT_YOU_STEP}
           totalSteps={wizardTotalSteps(preferences?.targetRoute ?? null)}
           onBack={navigation.goBack}
+          isProgressVisible={params.mode !== 'edit'}
         />
 
         {/* Four number pads open over this form, the last of them below the fold, so the scroll region
@@ -516,9 +519,12 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
-          <Text style={styles.headline}>{MEAL_PLAN_ABOUT_YOU_TITLE}</Text>
+          <Text style={styles.headline} accessibilityRole="header">
+            {MEAL_PLAN_ABOUT_YOU_TITLE}
+          </Text>
 
           <Text style={styles.subCopy}>{MEAL_PLAN_ABOUT_YOU_SUBTITLE}</Text>
 
@@ -560,11 +566,11 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
                   />
                 </View>
 
-                {ageErrorMessage !== null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={ageErrorMessage} />
-                  </View>
-                )}
+                {/* Mounted whether or not it carries a message: a live region announces what changes inside
+                    it, so one that appears already holding its error is never read out. */}
+                <View accessibilityLiveRegion="polite">
+                  {ageErrorMessage !== null && <InlineError message={ageErrorMessage} />}
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
@@ -630,23 +636,17 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
                 {/* Each half of the paired row reports itself: 03b draws the error under the row rather than
                     under the field, so an invalid foot count and an invalid inch count are two rows there and
                     neither hides the other. */}
-                {feetErrorMessage !== null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={feetErrorMessage} />
-                  </View>
-                )}
+                <View accessibilityLiveRegion="polite">
+                  {feetErrorMessage !== null && <InlineError message={feetErrorMessage} />}
+                </View>
 
-                {inchesErrorMessage !== null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={inchesErrorMessage} />
-                  </View>
-                )}
+                <View accessibilityLiveRegion="polite">
+                  {inchesErrorMessage !== null && <InlineError message={inchesErrorMessage} />}
+                </View>
 
-                {centimetersErrorMessage !== null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={centimetersErrorMessage} />
-                  </View>
-                )}
+                <View accessibilityLiveRegion="polite">
+                  {centimetersErrorMessage !== null && <InlineError message={centimetersErrorMessage} />}
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
@@ -681,11 +681,9 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
 
                 {showsPrefillCaption && <Text style={styles.prefillCaption}>{MEAL_PLAN_WEIGHT_PREFILL_CAPTION}</Text>}
 
-                {weightErrorMessage !== null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={weightErrorMessage} />
-                  </View>
-                )}
+                <View accessibilityLiveRegion="polite">
+                  {weightErrorMessage !== null && <InlineError message={weightErrorMessage} />}
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
@@ -707,11 +705,9 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
                   ))}
                 </View>
 
-                {errors?.sex != null && (
-                  <View accessibilityLiveRegion="polite">
-                    <InlineError message={ABOUT_YOU_ERROR_COPY[errors.sex]} />
-                  </View>
-                )}
+                <View accessibilityLiveRegion="polite">
+                  {errors?.sex != null && <InlineError message={ABOUT_YOU_ERROR_COPY[errors.sex]} />}
+                </View>
               </View>
             </View>
           )}

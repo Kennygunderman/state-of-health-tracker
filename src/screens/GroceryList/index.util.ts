@@ -140,9 +140,11 @@ const isEmptyGroceryList = (list: GroceryList): boolean => list.totalCount === 0
  * The precedence is load-bearing, in this order:
  * - A route plan id wins outright (`GROCERY_LIST` takes `{planId}`, 0.7.4). The current-plan query is disabled
  *   in that case, so its own fields describe nothing about this screen and must not be consulted.
- * - Else a cached current plan wins even over a failed read: `mealPlanCurrent` is the one persisted query
- *   (0.4.1), so an offline session keeps shopping the plan it has rather than losing it to the refetch.
- * - Else a decoded answer with no current plan is genuine absence — the only route to 14c.
+ * - Else a cached plan wins even over a failed read, and it is `current ?? upcoming` — the selection AAP 0.7.4
+ *   gives an unset plan id, so a user whose only plan starts next week shops that plan instead of being told
+ *   there is nothing to shop. `mealPlanCurrent` is the one persisted query (0.4.1), so an offline session keeps
+ *   shopping the plan it has rather than losing it to the refetch.
+ * - Else a decoded answer holding neither plan is genuine absence — the only route to 14c.
  * - Else a failed lookup is 'unavailable' (the inline retry card) and anything remaining is still resolving.
  */
 export function resolveGroceryPlanScope(inputs: GroceryPlanScopeInputs): GroceryPlanScope {
@@ -152,10 +154,10 @@ export function resolveGroceryPlanScope(inputs: GroceryPlanScopeInputs): Grocery
     return {kind: 'plan', planId: routePlanId}
   }
 
-  const currentPlanId = currentPlan.data?.current?.id ?? null
+  const shoppablePlanId = currentPlan.data?.current?.id ?? currentPlan.data?.upcoming?.id ?? null
 
-  if (currentPlanId !== null) {
-    return {kind: 'plan', planId: currentPlanId}
+  if (shoppablePlanId !== null) {
+    return {kind: 'plan', planId: shoppablePlanId}
   }
 
   if (currentPlan.data !== undefined) {
@@ -219,19 +221,22 @@ export function isGroceryPlanStateRefusal(error: unknown): boolean {
 export interface GroceryWriteFailure {
   toast: string
   refetchCurrentPlan: boolean
-  leaveStalePlan: boolean
+  unpinStalePlan: boolean
 }
 
 /**
  * What one refused grocery write tells the user, whether the plan itself must be re-read, and whether this
- * list is still a list worth standing on.
+ * screen may keep shopping the plan its route names.
  *
  * Both writes are optimistic and both roll themselves back in their mutation factories (0.7.2), so nothing
  * here undoes anything. A confirmed plan-state refusal earns three things: the stale-plan copy, a
- * `mealPlanCurrent` re-read (0.2.5) and `leaveStalePlan` — because the refusal is about the plan and not about
- * the row, so every other row on this list would be refused in exactly the same way. Re-reading alone cannot
- * change a route-pinned screen's plan, which is what would otherwise leave the shopper ticking boxes that can
- * only fail. Every other rejection keeps the generic toast and leaves the list exactly where it is.
+ * `mealPlanCurrent` re-read (0.2.5) and `unpinStalePlan` — because the refusal is about the plan and not about
+ * the row, so every other row on this list would be refused in exactly the same way. The re-read on its own
+ * would change nothing while the route still names the refused plan, since `resolveGroceryPlanScope` honours
+ * that id outright; dropping the pin is what lets the refreshed answer decide, which is how the replacement
+ * plan's list (0.5.1's `replacementPlanId`) — or, when no plan remains, 14c — takes this screen over instead of
+ * the shopper ticking boxes that can only fail. Every other rejection keeps the generic toast and leaves the
+ * list exactly where it is.
  */
 export function classifyGroceryWriteFailure(error: unknown): GroceryWriteFailure {
   const isPlanStateRefusal = isGroceryPlanStateRefusal(error)
@@ -239,7 +244,7 @@ export function classifyGroceryWriteFailure(error: unknown): GroceryWriteFailure
   return {
     toast: isPlanStateRefusal ? MEAL_PLAN_STALE_PLAN_TOAST : TOAST_GENERIC_ERROR,
     refetchCurrentPlan: isPlanStateRefusal,
-    leaveStalePlan: isPlanStateRefusal
+    unpinStalePlan: isPlanStateRefusal
   }
 }
 
@@ -247,7 +252,7 @@ export interface GroceryReadRecovery {
   toast: string | null
   refetchCurrentPlan: boolean
   isPlanStateFailure: boolean
-  leaveStalePlan: boolean
+  unpinStalePlan: boolean
 }
 
 export interface GroceryReadRecoveryInputs {
@@ -257,10 +262,11 @@ export interface GroceryReadRecoveryInputs {
 
 /**
  * The recovery a failed grocery-list read earns. A decoded plan-state code gets the stale-plan toast, a
- * `mealPlanCurrent` re-read and the same handover to the plan tab a refused write gets (0.2.5): the plan this
- * screen was opened for will not answer for its list, so there is nothing here to retry and nothing to read.
- * A network or undecodable failure is left to the inline retry card, which is the only failure a second
- * attempt of the same read could resolve.
+ * `mealPlanCurrent` re-read and the same dropped pin a refused write gets (0.2.5): the plan this screen was
+ * opened for will not answer for its list, so retrying that read cannot succeed and the refreshed current-plan
+ * answer is the only thing that can say what this screen should be shopping instead. A network or undecodable
+ * failure is left to the inline retry card, which is the only failure a second attempt of the same read could
+ * resolve.
  *
  * `hasAnnounced` is the caller's own record that this failure was already reported: the list query's identity
  * changes with the plan id and with every settle invalidation, so an unguarded classification would raise the
@@ -270,10 +276,10 @@ export function groceryReadRecovery(inputs: GroceryReadRecoveryInputs): GroceryR
   const isPlanStateFailure = isGroceryPlanStateRefusal(inputs.error)
 
   if (!isPlanStateFailure || inputs.hasAnnounced) {
-    return {toast: null, refetchCurrentPlan: false, isPlanStateFailure, leaveStalePlan: false}
+    return {toast: null, refetchCurrentPlan: false, isPlanStateFailure, unpinStalePlan: false}
   }
 
-  return {toast: MEAL_PLAN_STALE_PLAN_TOAST, refetchCurrentPlan: true, isPlanStateFailure, leaveStalePlan: true}
+  return {toast: MEAL_PLAN_STALE_PLAN_TOAST, refetchCurrentPlan: true, isPlanStateFailure, unpinStalePlan: true}
 }
 
 // A decrease has no variant of its own: the server flags increases only, so a checked row whose amount fell
@@ -435,6 +441,14 @@ export function buildGroceryViewModel(list: GroceryList): GroceryViewModel {
 }
 
 // Mirrors ContentColumn's own geometry so a Skeleton placeholder measures the same as the card it stands in for.
+// Clamped because Skeleton sizes its sweep from this number: a window the gutters exhaust has to collapse the
+// placeholder to nothing, the way every other derivation here does, rather than hand it a negative or a NaN.
 export function contentColumnWidth(windowWidth: number): number {
-  return Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - Spacing.GUTTER * 2
+  const column = Math.min(windowWidth, Sizes.CONTENT_MAX_WIDTH) - Spacing.GUTTER * 2
+
+  if (!Number.isFinite(column) || column <= 0) {
+    return 0
+  }
+
+  return column
 }

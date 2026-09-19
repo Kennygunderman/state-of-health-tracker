@@ -238,7 +238,15 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
   const resultsHeader = useMemo(
     () => (
       <>
-        <View style={styles.resultsSection} accessible accessibilityLabel={resultsAccessibilityLabel}>
+        {/* The role belongs on this wrapper rather than on the overline inside it: the wrapper is already the
+            one element the platform exposes here, so a role on its child is never reached. Naming the heading
+            with the result count is the same text the section announces, so the rotor entry and the reading
+            stop stay one thing. */}
+        <View
+          style={styles.resultsSection}
+          accessible
+          accessibilityRole="header"
+          accessibilityLabel={resultsAccessibilityLabel}>
           <SectionOverline text={MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER} />
         </View>
 
@@ -318,6 +326,7 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
         <View style={styles.selectedHeaderRow}>
           <SectionOverline
             text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedCount})}
+            isHeading
           />
 
           {selectedCount > 0 && (

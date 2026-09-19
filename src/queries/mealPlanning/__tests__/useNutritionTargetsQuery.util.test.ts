@@ -96,31 +96,21 @@ const retainedUnconfirmedResult = (error: unknown): NutritionTargetsReadResult =
 
 const authedInput = (read: NutritionTargetsReadResult): TargetAuthorityInput => ({read, isAuthed: true})
 
-const UNRESOLVED_DECISION: TargetAuthorityDecision = {
-  authority: 'unresolved',
-  editor: null,
-  isEditable: false,
-  serverCalories: null
-}
-
 const LEGACY_DECISION: TargetAuthorityDecision = {
   authority: 'local',
   editor: 'legacy',
-  isEditable: true,
   serverCalories: null
 }
 
 const canonicalDecision = (serverCalories: number | null): TargetAuthorityDecision => ({
   authority: 'server',
   editor: 'canonical',
-  isEditable: true,
   serverCalories
 })
 
-const EXPECTED_EDITOR: Record<TargetAuthority, TargetEditor | null> = {
+const EXPECTED_EDITOR: Record<TargetAuthority, TargetEditor> = {
   server: 'canonical',
-  local: 'legacy',
-  unresolved: null
+  local: 'legacy'
 }
 
 const SIGNED_OUT_READS: [string, NutritionTargetsReadResult][] = [
@@ -275,20 +265,28 @@ describe('the two predicates together', () => {
 })
 
 describe('resolveTargetAuthority', () => {
-  // Nothing may be edited while it is unknown who owns the target: the legacy modal would write a device value
-  // the server's own targets then override everywhere else, and the canonical editor would push a user who
-  // never opted in through the planner's writer.
+  // The regression this policy exists to prevent: while no server target is in hand, the three shipped
+  // surfaces keep the behaviour they had before the planner existed — the device's target, edited in the
+  // legacy modal (AAP 0.1.4's "otherwise", AAP 0.2.5's "nothing is cleared"). Holding the answer back until
+  // the read lands made Account's row, the Diary ring and Progress Activity's intake row do nothing at all on
+  // every cold start, because this read is not persisted across launches.
   describe('a read that has not answered', () => {
-    it('leaves the authority unresolved while the first load is in flight', () => {
-      expect(resolveTargetAuthority(authedInput(succeededResult(undefined)))).toEqual(UNRESOLVED_DECISION)
+    it('keeps the legacy modal in charge while the first load is in flight', () => {
+      expect(resolveTargetAuthority(authedInput(succeededResult(undefined)))).toEqual(LEGACY_DECISION)
     })
 
     it.each(READ_FAILURE_ERRORS)(
-      'leaves the authority unresolved under %s, which failed before the read ever produced data',
+      'keeps the legacy modal in charge under %s, which failed before the read ever produced data',
       (_label, error) => {
-        expect(resolveTargetAuthority(authedInput(erroredResult(error)))).toEqual(UNRESOLVED_DECISION)
+        expect(resolveTargetAuthority(authedInput(erroredResult(error)))).toEqual(LEGACY_DECISION)
       }
     )
+
+    it('names an editor for every read state, so no state leaves the target uneditable', () => {
+      const decisions = EVERY_AUTHORITY_INPUT.map(([, input]) => resolveTargetAuthority(input))
+
+      expect(decisions.every(decision => decision.editor === 'legacy' || decision.editor === 'canonical')).toBe(true)
+    })
   })
 
   // A 500 or a lost connection says nothing about who owns the target, so the retained answer keeps deciding:
@@ -359,14 +357,15 @@ describe('resolveTargetAuthority', () => {
     })
   })
 
-  // The three members no consumer should have to re-derive, asserted over every state above so none of them can
-  // drift into contradicting its own authority.
+  // The two members no consumer should have to re-derive, asserted over every state above so neither can drift
+  // into contradicting its own authority.
   describe('the members of every decision', () => {
-    it.each(EVERY_AUTHORITY_INPUT)('is editable for %s exactly when the authority is resolved', (_label, input) => {
+    // The invariant the three shipped surfaces depend on: there is no state in which the target cannot be
+    // edited, so none of them ever renders a control that does nothing.
+    it.each(EVERY_AUTHORITY_INPUT)('names a writer for %s rather than leaving the press inert', (_label, input) => {
       const decision = resolveTargetAuthority(input)
 
-      expect(decision.isEditable).toBe(decision.authority !== 'unresolved')
-      expect(decision.editor === null).toBe(decision.authority === 'unresolved')
+      expect(['legacy', 'canonical']).toContain(decision.editor)
     })
 
     it.each(EVERY_AUTHORITY_INPUT)('names the writer that owns the authority for %s', (_label, input) => {
@@ -415,8 +414,11 @@ describe('isLegacyTargetEditorOpen', () => {
     ).toBe(false)
   })
 
-  it('closes a standing request while the authority is unresolved, where neither writer may run', () => {
-    expect(isLegacyTargetEditorOpen(resolveTargetAuthority(authedInput(succeededResult(undefined))), true)).toBe(false)
+  // The transition that must NOT close it either: a read that has not answered holds no server target to take
+  // over from the device, so the writer the user is already using stays on screen rather than vanishing
+  // mid-edit on a background refetch.
+  it('stays open while the read has not answered, where the device is still in charge', () => {
+    expect(isLegacyTargetEditorOpen(resolveTargetAuthority(authedInput(succeededResult(undefined))), true)).toBe(true)
   })
 
   // The transition that must NOT close it: a rolled-back backend leaves the device in charge of the target
@@ -428,29 +430,31 @@ describe('isLegacyTargetEditorOpen', () => {
 })
 
 describe('targetAuthorityKey', () => {
-  it.each(EVERY_AUTHORITY_INPUT)('names the authority in force for %s', (_label, input) => {
+  it.each(EVERY_AUTHORITY_INPUT)('names the editor in force for %s', (_label, input) => {
     const decision = resolveTargetAuthority(input)
 
-    expect(targetAuthorityKey(decision)).toBe(decision.editor ?? decision.authority)
+    expect(targetAuthorityKey(decision)).toBe(decision.editor)
   })
 
   // Remounting Account's row is how an authority change closes a modal owned by a component this feature may
-  // not modify, so the key has to change on every transition between authorities...
-  it('differs between the three authorities, so any transition remounts the row', () => {
-    const keys = [
-      targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(CONFIRMED_TARGETS)))),
+  // not modify, so the key has to change when the writer changes...
+  it('differs between the two writers, so a transition between them remounts the row', () => {
+    expect(targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(CONFIRMED_TARGETS))))).not.toBe(
+      targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(UNCONFIRMED_TARGETS))))
+    )
+  })
+
+  // ...and must not change for anything else, or a background refetch would remount the row on every render —
+  // which is exactly what an unanswered read does on every cold start, so it shares the local key rather than
+  // carrying one of its own.
+  it('is identical for different reads that resolve to the same writer', () => {
+    const localKeys = [
       targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(UNCONFIRMED_TARGETS)))),
+      targetAuthorityKey(resolveTargetAuthority({read: succeededResult(CONFIRMED_TARGETS), isAuthed: false})),
       targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(undefined))))
     ]
 
-    expect(new Set(keys).size).toBe(keys.length)
-  })
-
-  // ...and must not change for anything else, or a background refetch would remount the row on every render.
-  it('is identical for different reads that resolve to the same authority', () => {
-    expect(targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(UNCONFIRMED_TARGETS))))).toBe(
-      targetAuthorityKey(resolveTargetAuthority({read: succeededResult(CONFIRMED_TARGETS), isAuthed: false}))
-    )
+    expect(new Set(localKeys).size).toBe(1)
 
     expect(targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(CONFIRMED_TARGETS))))).toBe(
       targetAuthorityKey(resolveTargetAuthority(authedInput(succeededResult(MACRO_ONLY_TARGETS))))

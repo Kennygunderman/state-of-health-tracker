@@ -1,5 +1,7 @@
 import {STATUS_ANNOUNCEMENT_TEMPLATE, stringWithNamedParameters} from '@constants/strings'
 
+export type BannerGlyph = 'info' | 'tick' | 'disc' | 'warning' | 'alert'
+
 export type StatusRole = 'alert' | 'status'
 
 export type StatusLiveRegion = 'assertive' | 'polite'
@@ -32,3 +34,12 @@ export const resolveStatusSemantics = (statusRole: StatusRole | null | undefined
 
   return {role: statusRole, liveRegion: statusRole === 'alert' ? 'assertive' : 'polite'}
 }
+
+// 'tick' and 'warning' are drawn only by the grocery list's post-swap banners, which arrive with the screen as
+// the outcome of a swap the user made elsewhere: news, and so announced by default rather than only when a call
+// site remembers to ask. The other three glyphs stay opt-in on purpose. 'disc' is 11b's post-log banner, which
+// its own screen already wraps in a live region and announces — a default would say it twice. 'alert' is what an
+// untyped error banner resolves to, so defaulting it would re-point many banners at once, and its call sites
+// already pass `statusRole` where the status is news. 'info' is ordinary on-screen prose, not an event.
+export const resolveDefaultStatusRole = (glyph: BannerGlyph): StatusRole | null =>
+  glyph === 'tick' || glyph === 'warning' ? 'status' : null

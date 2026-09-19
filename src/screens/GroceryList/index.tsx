@@ -4,13 +4,12 @@ import {FlatList, ListRenderItemInfo, TouchableOpacity, useWindowDimensions, Vie
 
 import type {GroceryItem} from '@data/models/GroceryList'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
-import {GroceryListRouteProp, Navigation} from '@navigation/types'
+import {GroceryListNavigation, GroceryListRouteProp} from '@navigation/types'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
 import {useGroceryListQuery} from '@queries/mealPlanning/useGroceryListQuery'
 import {useToggleGroceryItemMutation} from '@queries/mealPlanning/useToggleGroceryItemMutation'
 import {useUncheckAllGroceriesMutation} from '@queries/mealPlanning/useUncheckAllGroceriesMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
-import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
@@ -70,6 +69,18 @@ const SKELETON_BLOCKS: ReadonlyArray<{height: number; borderRadius: number}> = [
 // sent: every control that fires them renders only inside a decoded list, which exists only for a real plan.
 const NO_PLAN_ID = ''
 
+// Module scope so the list is never handed a new reader: one optimistic toggle renders this screen three times
+// (pending, cache write, settle), and a prop whose identity changes makes FlatList re-run every row it holds.
+const keyExtractor = (block: GroceryBlock): string => block.key
+
+// A cell here is a whole aisle card, so the first commit is budgeted in cards rather than rows: at the 393×852
+// reference frame the back row, the eyebrow, the title and the first two aisle cards (37:35 → 37:157) are what
+// the viewport holds, so two cards is the whole of what a cold open has to mount. The list carries at most six
+// cells — five aisles and the Checked card — so two per batch brings the rest in within a few frames while
+// keeping each frame's work the size of that first commit.
+const INITIAL_AISLE_CARDS = 2
+const AISLE_CARDS_PER_BATCH = 2
+
 /**
  * Frames 14 / 14b / 14c: the week's shopping list, its checked block and the two writes that move items
  * between them.
@@ -77,17 +88,15 @@ const NO_PLAN_ID = ''
  * Both writes are optimistic in their mutation hooks, so this screen reports a failure rather than reverting
  * anything itself: the row returns to where it was and a toast says so, and nothing here navigates on failure.
  * The one failure it does act on is a confirmed plan-state refusal — on a write or on the list read — which
- * earns the stale-plan copy and a current-plan re-read so the shopper is not left writing to a superseded
- * list (0.2.5).
+ * earns the stale-plan copy, a current-plan re-read and the dropped plan pin that lets the re-read take effect,
+ * so the shopper is moved off a superseded list rather than off the screen (0.2.5).
  */
 const GroceryListScreen = (): React.JSX.Element => {
-  const navigation = useNavigation<Navigation>()
+  // Route-scoped, because this screen rewrites its own params: `setParams` is typed against the route it is
+  // standing on, and the unscoped `Navigation` would type it against every route's params at once.
+  const navigation = useNavigation<GroceryListNavigation>()
   const {params} = useRoute<GroceryListRouteProp>()
   const {width} = useWindowDimensions()
-
-  // Written only when a plan-state refusal hands this flow back to the plan tab, so the tab it lands on is the
-  // Meal Plan segment whose refreshed current-plan answer owns which plan is selected (0.7.4).
-  const setMacrosSegment = useMealPlanStore(state => state.setMacrosSegment)
 
   // Opening the list without a plan id means "shop the plan I am on", so the current plan answers for it —
   // and only then. With an id already in hand the read would be a second /plans/current request and a second
@@ -119,6 +128,12 @@ const GroceryListScreen = (): React.JSX.Element => {
   const toggleMutation = useToggleGroceryItemMutation(planId ?? NO_PLAN_ID)
   const uncheckAllMutation = useUncheckAllGroceriesMutation(planId ?? NO_PLAN_ID)
 
+  // Read out the way the current-plan query's own members are above: each is bound once to its mutation
+  // observer, so naming the function is what lets the handlers below keep one identity across a write's
+  // renders — naming the result object instead would rebuild them on every status change it reports.
+  const toggleGroceryItemAsync = toggleMutation.mutateAsync
+  const uncheckAllGroceriesAsync = uncheckAllMutation.mutateAsync
+
   const view = useMemo(
     () =>
       resolveGroceryView(
@@ -137,61 +152,72 @@ const GroceryListScreen = (): React.JSX.Element => {
 
   const viewModel = useMemo(() => (list === null ? EMPTY_GROCERY_VIEW_MODEL : buildGroceryViewModel(list)), [list])
 
-  const hasLeftStalePlan = useRef(false)
+  const hasUnpinnedStalePlan = useRef(false)
 
   /**
    * Giving way to the current plan, which is what a confirmed plan-state refusal leaves this screen able to do.
    *
-   * A re-read on its own cannot move a route-pinned list: the route names the plan and `resolveGroceryPlanScope`
-   * honours it, so the shopper would stay on a superseded list ticking rows that can only be refused again. The
-   * Meal Plan tab owns plan selection from the refreshed current/upcoming answer (0.7.4), so the flow hands
-   * back to it — the same handover `SwapPreview` performs on these two codes, so a refused plan behaves the
-   * same way whichever plan screen the user is standing on. Once per mount: the write path and the read path
-   * can classify the same fact.
+   * The refetch AAP 0.2.5 prescribes for these two codes is inert on a route-pinned screen: the route names the
+   * plan and `resolveGroceryPlanScope` honours that id outright, so the shopper would stay on a superseded list
+   * ticking rows that can only be refused again however fresh the current-plan answer is. Dropping the pin is
+   * what makes the prescribed recovery do something — with `planId` null the current-plan query is enabled, and
+   * its refreshed answer decides what this screen shops: the replacement plan the refusal named (0.5.1's
+   * `replacementPlanId`, returned as `current` once it exists) resolves in place and the shopper keeps
+   * shopping, and a user left with no plan at all resolves to the drawn 14c body (`{planId: null}` renders 14c,
+   * 0.7.4) rather than to a list nothing can answer for. Once per mount: the write path and the read path can
+   * classify the same fact, and setting params on every render would churn navigation state.
    */
-  const leaveStalePlan = useCallback((): void => {
-    if (hasLeftStalePlan.current) {
+  const unpinStalePlan = useCallback((): void => {
+    if (hasUnpinnedStalePlan.current) {
       return
     }
 
-    hasLeftStalePlan.current = true
-    setMacrosSegment('mealPlan')
-    navigation.popTo(Screens.MACROS)
-  }, [navigation, setMacrosSegment])
+    hasUnpinnedStalePlan.current = true
+    navigation.setParams({planId: null})
+  }, [navigation])
 
   // Both writes are optimistic and both roll themselves back in their mutation factories, so a rejection leaves
   // this screen nothing to undo: what it owns is the report and, for a confirmed plan-state refusal, the
-  // current-plan re-read and the handover above — a refusal is about the plan, not the row, so no other row on
-  // this list would fare any better (0.2.5).
-  const reportWriteFailure = (error: unknown): void => {
-    const failure = classifyGroceryWriteFailure(error)
+  // current-plan re-read and the dropped pin above — a refusal is about the plan, not the row, so no other row
+  // on this list would fare any better (0.2.5).
+  const reportWriteFailure = useCallback(
+    (error: unknown): void => {
+      const failure = classifyGroceryWriteFailure(error)
 
-    showToast('error', failure.toast)
+      showToast('error', failure.toast)
 
-    if (failure.refetchCurrentPlan) {
-      refetchCurrentPlan()
-    }
+      if (failure.refetchCurrentPlan) {
+        refetchCurrentPlan()
+      }
 
-    if (failure.leaveStalePlan) {
-      leaveStalePlan()
-    }
-  }
+      if (failure.unpinStalePlan) {
+        unpinStalePlan()
+      }
+    },
+    [refetchCurrentPlan, unpinStalePlan]
+  )
 
-  const onToggleItem = async (item: GroceryItem): Promise<void> => {
+  // One reader for the whole list, which is what makes a memoised row's props equal across the three renders a
+  // toggle costs: the row it is pressed on comes back through the argument instead of a closure per item.
+  // `mutateAsync` is bound once to the mutation's observer, so this identity survives every one of them.
+  const onToggleItem = useCallback(
+    async (item: GroceryItem): Promise<void> => {
+      try {
+        await toggleGroceryItemAsync({itemId: item.id, isChecked: !item.isChecked})
+      } catch (error) {
+        reportWriteFailure(error)
+      }
+    },
+    [reportWriteFailure, toggleGroceryItemAsync]
+  )
+
+  const onUncheckAllPressed = useCallback(async (): Promise<void> => {
     try {
-      await toggleMutation.mutateAsync({itemId: item.id, isChecked: !item.isChecked})
+      await uncheckAllGroceriesAsync()
     } catch (error) {
       reportWriteFailure(error)
     }
-  }
-
-  const onUncheckAllPressed = async (): Promise<void> => {
-    try {
-      await uncheckAllMutation.mutateAsync()
-    } catch (error) {
-      reportWriteFailure(error)
-    }
-  }
+  }, [reportWriteFailure, uncheckAllGroceriesAsync])
 
   const groceryQueryError = groceryQuery.error
 
@@ -214,15 +240,18 @@ const GroceryListScreen = (): React.JSX.Element => {
       refetchCurrentPlan()
     }
 
-    if (recovery.leaveStalePlan) {
-      leaveStalePlan()
+    if (recovery.unpinStalePlan) {
+      unpinStalePlan()
     }
-  }, [groceryQueryError, leaveStalePlan, refetchCurrentPlan])
+  }, [groceryQueryError, refetchCurrentPlan, unpinStalePlan])
 
   // A row is busy while its own toggle is in flight, and every row is busy while the whole list is being
   // cleared: a second press during either would write against a count the server is already changing.
-  const isRowPending = (item: GroceryItem): boolean =>
-    uncheckAllMutation.isPending || (toggleMutation.isPending && toggleMutation.variables?.itemId === item.id)
+  const isRowPending = useCallback(
+    (item: GroceryItem): boolean =>
+      uncheckAllMutation.isPending || (toggleMutation.isPending && toggleMutation.variables?.itemId === item.id),
+    [toggleMutation.isPending, toggleMutation.variables, uncheckAllMutation.isPending]
+  )
 
   /**
    * 37:35 then 37:38, in that order on every screen: the eyebrow 16 below the back row and the title 4 below the
@@ -234,7 +263,9 @@ const GroceryListScreen = (): React.JSX.Element => {
     <>
       <SectionOverline text={eyebrow.text} tone={eyebrow.tone} />
 
-      <Text style={styles.title}>{GROCERY_LIST_TITLE}</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        {GROCERY_LIST_TITLE}
+      </Text>
     </>
   )
 
@@ -313,27 +344,32 @@ const GroceryListScreen = (): React.JSX.Element => {
     </View>
   )
 
-  const renderBlock = ({item: block}: ListRenderItemInfo<GroceryBlock>): React.JSX.Element => (
-    <>
-      {block.kind === 'category' ? (
-        <GrocerySectionHeader kind="category" label={block.label} isFirst={block.isFirst} />
-      ) : (
-        <GrocerySectionHeader kind="checked" title={block.title} caption={GROCERY_STILL_ON_LIST_CAPTION} />
-      )}
+  // Memoised with the two readers it hands down, because FlatList re-invokes every cell it holds whenever
+  // `renderItem` changes identity — and each of those cells is a whole aisle of rows.
+  const renderBlock = useCallback(
+    ({item: block}: ListRenderItemInfo<GroceryBlock>): React.JSX.Element => (
+      <>
+        {block.kind === 'category' ? (
+          <GrocerySectionHeader kind="category" label={block.label} isFirst={block.isFirst} />
+        ) : (
+          <GrocerySectionHeader kind="checked" title={block.title} caption={GROCERY_STILL_ON_LIST_CAPTION} />
+        )}
 
-      <View style={styles.sectionCard}>
-        {block.items.map((item, index) => (
-          <GroceryRow
-            key={item.id}
-            item={item}
-            variant={groceryRowVariant(item)}
-            isFirst={index === 0}
-            isPending={isRowPending(item)}
-            onToggle={() => onToggleItem(item)}
-          />
-        ))}
-      </View>
-    </>
+        <View style={styles.sectionCard}>
+          {block.items.map((item, index) => (
+            <GroceryRow
+              key={item.id}
+              item={item}
+              variant={groceryRowVariant(item)}
+              isFirst={index === 0}
+              isPending={isRowPending(item)}
+              onToggle={onToggleItem}
+            />
+          ))}
+        </View>
+      </>
+    ),
+    [isRowPending, onToggleItem]
   )
 
   // What the list shows in place of its rows. An error never draws the 14c no-plan state — AAP 0.2.5 reserves
@@ -360,8 +396,10 @@ const GroceryListScreen = (): React.JSX.Element => {
       <ContentColumn>
         <FlatList
           data={blocks}
-          keyExtractor={block => block.key}
+          keyExtractor={keyExtractor}
           renderItem={renderBlock}
+          initialNumToRender={INITIAL_AISLE_CARDS}
+          maxToRenderPerBatch={AISLE_CARDS_PER_BATCH}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={
             view.kind === 'noPlan' || view.kind === 'emptyList' ? styles.listContentEmpty : styles.listContent

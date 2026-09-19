@@ -18,6 +18,11 @@ const fetchGroceryListMock = fetchGroceryList as jest.MockedFunction<typeof fetc
 const PLAN_ID = 'plan-1'
 const CHICKEN_ID = 'item-chicken'
 
+// The capability verdict the hook reads for itself and hands in, named at every call site so which of the two
+// gates a case is exercising — this one, or the no-plan state — is legible from the call.
+const GATE_ALLOWED = true
+const GATE_REFUSED = false
+
 const makeItem = (overrides: Partial<GroceryItem> = {}): GroceryItem => ({
   id: 'item-spinach',
   catalogFoodId: 'food-spinach',
@@ -71,23 +76,37 @@ afterEach(() => {
 
 describe('buildGroceryListQueryOptions', () => {
   it('keys the read by plan id and enables it', () => {
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
 
     expect(options.queryKey).toEqual(queryKeys.groceryList(PLAN_ID))
     expect(options.enabled).toBe(true)
   })
 
   it('disables the read for the no-plan state and still names a well-formed key', () => {
-    const options = buildGroceryListQueryOptions(queryClient, null)
+    const options = buildGroceryListQueryOptions(queryClient, null, GATE_ALLOWED)
 
     expect(options.enabled).toBe(false)
     expect(options.queryKey).toEqual(queryKeys.groceryList(''))
   })
 
+  it('withholds the read once the session verdict has refused it, however complete the plan id is', () => {
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_REFUSED)
+
+    expect(options.enabled).toBe(false)
+    // The key is still well-formed, so the entry the shopper was looking at stays addressable and readable
+    // from the cache; what the refusal takes away is the request, not the list already in hand.
+    expect(options.queryKey).toEqual(queryKeys.groceryList(PLAN_ID))
+  })
+
+  it('needs both gates, so neither one alone can enable the read', () => {
+    expect(buildGroceryListQueryOptions(queryClient, null, GATE_REFUSED).enabled).toBe(false)
+    expect(buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED).enabled).toBe(true)
+  })
+
   it('requests the named plan', async () => {
     fetchGroceryListMock.mockResolvedValue(makeAnswer())
 
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
 
     await requestOf(options)()
 
@@ -107,7 +126,7 @@ describe('buildGroceryListQueryOptions', () => {
     )
     fetchGroceryListMock.mockResolvedValue(makeAnswer())
 
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
     const result = await requestOf(options)()
 
     expect(findChecked(result)?.category).toBe('protein')
@@ -123,7 +142,7 @@ describe('buildGroceryListQueryOptions', () => {
     )
     fetchGroceryListMock.mockResolvedValue(makeAnswer())
 
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
     const result = await requestOf(options)()
 
     expect(findChecked(result)?.category).toBe('grains_bread')
@@ -134,7 +153,7 @@ describe('buildGroceryListQueryOptions', () => {
 
     fetchGroceryListMock.mockResolvedValue(answer)
 
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
     const result = await requestOf(options)()
 
     expect(result).toBe(answer)
@@ -142,7 +161,7 @@ describe('buildGroceryListQueryOptions', () => {
   })
 
   it('declares only the key, the request and its gate, so no other read behaviour is introduced silently', () => {
-    expect(Object.keys(buildGroceryListQueryOptions(queryClient, PLAN_ID)).sort()).toStrictEqual([
+    expect(Object.keys(buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)).sort()).toStrictEqual([
       'enabled',
       'queryFn',
       'queryKey'
@@ -166,7 +185,7 @@ describe('buildGroceryListQueryOptions', () => {
       })
     )
 
-    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID)
+    const options = buildGroceryListQueryOptions(queryClient, PLAN_ID, GATE_ALLOWED)
     const pending = requestOf(options)()
 
     // An optimistic write lands while the read is in flight and files the row under the catch-all, which is

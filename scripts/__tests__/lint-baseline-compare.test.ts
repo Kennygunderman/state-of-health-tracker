@@ -8,7 +8,7 @@
 // no suite file, so its classification rules are pinned in the one suite the plan tracks for this folder.
 import {spawnSync, type SpawnSyncReturns} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -72,7 +72,8 @@ const EXIT_OK = 0
 const EXIT_GATE_FAILED = 1
 const EXIT_INPUT_ERROR = 2
 
-const USAGE_LINE = 'Usage: node scripts/lint-baseline-compare.mjs <baseline.json> <after.json>'
+const USAGE_LINE = 'Usage: node scripts/lint-baseline-compare.mjs [--require <list>] <baseline.json> <after.json>'
+const PROJECT_USAGE_LINE = 'node scripts/lint-baseline-compare.mjs --project <capture.json> <projected.json>'
 const STACK_FRAME = /\n\s+at\s/
 const BASELINE_LABEL = 'the baseline report at'
 const AFTER_LABEL = 'the after report at'
@@ -80,7 +81,18 @@ const NEW_FINDINGS_NOTE = 'new lint finding(s)'
 const PASS_SUMMARY = 'passed — 0 new findings'
 const EMPTY_AFTER_NOTE = 'the after report holds no results at all'
 const EMPTY_BASELINE_NOTE = 'the baseline report holds 0 findings'
-const UNCOVERED_NOTE = 'path(s) the baseline covers do not appear in the after report'
+const COVERAGE_FAILURE_NOTE = 'path(s) the gate measures do not appear in the after report'
+const COVERAGE_FAILED = 'coverage failed'
+const LOST_BASELINE_REASON = '(baseline path, still on disk)'
+const RECORD_LABEL = 'the capture record at'
+const RECORD_REFUSAL_HINT = 'The gate refuses a baseline no capture record describes'
+const PROVENANCE_SUFFIX = '.provenance.json'
+const DIGEST_ALGORITHM = 'sha256'
+
+// The commit the tracked record names, and one no checkout can resolve. The derivation is proven to run by
+// failing on the second rather than by asserting a file list that every later commit would change.
+const BASE_COMMIT = '603718ee'
+const UNRESOLVABLE_COMMIT = '0'.repeat(40)
 
 const ESLINTRC = '.eslintrc.js'
 const BABEL_CONFIG = 'babel.config.js'
@@ -90,6 +102,7 @@ const SHAPE_FILE_PATH = `${CI_ROOT}/${STYLE_FILE}`
 
 const DROPPED_RESULT_FIELDS = ['source', 'output']
 const DROPPED_MESSAGE_FIELDS = ['fix', 'suggestions']
+const MESSAGE_LIST_FIELDS = ['messages', 'suppressedMessages']
 
 const CONFIG_ERROR: LintMessage = {
   ruleId: '@typescript-eslint/no-var-requires',
@@ -149,6 +162,7 @@ const BASELINE_FILES: FileFixture[] = [
 const CLEAN_FILES: FileFixture[] = BASELINE_FILES.map(file => ({relativePath: file.relativePath, messages: []}))
 
 let fixtureDir = ''
+let emptyChangedList = ''
 const isolatedDirs: string[] = []
 
 const countSeverity = (messages: LintMessage[], severity: number): number =>
@@ -203,7 +217,26 @@ const totalsOf = (results: LintResult[]): ReportTotals => {
   return totals
 }
 
-const digestOf = (results: LintResult[]): string => createHash('sha256').update(JSON.stringify(results)).digest('hex')
+// Widened past LintResult[] because the projection tests hash a raw capture's projected form, which carries
+// whatever fields ESLint wrote. The digest is over serialised JSON either way.
+const digestOf = (results: object[]): string => createHash('sha256').update(JSON.stringify(results)).digest('hex')
+
+// The four fields the projection elides, applied as the script applies them: on the result, and inside both of a
+// result's message arrays. A capture and its projection hash alike, which is what lets one digest describe both.
+const projectedOf = (results: Record<string, unknown>[]): Record<string, unknown>[] =>
+  results.map(result => {
+    const projected = withoutFields(result, DROPPED_RESULT_FIELDS)
+
+    for (const field of MESSAGE_LIST_FIELDS) {
+      const messages = projected[field]
+
+      if (Array.isArray(messages)) {
+        projected[field] = messages.map(message => withoutFields(message as object, DROPPED_MESSAGE_FIELDS))
+      }
+    }
+
+    return projected
+  })
 
 const writeFixture = (name: string, contents: string): string => {
   const filePath = path.join(fixtureDir, name)
@@ -215,6 +248,42 @@ const writeFixture = (name: string, contents: string): string => {
 
 const writeReport = (name: string, root: string, files: FileFixture[]): string =>
   writeFixture(name, JSON.stringify(makeReport(root, files)))
+
+const provenancePathOf = (baselinePath: string): string =>
+  `${baselinePath.slice(0, -'.json'.length)}${PROVENANCE_SUFFIX}`
+
+// The record the comparator demands beside a baseline, stated from the baseline itself so a fixture cannot drift
+// out of agreement with its own record by accident. `overrides` is how a test states the one field it is breaking.
+const makeRecord = (results: LintResult[], overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  digest: {algorithm: DIGEST_ALGORITHM, value: digestOf(results)},
+  totals: totalsOf(results),
+  changedFileCoverage: {baseCommit: BASE_COMMIT},
+  ...overrides
+})
+
+const writeRecordBeside = (baselinePath: string, record: unknown): string => {
+  const recordPath = provenancePathOf(baselinePath)
+
+  writeFileSync(recordPath, JSON.stringify(record), 'utf8')
+
+  return recordPath
+}
+
+// A baseline the comparator will accept: the report plus the record that describes it. Every test that expects to
+// get past the refusal writes its baseline through this, and the refusal tests write the record themselves.
+const writeBaseline = (
+  name: string,
+  root: string,
+  files: FileFixture[],
+  overrides: Record<string, unknown> = {}
+): string => {
+  const results = makeReport(root, files)
+  const baselinePath = writeFixture(name, JSON.stringify(results))
+
+  writeRecordBeside(baselinePath, makeRecord(results, overrides))
+
+  return baselinePath
+}
 
 const makeIsolatedDir = (): string => {
   const directory = mkdtempSync(path.join(tmpdir(), 'lint-baseline-isolated-'))
@@ -229,6 +298,12 @@ const writeStyleFixture = (name: string, lines: string[]): string => writeFixtur
 const runComparator = (...args: string[]): SpawnSyncReturns<string> =>
   spawnSync(process.execPath, [SCRIPT_PATH, ...args], {encoding: 'utf8'})
 
+// Fixture reports name four files of this repository, so the changed-file derivation — which reads git in the
+// checkout the script lives in, not in the fixture directory — would demand this feature's own changed files of
+// every fixture after report. These runs therefore state an empty changed-file list; the derivation itself is
+// covered by the tests that exercise it directly.
+const runGate = (...args: string[]): SpawnSyncReturns<string> => runComparator('--require', emptyChangedList, ...args)
+
 const runTokenScan = (...args: string[]): SpawnSyncReturns<string> =>
   spawnSync(process.execPath, [TOKEN_SCAN_PATH, ...args], {encoding: 'utf8'})
 
@@ -240,6 +315,7 @@ const runComparatorIn = (cwd: string, ...args: string[]): SpawnSyncReturns<strin
 
 beforeAll(() => {
   fixtureDir = mkdtempSync(path.join(tmpdir(), 'lint-baseline-compare-'))
+  emptyChangedList = writeFixture('no-changed-files.txt', '')
 })
 
 afterAll(() => {
@@ -258,9 +334,9 @@ describe('the comparator script', () => {
 
 describe('reports captured under different absolute roots', () => {
   it('exits 0 when both reports hold the same findings', () => {
-    const baseline = writeReport('same-baseline.json', CI_ROOT, BASELINE_FILES)
+    const baseline = writeBaseline('same-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('same-after.json', LAPTOP_ROOT, BASELINE_FILES)
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_OK)
     expect(stdout).not.toContain(BABEL_CONFIG)
@@ -269,9 +345,9 @@ describe('reports captured under different absolute roots', () => {
 
   it('exits 1 and prints an added finding against its repo-relative path', () => {
     const files = withMessages(STYLE_FILE, [STYLE_FATAL, ADDED_STYLE_ERROR])
-    const baseline = writeReport('added-baseline.json', CI_ROOT, BASELINE_FILES)
+    const baseline = writeBaseline('added-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('added-after.json', LAPTOP_ROOT, files)
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_GATE_FAILED)
     expect(stdout).toContain(formatFinding(STYLE_FILE, ADDED_STYLE_ERROR))
@@ -282,9 +358,9 @@ describe('reports captured under different absolute roots', () => {
 
 describe('findings matched against the baseline', () => {
   it('exits 0 when the after report no longer holds a baseline finding', () => {
-    const baseline = writeReport('removed-baseline.json', CI_ROOT, BASELINE_FILES)
+    const baseline = writeBaseline('removed-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('removed-after.json', LAPTOP_ROOT, withMessages(BABEL_CONFIG, []))
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_OK)
     expect(stdout).toContain(PASS_SUMMARY)
@@ -293,9 +369,9 @@ describe('findings matched against the baseline', () => {
 
   it('exits 1 when a finding occurs more often than the baseline recorded it', () => {
     const files = withMessages(SCRIPT_FILE, [SCRIPT_ERROR, SCRIPT_ERROR])
-    const baseline = writeReport('duplicate-baseline.json', CI_ROOT, BASELINE_FILES)
+    const baseline = writeBaseline('duplicate-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('duplicate-after.json', LAPTOP_ROOT, files)
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_GATE_FAILED)
     expect(stdout).toContain(formatFinding(SCRIPT_FILE, SCRIPT_ERROR))
@@ -303,9 +379,9 @@ describe('findings matched against the baseline', () => {
 
   it('exits 1 and labels an added fatal message that carries no rule id', () => {
     const files = withMessages(SCRIPT_FILE, [SCRIPT_ERROR, ADDED_SCRIPT_FATAL])
-    const baseline = writeReport('fatal-baseline.json', CI_ROOT, BASELINE_FILES)
+    const baseline = writeBaseline('fatal-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('fatal-after.json', LAPTOP_ROOT, files)
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_GATE_FAILED)
     expect(stdout).toContain(positionOf(SCRIPT_FILE, ADDED_SCRIPT_FATAL))
@@ -314,34 +390,36 @@ describe('findings matched against the baseline', () => {
     expect(stdout).not.toContain('null')
   })
 
-  it('exits 0 and counts, without listing, the baseline paths the after report does not cover', () => {
-    const baseline = writeReport('uncovered-baseline.json', CI_ROOT, BASELINE_FILES)
+  // A baseline path that still exists on disk and is missing from the after report means the after report linted
+  // less than the baseline did, so the comparison cannot say the path is clean. It used to be counted on stderr
+  // and passed; it fails, and the path is named, because "fewer files linted" is how a report hides a finding.
+  it('exits 1 and names a baseline path the after report does not cover', () => {
+    const baseline = writeBaseline('uncovered-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeReport('uncovered-after.json', LAPTOP_ROOT, withoutFile(BABEL_CONFIG))
-    const {status, stdout, stderr} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
-    expect(status).toBe(EXIT_OK)
-    expect(stderr).toContain(`1 ${UNCOVERED_NOTE}`)
-    expect(stderr).not.toContain(BABEL_CONFIG)
-    expect(stdout).toContain(PASS_SUMMARY)
-    expect(stdout).not.toContain(NEW_FINDINGS_NOTE)
+    expect(status).toBe(EXIT_GATE_FAILED)
+    expect(stdout).toContain(`1 ${COVERAGE_FAILURE_NOTE}`)
+    expect(stdout).toContain(`${BABEL_CONFIG}  ${LOST_BASELINE_REASON}`)
+    expect(stdout).not.toContain(PASS_SUMMARY)
   })
 
-  it('exits 0 on a valid empty after report and says on stderr that it linted nothing', () => {
-    const baseline = writeReport('empty-baseline.json', CI_ROOT, BASELINE_FILES)
+  it('exits 1 on a valid empty after report, because a run that linted nothing evidences nothing', () => {
+    const baseline = writeBaseline('empty-baseline.json', CI_ROOT, BASELINE_FILES)
     const after = writeFixture('empty-after.json', '[]')
-    const {status, stdout, stderr} = runComparator(baseline, after)
+    const {status, stdout, stderr} = runGate(baseline, after)
 
-    expect(status).toBe(EXIT_OK)
+    expect(status).toBe(EXIT_GATE_FAILED)
     expect(stderr).toContain(EMPTY_AFTER_NOTE)
-    expect(stdout).toContain(PASS_SUMMARY)
-    expect(stdout).not.toContain(EMPTY_AFTER_NOTE)
+    expect(stdout).toContain(`${COVERAGE_FAILED} — ${EMPTY_AFTER_NOTE}`)
+    expect(stdout).not.toContain(PASS_SUMMARY)
     expect(stdout).not.toContain(NEW_FINDINGS_NOTE)
   })
 
   it('exits 0 and notes on stderr that a baseline holding no finding counts everything as new', () => {
-    const baseline = writeReport('no-findings-baseline.json', CI_ROOT, CLEAN_FILES)
+    const baseline = writeBaseline('no-findings-baseline.json', CI_ROOT, CLEAN_FILES)
     const after = writeReport('no-findings-after.json', LAPTOP_ROOT, CLEAN_FILES)
-    const {status, stdout, stderr} = runComparator(baseline, after)
+    const {status, stdout, stderr} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_OK)
     expect(stderr).toContain(EMPTY_BASELINE_NOTE)
@@ -349,37 +427,51 @@ describe('findings matched against the baseline', () => {
   })
 })
 
-describe("the two reports as the gate's only inputs", () => {
-  const writeIsolatedPair = (directory: string, afterFiles: FileFixture[]): void => {
-    writeFileSync(path.join(directory, 'baseline.json'), JSON.stringify(makeReport(CI_ROOT, BASELINE_FILES)), 'utf8')
+// The gate's inputs are the two reports and the record beside the baseline, and nothing else in the directory it
+// is pointed at. Both tests below assert the directory's contents afterwards, which is what proves the comparison
+// neither writes a companion file of its own nor leaves anything behind.
+describe("the gate's inputs, alone in a directory of their own", () => {
+  const ISOLATED_CONTENTS = ['after.json', 'baseline.json', `baseline${PROVENANCE_SUFFIX}`]
+
+  const writeIsolatedInputs = (directory: string, afterFiles: FileFixture[]): void => {
+    const baseline = makeReport(CI_ROOT, BASELINE_FILES)
+
+    writeFileSync(path.join(directory, 'baseline.json'), JSON.stringify(baseline), 'utf8')
+    writeFileSync(path.join(directory, `baseline${PROVENANCE_SUFFIX}`), JSON.stringify(makeRecord(baseline)), 'utf8')
     writeFileSync(path.join(directory, 'after.json'), JSON.stringify(makeReport(LAPTOP_ROOT, afterFiles)), 'utf8')
   }
 
-  it('exits 0 on identical reports written alone into a directory outside any repository', () => {
+  it('exits 0 on identical reports and their record, written alone outside any repository', () => {
     const directory = makeIsolatedDir()
 
-    writeIsolatedPair(directory, BASELINE_FILES)
+    writeIsolatedInputs(directory, BASELINE_FILES)
 
     const notARepository = spawnSync('git', ['-C', directory, 'rev-parse', '--show-toplevel'], {encoding: 'utf8'})
-    const {status, stdout, stderr} = runComparatorIn(directory, 'baseline.json', 'after.json')
+    const {status, stdout, stderr} = runComparatorIn(
+      directory,
+      '--require',
+      emptyChangedList,
+      'baseline.json',
+      'after.json'
+    )
 
     expect(notARepository.status).not.toBe(0)
     expect(status).toBe(EXIT_OK)
     expect(stdout).toContain(PASS_SUMMARY)
-    expect(stderr).not.toContain('provenance')
-    expect(readdirSync(directory).sort()).toEqual(['after.json', 'baseline.json'])
+    expect(stderr).toBe('')
+    expect(readdirSync(directory).sort()).toEqual(ISOLATED_CONTENTS)
   })
 
   it('exits 1 there on an added finding, naming it, and still writes nothing', () => {
     const directory = makeIsolatedDir()
 
-    writeIsolatedPair(directory, withMessages(STYLE_FILE, [STYLE_FATAL, ADDED_STYLE_ERROR]))
+    writeIsolatedInputs(directory, withMessages(STYLE_FILE, [STYLE_FATAL, ADDED_STYLE_ERROR]))
 
-    const {status, stdout} = runComparatorIn(directory, 'baseline.json', 'after.json')
+    const {status, stdout} = runComparatorIn(directory, '--require', emptyChangedList, 'baseline.json', 'after.json')
 
     expect(status).toBe(EXIT_GATE_FAILED)
     expect(stdout).toContain(formatFinding(STYLE_FILE, ADDED_STYLE_ERROR))
-    expect(readdirSync(directory).sort()).toEqual(['after.json', 'baseline.json'])
+    expect(readdirSync(directory).sort()).toEqual(ISOLATED_CONTENTS)
   })
 })
 
@@ -411,26 +503,49 @@ describe('usage and input errors', () => {
     expect(existsSync(baseline.replace('.json', '.provenance.json'))).toBe(false)
   })
 
-  it('exits 2 for --project and writes no baseline of its own', () => {
-    const baseline = writeReport('project-baseline.json', CI_ROOT, BASELINE_FILES)
-    const outputPath = path.join(fixtureDir, 'project-output.json')
-    const {status, stderr} = runComparator('--project', baseline, outputPath)
+  it('prints both invocations it accepts, so neither documented option is left to be guessed at', () => {
+    const {stderr} = runComparator()
+
+    expect(stderr).toContain(USAGE_LINE)
+    expect(stderr).toContain(PROJECT_USAGE_LINE)
+  })
+
+  it('exits 2 when --require is given no list to read', () => {
+    const {status, stderr} = runComparator('--require')
 
     expect(status).toBe(EXIT_INPUT_ERROR)
-    expect(stderr).toContain('unknown option --project')
+    expect(stderr).toContain('--require needs the path of a file listing one changed file per line')
     expect(stderr).toContain(USAGE_LINE)
+  })
+
+  it('exits 2 and names the --require list when it cannot be read', () => {
+    const baseline = writeBaseline('require-absent-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('require-absent-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const listPath = path.join(fixtureDir, 'never-written.txt')
+    const {status, stderr, stdout} = runComparator('--require', listPath, baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`cannot read the --require list at ${listPath}`)
+    expect(stdout).not.toContain(PASS_SUMMARY)
+  })
+
+  it('exits 2 when --require is passed to the projection, which compares nothing', () => {
+    const capture = writeReport('project-with-require.json', CI_ROOT, BASELINE_FILES)
+    const outputPath = path.join(fixtureDir, 'project-with-require-out.json')
+    const {status, stderr} = runComparator('--project', '--require', emptyChangedList, capture, outputPath)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('--require belongs to the comparison, not to --project')
     expect(existsSync(outputPath)).toBe(false)
   })
 
-  it('exits 2 for --require and writes no companion file', () => {
-    const baseline = writeReport('require-baseline.json', CI_ROOT, BASELINE_FILES)
-    const after = writeReport('require-after.json', LAPTOP_ROOT, BASELINE_FILES)
-    const {status, stderr} = runComparator('--require', BABEL_CONFIG, baseline, after)
+  it('exits 2 when --project is given a capture but no destination', () => {
+    const capture = writeReport('project-one-path.json', CI_ROOT, BASELINE_FILES)
+    const {status, stderr} = runComparator('--project', capture)
 
     expect(status).toBe(EXIT_INPUT_ERROR)
-    expect(stderr).toContain('unknown option --require')
-    expect(stderr).toContain(USAGE_LINE)
-    expect(existsSync(baseline.replace('.json', '.provenance.json'))).toBe(false)
+    expect(stderr).toContain('--project takes the raw capture to project and the path to write the projection to')
+    expect(stderr).toContain(PROJECT_USAGE_LINE)
   })
 
   it('exits 2 and names the baseline report when it is not valid JSON', () => {
@@ -643,9 +758,9 @@ describe('result and message fields the gate refuses to assume', () => {
   it('accepts a fatal message stating ruleId null, and a message without line or column', () => {
     const positionless = withoutPosition(STYLE_FATAL)
     const files = withMessages(STYLE_FILE, [STYLE_FATAL, positionless])
-    const baseline = writeReport('rule-id-null-baseline.json', CI_ROOT, files)
+    const baseline = writeBaseline('rule-id-null-baseline.json', CI_ROOT, files)
     const after = writeReport('rule-id-null-after.json', LAPTOP_ROOT, files)
-    const {status, stdout} = runComparator(baseline, after)
+    const {status, stdout} = runGate(baseline, after)
 
     expect(status).toBe(EXIT_OK)
     expect(stdout).toContain(PASS_SUMMARY)
@@ -691,28 +806,432 @@ describe('the tracked baseline artifact', () => {
     expect(readFileSync(TRACKED_BASELINE, 'utf8')).not.toContain('stateofhealth')
   })
 
-  // The record beside the baseline is tracked capture evidence, not an input to this gate: the comparison reads the
-  // two reports and nothing else, so the assertion runs only while the file is present.
-  it('is described by the capture record tracked beside it, when that record is present', () => {
-    if (!existsSync(TRACKED_PROVENANCE)) {
-      return
-    }
-
+  // The record beside the baseline is an input the comparison refuses to run without, so it has to exist and it
+  // has to agree with the artifact — the two assertions the comparator itself makes, made here against the
+  // tracked pair so a hand-edit to either file fails this suite as well as the gate.
+  it('is described by the capture record tracked beside it', () => {
     const record = JSON.parse(readFileSync(TRACKED_PROVENANCE, 'utf8'))
 
+    expect(existsSync(TRACKED_PROVENANCE)).toBe(true)
     expect(record.totals).toEqual(totalsOf(artifact()))
-    expect(record.digest.algorithm).toBe('sha256')
+    expect(record.digest.algorithm).toBe(DIGEST_ALGORITHM)
     expect(record.digest.value).toBe(digestOf(artifact()))
+    expect(record.changedFileCoverage.baseCommit).toBe(BASE_COMMIT)
   })
 
   it('exits 0 against a re-rooted copy of itself and reports its 49 findings on both sides', () => {
     const afterPath = writeFixture('tracked-reroot-after.json', JSON.stringify(rerootedArtifact()))
-    const {status, stdout, stderr} = runComparator(TRACKED_BASELINE, afterPath)
+    const {status, stdout, stderr} = runGate(TRACKED_BASELINE, afterPath)
 
     expect(status).toBe(EXIT_OK)
     expect(stdout).toContain('0 new findings (49 in the after report, 49 in the baseline)')
     expect(stdout).toContain("after report's 487 result(s)")
     expect(stderr).toBe('')
+  })
+
+  // The tracked pair driven exactly as the AAP's step-2 gate drives it — two arguments, the derivation left to
+  // the comparator — against an after report that holds every changed lintable file this branch has.
+  it('exits 0 on the two-argument invocation the project gate uses, deriving its own changed-file list', () => {
+    const results = rerootedArtifact()
+    const covered = new Set(results.map(result => result.filePath.slice(`${LAPTOP_ROOT}/`.length)))
+    const extensions = new Set([...covered].map(relativePath => path.extname(relativePath)))
+    const changed = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', BASE_COMMIT], {encoding: 'utf8'})
+    const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {encoding: 'utf8'})
+    const demanded = [...changed.stdout.split('\n'), ...untracked.stdout.split('\n')]
+      .map(line => line.trim())
+      .filter(line => line !== '' && extensions.has(path.extname(line)) && existsSync(line) && !covered.has(line))
+    const afterPath = writeFixture(
+      'tracked-derived-after.json',
+      JSON.stringify([
+        ...results,
+        ...demanded.map(relativePath => ({filePath: `${LAPTOP_ROOT}/${relativePath}`, messages: []}))
+      ])
+    )
+    const {status, stdout, stderr} = runComparator(TRACKED_BASELINE, afterPath)
+
+    expect(changed.status).toBe(0)
+    expect(demanded.length).toBeGreaterThan(0)
+    expect(status).toBe(EXIT_OK)
+    expect(stdout).toContain(PASS_SUMMARY)
+    expect(stderr).toBe('')
+  })
+
+  // The same invocation against an after report that covers only the baseline: every changed file is missing, so
+  // the gate fails rather than reporting 0 new findings over a scope that never included them.
+  it('exits 1 on that invocation when the after report covers none of the changed files', () => {
+    const afterPath = writeFixture('tracked-underived-after.json', JSON.stringify(rerootedArtifact()))
+    const {status, stdout} = runComparator(TRACKED_BASELINE, afterPath)
+
+    expect(status).toBe(EXIT_GATE_FAILED)
+    expect(stdout).toContain(COVERAGE_FAILURE_NOTE)
+    expect(stdout).toContain(`(changed since ${BASE_COMMIT})`)
+    expect(stdout).not.toContain(PASS_SUMMARY)
+  })
+})
+
+// The gate's value rests on the baseline being the reviewed artifact. A baseline anyone may rewrite is a gate
+// anyone may switch off, silently, by writing the finding they introduced into it — so the record beside the
+// baseline is verified before a comparison happens, and a baseline it does not describe is refused.
+describe('the capture record beside the baseline', () => {
+  const writeRecord = (name: string, record: unknown, files: FileFixture[] = BASELINE_FILES): string => {
+    const baseline = writeReport(name, CI_ROOT, files)
+
+    writeRecordBeside(baseline, record)
+
+    return baseline
+  }
+
+  it('exits 2 when no record sits beside the baseline, naming the path it looked for', () => {
+    const baseline = writeReport('no-record-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('no-record-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`${RECORD_LABEL} ${provenancePathOf(baseline)}`)
+    expect(stderr).toContain(RECORD_REFUSAL_HINT)
+    expect(stdout).not.toContain(PASS_SUMMARY)
+  })
+
+  it('exits 2 when the record is not valid JSON', () => {
+    const baseline = writeRecord('record-malformed-baseline.json', {})
+    const after = writeReport('record-malformed-after.json', LAPTOP_ROOT, BASELINE_FILES)
+
+    writeFileSync(provenancePathOf(baseline), '{"digest":', 'utf8')
+
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('is not valid JSON')
+  })
+
+  it('exits 2 when the record is an array rather than an object', () => {
+    const baseline = writeRecord('record-array-baseline.json', [])
+    const after = writeReport('record-array-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('is not a capture record')
+  })
+
+  it('exits 2 when the record names a digest algorithm other than sha256', () => {
+    const results = makeReport(CI_ROOT, BASELINE_FILES)
+    const baseline = writeRecord(
+      'record-algorithm-baseline.json',
+      makeRecord(results, {digest: {algorithm: 'md5', value: digestOf(results)}})
+    )
+    const after = writeReport('record-algorithm-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('states digest.algorithm "md5" rather than "sha256"')
+  })
+
+  it('exits 2 when digest.value is not a sha256 digest at all', () => {
+    const baseline = writeRecord(
+      'record-digest-shape-baseline.json',
+      makeRecord(makeReport(CI_ROOT, BASELINE_FILES), {digest: {algorithm: DIGEST_ALGORITHM, value: 'not-a-digest'}})
+    )
+    const after = writeReport('record-digest-shape-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('holds no sha256 digest.value')
+  })
+
+  it('exits 2 when the record states no commit to derive changed files from', () => {
+    const results = makeReport(CI_ROOT, BASELINE_FILES)
+    const record = makeRecord(results)
+
+    delete record.changedFileCoverage
+
+    const baseline = writeRecord('record-no-commit-baseline.json', record)
+    const after = writeReport('record-no-commit-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('holds no "changedFileCoverage" object')
+  })
+
+  it('exits 2 naming the recorded field when a total disagrees with the baseline', () => {
+    const results = makeReport(CI_ROOT, BASELINE_FILES)
+    const totals = {...totalsOf(results), findings: totalsOf(results).findings + 1}
+    const baseline = writeRecord('record-totals-baseline.json', makeRecord(results, {totals}))
+    const after = writeReport('record-totals-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`totals.findings ${totals.findings} rather than ${totalsOf(results).findings}`)
+  })
+
+  it('exits 2 when a recorded rule count disagrees with the baseline', () => {
+    const baseline = writeRecord(
+      'record-composition-baseline.json',
+      makeRecord(makeReport(CI_ROOT, BASELINE_FILES), {composition: {findingsByRule: {'no-such-rule': 3}}})
+    )
+    const after = writeReport('record-composition-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr} = runGate(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('composition.findingsByRule["no-such-rule"] 3 rather than 0')
+  })
+
+  // The reproduction the finding describes, both halves of it: the honest baseline reports the new finding, and
+  // the baseline hand-edited to claim that finding is already known is refused instead of believed.
+  describe('a baseline edited to claim a new finding was always there', () => {
+    const afterFiles = withMessages(STYLE_FILE, [STYLE_FATAL, ADDED_STYLE_ERROR])
+
+    it('exits 1 against the reviewed baseline, reporting the finding', () => {
+      const baseline = writeBaseline('masking-honest-baseline.json', CI_ROOT, BASELINE_FILES)
+      const after = writeReport('masking-after.json', LAPTOP_ROOT, afterFiles)
+      const {status, stdout} = runGate(baseline, after)
+
+      expect(status).toBe(EXIT_GATE_FAILED)
+      expect(stdout).toContain(formatFinding(STYLE_FILE, ADDED_STYLE_ERROR))
+    })
+
+    it('exits 2 against the edited one, naming the recorded digest and the measured one', () => {
+      const reviewed = makeReport(CI_ROOT, BASELINE_FILES)
+      const edited = makeReport(CI_ROOT, afterFiles)
+      const baseline = writeRecord('masking-edited-baseline.json', makeRecord(reviewed), afterFiles)
+      const after = writeReport('masking-edited-after.json', LAPTOP_ROOT, afterFiles)
+      const {status, stderr, stdout} = runGate(baseline, after)
+
+      expect(status).toBe(EXIT_INPUT_ERROR)
+      expect(stderr).toContain(digestOf(reviewed))
+      expect(stderr).toContain(digestOf(edited))
+      expect(stdout).not.toContain(PASS_SUMMARY)
+      expect(stdout).not.toContain(formatFinding(STYLE_FILE, ADDED_STYLE_ERROR))
+    })
+  })
+})
+
+// A file this change added is in no baseline, so a report that simply never linted it would pass a baseline-only
+// comparison. The gate therefore derives what must be covered and fails when it is not — and fails, rather than
+// waving the check through, when it cannot derive it.
+describe('changed-file coverage', () => {
+  const REQUIRED_REASON = (listPath: string): string => `(required by ${listPath})`
+  const UNCOVERED_REPO_FILE = 'src/constants/strings.ts'
+
+  const writeList = (name: string, lines: string[]): string => writeFixture(name, `${lines.join('\n')}\n`)
+
+  it('exits 2 when the recorded commit cannot be resolved, rather than skipping the derivation', () => {
+    const baseline = writeBaseline('unresolvable-baseline.json', CI_ROOT, BASELINE_FILES, {
+      changedFileCoverage: {baseCommit: UNRESOLVABLE_COMMIT}
+    })
+    const after = writeReport('unresolvable-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stderr, stdout} = runComparator(baseline, after)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain(`cannot resolve the capture record's baseCommit ${UNRESOLVABLE_COMMIT}`)
+    expect(stderr).toContain('is an error, not a skipped check')
+    expect(stdout).not.toContain(PASS_SUMMARY)
+  })
+
+  it('exits 1 and names a required file the after report does not cover', () => {
+    const listPath = writeList('required-uncovered.txt', [UNCOVERED_REPO_FILE])
+    const baseline = writeBaseline('required-uncovered-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('required-uncovered-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stdout} = runComparator('--require', listPath, baseline, after)
+
+    expect(status).toBe(EXIT_GATE_FAILED)
+    expect(stdout).toContain(`${UNCOVERED_REPO_FILE}  ${REQUIRED_REASON(listPath)}`)
+    expect(stdout).not.toContain(PASS_SUMMARY)
+  })
+
+  it('exits 0 when the required list names only files the after report covers', () => {
+    const listPath = writeList('required-covered.txt', [BABEL_CONFIG, STYLE_FILE])
+    const baseline = writeBaseline('required-covered-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('required-covered-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stdout} = runComparator('--require', listPath, baseline, after)
+
+    expect(status).toBe(EXIT_OK)
+    expect(stdout).toContain(PASS_SUMMARY)
+  })
+
+  it('accepts the list as one --require=<path> argument', () => {
+    const listPath = writeList('required-inline.txt', [BABEL_CONFIG])
+    const baseline = writeBaseline('required-inline-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('required-inline-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stdout} = runComparator(`--require=${listPath}`, baseline, after)
+
+    expect(status).toBe(EXIT_OK)
+    expect(stdout).toContain(PASS_SUMMARY)
+  })
+
+  // An empty list replaces the derivation and nothing else: the baseline's own paths are still demanded, which is
+  // why every fixture run in this suite can pass an empty list without weakening what it asserts.
+  it('demands the baseline paths even from an empty required list', () => {
+    const baseline = writeBaseline('empty-list-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('empty-list-after.json', LAPTOP_ROOT, withoutFile(STYLE_FILE))
+    const {status, stdout} = runComparator('--require', emptyChangedList, baseline, after)
+
+    expect(status).toBe(EXIT_GATE_FAILED)
+    expect(stdout).toContain(`${STYLE_FILE}  ${LOST_BASELINE_REASON}`)
+  })
+
+  it('demands nothing of a required path whose extension the baseline never covered, or that is gone', () => {
+    const listPath = writeList('required-filtered.txt', [
+      'scripts/lint-baseline-compare.mjs',
+      'src/screens/DeletedScreen/index.ts'
+    ])
+    const baseline = writeBaseline('required-filtered-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('required-filtered-after.json', LAPTOP_ROOT, BASELINE_FILES)
+    const {status, stdout} = runComparator('--require', listPath, baseline, after)
+
+    expect(existsSync('scripts/lint-baseline-compare.mjs')).toBe(true)
+    expect(existsSync('src/screens/DeletedScreen/index.ts')).toBe(false)
+    expect(status).toBe(EXIT_OK)
+    expect(stdout).toContain(PASS_SUMMARY)
+  })
+
+  // coverage/ is ignored by .eslintrc.js but not by .gitignore, so an untracked report written there is exactly
+  // the case that would otherwise be demanded of an after report no "eslint ." run could ever have covered.
+  it('demands nothing of a required path ESLint ignores, even though it exists and git would list it', () => {
+    const ignoredPath = 'coverage/blitzy_adhoc_test_ignored.ts'
+    const listPath = writeList('required-ignored.txt', [ignoredPath])
+    const baseline = writeBaseline('required-ignored-baseline.json', CI_ROOT, BASELINE_FILES)
+    const after = writeReport('required-ignored-after.json', LAPTOP_ROOT, BASELINE_FILES)
+
+    mkdirSync(path.dirname(ignoredPath), {recursive: true})
+    writeFileSync(ignoredPath, 'export const ignored: unknown = 1\n', 'utf8')
+
+    try {
+      const {status, stdout} = runComparator('--require', listPath, baseline, after)
+
+      expect(existsSync(ignoredPath)).toBe(true)
+      expect(status).toBe(EXIT_OK)
+      expect(stdout).toContain(PASS_SUMMARY)
+    } finally {
+      rmSync(path.dirname(ignoredPath), {recursive: true, force: true})
+    }
+  })
+})
+
+// ESLint's raw report embeds the linted file's own text, so the tracked artifact is a projection of a capture
+// rather than the capture itself. That projection is the comparator's job too, because the digest the record
+// carries has to be the one the comparator will recompute.
+describe('projection mode', () => {
+  const RAW_CAPTURE: Record<string, unknown>[] = [
+    {
+      filePath: `${CI_ROOT}/${STYLE_FILE}`,
+      messages: [
+        {
+          ...ADDED_STYLE_ERROR,
+          fix: {range: [12, 19], text: 'Theme.colors.white'},
+          suggestions: [{desc: 'Use a token', fix: {range: [12, 19], text: 'Theme.colors.white'}}]
+        }
+      ],
+      suppressedMessages: [{...CONFIG_WARNING, fix: {range: [0, 1], text: ''}}],
+      errorCount: 1,
+      warningCount: 0,
+      source: "const background = '#0C1310'\n",
+      output: 'const background = Theme.colors.background\n'
+    },
+    {
+      filePath: `${CI_ROOT}/${BABEL_CONFIG}`,
+      messages: [CONFIG_ERROR],
+      suppressedMessages: [],
+      errorCount: 1,
+      warningCount: 0
+    }
+  ]
+
+  const writeCapture = (name: string): string => writeFixture(name, JSON.stringify(RAW_CAPTURE))
+
+  const project = (name: string): {destination: string; result: SpawnSyncReturns<string>} => {
+    const destination = path.join(fixtureDir, `${name}-projected.json`)
+
+    return {destination, result: runComparator('--project', writeCapture(`${name}-capture.json`), destination)}
+  }
+
+  it('writes the capture without the four fields that embed a linted file', () => {
+    const {destination, result} = project('elision')
+    const projected: Record<string, unknown>[] = JSON.parse(readFileSync(destination, 'utf8'))
+    const messages = projected.flatMap(entry =>
+      MESSAGE_LIST_FIELDS.flatMap(field => (entry[field] as object[] | undefined) ?? [])
+    )
+
+    expect(result.status).toBe(EXIT_OK)
+    expect(projected).toEqual(projectedOf(RAW_CAPTURE))
+
+    for (const field of DROPPED_RESULT_FIELDS) {
+      expect(projected.some(entry => Object.hasOwn(entry, field))).toBe(false)
+    }
+
+    for (const field of DROPPED_MESSAGE_FIELDS) {
+      expect(messages.some(message => Object.hasOwn(message, field))).toBe(false)
+    }
+
+    expect(readFileSync(destination, 'utf8')).not.toContain('#0C1310')
+  })
+
+  it('reports what it elided, so the operator can see the projection was not a copy', () => {
+    const {result} = project('counts')
+
+    expect(result.stdout).toContain('projected 2 result(s)')
+    expect(result.stdout).toContain('1 source')
+    expect(result.stdout).toContain('1 output')
+    expect(result.stdout).toContain('2 fix')
+    expect(result.stdout).toContain('1 suggestions')
+  })
+
+  // The digest is taken over the projected capture, so a raw capture and its projection hash alike — which is
+  // what lets one recorded digest describe the capture that was taken and the artifact that gets committed.
+  it('prints the digest and totals the record needs, measured over the projected capture', () => {
+    const {destination, result} = project('record-block')
+    const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')))
+
+    expect(printed.digest).toEqual({algorithm: DIGEST_ALGORITHM, value: digestOf(projectedOf(RAW_CAPTURE))})
+    expect(printed.totals).toEqual({lintedFiles: 2, filesWithFindings: 2, findings: 2, errors: 2, warnings: 0})
+    expect(printed.composition).toEqual({
+      fatalFindings: 0,
+      filesWithFindingsOutsideSrc: 1,
+      findingsOutsideSrc: 1,
+      findingsByRule: {'@typescript-eslint/no-var-requires': 1, 'prettier/prettier': 1}
+    })
+    expect(digestOf(JSON.parse(readFileSync(destination, 'utf8')))).toBe(printed.digest.value)
+  })
+
+  it('writes the compact single-line JSON that eslint -o writes, so the file it wrote is what hashes', () => {
+    const {destination} = project('compact')
+    const contents = readFileSync(destination, 'utf8')
+
+    expect(contents).not.toContain('\n')
+    expect(contents.startsWith('[{')).toBe(true)
+  })
+
+  it('produces a baseline the comparison accepts once the printed block is recorded beside it', () => {
+    const {destination, result} = project('round-trip')
+    const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')))
+    const after = writeFixture('round-trip-after.json', JSON.stringify(projectedOf(RAW_CAPTURE)))
+
+    writeRecordBeside(destination, {...printed, changedFileCoverage: {baseCommit: BASE_COMMIT}})
+
+    const gate = runGate(destination, after)
+
+    expect(gate.status).toBe(EXIT_OK)
+    expect(gate.stdout).toContain(PASS_SUMMARY)
+    expect(gate.stderr).toBe('')
+  })
+
+  it('exits 2 on a capture that is not valid JSON, writing no destination file', () => {
+    const capture = writeFixture('project-malformed-capture.json', '[{')
+    const destination = path.join(fixtureDir, 'project-malformed-projected.json')
+    const {status, stderr} = runComparator('--project', capture, destination)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('is not valid JSON')
+    expect(existsSync(destination)).toBe(false)
+  })
+
+  it('exits 2 on a capture in the wrong shape, writing no destination file', () => {
+    const capture = writeFixture('project-shape-capture.json', JSON.stringify({results: []}))
+    const destination = path.join(fixtureDir, 'project-shape-projected.json')
+    const {status, stderr} = runComparator('--project', capture, destination)
+
+    expect(status).toBe(EXIT_INPUT_ERROR)
+    expect(stderr).toContain('expected a top-level array')
+    expect(existsSync(destination)).toBe(false)
   })
 })
 

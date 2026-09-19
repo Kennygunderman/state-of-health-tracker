@@ -1,15 +1,17 @@
-import {useCallback, useEffect, useSyncExternalStore} from 'react'
+import {useEffect, useSyncExternalStore} from 'react'
 
 import {CurrentMealPlans} from '@data/models/MealPlan'
 import {queryKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
+import {
+  MealPlanGatedRequestHooks,
+  readMealPlanCapabilityRecord,
+  useMealPlanCapabilityLatch,
+  useMealPlanFlagEnabled
+} from '@queries/mealPlanning/useMealPlanGatedRequestAllowed'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
-import {
-  getRemoteConfigActivation,
-  isMealPlanningEnabled,
-  subscribeToRemoteConfigActivation
-} from '@service/remoteConfig/initRemoteConfig'
+import {getRemoteConfigActivation, subscribeToRemoteConfigActivation} from '@service/remoteConfig/initRemoteConfig'
 import {useSessionStore} from '@store/session/useSessionStore'
 import {QueryClient, useQueryClient} from '@tanstack/react-query'
 
@@ -18,7 +20,6 @@ import {
   hasMealPlan,
   latchFromCapabilityRecord,
   MealPlanCapabilityLatch,
-  MealPlanCapabilityRecord,
   MealPlanCapabilitySignals,
   MealPlanEntitlement,
   mealPlanRequestScopeForMutationKey,
@@ -28,6 +29,8 @@ import {
   planMealPlanEntitlementQueries,
   resolveMealPlanEntitlement
 } from './useMealPlanEntitlement.util'
+
+export {readMealPlanCapabilityLatch} from '@queries/mealPlanning/useMealPlanGatedRequestAllowed'
 
 /** The half of a TanStack read this hook uses: the error it classifies, plus the data the plan read carries. */
 export interface MealPlanEntitlementRead<TData> {
@@ -43,11 +46,7 @@ export interface MealPlanEntitlementRead<TData> {
  * fakes — no React dispatcher — and a test can assert what each read was actually called with. The pure
  * decisions the shell makes from these values live in `useMealPlanEntitlement.util.ts` and are tested there.
  */
-export interface MealPlanEntitlementHooks {
-  /** The Remote Config verdict, re-read whenever the single launch activation settles. */
-  useFlagEnabled: () => boolean
-  /** The session's capability verdict, re-read whenever the query cache that holds it changes. */
-  useCapabilityLatch: () => MealPlanCapabilityLatch
+export interface MealPlanEntitlementHooks extends MealPlanGatedRequestHooks {
   useSessionDayKey: () => string
   usePreferencesRead: (enabled: boolean) => MealPlanEntitlementRead<unknown>
   useCurrentPlanRead: (enabled: boolean, sessionDayKey: string) => MealPlanEntitlementRead<CurrentMealPlans>
@@ -63,37 +62,31 @@ export interface MealPlanEntitlementHooks {
 }
 
 /**
- * The capability verdict lives in the query cache, under `queryKeys.mealPlanCapability`.
+ * The capability verdict lives in the query cache, under `queryKeys.mealPlanCapability`, and this module is its
+ * only writer.
  *
  * It is server-derived truth — read out of the errors of the gated requests themselves — so the query cache is
  * where `mobile-state-management` puts it, beside the requests that produce it and inside the client that
- * `queryClient.clear()` empties on logout. The key is deliberately absent from `PERSISTED_QUERY_KEYS`, which
- * makes the verdict session-scoped: a cold start probes the gated routes once more, the forward-recovery path an
- * operator re-enable needs (AAP 0.7.5). Nothing fetches the entry — it has no `queryFn` and is written only by
- * the recorder below.
+ * `queryClient.clear()` empties on logout. Reading it belongs to
+ * `@queries/mealPlanning/useMealPlanGatedRequestAllowed`, one layer down, because the gated reads are the other
+ * consumer of the verdict: both cache readers and both subscriptions live there and are imported here, so there
+ * is one implementation of each, and `readMealPlanCapabilityLatch` is re-exported above for this module's own
+ * callers. All of them take the `QueryClient` as an argument rather than reading a hook-internal one, which is
+ * what keeps the whole mechanism exercisable in plain Jest with no renderer (AAP 0.4.1).
  *
- * The three functions are `QueryClient`-injected rather than hook-internal so the whole mechanism is exercisable
- * in plain Jest against a real `QueryClient`, with no renderer (AAP 0.4.1).
- */
-const readMealPlanCapabilityRecord = (queryClient: QueryClient): MealPlanCapabilityRecord | undefined =>
-  queryClient.getQueryData<MealPlanCapabilityRecord>(queryKeys.mealPlanCapability)
-
-/**
- * The entry is written with `setQueryData` and observed through the cache rather than through a
- * `QueryObserver`, so nothing marks it active and it would otherwise inherit the app-wide 24-hour `gcTime` in
- * `src/queries/queryClient.ts` and be collected inside a still-running process. `Infinity` is what makes
- * "session-scoped" true for the whole process: the verdict is dropped by `queryClient.clear()` on logout and by
- * process death, and by nothing else — a collection would re-enable the gated reads and send out exactly the
- * probe AAP 0.2.5 says a latched client must not issue.
+ * These defaults matter because the entry is written with `setQueryData` and observed through the cache rather
+ * than through a `QueryObserver`: nothing marks it active, so it would otherwise inherit the app-wide 24-hour
+ * `gcTime` in `src/queries/queryClient.ts` and be collected inside a still-running process. `Infinity` is what
+ * makes "session-scoped" true for the whole process — the verdict is dropped by `queryClient.clear()` on logout
+ * and by process death and by nothing else, where a collection would re-enable the gated reads and send out
+ * exactly the probe AAP 0.2.5 says a latched client must not issue. The key is deliberately absent from
+ * `PERSISTED_QUERY_KEYS`, which keeps `Infinity` off disk and makes a cold start probe the gated routes once
+ * more, the forward-recovery path an operator re-enable needs (AAP 0.7.5).
  *
  * Applied before every write because defaults are consulted when a query is first built: setting them on the
  * one path that can create this entry is what guarantees they are in place by then, and repeating it is free.
- * The key stays out of `PERSISTED_QUERY_KEYS`, so `Infinity` never reaches disk.
  */
 const CAPABILITY_RECORD_QUERY_DEFAULTS = {gcTime: Infinity} as const
-
-export const readMealPlanCapabilityLatch = (queryClient: QueryClient): MealPlanCapabilityLatch =>
-  latchFromCapabilityRecord(readMealPlanCapabilityRecord(queryClient))
 
 /**
  * Reads the whole session for capability signals: every settled query and every settled mutation in the two
@@ -187,21 +180,6 @@ export const recordMealPlanCapability = (
   return latchFromCapabilityRecord(next)
 }
 
-const useFlagEnabled = (): boolean => useSyncExternalStore(subscribeToRemoteConfigActivation, isMealPlanningEnabled)
-
-const useCapabilityLatch = (): MealPlanCapabilityLatch => {
-  const queryClient = useQueryClient()
-  // Memoised: `useSyncExternalStore` resubscribes whenever the subscribe function's identity changes, and a
-  // fresh closure per render would tear down and re-add a cache listener on every commit.
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => queryClient.getQueryCache().subscribe(onStoreChange),
-    [queryClient]
-  )
-  const getLatch = useCallback(() => readMealPlanCapabilityLatch(queryClient), [queryClient])
-
-  return useSyncExternalStore(subscribe, getLatch)
-}
-
 const useSessionDayKey = (): string => useSessionStore(state => state.sessionStartDateIso)
 
 const useRecordedCapabilitySignals = (): void => {
@@ -250,8 +228,8 @@ const useRecordedCapabilitySignals = (): void => {
  * and call order are fixed for the life of the process.
  */
 export const defaultMealPlanEntitlementHooks: MealPlanEntitlementHooks = {
-  useFlagEnabled,
-  useCapabilityLatch,
+  useFlagEnabled: useMealPlanFlagEnabled,
+  useCapabilityLatch: useMealPlanCapabilityLatch,
   useSessionDayKey,
   usePreferencesRead: useMealPlanPreferencesQuery,
   useCurrentPlanRead: useCurrentMealPlanQuery,

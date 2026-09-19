@@ -27,8 +27,9 @@ const RING_STROKE_WIDTH = 10
 
 interface Props {
   totals: MacroTotals
-  // Already authority-resolved by `Macros/index.util::resolveAuthoritativeMacroTargets`, which is where the
-  // displayed calorie target is decided; the read below is the same one, for editor routing only.
+  // The day's own targets, resolved by `Macros/index.util::resolveMacroTargets` from the block
+  // `GET /macros/:date` answers with (AAP 0.1.3). The targets read below never decides what this card
+  // displays — it decides only which editor a press on the ring opens.
   targets: ResolvedMacroTargets
 }
 
@@ -53,10 +54,13 @@ const DailySummaryCard = ({totals, targets}: Props) => {
     }
   }, [targetAuthority.editor])
 
+  // Every authority names an editor, so the press always opens one: the canonical full-screen editor when the
+  // server owns the target, the legacy modal otherwise — which is what this ring did before the planner existed
+  // and what AAP 0.1.4 requires it to keep doing.
   const onEditTargetsPressed = () => {
     if (targetAuthority.editor === 'legacy') {
       setIsTargetModalVisible(true)
-    } else if (targetAuthority.editor === 'canonical') {
+    } else {
       // RootStackParamList has no MacrosStack member, so AAP 0.7.4's nested navigate cannot type from inside it
       navigation.navigate(Screens.MEAL_PLAN_EDIT_TARGETS, {mode: 'edit', returnTo: {kind: 'tab', tab: 'MacrosStack'}})
     }
@@ -91,11 +95,7 @@ const DailySummaryCard = ({totals, targets}: Props) => {
           )}
         </Svg>
 
-        <TouchableOpacity
-          style={styles.ringCenter}
-          activeOpacity={Opacity.PRESSED}
-          disabled={!targetAuthority.isEditable}
-          onPress={onEditTargetsPressed}>
+        <TouchableOpacity style={styles.ringCenter} activeOpacity={Opacity.PRESSED} onPress={onEditTargetsPressed}>
           <Text style={styles.balanceValue}>{formatCalories(balance.amount)}</Text>
 
           <Text style={[styles.balanceLabel, balance.isOver && styles.balanceLabelOver]}>

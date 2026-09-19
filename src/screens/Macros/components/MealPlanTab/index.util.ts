@@ -40,16 +40,26 @@ import {
 } from '@utility/MealPlanDateUtility'
 import {isWriteAllowedByVerdict} from '@utility/MealPlanLifecycleUtility'
 import {resolveSetupResumeTarget, SetupResumeTarget} from '@utility/MealPlanSetupResumeUtility'
+import {lookupLabel} from '@utility/TextUtility'
 import {format} from 'date-fns'
 
 import Screens from '@constants/screens'
 import {
+  hasMealFlagTemplate,
   MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE,
   MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE,
+  MEAL_PLAN_ALLERGEN_SENTENCE_LABELS,
   MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT,
+  MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE,
   MEAL_PLAN_CREATE_BUTTON_TEXT,
+  MEAL_PLAN_DIET_SENTENCE_LABELS,
+  MEAL_PLAN_MEAL_COUNT_SINGULAR_TEMPLATE,
+  MEAL_PLAN_MEAL_COUNT_TEMPLATE,
+  MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR,
+  MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT,
   MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT,
   MEAL_SLOT_LABELS,
+  mealFlagTemplate,
   PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON,
   stringWithNamedParameters
 } from '@constants/strings'
@@ -1242,17 +1252,146 @@ export function buildMealCardModels(day: MealPlanDay): MealCardModel[] {
  * that code's reason; a set whose codes differ can only be stated generically, which is what the fallback reason
  * is for — borrowing one of the specific reasons would tell the user, for instance, that a disliked ingredient
  * is an allergen.
+ *
+ * A shared code this build has no copy for resolves to that same fallback, because the reason is only ever read
+ * to look copy up: a code carried through would leave the caller holding a code with no sentence, which is what
+ * crashed the card's render (TypeError on `.split` of an absent template). The codec decodes the code as an open
+ * string, so a newer server's fifth code reaches here as itself — and states the generic reason, exactly as the
+ * settings banner's `resolveBannerReason` does with `hasBannerCopy`.
  */
-export function resolveMealFlagReason(flags: MealPlanFlag[]): string | null {
+export function resolveMealFlagReason(flags: readonly MealPlanFlag[]): string | null {
   const [firstFlag] = flags
 
   if (firstFlag === undefined) {
     return null
   }
 
-  return flags.every(flag => flag.code === firstFlag.code)
-    ? firstFlag.code
-    : PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
+  if (!flags.every(flag => flag.code === firstFlag.code)) {
+    return PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
+  }
+
+  return hasMealFlagTemplate(firstFlag.code) ? firstFlag.code : PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON
+}
+
+// The one placeholder the flag templates carry. Read rather than substituted when no detail could be formatted,
+// because an absent value now renders as nothing: the sentence would read "Contains " with a gap where the
+// ingredient belongs, which is worse copy than stating the reason generically.
+const MEAL_FLAG_DETAIL_PLACEHOLDER = '{detail}'
+
+// A detail is a server value, so the label read is own-property and string-only (`lookupLabel`): a detail
+// naming 'constructor' or '__proto__' resolves to nothing rather than to a function or an object.
+//
+// All or nothing, here and in the two formatters below, for the same reason the settings banner's formatters
+// are: the card states one reason for the whole flag set, so a detail this release cannot state is not a detail
+// to quietly drop. Dropping it would leave "Contains milk" on a meal that also carries the detail that was
+// discarded, and the user would swap for milk and meet the other one. Null means "state this generically".
+const mapFlagSentenceLabels = (labels: Record<string, string>, details: readonly string[]): string[] | null => {
+  const labelled = details.map(detail => lookupLabel(labels, detail.trim()))
+
+  return labelled.every((label): label is string => label !== undefined) ? labelled : null
+}
+
+// A duration is a count, not a label, so it is stated through the minutes template rather than looked up, and
+// the greatest of the set is the one stated: the card names the recipe's own cooking time, and a meal flagged
+// twice is stated by the longer of the two. Every detail has to be a positive whole number of minutes for that
+// to be true — one that is not leaves a duration unknown, and the greatest of the rest would understate it.
+const formatFlagCookingTime = (details: readonly string[]): string[] | null => {
+  const minutes = details.map(detail => Number(detail.trim()))
+
+  if (!minutes.every(value => Number.isInteger(value) && value > 0)) {
+    return null
+  }
+
+  return [stringWithNamedParameters(MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, {minutes: Math.max(...minutes)})]
+}
+
+// An ingredient name is the one detail that arrives as display text, so it is stated as sent — but a blank one
+// names nothing, and the set it belongs to is then as incomplete as an unrecognised code makes it.
+const formatFlagIngredientNames = (details: readonly string[]): string[] | null => {
+  const names = details.map(detail => detail.trim())
+
+  return names.every(name => name.length > 0) ? names : null
+}
+
+// What the server sends as a flag's detail differs per code (backend recipe.logic.ts): the user's own allergen
+// and diet codes, the offending ingredients' display names, and the RECIPE's total minutes. Only the dislike
+// names are already display text, so every other code is formatted here rather than spliced into the card's
+// line as the token it arrived as — which is what rendered "Contains vegan" and "Takes 30". A code this build
+// has no formatting for states nothing, which keeps a newer server's flag from reading as a raw value.
+const formatMealFlagDetails = (code: string, details: readonly string[]): string[] | null => {
+  switch (code) {
+    case 'allergen':
+      return mapFlagSentenceLabels(MEAL_PLAN_ALLERGEN_SENTENCE_LABELS, details)
+    case 'diet':
+      return mapFlagSentenceLabels(MEAL_PLAN_DIET_SENTENCE_LABELS, details)
+    case 'dislike':
+      return formatFlagIngredientNames(details)
+    case 'cooking_time':
+      return formatFlagCookingTime(details)
+    default:
+      return null
+  }
+}
+
+// The details of the card's own reason, formatted for that reason and de-duplicated after formatting, so a meal
+// flagged twice for one allergen states it once and the first flag decides the order. A flag carrying no detail
+// at all is the same incompleteness as one whose detail cannot be formatted: the reason the card would state is
+// not established, so it states the generic copy.
+const resolveMealFlagDetail = (reason: string, flags: readonly MealPlanFlag[]): string | null => {
+  const reasonFlags = flags.filter(flag => flag.code === reason)
+
+  if (reasonFlags.length === 0 || reasonFlags.some(flag => flag.detail.length === 0)) {
+    return null
+  }
+
+  const formatted = formatMealFlagDetails(
+    reason,
+    reasonFlags.flatMap(flag => flag.detail)
+  )
+
+  if (formatted === null) {
+    return null
+  }
+
+  const distinct = Array.from(new Set(formatted))
+
+  return distinct.length > 0 ? distinct.join(MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR) : null
+}
+
+/**
+ * The line a flagged meal's card states, or null when the meal carries no flags — null is "this meal is not
+ * flagged", and every flagged meal gets a line, so the card's flagged treatment follows this answer.
+ *
+ * The reason above chooses the sentence and this formats the detail it needs, per code and all or nothing. The
+ * generic sentence is the answer whenever the specific one cannot be completed: an unrecognised code, codes that
+ * differ, a detail this build cannot state, or no detail at all. Never a sentence with a gap in it.
+ */
+export function resolveMealFlagLine(flags: readonly MealPlanFlag[]): string | null {
+  const reason = resolveMealFlagReason(flags)
+
+  if (reason === null) {
+    return null
+  }
+
+  const template = mealFlagTemplate(reason)
+  const detail = resolveMealFlagDetail(reason, flags)
+
+  if (detail === null) {
+    return template.includes(MEAL_FLAG_DETAIL_PLACEHOLDER) ? MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT : template
+  }
+
+  return stringWithNamedParameters(template, {detail})
+}
+
+/**
+ * The planned-totals unit line for a day of `count` meals. A one-meal day is a real day — a schedule with one
+ * slot, or a day swapped down to one — and "kcal across 1 meals" is not copy this app ships. Zero keeps the
+ * plural, which is how English counts nothing.
+ */
+export function mealCountUnitText(count: number): string {
+  const template = count === 1 ? MEAL_PLAN_MEAL_COUNT_SINGULAR_TEMPLATE : MEAL_PLAN_MEAL_COUNT_TEMPLATE
+
+  return stringWithNamedParameters(template, {n: count})
 }
 
 // The Diary-versus-History rule is shared with the post-log banner on the logging screen, so it lives in
@@ -1272,5 +1411,5 @@ export function flexItemWidth(availableWidth: number, gap: number, itemCount: nu
     return 0
   }
 
-  return (availableWidth - gap * (itemCount - 1)) / itemCount
+  return Math.max(0, (availableWidth - gap * (itemCount - 1)) / itemCount)
 }

@@ -48,9 +48,13 @@ describe('isGoalWeightVisible', () => {
     expect(isGoalWeightVisible('gain')).toBe(true)
   })
 
-  it('hides the goal-weight field for maintain and before a goal is chosen', () => {
+  it('hides the goal-weight field for maintain', () => {
     expect(isGoalWeightVisible('maintain')).toBe(false)
-    expect(isGoalWeightVisible(null)).toBe(false)
+  })
+
+  it('shows the optional goal-weight field before a goal is chosen, unlike the pace section', () => {
+    expect(isGoalWeightVisible(null)).toBe(true)
+    expect(isPaceVisible(null)).toBe(false)
   })
 })
 
@@ -280,15 +284,46 @@ describe('validateMealPlanGoal', () => {
     })
   })
 
-  describe('a goal weight on a hidden control', () => {
-    it('leaves the hidden goal-weight control silent while no goal is chosen', () => {
+  describe('a goal weight without a directional goal', () => {
+    // The field is on screen from first entry (AAP 0.7.4), so what is typed into it is answered: a press
+    // reports the unparseable reading and the missing goal together, which is the validation-timing rule.
+    it('reports an unparseable goal weight typed before a goal is chosen alongside the missing goal', () => {
       const validation = validateMealPlanGoal(makeFields({goalWeightText: 'abc'}), makeContext())
 
       expect(validation).toEqual({
-        errors: {goal: 'goal_required', goalWeight: null, pace: null},
+        errors: {goal: 'goal_required', goalWeight: 'goal_weight_invalid', pace: null},
         isValid: false,
         goalWeightKg: null
       })
+    })
+
+    it('keeps a valid goal weight typed before a goal is chosen and leaves only the goal outstanding', () => {
+      const validation = validateMealPlanGoal(makeFields({goalWeightText: '170'}), makeContext())
+
+      expect(validation.errors).toEqual({goal: 'goal_required', goalWeight: null, pace: null})
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeCloseTo(77.1107029, 7)
+    })
+
+    it('rejects an out-of-range goal weight typed before a goal is chosen', () => {
+      const validation = validateMealPlanGoal(makeFields({goalWeightText: '20'}), makeContext())
+
+      expect(validation.errors).toEqual({goal: 'goal_required', goalWeight: 'goal_weight_out_of_range', pace: null})
+      expect(validation.isValid).toBe(false)
+      expect(validation.goalWeightKg).toBeNull()
+    })
+
+    // No goal names no side to be on, so a reading either side of the known current weight must pass the
+    // side check rather than accuse the user of a wrong-side entry they cannot yet have made.
+    it('raises no wrong-side error for a goal weight either side of the current weight before a goal', () => {
+      const context = makeContext({currentWeightKg: 82.5, unit: 'kg'})
+      const above = validateMealPlanGoal(makeFields({goalWeightText: '90'}), context)
+      const below = validateMealPlanGoal(makeFields({goalWeightText: '75'}), context)
+
+      expect(above.errors).toEqual({goal: 'goal_required', goalWeight: null, pace: null})
+      expect(above.goalWeightKg).toBe(90)
+      expect(below.errors).toEqual({goal: 'goal_required', goalWeight: null, pace: null})
+      expect(below.goalWeightKg).toBe(75)
     })
 
     it('discards a goal weight typed before switching to maintain', () => {

@@ -112,13 +112,16 @@ const ActivityTab = () => {
     openGlobalBottomSheet(<BurnInfoBottomSheet />)
   }
 
+  // Every authority names an editor, so the row always opens one: the canonical full-screen editor when the
+  // server owns the target, the legacy modal otherwise — the shipped behaviour AAP 0.1.4 keeps for a user who
+  // never opted in.
   const onIntakeTargetPressed = () => {
     if (targetAuthority.editor === 'canonical') {
       navigation.navigate('MacrosStack', {
         screen: Screens.MEAL_PLAN_EDIT_TARGETS,
         params: {mode: 'edit', returnTo: {kind: 'tab', tab: 'ProgressStack'}}
       })
-    } else if (targetAuthority.editor === 'legacy') {
+    } else {
       setIsIntakeModalVisible(true)
     }
   }
@@ -211,10 +214,7 @@ const ActivityTab = () => {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            activeOpacity={Opacity.PRESSED_TARGET_ROW}
-            disabled={!targetAuthority.isEditable}
-            onPress={onIntakeTargetPressed}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED_TARGET_ROW} onPress={onIntakeTargetPressed}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_INTAKE_LABEL} `}
 

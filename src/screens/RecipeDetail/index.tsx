@@ -8,6 +8,7 @@ import {useMealPlanDayQuery} from '@queries/mealPlanning/useMealPlanDayQuery'
 import {useRecipeDetailQuery} from '@queries/mealPlanning/useRecipeDetailQuery'
 import {useSwapPreviewQuery} from '@queries/mealPlanning/useSwapPreviewQuery'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import {composeAccessibleName} from '@utility/AccessibilityUtility'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
 
 import BadgePill from '@components/BadgePill'
@@ -300,7 +301,9 @@ const RecipeDetail = (): React.JSX.Element => {
     ({section}: {section: SectionListData<RecipeDetailRow, RecipeDetailSection>}): React.JSX.Element =>
       section.key === 'ingredients' ? (
         <View style={[styles.listColumn, styles.sectionHeaderRow]}>
-          <Text style={styles.sectionHeading}>{RECIPE_DETAIL_INGREDIENTS_HEADER}</Text>
+          <Text style={styles.sectionHeading} accessibilityRole="header">
+            {RECIPE_DETAIL_INGREDIENTS_HEADER}
+          </Text>
 
           <SegmentedControl
             options={SEGMENT_OPTIONS}
@@ -311,7 +314,7 @@ const RecipeDetail = (): React.JSX.Element => {
         </View>
       ) : (
         <View style={styles.listColumn}>
-          <Text style={[styles.sectionHeading, styles.standaloneSectionHeading]}>
+          <Text style={[styles.sectionHeading, styles.standaloneSectionHeading]} accessibilityRole="header">
             {RECIPE_DETAIL_INSTRUCTIONS_HEADER}
           </Text>
         </View>
@@ -360,7 +363,9 @@ const RecipeDetail = (): React.JSX.Element => {
 
       {content !== null && (
         <ContentColumn>
-          <Text style={styles.title}>{content.recipe.name}</Text>
+          <Text style={styles.title} accessibilityRole="header">
+            {content.recipe.name}
+          </Text>
 
           {badgeLabels.length > 0 && (
             <View style={styles.badgeRow}>
@@ -375,7 +380,10 @@ const RecipeDetail = (): React.JSX.Element => {
           )}
 
           <View style={styles.nutritionCard}>
-            <View style={styles.nutritionHeaderRow}>
+            <View
+              style={styles.nutritionHeaderRow}
+              accessible
+              accessibilityLabel={composeAccessibleName([RECIPE_DETAIL_PLANNED_PORTION_LABEL, content.portionText])}>
               <Text style={styles.nutritionCardLabel}>{RECIPE_DETAIL_PLANNED_PORTION_LABEL}</Text>
 
               <Text style={styles.portionValue}>{content.portionText}</Text>

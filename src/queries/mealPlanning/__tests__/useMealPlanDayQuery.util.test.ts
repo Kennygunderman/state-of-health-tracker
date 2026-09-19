@@ -2,7 +2,7 @@ import {MacroTotals} from '@data/models/Macros'
 import {CurrentMealPlans, MealPlan, MealPlanDay, MealPlanDayEnvelope} from '@data/models/MealPlan'
 import {fetchMealPlanDay} from '@queries/api/mealPlanning/fetchMealPlanDay'
 import {queryKeys} from '@queries/keys'
-import {DefaultError, QueryClient} from '@tanstack/react-query'
+import {DefaultError, focusManager, QueryClient, QueryObserver} from '@tanstack/react-query'
 import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 import {isWriteAllowedByVerdict, resolveEnvelopeWriteability} from '@utility/MealPlanLifecycleUtility'
 
@@ -23,6 +23,11 @@ const PLAN_END_DATE = '2026-07-12'
 
 // No case injects a calendar day, because the seed does not take one: writeability is a server verdict and
 // the seed reports it as unknown. PLAN_END_DATE above is the fixture week's last day.
+
+// The app's own query staleTime, from `src/queries/queryClient.ts`. Restated rather than imported because that
+// module builds the real client and its persister on import; the observer cases below configure a client with
+// this value so what they observe is what the app observes, and the defect being fixed only appears inside it.
+const STALE_TIME_MS = 60_000
 
 const makeTotals = (): MacroTotals => ({calories: 2100, protein: 160, carbs: 205, fat: 70})
 
@@ -71,8 +76,9 @@ const requestOf = (options: MealPlanDayOptions): (() => Promise<MealPlanDayEnvel
 const seedOf = (options: MealPlanDayOptions): (() => MealPlanDayEnvelope | undefined) =>
   options.initialData as () => MealPlanDayEnvelope | undefined
 
-const seedStampOf = (options: MealPlanDayOptions): (() => number | undefined) =>
-  options.initialDataUpdatedAt as () => number | undefined
+// A number rather than a function, unlike the seed beside it: no cache reading can change the answer, because
+// a seeded day always still needs the route for the verdict it cannot carry.
+const seedStampOf = (options: MealPlanDayOptions): number => options.initialDataUpdatedAt as number
 
 describe('selectSeededMealPlanDay', () => {
   describe('when the cached current-plan entry cannot answer the request', () => {
@@ -354,11 +360,12 @@ describe('buildMealPlanDayQueryOptions', () => {
       expect(retryOf(buildOptions())(0, bareNotFound)).toBe(true)
     })
 
-    it('keeps the seed and its timestamp as functions, so both re-read the live cache per render', () => {
-      const options = buildOptions()
+    it('keeps the seed a function, so it re-reads the live cache per render', () => {
+      expect(typeof buildOptions().initialData).toBe('function')
+    })
 
-      expect(typeof options.initialData).toBe('function')
-      expect(typeof options.initialDataUpdatedAt).toBe('function')
+    it('keeps the stamp a plain value, because no cache reading can change what it says', () => {
+      expect(typeof buildOptions().initialDataUpdatedAt).toBe('number')
     })
   })
 
@@ -420,38 +427,214 @@ describe('buildMealPlanDayQueryOptions', () => {
     })
   })
 
+  /**
+   * The stamp is the whole of the fix for a seeded day that offered neither Swap nor Log: the seed carries the
+   * cached week's content but reports writeability as unknown, and only `GET .../days/:date` can replace that.
+   * Stamping the seed with its source entry's own `dataUpdatedAt` — which is what this read used to do — made a
+   * week cached inside the app-wide 60s staleTime mount as already fresh, so the route was never asked and the
+   * verdict stayed unknown for the whole visit.
+   */
   describe('the seed timestamp', () => {
-    it('reports the source entry\u2019s own dataUpdatedAt, so the normal staleTime still decides the refetch', () => {
+    it('stamps the seed as having no age at all, so the entry is stale the moment it is created', () => {
+      seedCurrentPlans(makePlans())
+
+      expect(seedStampOf(buildOptions())).toBe(0)
+    })
+
+    it('says the same thing with no source entry, where there is no seed to be fresh or stale', () => {
+      expect(seedStampOf(buildOptions())).toBe(0)
+      expect(seedOf(buildOptions())()).toBeUndefined()
+    })
+
+    it('ignores how recently the source entry was written, which was never the question', () => {
       seedCurrentPlans(makePlans())
 
       const sourceUpdatedAt = queryClient.getQueryState(queryKeys.mealPlanCurrent)?.dataUpdatedAt
 
+      // The premise of the defect: the source really is fresh by the app's own staleTime.
       expect(typeof sourceUpdatedAt).toBe('number')
-      expect(seedStampOf(buildOptions())()).toBe(sourceUpdatedAt)
+      expect(Date.now() - (sourceUpdatedAt ?? 0)).toBeLessThan(STALE_TIME_MS)
+
+      // And the stamp still reports an incomplete entry, because a recently read week is not a verdict.
+      expect(seedStampOf(buildOptions())).toBe(0)
+      expect(seedStampOf(buildOptions())).not.toBe(sourceUpdatedAt)
     })
 
-    it('reports no timestamp when there is no source entry, matching the absent seed', () => {
-      const options = buildOptions()
-
-      expect(seedStampOf(options)()).toBeUndefined()
-      expect(seedOf(options)()).toBeUndefined()
-    })
-
-    it('follows the source entry when it is written again, rather than freezing at build time', () => {
+    it('stays zero when the source entry is written again, so a fresh week does not re-suppress the read', () => {
       seedCurrentPlans(makePlans())
-
-      const stamp = seedStampOf(buildOptions())
-      const firstUpdatedAt = stamp()
-
-      jest.spyOn(Date, 'now').mockReturnValue((firstUpdatedAt ?? 0) + 60_000)
       seedCurrentPlans(makePlans({current: makePlan({revision: 12})}))
 
-      const secondUpdatedAt = queryClient.getQueryState(queryKeys.mealPlanCurrent)?.dataUpdatedAt
-
-      expect(secondUpdatedAt).toBe((firstUpdatedAt ?? 0) + 60_000)
-      expect(stamp()).toBe(secondUpdatedAt)
-
-      jest.restoreAllMocks()
+      expect(seedStampOf(buildOptions())).toBe(0)
     })
+  })
+})
+
+/**
+ * What a real observer does with these options, against a client configured like the app's.
+ *
+ * The factory's shape is assertable on its own, but the behaviour these findings are about is not: "renders the
+ * cached day and still asks the route" and "asks again for the day a chip tap selects" are decisions TanStack
+ * makes from the stamp, the staleTime and the key, and the only way to pin them without a renderer is to drive
+ * the observer that makes them. The requests are counted rather than described, so a regression that
+ * reintroduces the suppressed read fails here rather than on a device.
+ */
+describe('the seeded day read under a real observer', () => {
+  let queryClient: QueryClient
+
+  const ROUTE_ENVELOPE: MealPlanDayEnvelope = {
+    planId: PLAN_ID,
+    planRevision: 4,
+    planStatus: 'active',
+    // What only `GET .../days/:date` can answer, and the whole reason the read has to happen.
+    planLifecycle: 'active',
+    isWritable: true,
+    day: makeDay({meals: []})
+  }
+
+  const buildOptions = (planId = PLAN_ID, date = DATE, enabled = true): MealPlanDayOptions =>
+    buildMealPlanDayQueryOptions(queryClient, planId, date, enabled)
+
+  const mount = (options: MealPlanDayOptions): QueryObserver<MealPlanDayEnvelope> => {
+    const observer = new QueryObserver(queryClient, options)
+
+    observer.subscribe(() => undefined)
+    observers.push(observer)
+
+    return observer
+  }
+
+  let observers: QueryObserver<MealPlanDayEnvelope>[] = []
+
+  const settle = async (): Promise<void> => {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  const requestCount = (): number => jest.mocked(fetchMealPlanDay).mock.calls.length
+
+  beforeEach(() => {
+    jest.mocked(fetchMealPlanDay).mockReset()
+    jest.mocked(fetchMealPlanDay).mockResolvedValue(ROUTE_ENVELOPE)
+    observers = []
+    // staleTime is the app's, and retry is off so a case asserts one request rather than one plus its retries.
+    queryClient = new QueryClient({
+      defaultOptions: {queries: {retry: false, gcTime: Infinity, staleTime: STALE_TIME_MS}}
+    })
+    // The premise of both findings: the week is already cached, and cached recently enough to be fresh.
+    queryClient.setQueryData(queryKeys.mealPlanCurrent, makePlans())
+  })
+
+  afterEach(() => {
+    observers.forEach(observer => observer.destroy())
+    queryClient.clear()
+  })
+
+  it('renders the cached day straight away, with no request having answered yet', () => {
+    const result = mount(buildOptions()).getCurrentResult()
+
+    expect(result.status).toBe('success')
+    expect(result.data?.day).toStrictEqual(makeDay())
+    expect(result.isPending).toBe(false)
+  })
+
+  it('asks the day route exactly once on mount, which is the only thing that can resolve the verdict', async () => {
+    const observer = mount(buildOptions())
+
+    // Unknown at the instant the day appears, which is what withheld Swap and Log for the whole visit.
+    expect(isWriteAllowedByVerdict(observer.getCurrentResult().data?.isWritable)).toBe(false)
+    expect(requestCount()).toBe(1)
+    expect(jest.mocked(fetchMealPlanDay).mock.calls[0]).toStrictEqual([PLAN_ID, DATE])
+
+    await settle()
+
+    expect(observer.getCurrentResult().data?.isWritable).toBe(true)
+    expect(isWriteAllowedByVerdict(observer.getCurrentResult().data?.isWritable)).toBe(true)
+    expect(requestCount()).toBe(1)
+  })
+
+  it('asks for the day a chip tap selects, which a fresh seed used to suppress', async () => {
+    const day = makeDay({id: 'day-4', date: OTHER_DATE, dayIndex: 3})
+
+    queryClient.setQueryData(queryKeys.mealPlanCurrent, makePlans({current: makePlan({days: [makeDay(), day]})}))
+
+    const observer = mount(buildOptions())
+
+    await settle()
+    expect(requestCount()).toBe(1)
+
+    // The tap: same plan, new date, so a new key with a seed of its own.
+    observer.setOptions(buildOptions(PLAN_ID, OTHER_DATE))
+
+    expect(observer.getCurrentResult().data?.day).toStrictEqual(day)
+    expect(requestCount()).toBe(2)
+    expect(jest.mocked(fetchMealPlanDay).mock.calls[1]).toStrictEqual([PLAN_ID, OTHER_DATE])
+  })
+
+  it('suppresses the read when stamped the way it used to be, which is the defect this stamp removes', () => {
+    // The options as they were: the seed carried its source entry's own dataUpdatedAt, so a week cached inside
+    // the staleTime mounted already fresh.
+    mount({...buildOptions(), initialDataUpdatedAt: Date.now()})
+
+    expect(requestCount()).toBe(0)
+  })
+
+  it('asks once per plan and date per staleTime window, and nothing on a remount inside it', async () => {
+    mount(buildOptions())
+    await settle()
+
+    mount(buildOptions())
+    await settle()
+
+    // The second mount finds the route's answer, verdict and all, and has no reason to ask again.
+    expect(requestCount()).toBe(1)
+  })
+
+  it('issues nothing at all once the capability gate refuses the read, and still renders the cached day', () => {
+    const result = mount(buildOptions(PLAN_ID, DATE, false)).getCurrentResult()
+
+    expect(requestCount()).toBe(0)
+    expect(result.data?.day).toStrictEqual(makeDay())
+    // Inert rather than wrong: nothing may be swapped or logged on a session a gated route has refused.
+    expect(isWriteAllowedByVerdict(result.data?.isWritable)).toBe(false)
+  })
+
+  // The client's focus subscriber resumes paused mutations before it notifies the cache, so a focus-driven
+  // refetch lands at least a microtask after the event. Draining is what makes the assertion about the round
+  // rather than about its timing.
+  const focus = async (): Promise<void> => {
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+    await new Promise<void>(resolve => setImmediate(resolve))
+  }
+
+  // `queryClient.mount()` is what subscribes the cache to focus at all, and both cases need it: without it the
+  // refused case would report zero requests whether or not the gate did anything, and the control below is what
+  // proves the round is real.
+  const staleFocusRounds = async (options: MealPlanDayOptions): Promise<void> => {
+    queryClient.mount()
+    mount(options)
+    await settle()
+
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + STALE_TIME_MS * 2)
+    await focus()
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    queryClient.unmount()
+    focusManager.setFocused(undefined)
+  })
+
+  it('asks nothing on a stale focus event while the gate refuses it', async () => {
+    await staleFocusRounds(buildOptions(PLAN_ID, DATE, false))
+
+    expect(requestCount()).toBe(0)
+  })
+
+  it('re-reads the day on that same event while the gate allows it, which is the control', async () => {
+    await staleFocusRounds(buildOptions())
+
+    // One for the mount the seed no longer suppresses, one for the focus that found the answer stale.
+    expect(requestCount()).toBe(2)
   })
 })

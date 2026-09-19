@@ -268,7 +268,14 @@ const MealPlanDietScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
-        <WizardHeader step={progress.step} totalSteps={progress.totalSteps} onBack={navigation.goBack} />
+        {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
+            back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
+        <WizardHeader
+          step={progress.step}
+          totalSteps={progress.totalSteps}
+          onBack={navigation.goBack}
+          isProgressVisible={params.mode !== 'edit'}
+        />
 
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {/* The headline is the diet group's visible heading and, unlike the group's wrapper, a real

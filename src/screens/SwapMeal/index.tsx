@@ -4,6 +4,7 @@ import {AccessibilityInfo, FlatList, ListRenderItemInfo, Platform, View} from 'r
 
 import type {SwapAlternative, SwapMealPayload} from '@data/models/SwapAlternative'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
+import {useAccessibilityFocusOnChange} from '@hooks/useAccessibilityFocusOnChange'
 import {Navigation, SwapMealRouteProp} from '@navigation/types'
 import {mutationKeys} from '@queries/keys'
 import {useCurrentMealPlanQuery} from '@queries/mealPlanning/useCurrentMealPlanQuery'
@@ -720,22 +721,40 @@ const SwapMealScreen = (): React.JSX.Element => {
     slot: currentMeal?.slot ?? null
   })
 
+  // The rows the wait resolved to, as the reader's destination: 13c's "Loading" node is unmounted by the very
+  // render that draws them, and with no navigation between the two states nothing repositions the cursor, so it
+  // is left on a node that no longer exists. Only the loaded list qualifies — 13e draws rows too, under a banner
+  // that announces itself and IS what the screen is about, and taking the cursor off it would move the reader
+  // away from the outcome they just asked for. The key is the results label, so a refetch answering with the
+  // same count moves nothing and a different count is a new resolution.
+  const resultsRef = useRef<React.ComponentRef<typeof View>>(null)
+  const focusedResults = view.kind === 'list' && blocks.length > 0 ? resultsAccessibilityLabel : null
+
+  useAccessibilityFocusOnChange(resultsRef, focusedResults, {scope: 'voiceOver'})
+
+  // What is left for VoiceOver to be TOLD. Focusing a node is what makes iOS read it, so the resolution that
+  // now receives the cursor must not also be announced — one sentence, said twice, is what that would be. Every
+  // other resolution keeps its announcement unchanged, 13d's card above all: its `EmptyState` carries no
+  // accessibility props of its own, so there is nothing there to focus and being told is all it has.
+  const spokenAlternatives = focusedResults === null ? alternativesAnnouncement : null
+
   const announcedAlternatives = useRef<string | null>(null)
 
   useEffect(() => {
-    // Both resolutions carry `accessibilityLiveRegion="polite"`, which RN 0.86 implements on Android only, so
-    // VoiceOver is told here and only here — Android keeps its live region rather than being told twice. What
+    // What is still spoken here carries `accessibilityLiveRegion="polite"`, which RN 0.86 implements on Android
+    // only, so VoiceOver is told here and only here — Android keeps its live region rather than being told
+    // twice, and the resolution iOS now reads by being focused is already out of `spokenAlternatives`. What
     // counts as new is `resolveAnnouncementGuard`'s to decide: a refetch that answers with the same rows without
     // leaving the list says nothing again, while a wait the screen genuinely returns to clears the guard, so the
     // resolution after it is announced even when its copy repeats.
-    const guard = resolveAnnouncementGuard(alternativesAnnouncement, announcedAlternatives.current)
+    const guard = resolveAnnouncementGuard(spokenAlternatives, announcedAlternatives.current)
 
     announcedAlternatives.current = guard.lastAnnounced
 
     if (guard.announces !== null && Platform.OS === 'ios') {
       AccessibilityInfo.announceForAccessibility(guard.announces)
     }
-  }, [alternativesAnnouncement])
+  }, [spokenAlternatives])
 
   // Frame 13's two explanatory pieces travel together and frame 13e drops both (see index.util).
   const showsGuidance = rendersAlternativesGuidance(view)
@@ -832,6 +851,7 @@ const SwapMealScreen = (): React.JSX.Element => {
               {currentMeal !== null && (
                 <>
                   <Text
+                    accessibilityRole="header"
                     style={[
                       styles.title,
                       (bannerSlot === 'aboveTitle' || showsForeignHoldNotice) && styles.titleAfterBanner
@@ -857,11 +877,20 @@ const SwapMealScreen = (): React.JSX.Element => {
 
               {blocks.length > 0 && (
                 <View style={styles.sectionRow}>
-                  {/* The overline speaks the result count, as a live region, so the end of the wait a screen
-                      reader was told about ("Loading", 13c) is announced instead of leaving the user to sweep
-                      the screen for it. The hint stays a sibling rather than being folded into this name,
-                      which keeps it readable on its own; nothing else here is announced. */}
-                  <View accessible accessibilityLabel={resultsAccessibilityLabel} accessibilityLiveRegion="polite">
+                  {/* The overline speaks the result count, as a live region on Android and as the cursor's
+                      destination on iOS, so the end of the wait a screen reader was told about ("Loading", 13c)
+                      reaches the user instead of leaving them to sweep the screen for it. The hint stays a
+                      sibling rather than being folded into this name, which keeps it readable on its own;
+                      nothing else here is announced. */}
+                  {/* No heading role on the overline: this wrapper is the one element the platform exposes
+                      here, so a role on its child would never be reached. The role is not moved onto the
+                      wrapper either, because the wrapper is the live-region announcement above and its
+                      semantics are owned elsewhere — the screen's own title already carries the heading. */}
+                  <View
+                    ref={resultsRef}
+                    accessible
+                    accessibilityLabel={resultsAccessibilityLabel}
+                    accessibilityLiveRegion="polite">
                     <SectionOverline text={SWAP_ALTERNATIVES_HEADER} />
                   </View>
 

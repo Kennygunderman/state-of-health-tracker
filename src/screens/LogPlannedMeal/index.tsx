@@ -77,6 +77,7 @@ import {
   isLogOutcomeUnconfirmed,
   isPlanStateReadFailure,
   LogCommitTarget,
+  logDateStepAccessibilityLabel,
   logDateStepperLabel,
   LogPlanDateRange,
   nextLogDate,
@@ -819,7 +820,12 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
         <RecipeSummaryCard name={loaded.meal.recipe.name} iconKey={loaded.meal.recipe.iconKey} />
       </View>
 
-      <Text style={styles.controlLabel}>{SERVINGS_HEADER}</Text>
+      {/* Hidden from assistive technology, not from the eye: the stepper's own field already announces
+          "Servings", and a label stop of the same name immediately above it is indistinguishable from the
+          control it names. */}
+      <Text style={styles.controlLabel} accessibilityElementsHidden importantForAccessibility="no">
+        {SERVINGS_HEADER}
+      </Text>
 
       {/* Disabled rather than merely ignored while the form is locked: the handlers refuse the edit anyway, but
           a control that only stops touches stays reachable — its accessibility actions are still offered, and
@@ -842,7 +848,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
       <View style={styles.thisAddsSection}>
         <View style={styles.thisAddsCard}>
-          <SectionOverline text={THIS_ADDS_LABEL} />
+          <SectionOverline text={THIS_ADDS_LABEL} isHeading />
 
           {/* One element, so the four figures are read as caption-and-value pairs rather than four orphan
               numbers, and polite so a changed portion is announced without interrupting the field. The region
@@ -890,30 +896,45 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
 
           <Text style={styles.dateOverline}>{dateOverlineText(form.selectedDate)}</Text>
 
-          <Text style={styles.title}>{LOG_PLANNED_MEAL_TITLE}</Text>
+          <Text style={styles.title} accessibilityRole="header">
+            {LOG_PLANNED_MEAL_TITLE}
+          </Text>
 
           <View style={styles.dateRow}>
-            {/* Each arrow is named by the day it moves to, which is the accessible name a date stepper needs:
-                the glyph alone carries no destination, and the visible label sits between the two. */}
+            {/* Each arrow is named by its direction and then the day it moves to ("Previous day, Sep 14"):
+                the glyph carries no destination, and the day alone carries no direction — at the ends of the
+                plan week the clamped target is the day already shown, so the two would read alike.
+                An arrow that cannot step is also withdrawn from the reader, the way `disabled` withdraws the
+                affordance everywhere else on this screen, so a boundary leaves one stop rather than two. */}
             <TouchableOpacity
               style={[styles.dateStepButton, !canStepDate(-1) && styles.dateStepButtonDisabled]}
               activeOpacity={Opacity.PRESSED}
               accessibilityRole="button"
-              accessibilityLabel={logDateStepperLabel(stepTargetDate(-1), now)}
+              accessibilityLabel={logDateStepAccessibilityLabel(stepTargetDate(-1), -1, now)}
               accessibilityState={{disabled: !canStepDate(-1)}}
+              accessibilityElementsHidden={!canStepDate(-1)}
+              importantForAccessibility={canStepDate(-1) ? 'yes' : 'no-hide-descendants'}
               disabled={!canStepDate(-1)}
               onPress={() => onStepDate(-1)}>
               <ChevronLeftIcon color={Theme.colors.text} />
             </TouchableOpacity>
 
-            <Text style={styles.dateLabel}>{logDateStepperLabel(form.selectedDate, now)}</Text>
+            {/* Hidden from assistive technology, not from sight: the overline above already announces the
+                selected date in full ("Monday, September 14th") and both arrows now name concrete dates, so a
+                third stop reading only a bare date adds nothing — and at the ends of the plan week it
+                duplicated the backward arrow's name verbatim. */}
+            <Text style={styles.dateLabel} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              {logDateStepperLabel(form.selectedDate, now)}
+            </Text>
 
             <TouchableOpacity
               style={[styles.dateStepButton, !canStepDate(1) && styles.dateStepButtonDisabled]}
               activeOpacity={Opacity.PRESSED}
               accessibilityRole="button"
-              accessibilityLabel={logDateStepperLabel(stepTargetDate(1), now)}
+              accessibilityLabel={logDateStepAccessibilityLabel(stepTargetDate(1), 1, now)}
               accessibilityState={{disabled: !canStepDate(1)}}
+              accessibilityElementsHidden={!canStepDate(1)}
+              importantForAccessibility={canStepDate(1) ? 'yes' : 'no-hide-descendants'}
               disabled={!canStepDate(1)}
               onPress={() => onStepDate(1)}>
               <ChevronRightIcon color={Theme.colors.text} />

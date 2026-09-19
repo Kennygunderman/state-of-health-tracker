@@ -127,6 +127,52 @@ describe('MealEntryResponse', () => {
 
       expect(entry.nutritionProvenance).toBe('lab_measured')
     })
+
+    // The field is a server-owned vocabulary, so a value whose shape this client has no reading of is taken
+    // as "no provenance" rather than refused: the caption is dropped and the diary row still decodes.
+    it('coerces a number to null', () => {
+      const decoded = MealEntryResponse.decode(makeEntryPayload({nutritionProvenance: 42}))
+
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).nutritionProvenance).toBeNull()
+    })
+
+    it('coerces a boolean to null', () => {
+      const decoded = MealEntryResponse.decode(makeEntryPayload({nutritionProvenance: false}))
+
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).nutritionProvenance).toBeNull()
+    })
+
+    it('coerces an object to null', () => {
+      const decoded = MealEntryResponse.decode(makeEntryPayload({nutritionProvenance: {code: 'source_backed'}}))
+
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).nutritionProvenance).toBeNull()
+    })
+
+    it('coerces an array to null', () => {
+      const decoded = MealEntryResponse.decode(makeEntryPayload({nutritionProvenance: ['source_backed']}))
+
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).nutritionProvenance).toBeNull()
+    })
+
+    it('coerces NaN to null', () => {
+      const decoded = MealEntryResponse.decode(makeEntryPayload({nutritionProvenance: Number.NaN}))
+
+      expect(isRight(decoded)).toBe(true)
+      expect(expectRight(decoded).nutritionProvenance).toBeNull()
+    })
+
+    // The coercion above must not reach the absent case: a key the payload never carried stays off the
+    // decoded entry rather than being materialised as the null every other unreadable value becomes.
+    it('leaves an absent member off the decoded entry rather than coercing it to null', () => {
+      const entry = expectRight(MealEntryResponse.decode(makeEntryPayload()))
+
+      expect('nutritionProvenance' in entry).toBe(false)
+      expect(entry.nutritionProvenance).toBeUndefined()
+    })
   })
 
   // loggedAt orders the entries of a meal and dates the diary row, so it is validated as an instant rather
@@ -214,6 +260,38 @@ describe('DailyMacrosResponse', () => {
     const forms = ['2026-02-30', '2026-13-01', '2026-07-5', '2026/07/05', 'today', '', 20260705, null]
 
     forms.forEach(date => expect(isLeft(DailyMacrosResponse.decode(makeDayPayload({date})))).toBe(true))
+  })
+
+  // The day is the unit the diary is cached and rendered from, so one entry carrying a provenance shape this
+  // client cannot read must not take its siblings — or the day's totals — down with it.
+  it('decodes a whole day whose entry carries a provenance of an unreadable shape', () => {
+    const day = expectRight(
+      DailyMacrosResponse.decode(
+        makeDayPayload({
+          meals: [
+            {
+              id: 'meal-breakfast',
+              name: 'Breakfast',
+              sortOrder: 0,
+              entries: [
+                makeEntryPayload({id: 'entry-1', nutritionProvenance: 'source_backed'}),
+                makeEntryPayload({id: 'entry-2', nutritionProvenance: {code: 'source_backed'}}),
+                makeEntryPayload({id: 'entry-3'})
+              ],
+              totals: {calories: 1260, protein: 96, carbs: 132, fat: 33}
+            }
+          ]
+        })
+      )
+    )
+
+    const entries = day.meals[0].entries
+
+    expect(entries.map(entry => entry.id)).toEqual(['entry-1', 'entry-2', 'entry-3'])
+    expect(entries[0].nutritionProvenance).toBe('source_backed')
+    expect(entries[1].nutritionProvenance).toBeNull()
+    expect('nutritionProvenance' in entries[2]).toBe(false)
+    expect(day.totals.calories).toBe(420)
   })
 
   it('keeps a per-field-nullable target block decodable', () => {

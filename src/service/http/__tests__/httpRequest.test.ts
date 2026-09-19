@@ -54,6 +54,31 @@ const REQUEST_PATH = '/api/catalog/foods'
 const FOREIGN_URL = `${PRODUCTION_API_FALLBACK_ORIGIN}/api/catalog/foods?q=rice&page=1&limit=25`
 const FOREIGN_HOST = 'stateofhealthapi.com'
 
+// The configured origin comes from the tracked .env.test, which points this suite at a loopback development
+// API. The three final URLs below rebuild that origin as the shapes a redirect produces without leaving the
+// site — a scheme upgrade, the other spelling of loopback, a proxy on another port — rather than hardcoding a
+// value the environment supplies.
+const LOOPBACK_ALIASES: Record<string, string> = {localhost: '127.0.0.1', '127.0.0.1': 'localhost'}
+const PROXY_PORT = 8443
+
+const configuredAuthority = /^https?:\/\/([a-z0-9.-]+)(?::(\d+))?$/i.exec(CONFIGURED_API_ORIGIN)
+
+if (!configuredAuthority || !LOOPBACK_ALIASES[configuredAuthority[1]]) {
+  throw new Error('this suite drives the loopback-alias case, so SOH_API_BASE_URL must be a bare loopback origin')
+}
+
+const [, CONFIGURED_HOST, CONFIGURED_PORT] = configuredAuthority
+const CONFIGURED_PORT_SUFFIX = CONFIGURED_PORT ? `:${CONFIGURED_PORT}` : ''
+
+const SAME_SITE_FINAL_URLS: [string, string][] = [
+  ['a scheme upgrade', `https://${CONFIGURED_HOST}${CONFIGURED_PORT_SUFFIX}${REQUEST_PATH}`],
+  [
+    'the other spelling of loopback',
+    `http://${LOOPBACK_ALIASES[CONFIGURED_HOST]}${CONFIGURED_PORT_SUFFIX}${REQUEST_PATH}`
+  ],
+  ['a proxy on another port', `http://${CONFIGURED_HOST}:${PROXY_PORT}${REQUEST_PATH}`]
+]
+
 const recordedMessage = (): string => (mockRecordError.mock.calls[0][0] as Error).message
 
 beforeEach(() => {
@@ -62,8 +87,12 @@ beforeEach(() => {
 })
 
 describe('the shared axios instance', () => {
-  it('is created with redirects disabled and the established timeout', () => {
-    expect(createdConfig.maxRedirects).toBe(0)
+  // The transport must not turn a legitimate redirect into a failure: pinning maxRedirects to 0 makes axios
+  // swap follow-redirects for the raw transport under the adapters that decide in JS, so a 3xx from a
+  // deployment that redirects comes back as a status no validateStatus accepts instead of being followed.
+  // Where a response may have come from is bounded by the same-site check on the final URL, not by this.
+  it('does not pin maxRedirects, and carries the established timeout', () => {
+    expect(createdConfig.maxRedirects).toBeUndefined()
     expect(createdConfig.timeout).toBe(25_000)
   })
 })
@@ -83,6 +112,18 @@ describe('httpRequest', () => {
         status: 200,
         request: {responseURL: `${CONFIGURED_API_ORIGIN}/api/catalog/foods/v2?q=rice`}
       })
+
+      await expect(httpRequest('GET', REQUEST_URL, TestResponse)).resolves.toEqual({data: {ok: true}, status: 200})
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+  })
+
+  // The response rule is same-site rather than same-origin, because these three shapes are what a deployment
+  // that redirects reports as its final URL. Refusing them would fail every request it serves while the bytes
+  // never left the site.
+  describe('a response the transport reports from the same site on another origin', () => {
+    it.each(SAME_SITE_FINAL_URLS)('decodes and returns it after %s', async (_shape, responseURL) => {
+      mockRequest.mockResolvedValue({data: {ok: true}, status: 200, request: {responseURL}})
 
       await expect(httpRequest('GET', REQUEST_URL, TestResponse)).resolves.toEqual({data: {ok: true}, status: 200})
       expect(mockRecordError).not.toHaveBeenCalled()
@@ -195,11 +236,85 @@ describe('httpRequest', () => {
       expect(mockRecordError).not.toHaveBeenCalled()
     })
 
+    it.each(SAME_SITE_FINAL_URLS)(
+      'leaves a 401 reported from the same site after %s to the refresh path, replayed exactly once',
+      async (_shape, responseURL) => {
+        mockGetBearerToken.mockResolvedValue('refreshed-token')
+        mockInstance.mockResolvedValue({data: {ok: true}, status: 200, request: {responseURL}})
+
+        await onRejected({
+          config: {method: 'get', url: REQUEST_URL, headers: {Authorization: 'Bearer stale-token'}},
+          response: {status: 401, request: {responseURL}},
+          request: {responseURL}
+        })
+
+        expect(mockGetBearerToken).toHaveBeenCalledTimes(1)
+        expect(mockGetBearerToken).toHaveBeenCalledWith(true)
+        expect(mockInstance).toHaveBeenCalledTimes(1)
+        expect(mockInstance.mock.calls[0][0].headers.Authorization).toBe('Bearer refreshed-token')
+        expect(mockInstance.mock.calls[0][0]._retry).toBe(true)
+        expect(mockRecordError).not.toHaveBeenCalled()
+      }
+    )
+
     it('passes a failure carrying no final URL through unchanged, so error classification still sees it', async () => {
       const error = {config: {method: 'get', url: REQUEST_URL}, request: {}, message: 'Network Error'}
 
       await expect(onRejected(error)).rejects.toBe(error)
       expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    // The four invariants the same-site check must leave exactly as they were: it only decides whether a
+    // reported final URL is refused, and every other condition the refresh depends on is the 401 block's own.
+    it('refreshes and replays a 401 that reports no final URL, because the check fails open on silence', async () => {
+      mockGetBearerToken.mockResolvedValue('refreshed-token')
+      mockInstance.mockResolvedValue({data: {ok: true}, status: 200, request: {}})
+
+      await onRejected({
+        config: {method: 'get', url: REQUEST_URL, headers: {Authorization: 'Bearer stale-token'}},
+        response: {status: 401, request: {}},
+        request: {}
+      })
+
+      expect(mockGetBearerToken).toHaveBeenCalledWith(true)
+      expect(mockInstance).toHaveBeenCalledTimes(1)
+      expect(mockRecordError).not.toHaveBeenCalled()
+    })
+
+    it('does not refresh a same-site 401 that carried no Authorization header', async () => {
+      const error = {
+        config: {method: 'get', url: REQUEST_URL},
+        response: {status: 401, request: {responseURL: REQUEST_URL}},
+        request: {responseURL: REQUEST_URL}
+      }
+
+      await expect(onRejected(error)).rejects.toBe(error)
+      expect(mockGetBearerToken).not.toHaveBeenCalled()
+      expect(mockInstance).not.toHaveBeenCalled()
+    })
+
+    it('does not refresh a same-site 500', async () => {
+      const error = {
+        config: {method: 'get', url: REQUEST_URL, headers: {Authorization: 'Bearer token-under-test'}},
+        response: {status: 500, request: {responseURL: REQUEST_URL}},
+        request: {responseURL: REQUEST_URL}
+      }
+
+      await expect(onRejected(error)).rejects.toBe(error)
+      expect(mockGetBearerToken).not.toHaveBeenCalled()
+      expect(mockInstance).not.toHaveBeenCalled()
+    })
+
+    it('replays a 401 once and never again, so a second 401 cannot loop', async () => {
+      const error = {
+        config: {method: 'get', url: REQUEST_URL, headers: {Authorization: 'Bearer stale-token'}, _retry: true},
+        response: {status: 401, request: {responseURL: REQUEST_URL}},
+        request: {responseURL: REQUEST_URL}
+      }
+
+      await expect(onRejected(error)).rejects.toBe(error)
+      expect(mockGetBearerToken).not.toHaveBeenCalled()
+      expect(mockInstance).not.toHaveBeenCalled()
     })
   })
 

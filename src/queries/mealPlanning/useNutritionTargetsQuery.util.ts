@@ -79,12 +79,18 @@ export const selectNutritionTargets = (result: NutritionTargetsReadResult): Nutr
  * Who owns the calorie target a surface is showing, and therefore which writer may change it.
  *
  * `'server'` — `users.target_*` holds at least one figure, so `PUT /meal-planning/targets` is the only writer
- * allowed to move it (AAP 0.1.3). `'local'` — there are no server targets to contradict, so the device's
+ * allowed to move it (AAP 0.1.3). `'local'` — no server target is in hand to contradict, so the device's
  * `useUserData.targetCalories` stays in charge exactly as it does for a user who never opted in (AAP 0.1.4).
- * `'unresolved'` — the read has not said which, and picking either writer on a guess writes somewhere the other
- * surfaces will not read.
+ *
+ * There is no third value, and the absence is the policy. AAP 0.1.4 states the rule as a pair — the three
+ * writers open `MealPlanEditTargets` "when server targets exist and the legacy `TargetCaloriesModal`
+ * otherwise" — so a read that has not yet said which belongs to `otherwise`, not to a state of its own. A
+ * third value cost the app its shipped behaviour: it left Account's row, the Diary ring and Progress
+ * Activity's intake row inert, and an inert control is what AAP 0.1.4 forbids, while AAP 0.1.4 also requires
+ * non-opted-in and signed-out behaviour to be unchanged — before this feature those three controls always
+ * opened the legacy modal.
  */
-export type TargetAuthority = 'server' | 'local' | 'unresolved'
+export type TargetAuthority = 'server' | 'local'
 
 /**
  * The two target writers this app has: the canonical full-screen `MealPlanEditTargets`, which saves through the
@@ -99,26 +105,25 @@ export interface TargetAuthorityInput {
 
 export interface TargetAuthorityDecision {
   authority: TargetAuthority
-  editor: TargetEditor | null
-  isEditable: boolean
+  editor: TargetEditor
   serverCalories: number | null
 }
 
-const EDITOR_BY_AUTHORITY: Record<TargetAuthority, TargetEditor | null> = {
+const EDITOR_BY_AUTHORITY: Record<TargetAuthority, TargetEditor> = {
   server: 'canonical',
-  local: 'legacy',
-  unresolved: null
+  local: 'legacy'
 }
 
-// `editor`, `isEditable` and the presence of a server figure are derived from `authority` instead of being
-// written out per branch, so a consumer can never be handed a decision whose members disagree with each other.
+// `editor` and the presence of a server figure are derived from `authority` instead of being written out per
+// branch, so a consumer can never be handed a decision whose members disagree with each other. `editor` is
+// non-nullable because every authority names a writer: there is no state in which a target this app has always
+// let the user edit becomes uneditable.
 const targetAuthorityDecision = (
   authority: TargetAuthority,
   serverCalories: number | null = null
 ): TargetAuthorityDecision => ({
   authority,
   editor: EDITOR_BY_AUTHORITY[authority],
-  isEditable: authority !== 'unresolved',
   serverCalories: authority === 'server' ? serverCalories : null
 })
 
@@ -128,53 +133,55 @@ const targetAuthorityDecision = (
  * policy rather than three inline expressions, because they all edit the same value: any disagreement means one
  * account edits its target in the canonical editor on one tab and in the local-only modal on another.
  *
- * The branches shadow each other, so the order is the policy:
+ * Exactly one branch answers `'server'`, and everything else is the `otherwise` AAP 0.1.4 names — the device
+ * value with the legacy modal, which is what these three controls did before this feature existed. So every
+ * decision names a writer and no state is inert:
  *
- * 1. **Signed out.** A device with no session holds no server targets and cannot acquire any — `httpRequest`
- *    throws for a missing Firebase token before reaching the network — so a guest's read is a generic failure
- *    carrying no data. Keying on the read alone would call that unresolved and lock a guest out of the local
- *    target they have always been able to edit, while AAP 0.1.4 keeps signed-out behaviour unchanged.
- * 2. **The route is not mounted**, even when TanStack retained figures from before. A backend rolled back past
- *    `/meal-planning/targets*` holds no server targets at all, and AAP 0.7.5 requires these surfaces to degrade
- *    to the local value exactly as for a user who never opted in — the rule `selectNutritionTargets` already
- *    applies, asked here before any figure is read.
- * 3. **No data at all**, which after branch 2 means a first load still in flight or a failure that happened
- *    before the read ever answered. Nothing is editable while the owner is unknown: the legacy modal would
- *    write a local value every other surface then ignores in favour of the server's, and the canonical editor
- *    would push a user who never opted in through the planner's writer.
- * 4. **Data.** `hasAnyTargetValue` decides, not `targets.calories`: the four columns are independently nullable
- *    (AAP 0.5.2), so an account holding only protein has server targets just as much as a calories-only one,
- *    and reading calories alone would route it to the local modal while the Diary opened the canonical editor.
+ * 1. **Signed out → `'local'`.** A device with no session holds no server targets and cannot acquire any —
+ *    `httpRequest` throws for a missing Firebase token before reaching the network — so a guest's read is a
+ *    generic failure carrying no data. AAP 0.1.4 keeps signed-out behaviour unchanged, so the guest keeps the
+ *    local target they have always been able to edit.
+ * 2. **No server targets in hand → `'local'`.** `selectNutritionTargets` collapses three absences into this
+ *    one answer, and they all mean the same thing for routing. A *successful* read holding no figures is a
+ *    user who never confirmed a target. A *route-missing* answer is a backend rolled back past
+ *    `/meal-planning/targets*`, which holds no server targets at all and which AAP 0.7.5 requires these
+ *    surfaces to survive by degrading to the local value. An *unanswered* read — a first load still in flight,
+ *    or a failure that happened before any answer arrived — has no server figure to route to either, and AAP
+ *    0.2.5 is explicit that nothing is cleared and nothing blanks: the surfaces show the last local value and
+ *    the local editor, exactly as for a user who never opted in. Treating that last case as a state of its own
+ *    is what made the three controls inert on every cold start.
+ * 3. **Server figures → `'server'`.** `hasAnyTargetValue` decides, not `targets.calories`: the four columns are
+ *    independently nullable (AAP 0.5.2), so an account holding only protein has server targets just as much as
+ *    a calories-only one, and reading calories alone would route it to the local modal while the planner
+ *    treated it as opted in.
  *
  * A *generic* read failure that kept its last data still decides from that data, because
  * `selectNutritionTargets` deliberately keeps it: a 500 or a dropped connection says nothing about who owns the
  * target, so an offline opted-in user keeps the canonical editor and an offline never-opted-in user keeps the
- * modal.
+ * modal. A failure that never carried data lands in branch 2 with the local editor rather than nothing —
+ * momentarily routing a would-be canonical edit to the local modal is a value one screen has to reconcile,
+ * while a control that does nothing is a defect on every surface at once.
  *
  * `serverCalories` is the server's own figure and is `null` whenever it has none — including for a macro-only
  * `'server'` account, which correctly shows its local calorie figure while still editing in the canonical
  * editor. Consumers render `decision.serverCalories ?? localCalories`; the local value is not folded in here,
  * which is what keeps this pure and independent of the store.
  *
- * The Diary summary card is the one consumer with a *third* source for the same figure: `GET /macros/:date`
- * answers with `users.target_calories` embedded, so it can display a target this read has disowned. It applies
- * this decision to that figure in `@screens/Macros/index.util::resolveAuthoritativeMacroTargets` rather than
- * rendering the two-term expression above — the rule for a third source belongs beside the surface that has
- * one, not in this policy.
+ * This decision routes *editing* only. It never chooses what a surface displays when that surface has its own
+ * source for the figure: the Diary summary card reads the target embedded in `GET /macros/:date` through
+ * `@screens/Macros/index.util::resolveMacroTargets`, unchanged from before this feature, because AAP 0.1.3
+ * states that the Diary and Macros History keep reading the embedded targets and that both reads resolve to
+ * the same `users.target_*` columns once `dailyMacros` is invalidated by every target save.
  */
 export const resolveTargetAuthority = (input: TargetAuthorityInput): TargetAuthorityDecision => {
   if (!input.isAuthed) {
     return targetAuthorityDecision('local')
   }
 
-  if (isNutritionTargetsRouteMissing(input.read)) {
-    return targetAuthorityDecision('local')
-  }
-
   const targets = selectNutritionTargets(input.read)
 
   if (targets === null) {
-    return targetAuthorityDecision('unresolved')
+    return targetAuthorityDecision('local')
   }
 
   if (!hasAnyTargetValue(targets)) {
@@ -208,5 +215,9 @@ export const isLegacyTargetEditorOpen = (decision: TargetAuthorityDecision, isRe
  * can be replaced. Used as a React `key`, this value remounts the row when the authority changes, which resets
  * that internal state and takes an open modal with it, and is identical while the authority is unchanged, so a
  * stable authority never remounts anything.
+ *
+ * The editor names the identity rather than the authority, because the editor is what the row's internal state
+ * belongs to: a row whose press opens the legacy modal keeps that modal across any change that leaves the
+ * legacy writer in charge, and loses it the moment the canonical editor takes over.
  */
-export const targetAuthorityKey = (decision: TargetAuthorityDecision): string => decision.editor ?? decision.authority
+export const targetAuthorityKey = (decision: TargetAuthorityDecision): string => decision.editor
