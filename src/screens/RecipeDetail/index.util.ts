@@ -303,12 +303,13 @@ export function buildContextPillText(
 }
 
 // A code the converter could not map to copy is dropped rather than rendered raw, so a badge the server
-// adds after this release simply does not appear
+// adds after this release simply does not appear. Deduped on the resolved LABEL, not on the code: the row
+// keys each pill by its label, and two different codes carrying the same copy would collide there too.
 export function resolveBadgeLabels(
   badges: readonly RecipeBadge[],
   labels: Record<string, string | undefined>
 ): string[] {
-  return badges.map(badge => labels[badge]).filter(isPresent)
+  return [...new Set(badges.map(badge => labels[badge]).filter(isPresent))]
 }
 
 export function shouldShowBadgeCaption(labels: readonly string[]): boolean {

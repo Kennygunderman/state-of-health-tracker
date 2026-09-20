@@ -5,7 +5,13 @@ import {formatSlotTime} from '@utility/MealPlanDateUtility'
 
 import {PickerItem} from '@components/Picker'
 
-import {MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT, MEAL_PLAN_TIME_PICKER_PLACEHOLDER} from '@constants/strings'
+import {
+  MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
+  MEAL_PLAN_SLOT_TIME_REQUIRED_ERROR_TEMPLATE,
+  MEAL_PLAN_TIME_PICKER_PLACEHOLDER,
+  MEAL_SLOT_SENTENCE_LABELS,
+  stringWithNamedParameters
+} from '@constants/strings'
 
 export const PICKER_MINUTE_STEP = 15
 
@@ -88,5 +94,52 @@ export const buildMealTimesPayload = (schedule: MealSchedule, mealTimes: readonl
     time: mealTimes.find(entry => entry.slot === slot)?.time ?? UNSET_TIME_VALUE
   }))
 
-export const validateMealScheduleStep = (schedule: MealSchedule | null): string | null =>
-  schedule ? null : MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT
+export interface MealSlotTimeError {
+  slot: MealSlot
+  message: string
+}
+
+export interface MealScheduleStepValidation {
+  scheduleError: string | null
+  slotTimeErrors: readonly MealSlotTimeError[]
+  isValid: boolean
+}
+
+const NO_SLOT_TIME_ERRORS: readonly MealSlotTimeError[] = Object.freeze([] as const)
+
+// The wire form of a meal time: zero-padded and 24-hour, so '8:00' and '24:00' are both refused. Identical to
+// CLOCK_TIME_PATTERN behind the ClockTimeString codec the decoder validates a read time with
+// (@queries/api/macros/decoder/MacrosDecoder) — restated rather than imported, because a screen consuming a
+// codec at runtime would be the only such crossing in the app; the suite pins the two against each other.
+const WIRE_CLOCK_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+
+const slotTimeError = (slot: MealSlot): MealSlotTimeError => ({
+  slot,
+  message: stringWithNamedParameters(MEAL_PLAN_SLOT_TIME_REQUIRED_ERROR_TEMPLATE, {
+    slot: MEAL_SLOT_SENTENCE_LABELS[slot]
+  })
+})
+
+// The whole client-side contract for this step (AAP 0.5.2): a chosen schedule, and exactly one wire-shaped
+// 'HH:mm' entry per slot that schedule plans. Reporting every offending slot rather than the first is what AAP
+// 0.7.4's validation timing asks of a press, and the slots come from mealSlotsForSchedule so this predicate and
+// buildMealTimesPayload can never disagree about which slots a schedule plans — the payload's deliberate empty
+// time for an unseeded slot is exactly what this stops the user from sending. A stored time for a slot the
+// schedule does not plan is not an error: the payload drops it. No ordering constraint is applied — 0.5.2 puts
+// none on the times, and Figma 07 draws the snack at 3:30 PM, between lunch and dinner.
+export const validateMealScheduleStep = (
+  schedule: MealSchedule | null,
+  mealTimes: readonly MealTimeEntry[]
+): MealScheduleStepValidation => {
+  if (schedule === null) {
+    return {scheduleError: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT, slotTimeErrors: NO_SLOT_TIME_ERRORS, isValid: false}
+  }
+
+  // The raw stored value is tested, not a trimmed one: buildMealTimesPayload sends it verbatim, so a padded
+  // ' 08:00 ' is as unsendable as a blank and is reported rather than passed to the server.
+  const slotTimeErrors = mealSlotsForSchedule(schedule)
+    .filter(slot => !WIRE_CLOCK_TIME_PATTERN.test(mealTimes.find(entry => entry.slot === slot)?.time ?? ''))
+    .map(slotTimeError)
+
+  return {scheduleError: null, slotTimeErrors, isValid: slotTimeErrors.length === 0}
+}

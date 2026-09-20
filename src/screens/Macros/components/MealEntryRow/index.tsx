@@ -32,7 +32,7 @@ const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeAct
       onDeletePressed={onDeletePressed}>
       <TouchableOpacity style={styles.row} activeOpacity={Opacity.PRESSED} disabled={!onPress} onPress={onPress}>
         <View style={styles.nameContainer}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={styles.name}>
             {entry.name}
 
             {!!servingLabel && <Text style={styles.servingText}>{` · ${servingLabel}`}</Text>}

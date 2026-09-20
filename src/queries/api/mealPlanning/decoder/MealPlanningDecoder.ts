@@ -24,6 +24,21 @@ const mealFlag = io.type({code: io.string, detail: io.array(io.string)})
 
 const nullable = <A>(codec: io.Type<A>): io.Type<A | null> => io.union([codec, io.null])
 
+const isNonNegativeInteger = (input: unknown): input is number => Number.isInteger(input) && (input as number) >= 0
+
+// A count the server produced with SQL count(), refined rather than branded — the decoded type stays `number`,
+// so every consumer keeps the type it has today and httpRequest's `io.Type<T>` contract still holds. A
+// negative or fractional value is not a small figure to render but a corrupt response: it would reach the
+// screens verbatim as '-1 replaced' or '1.5 entries kept', and a 0.4 would claim the grocery list was
+// rebuilt. The display clamp in `PlanSettings`' `buildRegenerateSummaryRows` is defence in depth behind this
+// contract, not a substitute for it.
+const CountNumber: io.Type<number> = new io.Type<number>(
+  'CountNumber',
+  isNonNegativeInteger,
+  (input, context) => (isNonNegativeInteger(input) ? io.success(input) : io.failure(input, context)),
+  io.identity
+)
+
 const setupStatusCode = io.union([
   io.literal('not_started'),
   io.literal('in_progress'),
@@ -200,7 +215,7 @@ export const MealPlanResponse = io.intersection([
     preferencesRevision: io.number,
     targetsRevision: io.number,
     hasIncompatibilities: io.boolean,
-    summary: io.type({plannedMeals: io.number, groceryItemCount: io.number, loggedEntryCount: io.number}),
+    summary: io.type({plannedMeals: CountNumber, groceryItemCount: CountNumber, loggedEntryCount: CountNumber}),
     days: io.array(MealPlanDayResponse)
   }),
   // Absent and explicit null are both "no key in hand", which the converter maps to null. A member of the

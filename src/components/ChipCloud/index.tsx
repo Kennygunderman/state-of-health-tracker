@@ -1,8 +1,8 @@
 import React, {useCallback} from 'react'
 
-import {FlatList, ListRenderItemInfo, ScrollView, View} from 'react-native'
+import {FlatList, Insets, ListRenderItemInfo, ScrollView, View} from 'react-native'
 
-import styles from './index.styled'
+import styles, {CHIP_BAND_SLOP} from './index.styled'
 
 export interface ChipCloudItem {
   id: string
@@ -14,6 +14,15 @@ interface Props<Item extends ChipCloudItem> {
   items?: readonly Item[]
   renderChip?: (item: Item) => React.JSX.Element
 }
+
+/* BLITZY [A11Y]: the band reserves the chips' slop inside its own box and hands the height back to the layout
+   (see index.styled), so a touch anywhere in the 44px envelope lands on a chip without the band growing past
+   the 32px Figma draws. The negative margin puts the reserved 6px outside the band's layout box, so a screen
+   that wraps this cloud in a view hugging it must let a touch through that view as well — neither platform
+   looks for a target outside an ancestor's own hit rect. That is what this slop is for: it is applied to the
+   wrapping view, never to the cloud, which needs none. The one residual, recorded at
+   @components/SelectableChip, is a band whose wrapper cannot carry it. */
+export const CHIP_BAND_HIT_SLOP: Insets = {top: CHIP_BAND_SLOP, bottom: CHIP_BAND_SLOP}
 
 const chipKeyExtractor = (item: ChipCloudItem): string => item.id
 

@@ -5,7 +5,6 @@ import type {
 } from '@data/models/NutritionTargets'
 
 import {
-  MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
   MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
   MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
   MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
@@ -373,8 +372,9 @@ const ERROR_FIELD_KEYS: EditTargetsFieldKey[] = ['calories', 'protein', 'carbs',
 const ERROR_CODES: TargetFieldErrorCode[] = ['required', 'not_a_number', 'below_min', 'above_max']
 
 // An entry reaching each code, per field. The calorie floor is 800 and a macro's is 1 g, so 500 and 0 are what
-// below_min is reached by; both above_max entries are inside the field's own maxLength (five grouped
-// characters), so they are typeable rather than theoretical.
+// below_min is reached by; the macro above_max entries are inside the five grouped characters a field showing an
+// in-bounds figure accepts, so they are typeable, while the calorie one is the width only a stored legacy
+// target reaches (targetFieldMaxLength) — the sentence has to be right for both.
 const ENTRY_FOR_CODE: Record<EditTargetsFieldKey, Record<TargetFieldErrorCode, string>> = {
   calories: {required: '', not_a_number: 'abc', below_min: '500', above_max: '60001'},
   protein: {required: '', not_a_number: 'abc', below_min: '0', above_max: '9999'},
@@ -384,7 +384,9 @@ const ENTRY_FOR_CODE: Record<EditTargetsFieldKey, Record<TargetFieldErrorCode, s
 
 const EXPECTED_MESSAGES: Record<EditTargetsFieldKey, Record<TargetFieldErrorCode, string>> = {
   calories: {
-    required: MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+    // The floor, not 'above 0 kcal': this field's minimum is 800, so the prompt on an empty one states the
+    // bound it will actually be held to rather than one it would clear.
+    required: `Enter a calorie target of at least ${FIELD_BOUND_TEXTS.calories.minText} kcal`,
     not_a_number: 'Enter your calorie target as a whole number',
     below_min: `Enter a calorie target of at least ${FIELD_BOUND_TEXTS.calories.minText} kcal`,
     above_max: `Enter a calorie target of ${FIELD_BOUND_TEXTS.calories.maxText} kcal or less`
@@ -431,8 +433,13 @@ describe('the message 09b renders for a refused field', () => {
 
   // The regression this exists for: one fixed sentence per field told a 500 kcal entry it needed a figure
   // "above 0 kcal" — a bound it already satisfied — and never named the 800 it had broken.
+  //
+  // The guard is that no calorie message states a bound the field does not enforce, which is asserted
+  // directly rather than by requiring this sentence to differ from the empty-field prompt: those two are now
+  // deliberately the same sentence, because an empty field and a 500 entry break the same bound and are
+  // answered by the same number.
   it('never answers an out-of-range entry with a bound it already satisfies', () => {
-    expect(messageForEntry('calories', '500')).not.toBe(messageFor('calories', 'required'))
+    expect(messageForEntry('calories', '500')).not.toContain('above 0')
     expect(messageForEntry('calories', '500')).toBe('Enter a calorie target of at least 800 kcal')
     expect(messageForEntry('calories', '60001')).toBe('Enter a calorie target of 6,000 kcal or less')
     expect(messageForEntry('protein', '9999')).toBe('Enter a protein target of 1,000 g or less')
@@ -452,9 +459,10 @@ describe('the message 09b renders for a refused field', () => {
   })
 
   // 34:251 draws "Enter a carb target above 0 g" on a field holding 0, and the same sentence is the right
-  // prompt for an empty one — so the drawn copy is what both of those codes still render, byte for byte.
+  // prompt for an empty one — so the drawn copy is what both of those codes still render, byte for byte, on
+  // the three macro fields. Calories are the exception and are asserted below: their minimum is 800, so
+  // 'above 0 kcal' is a bound the field does not enforce.
   it('keeps the drawn sentence for the empty field and for the macro zero Figma draws it on', () => {
-    expect(messageFor('calories', 'required')).toBe(MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT)
     expect(messageFor('protein', 'required')).toBe(MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT)
     expect(messageFor('carbs', 'required')).toBe(MEAL_PLAN_CARBS_TARGET_ERROR_TEXT)
     expect(messageFor('fat', 'required')).toBe(MEAL_PLAN_FAT_TARGET_ERROR_TEXT)
@@ -462,6 +470,15 @@ describe('the message 09b renders for a refused field', () => {
     expect(messageForEntry('protein', '0')).toBe(MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT)
     expect(messageForEntry('carbs', '0')).toBe('Enter a carb target above 0 g')
     expect(messageForEntry('fat', '0')).toBe(MEAL_PLAN_FAT_TARGET_ERROR_TEXT)
+  })
+
+  // The defect the calorie field carried: an empty one was prompted with 'above 0 kcal' while the floor is
+  // 800, so a 500 entry cleared the stated bound and was refused again by a different sentence. Both codes
+  // break the same bound, so both name it and both say the same thing.
+  it('prompts an empty calorie field with the floor rather than with zero', () => {
+    expect(messageFor('calories', 'required')).toContain(targetFieldDisplayText(String(CALORIES_MIN)))
+    expect(messageFor('calories', 'required')).not.toContain('above 0')
+    expect(messageFor('calories', 'required')).toBe(messageFor('calories', 'below_min'))
   })
 
   it('leaves no placeholder standing in any sentence it renders', () => {
@@ -794,21 +811,109 @@ describe('targetFieldDisplayText', () => {
 })
 
 describe('targetFieldMaxLength', () => {
-  it('measures each field in the grouped presentation it displays', () => {
-    expect(targetFieldMaxLength('calories')).toBe('6,000'.length)
-    expect(targetFieldMaxLength('protein')).toBe('1,000'.length)
-    expect(targetFieldMaxLength('carbs')).toBe('1,000'.length)
-    expect(targetFieldMaxLength('fat')).toBe('1,000'.length)
+  // The four field keys, so every case below is asserted for each of them rather than for calories alone.
+  const fieldKeys: EditTargetsFieldKey[] = ['calories', 'protein', 'carbs', 'fat']
+
+  // How the screen calls it: the field's own displayed text, which is always the grouped form of what the
+  // field holds (MealPlanEditTargets/index.tsx derives both the value and the limit from this one string).
+  const maxLengthFor = (key: EditTargetsFieldKey, stored: string): number =>
+    targetFieldMaxLength(key, targetFieldDisplayText(stored))
+
+  describe('a field holding nothing, or a figure inside its own bounds', () => {
+    it('measures each field in the grouped presentation of its upper bound', () => {
+      expect(maxLengthFor('calories', '')).toBe('6,000'.length)
+      expect(maxLengthFor('protein', '')).toBe('1,000'.length)
+      expect(maxLengthFor('carbs', '')).toBe('1,000'.length)
+      expect(maxLengthFor('fat', '')).toBe('1,000'.length)
+    })
+
+    // The regression the grouped measurement exists for: measured on the bare number every limit is a
+    // character short of its own grouped bound, so the drawn 1,940 calorie target cannot be typed and 6,000
+    // cannot be reached at all.
+    it('admits every figure inside the bounds once it is grouped', () => {
+      expect(maxLengthFor('calories', '1940')).toBe(5)
+      expect(maxLengthFor('calories', String(CALORIES_MAX))).toBe(5)
+      expect(maxLengthFor('calories', String(CALORIES_MIN))).toBe(5)
+      expect(maxLengthFor('protein', String(MACRO_MAX))).toBe(5)
+      expect(maxLengthFor('fat', String(MACRO_MIN))).toBe(5)
+    })
+
+    // The bound is still enforced where it can be: a field showing a figure that fits stops at five
+    // characters, so a sixth digit — which is always out of bounds for every field — cannot be typed.
+    it('keeps the in-bounds limit at the bound, so a sixth character is refused', () => {
+      fieldKeys.forEach(key => {
+        expect(maxLengthFor(key, '9999')).toBe(5)
+        expect(targetFieldDisplayText('9999')).toBe('9,999')
+      })
+    })
   })
 
-  // The regression this exists for: measured on the bare number every limit is a character short of its own
-  // grouped bound, so the drawn 1,940 calorie target cannot be typed and 6,000 cannot be reached at all.
-  it('admits every figure inside the bounds once it is grouped', () => {
-    expect(targetFieldDisplayText('1940').length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
-    expect(targetFieldDisplayText(String(CALORIES_MAX)).length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
-    expect(targetFieldDisplayText(String(CALORIES_MIN)).length).toBeLessThanOrEqual(targetFieldMaxLength('calories'))
-    expect(targetFieldDisplayText(String(MACRO_MAX)).length).toBeLessThanOrEqual(targetFieldMaxLength('protein'))
-    expect(targetFieldDisplayText(String(MACRO_MIN)).length).toBeLessThanOrEqual(targetFieldMaxLength('fat'))
+  describe('a field opened on a legacy figure wider than its own bound', () => {
+    // PUT /api/user/targets enforces no upper bound (AAP 0.1.3 keeps that route untouched), so these are
+    // reachable stored values. A limit narrower than the displayed figure is an Android truncation risk:
+    // maxLength is an InputFilter there and applies to programmatic text as well.
+    it('widens to the displayed figure at the boundary where grouping adds a character', () => {
+      fieldKeys.forEach(key => {
+        expect(maxLengthFor(key, '10000')).toBe('10,000'.length)
+        expect(maxLengthFor(key, '10000')).toBe(6)
+      })
+    })
+
+    it('widens to the displayed figure for a far out-of-range legacy target', () => {
+      fieldKeys.forEach(key => {
+        expect(maxLengthFor(key, '60000')).toBe('60,000'.length)
+        expect(maxLengthFor(key, '99999')).toBe('99,999'.length)
+      })
+    })
+
+    // Self-healing: the widened limit is a property of what is on screen, never state the field keeps. One
+    // deleted digit takes 60,000 to 6,000, which fits, and the limit returns to the bound.
+    it('narrows back to the bound as soon as the field holds a figure that fits', () => {
+      const afterDeletingADigit = sanitizeIntegerInput('60,00', '60000')
+
+      expect(afterDeletingADigit).toBe('6000')
+      expect(targetFieldDisplayText(afterDeletingADigit)).toBe('6,000')
+      expect(maxLengthFor('calories', afterDeletingADigit)).toBe(5)
+    })
+
+    // Displaying it in full is not accepting it: the figure is still refused on Save, by the sentence that
+    // names the bound it broke. Showing the stored target and enforcing the bound are separate jobs.
+    it('leaves the figure refused by the validator, with the sentence naming the real bound', () => {
+      expect(validateEditTargets(makeFields({calories: '60000'})).errors).toEqual({calories: 'above_max'})
+      expect(messageForEntry('calories', '60000')).toBe('Enter a calorie target of 6,000 kcal or less')
+    })
+  })
+
+  describe('a field mid-edit', () => {
+    // Every keystroke on a grouped figure arrives ungrouped for one render ('1,94' backspaced from '1,940'
+    // is stored as '194'), and a limit derived from that narrower text must never fall under the bound.
+    it('never reports less than the bound for a shorter ungrouped entry', () => {
+      expect(maxLengthFor('calories', '194')).toBe(5)
+      expect(maxLengthFor('calories', '1')).toBe(5)
+      expect(maxLengthFor('protein', '65')).toBe(5)
+    })
+
+    // Defensive: the sanitiser means only digits reach the field, and an entry the grouper cannot read is
+    // handed back untouched — the limit still has to cover it rather than cutting it short.
+    it('covers an entry the grouper passes through unchanged', () => {
+      expect(targetFieldMaxLength('calories', '19.4')).toBe(5)
+      expect(targetFieldMaxLength('calories', '123456.78')).toBe('123456.78'.length)
+    })
+  })
+
+  // The invariant, asserted as a property rather than at spot values: whatever the field is showing, its
+  // limit admits all of it. This is the contract the defect broke, so it is pinned independently of the
+  // arithmetic that satisfies it.
+  it('is never narrower than the text the field is displaying, for any field and any stored figure', () => {
+    const storedFigures = ['', '0', '1', '65', '146', '800', '1000', '1940', '6000', '9999', '10000', '60000', '99999']
+
+    fieldKeys.forEach(key => {
+      storedFigures.forEach(stored => {
+        const displayed = targetFieldDisplayText(stored)
+
+        expect(targetFieldMaxLength(key, displayed)).toBeGreaterThanOrEqual(displayed.length)
+      })
+    })
   })
 })
 

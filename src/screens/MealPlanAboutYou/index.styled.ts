@@ -46,10 +46,15 @@ export default StyleSheet.create({
     justifyContent: 'space-between',
     columnGap: Spacing.SMALL
   },
+  /* The same automatic 13px box prefillCaption below pins, for the same reason: Figma leaves these labels'
+     line height unset and resolves it to 16 (the Age label's wrapper is what establishes the value), so
+     leaving it unset here would hand the box to the platform font's 1.21 multiplier — 15.73 — and shrink
+     every field group under it. */
   fieldLabel: {
     flexShrink: 1,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textSecondary
   },
   // The group that names a unit toggle for a screen reader. SegmentedControl's compact envelope aligns itself

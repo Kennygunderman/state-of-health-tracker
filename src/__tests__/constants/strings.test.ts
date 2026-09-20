@@ -14,15 +14,25 @@ import {
   hasMealFlagTemplate,
   MEAL_PLAN_ACTIVITY_INFO_BODY,
   MEAL_PLAN_ACTIVITY_SUBTITLE,
-  MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+  MEAL_PLAN_BUDGET_ERROR_TEXT,
+  MEAL_PLAN_BUDGET_MAX_ERROR_TEXT,
+  MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT,
   MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  MEAL_PLAN_CHOSEN_TARGETS_OVERLINE,
+  MEAL_PLAN_CHOSEN_TARGETS_TITLE,
   MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE,
+  MEAL_PLAN_DAILY_TARGETS_OVERLINE,
+  MEAL_PLAN_EDIT_TARGETS_TITLE,
   MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT,
+  MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT,
   MEAL_PLAN_MEAL_COUNT_SINGULAR_TEMPLATE,
   MEAL_PLAN_MEAL_COUNT_TEMPLATE,
   MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT,
   MEAL_PLAN_MEAL_FLAG_TEMPLATES,
   MEAL_PLAN_MEAL_META_TEMPLATE,
+  MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL,
+  MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
   MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS,
   MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT,
@@ -315,7 +325,7 @@ const CALORIES_MAX_TEXT = '6,000'
 const MACRO_MAX_TEXT = '1,000'
 
 const EXPECTED_TARGET_ERRORS: [string, string, string, string, string][] = [
-  ['calories', 'required', CALORIES_MIN_TEXT, CALORIES_MAX_TEXT, 'Enter a calorie target above 0 kcal'],
+  ['calories', 'required', CALORIES_MIN_TEXT, CALORIES_MAX_TEXT, 'Enter a calorie target of at least 800 kcal'],
   ['calories', 'not_a_number', CALORIES_MIN_TEXT, CALORIES_MAX_TEXT, 'Enter your calorie target as a whole number'],
   ['calories', 'below_min', CALORIES_MIN_TEXT, CALORIES_MAX_TEXT, 'Enter a calorie target of at least 800 kcal'],
   ['calories', 'above_max', CALORIES_MIN_TEXT, CALORIES_MAX_TEXT, 'Enter a calorie target of 6,000 kcal or less'],
@@ -361,16 +371,34 @@ describe('targetFieldErrorText', () => {
   })
 
   // The defect: every code used to answer with the field's single "above 0" sentence, which tells a 500 kcal
-  // entry a bound it already satisfies.
+  // entry a bound it already satisfies. The floor is 800, so no calorie message may state 0 as the bound —
+  // including the prompt on an empty field, which understated it by 800 and got the user refused twice, the
+  // second time for a bound the first message never mentioned.
+  const CALORIE_CODES = ['required', 'not_a_number', 'below_min', 'above_max']
+
+  it.each(CALORIE_CODES)('does not tell a calorie entry the bound is 0 (%s)', code => {
+    expect(
+      targetFieldErrorText({field: 'calories', code, minText: CALORIES_MIN_TEXT, maxText: CALORIES_MAX_TEXT})
+    ).not.toContain('above 0')
+  })
+
   it('names the bound a calorie entry actually broke instead of repeating "above 0"', () => {
     const bounds = {field: 'calories', minText: CALORIES_MIN_TEXT, maxText: CALORIES_MAX_TEXT}
-    const belowMin = targetFieldErrorText({...bounds, code: 'below_min'})
-    const aboveMax = targetFieldErrorText({...bounds, code: 'above_max'})
 
-    expect(belowMin).toContain(CALORIES_MIN_TEXT)
-    expect(belowMin).not.toBe(MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT)
-    expect(aboveMax).toContain(CALORIES_MAX_TEXT)
-    expect(aboveMax).not.toBe(MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT)
+    expect(targetFieldErrorText({...bounds, code: 'below_min'})).toContain(CALORIES_MIN_TEXT)
+    expect(targetFieldErrorText({...bounds, code: 'above_max'})).toContain(CALORIES_MAX_TEXT)
+  })
+
+  // An empty calorie field and an entry under the floor are the same remedy — the floor — so they are the
+  // same sentence, and a re-wording of one cannot leave the other behind. The macro fields deliberately do
+  // not follow this: their minimum is 1, so the drawn 'above 0' sentence names their bound exactly.
+  it('prompts an empty calorie field with the floor it will be held to', () => {
+    const bounds = {field: 'calories', minText: CALORIES_MIN_TEXT, maxText: CALORIES_MAX_TEXT}
+
+    expect(targetFieldErrorText({...bounds, code: 'required'})).toContain(CALORIES_MIN_TEXT)
+    expect(targetFieldErrorText({...bounds, code: 'required'})).toBe(
+      targetFieldErrorText({...bounds, code: 'below_min'})
+    )
   })
 
   it('names the gram ceiling on a macro field', () => {
@@ -394,10 +422,95 @@ describe('targetFieldErrorText', () => {
   })
 })
 
+// The optional goal weight on frame 02. `parseGoalWeightInput` answers two different refusals with one null —
+// an entry its numeric pattern rejects, and a number at or below zero — so the single sentence that null maps
+// to has to be true of both. It named only the magnitude, which told a user who had typed '17o' to raise a
+// number they had never entered.
+describe('goal weight copy on screen 02', () => {
+  it('states the refusal verbatim', () => {
+    expect(MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT).toBe('Enter a goal weight as a number above 0')
+  })
+
+  it('asks for a number as well as a bound, because either can be what was wrong', () => {
+    expect(MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT).toContain('number')
+    expect(MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT).toContain('above 0')
+  })
+
+  it('stays distinct from the out-of-range sentence, whose remedy is a different number', () => {
+    expect(MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT).not.toBe(MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT)
+  })
+})
+
+// Frame 08's weekly amount: three refusals with three different remedies, so three sentences. AAP 0.2.5
+// authors the first verbatim and it is kept for the entry it is true of — an amount at or below zero. It also
+// used to answer an amount over the ceiling, where it states a bound the entry already clears and asks for the
+// number to be raised, and the unanswered field borrowed the shared option-group sentence, which printed the
+// same words twice on the one screen: under the chips, where choosing an option is the remedy, and under a
+// number field, where there is no option to choose.
+describe('weekly budget copy on screen 08', () => {
+  // MAX_WEEKLY_BUDGET_USD as the field groups it. The screen's own util test asserts the copy names the bound
+  // actually enforced; pinned here as the notation the sentence uses.
+  const MAX_BUDGET_TEXT = '10,000'
+
+  it('keeps the drawn sentence for an amount at or below zero', () => {
+    expect(MEAL_PLAN_BUDGET_ERROR_TEXT).toBe('Enter a weekly budget above $0')
+  })
+
+  it('names the ceiling for an amount above it rather than asking for a larger number', () => {
+    expect(MEAL_PLAN_BUDGET_MAX_ERROR_TEXT).toContain(MAX_BUDGET_TEXT)
+    expect(MEAL_PLAN_BUDGET_MAX_ERROR_TEXT).not.toContain('above $0')
+  })
+
+  it('offers both ways out of an unanswered field, naming the checkbox as it is drawn', () => {
+    expect(MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT).toContain(MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL)
+  })
+
+  it('does not reuse the option-group sentence under a number field', () => {
+    expect(MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT).not.toBe(MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT)
+  })
+
+  it('states one sentence per refusal', () => {
+    const messages = [
+      MEAL_PLAN_BUDGET_ERROR_TEXT,
+      MEAL_PLAN_BUDGET_MAX_ERROR_TEXT,
+      MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT
+    ]
+
+    expect(new Set(messages).size).toBe(messages.length)
+  })
+})
+
+// The target headings, of which there are four for two sentences. Frame 09's card overline (11px uppercase,
+// inside the review card) and frame 09b's screen headline (30px, the page title) are separate surfaces that
+// happen to say the same words, so each holds its own constant and a re-wording approved for one cannot land
+// on the other. The separation is structural rather than a difference in value: the editor used to render
+// frame 09's overline constant as its headline, which is what coupled them.
+describe('target heading constants', () => {
+  it('states the chosen-targets heading verbatim on both surfaces', () => {
+    expect(MEAL_PLAN_CHOSEN_TARGETS_OVERLINE).toBe('Your chosen targets')
+    expect(MEAL_PLAN_CHOSEN_TARGETS_TITLE).toBe('Your chosen targets')
+  })
+
+  it('pairs the manual route exactly as the calculated route is already paired', () => {
+    expect(MEAL_PLAN_EDIT_TARGETS_TITLE).toBe(MEAL_PLAN_DAILY_TARGETS_OVERLINE)
+    expect(MEAL_PLAN_CHOSEN_TARGETS_TITLE).toBe(MEAL_PLAN_CHOSEN_TARGETS_OVERLINE)
+  })
+})
+
 // Screen 04 says two things about the training the user logs, and they have to agree: AAP 0.1.4 replaces the
 // "don't include the workouts you log" instruction because the activity factor already accounts for habitual
-// training, and the frame states that instruction twice. Keeping one of them is how the screen came to tell the
-// user to include and to exclude the same training at once.
+// training, and the frame states that instruction twice — once as the sub-copy `47:44` and once in the info
+// card `47:95`. Keeping one of them is how the screen came to tell the user to include and to exclude the same
+// training at once.
+//
+// Both replacements therefore stand, and both are pinned here. This is a knowing divergence from AAP 0.7.4,
+// whose copy inventory lists one divergence for frame 04 while 0.1.4 and 0.7.3 require two: the AAP quotes the
+// sub-copy's wording ("Outside of workouts you log in the app.") while citing the info card's node, so the
+// sentence it authorises a replacement for and the node it names are not the same element. Restoring `47:44`
+// verbatim would ship the instruction 0.1.4 forbids and contradict the option anchors ("1-2 workouts a week",
+// "3-5", "6+") the same AAP keeps; re-wording the info body would replace copy the AAP states verbatim. The
+// conflict is inside the AAP, is surfaced rather than resolved here, and is for product and design to settle —
+// a re-wording of either string must fail these assertions and be re-approved with that decision.
 describe('activity copy on screen 04', () => {
   const EXCLUSION_PHRASES = ['outside of workouts', "don't include", 'do not include', 'counted separately']
 

@@ -3,6 +3,7 @@ import {CookingTimeLimitMin, Goal, WeightUnitPref} from '@data/models/MealPlanPr
 import {SummaryRow} from '@components/SummaryRows'
 
 import {
+  MEAL_PLAN_BUDGET_MAX_ERROR_TEXT,
   MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE,
   MEAL_PLAN_DIET_LABELS,
   MEAL_PLAN_DIET_ROW_LABEL,
@@ -256,15 +257,31 @@ describe('validateWeeklyBudget', () => {
   // Frame 08 draws the box checked and the input dimmed, but that is the state after the choice:
   // on first entry the box is unchecked and the field empty, which is unanswered rather than
   // optional, so the user must either check the box or type an amount.
-  it('reports an unchecked box with an empty field as unanswered', () => {
-    expect(validateWeeklyBudget(false, '')).toBe('option_required')
-    expect(validateWeeklyBudget(false, '   ')).toBe('option_required')
+  //
+  // Its own code, not the chip row's 'option_required': both rows on this screen render from one copy table,
+  // so sharing the code printed 'Choose an option to continue' twice on the screen — once under the chips,
+  // where choosing an option is the remedy, and once under a number field, where there is none to choose.
+  it('reports an unchecked box with an empty field as unanswered, in its own terms', () => {
+    expect(validateWeeklyBudget(false, '')).toBe('budget_required')
+    expect(validateWeeklyBudget(false, '   ')).toBe('budget_required')
+    expect(validateWeeklyBudget(false, '')).not.toBe(validateCookingTime(null))
   })
 
-  it('reports an amount outside the accepted range', () => {
+  // The two ends of the range are separate codes because their remedies are opposite. Reported as one, an
+  // amount over the maximum was answered with the minimum's sentence, which told the user to raise a number
+  // that was already too large.
+  it('reports an amount at or below the minimum separately from one above the maximum', () => {
     expect(validateWeeklyBudget(false, String(MIN_WEEKLY_BUDGET_USD - 1))).toBe('budget_range')
-    expect(validateWeeklyBudget(false, String(MAX_WEEKLY_BUDGET_USD + 1))).toBe('budget_range')
+    expect(validateWeeklyBudget(false, String(MAX_WEEKLY_BUDGET_USD + 1))).toBe('budget_above_max')
+    expect(validateWeeklyBudget(false, '25000')).toBe('budget_above_max')
+  })
+
+  // An entry that is not a whole-dollar amount has no bound to name, so it reports with the low end.
+  // `sanitizeBudgetInput` refuses those characters at the keystroke, so this arm is reachable only by
+  // calling the validator directly.
+  it('reports an entry that is not an amount at all with the low end of the range', () => {
     expect(validateWeeklyBudget(false, '12.50')).toBe('budget_range')
+    expect(validateWeeklyBudget(false, 'one hundred')).toBe('budget_range')
   })
 
   it('passes each end of the accepted range', () => {
@@ -281,7 +298,7 @@ describe('validateCookingBudgetStep', () => {
   it('reports both controls on a first-entry press, with no value chosen anywhere', () => {
     expect(validateCookingBudgetStep(null, false, '')).toEqual({
       cookingTimeError: 'option_required',
-      budgetError: 'option_required',
+      budgetError: 'budget_required',
       isValid: false
     })
   })
@@ -289,7 +306,7 @@ describe('validateCookingBudgetStep', () => {
   it('reports the budget and the cooking time together rather than stopping at the first', () => {
     expect(validateCookingBudgetStep(null, false, String(MAX_WEEKLY_BUDGET_USD + 1))).toEqual({
       cookingTimeError: 'option_required',
-      budgetError: 'budget_range',
+      budgetError: 'budget_above_max',
       isValid: false
     })
   })
@@ -346,6 +363,15 @@ describe('budgetFieldState', () => {
     )
   })
 
+  // Both ends of the range redden the field, because in both cases the value in the box is the thing that is
+  // wrong. Only the low end used to, so an amount over the maximum stated its message under a field drawn as
+  // though it were accepted.
+  it('errors the field for an amount above the maximum as well as below the minimum', () => {
+    expect(budgetFieldState(false, validateCookingBudgetStep(30, false, String(MAX_WEEKLY_BUDGET_USD + 1)))).toBe(
+      'error'
+    )
+  })
+
   it('leaves the field plain before the first press', () => {
     expect(budgetFieldState(false, null)).toBe('default')
   })
@@ -357,6 +383,21 @@ describe('budgetFieldState', () => {
 
   it('leaves the field plain once the amount is accepted', () => {
     expect(budgetFieldState(false, validateCookingBudgetStep(30, false, '120'))).toBe('default')
+  })
+})
+
+// The copy for the over-maximum code names the ceiling as a figure, which is a copy of a number this module
+// owns. This is the coupling that keeps the two from drifting: raising or lowering MAX_WEEKLY_BUDGET_USD
+// without re-wording the sentence fails here rather than telling a user a bound that is no longer enforced.
+describe('the ceiling stated in the copy', () => {
+  const groupThousands = (value: number): string => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+  it('names the maximum this module enforces', () => {
+    expect(MEAL_PLAN_BUDGET_MAX_ERROR_TEXT).toContain(`$${groupThousands(MAX_WEEKLY_BUDGET_USD)}`)
+  })
+
+  it('groups the figure as the amount field groups what the user types', () => {
+    expect(sanitizeBudgetInput(`$${groupThousands(MAX_WEEKLY_BUDGET_USD)}`)).toBe(String(MAX_WEEKLY_BUDGET_USD))
   })
 })
 

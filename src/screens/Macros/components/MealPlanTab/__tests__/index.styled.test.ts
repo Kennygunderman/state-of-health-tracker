@@ -4,7 +4,10 @@ import FontSize, {LineHeight} from '@styles/fontSize'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 
-import styles from '../index.styled'
+import hostStyles from '@screens/Macros/index.styled'
+
+import planHeaderStyles from '../components/PlanHeader/index.styled'
+import styles, {emptyRegion} from '../index.styled'
 
 // The plan-week switch has no derivation of its own: whether its target reaches 44 — and whether the label and
 // the plan content below it stay where they were drawn — is decided entirely by the style objects it renders,
@@ -14,6 +17,17 @@ const planSwitchButton = StyleSheet.flatten<ViewStyle>(styles.planSwitchButton)
 const planSwitchLink = StyleSheet.flatten<TextStyle>(styles.planSwitchLink)
 const dayStripContainer = StyleSheet.flatten<ViewStyle>(styles.dayStripContainer)
 const bannerContainer = StyleSheet.flatten<ViewStyle>(styles.bannerContainer)
+
+// PlanHeader's own stylesheet is read here, across the folder boundary, because the requirement is that the
+// four variants this tab renders into one header slot agree on their top offset: only the parent that owns the
+// slot sees all four, and a per-component test could never state it. The host's stylesheet is read for the
+// same reason: the empty region's give-back is only correct while it equals the padding the host actually has.
+const planHeaderRow = StyleSheet.flatten<ViewStyle>(planHeaderStyles.row)
+const planHeaderTitleBlock = StyleSheet.flatten<ViewStyle>(planHeaderStyles.titleBlock)
+const macrosHeader = StyleSheet.flatten<ViewStyle>(styles.macrosHeader)
+const skeletonHeaderRow = StyleSheet.flatten<ViewStyle>(styles.skeletonHeaderRow)
+const hostDateOverlineTouchable = StyleSheet.flatten<ViewStyle>(hostStyles.dateOverlineTouchable)
+const hostScrollContent = StyleSheet.flatten<ViewStyle>(hostStyles.scrollContent)
 
 // Guarded rather than cast, and read inside the tests rather than at module scope: a style value that stops
 // being a number — dropped, or authored as a percentage string — has to fail the assertion that states what it
@@ -37,6 +51,28 @@ const rowMarginBottom = (): number =>
 
 const dayStripMarginTop = (): number => resolvedNumber(dayStripContainer.marginTop, "the day strip's top margin")
 
+const headerOffsetAboveRow = (): number =>
+  resolvedNumber(planHeaderRow.marginTop, "the plan header row's top margin, which opens the header slot")
+
+const headerOffsetInsideTitleBlock = (): number =>
+  resolvedNumber(planHeaderTitleBlock.paddingTop, "the plan header title block's own top padding")
+
+// What the eye reads as the header's top offset: everything between the slot boundary and the overline's text
+// box, wherever it is declared.
+const planHeaderTopOffset = (): number => headerOffsetAboveRow() + headerOffsetInsideTitleBlock()
+
+const hostScrollBottomPadding = (): number =>
+  resolvedNumber(hostScrollContent.paddingBottom, "the host scroll content's bottom padding")
+
+// A height with no relationship to any token or to the padding under test, so a factory that dropped the
+// measurement, clamped it or folded the padding into it cannot coincidentally satisfy the assertion.
+const MEASURED_REGION_HEIGHT = 515
+
+const measuredRegion = (): ViewStyle => StyleSheet.flatten<ViewStyle>(emptyRegion(MEASURED_REGION_HEIGHT))
+
+const regionMarginBottom = (): number =>
+  resolvedNumber(measuredRegion().marginBottom, "the empty region's bottom margin, which returns the host padding")
+
 // The geometry the switch had before it became a real target: `Spacing.X_SMALL` was the row's `marginTop`,
 // `LineHeight.LABEL` is the box a single line of `FontSize.LABEL` text resolves to, and `Spacing.MEDIUM` opens
 // the plan content that follows the switch in every state where the switch renders.
@@ -46,6 +82,32 @@ const PREVIOUS_CONTENT_OFFSET: number = PREVIOUS_LABEL_INSET + LineHeight.LABEL 
 // Where that content opens now: the envelope's height, less what the row gives back, plus the margin the
 // content opens with.
 const contentOffset = (): number => switchMinHeight() + rowMarginBottom() + dayStripMarginTop()
+
+describe('the header slot the tab renders every state into', () => {
+  // The finding this pins is a jump, not a static offset: the slot holds PlanHeader on 11/11b, the loading
+  // skeleton's header and the Macros header, and the Diary the tab switches to opens its own header in the
+  // host, so any variant that disagrees shifts the title on loading→plan, empty→plan or Diary→Meal Plan.
+  it('opens every variant at one offset, so switching state never moves the title', () => {
+    expect(planHeaderTopOffset()).toBe(Spacing.MEDIUM)
+    expect(macrosHeader.marginTop).toBe(Spacing.MEDIUM)
+    expect(skeletonHeaderRow.marginTop).toBe(Spacing.MEDIUM)
+    expect(hostDateOverlineTouchable.marginTop).toBe(Spacing.MEDIUM)
+  })
+
+  // Half above, half inside — the split Figma authors — and it is load-bearing rather than cosmetic: the row
+  // centres the grocery target on the title block's hug, so an offset moved inside the block is halved by that
+  // centring and lifts the disc. Pinning both halves keeps a future change from silently redistributing them.
+  it('keeps half of that offset above the row, where it cannot move the grocery target', () => {
+    expect(headerOffsetInsideTitleBlock()).toBe(Spacing.X_SMALL)
+    expect(headerOffsetAboveRow()).toBe(Spacing.X_SMALL)
+  })
+
+  it('supplies its half once, as a margin above the row rather than padding inside it', () => {
+    expect(planHeaderRow.padding).toBeUndefined()
+    expect(planHeaderRow.paddingVertical).toBeUndefined()
+    expect(planHeaderRow.paddingTop).toBeUndefined()
+  })
+})
 
 describe('the plan week switch envelope', () => {
   it('is a full 44 px target rather than a label-height row with hit slop', () => {
@@ -127,5 +189,26 @@ describe('the plan content that follows the switch', () => {
   it('opens with that same margin whichever block the plan body leads with', () => {
     expect(dayStripMarginTop()).toBe(Spacing.MEDIUM)
     expect(bannerContainer.marginTop).toBe(Spacing.MEDIUM)
+  })
+})
+
+describe('the region the no-plan state centres in', () => {
+  it('centres the block in exactly the height the tab measured for it', () => {
+    expect(measuredRegion().minHeight).toBe(MEASURED_REGION_HEIGHT)
+    expect(measuredRegion().justifyContent).toBe('center')
+  })
+
+  // The measurement runs from the region's top to the tab bar's top edge, which is where the frame draws the
+  // block's box. Deducting the host's scroll padding from it instead — what left the block half that padding
+  // high with the rest dead below — has to fail here: the height is passed through untouched and the padding
+  // comes back as a margin under the region, which is the last thing the host lays out.
+  it('returns the host scroll padding below itself rather than deducting it from that height', () => {
+    expect(regionMarginBottom()).toBe(-hostScrollBottomPadding())
+    expect(measuredRegion().minHeight).not.toBe(MEASURED_REGION_HEIGHT - hostScrollBottomPadding())
+  })
+
+  it('leaves the block free to outgrow the measurement when the text scales up', () => {
+    expect(measuredRegion().height).toBeUndefined()
+    expect(measuredRegion().maxHeight).toBeUndefined()
   })
 })

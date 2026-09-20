@@ -800,21 +800,57 @@ describe('resolveDisplayedTargets', () => {
     expect(confirmedEstimate.caption).toBe(MEAL_PLAN_TARGETS_CAPTION)
   })
 
-  it('keeps the card label and its caption telling the same story', () => {
-    const inputs = [
-      {targets: makeTargets({source: 'manual'}), preferences: makePreferences()},
-      {targets: null, preferences: makePreferences({targetRoute: 'manual'})},
+  // The defect, and the reason the caption no longer follows the card's heading. A legacy record — the state
+  // most of the installed base arrives in, written through the pre-planner target endpoint — leads a card
+  // still headed 'Daily targets', which is correct, because those are the user's own figures. The caption
+  // called them starting estimates, which is not: no estimator ever ran on them. A partly saved set is the
+  // same case. So the caption answers whether a calculation produced the figures, and the label answers
+  // whose they are, and in the legacy state the two answers differ (AAP 0.5.2's 'legacy' source, 0.7.3).
+  it('calls figures starting estimates only where an estimator produced them', () => {
+    const CALORIES_ONLY = {calories: 1900, protein: null, carbs: null, fat: null}
+
+    const estimateDerived = [
       {targets: makeTargets(), preferences: makePreferences()},
-      {targets: makeTargets({source: 'legacy'}), preferences: makePreferences()},
+      {targets: makeTargets({source: 'estimated'}), preferences: makePreferences()},
+      {targets: makeTargets({source: 'estimated', stale: true}), preferences: makePreferences()},
       {targets: null, preferences: makePreferences()}
     ]
 
-    inputs.forEach(({targets, preferences}) => {
-      const display = resolveDisplayedTargets({targets, estimate: makeEstimate(), preferences})
-      const isChosenCard = display.cardLabel === MEAL_PLAN_CHOSEN_TARGETS_OVERLINE
+    const notEstimateDerived = [
+      {targets: makeTargets({source: 'manual'}), preferences: makePreferences()},
+      {targets: null, preferences: makePreferences({targetRoute: 'manual'})},
+      {targets: makeTargets({source: 'legacy'}), preferences: makePreferences()},
+      {
+        targets: makeTargets({targets: CALORIES_ONLY, complete: false, source: 'legacy'}),
+        preferences: makePreferences()
+      }
+    ]
 
-      expect(display.caption).toBe(isChosenCard ? MEAL_PLAN_CHOSEN_TARGETS_CAPTION : MEAL_PLAN_TARGETS_CAPTION)
+    estimateDerived.forEach(({targets, preferences}) => {
+      expect(resolveDisplayedTargets({targets, estimate: makeEstimate(), preferences}).caption).toBe(
+        MEAL_PLAN_TARGETS_CAPTION
+      )
     })
+
+    notEstimateDerived.forEach(({targets, preferences}) => {
+      const display = resolveDisplayedTargets({targets, estimate: makeEstimate(), preferences})
+
+      expect(display.caption).toBe(MEAL_PLAN_CHOSEN_TARGETS_CAPTION)
+      expect(display.caption).not.toMatch(/estimate/i)
+    })
+  })
+
+  // The one state where the heading and the caption disagree, pinned on its own so that making them agree
+  // again — in either direction — fails here rather than reintroducing the claim.
+  it('heads a legacy set as the daily targets it is while not calling it an estimate', () => {
+    const display = resolveDisplayedTargets({
+      targets: makeTargets({source: 'legacy'}),
+      estimate: makeEstimate(),
+      preferences: makePreferences()
+    })
+
+    expect(display.cardLabel).toBe(MEAL_PLAN_DAILY_TARGETS_OVERLINE)
+    expect(display.caption).toBe(MEAL_PLAN_CHOSEN_TARGETS_CAPTION)
   })
 
   it('shows no recalculated figure where there is nothing to compare', () => {

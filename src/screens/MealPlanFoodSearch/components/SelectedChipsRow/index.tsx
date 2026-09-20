@@ -14,17 +14,18 @@ interface Props {
 
 const keyExtractor = (food: SelectedFoodChip): string => food.id
 
-/* BLITZY [A11Y]: these chips are the only affordance for removing a selection, so they take the 44px pressable
-   rather than relying on hit slop the hugging scroll band would clip. The pill each one draws is unchanged —
-   Figma's 32px chip — but the row is 44px tall where Figma draws it 40px (`47:431`, an 8px rung plus one 32px
-   chip), which lowers the helper text beneath it; the rationale is recorded once at @components/SelectableChip
-   and flagged there for designer review. */
+/* BLITZY [A11Y]: 47:431 draws this row 40px — its own 8px rung, owned by the screen, over one 32px chip — and
+   the chips reach the 44px touch minimum through their own hit slop rather than a taller pressable that would
+   render the row 44px. The band reserves the slop inside its own box and hands the height back to the layout
+   (see index.styled), so the drawn geometry is unchanged. Residual, flagged for designer review: the reserved
+   6px sits outside the band's layout box, so a touch there has to pass the view that wraps this row, and that
+   view belongs to the screen — the rationale in full is recorded at @components/SelectableChip. */
 const SelectedChipsRow = ({foods, onRemove}: Props): React.JSX.Element => {
   // A selection can reach the dislike cap of a hundred while the band shows a handful, so the chips are
   // mounted as they are scrolled to and one press handler exists per mounted chip rather than per selection.
   const renderChip = useCallback(
     ({item}: ListRenderItemInfo<SelectedFoodChip>): React.JSX.Element => (
-      <SelectableChip label={item.name} selected removable expandTouchTarget onPress={() => onRemove(item.id)} />
+      <SelectableChip label={item.name} selected removable onPress={() => onRemove(item.id)} />
     ),
     [onRemove]
   )

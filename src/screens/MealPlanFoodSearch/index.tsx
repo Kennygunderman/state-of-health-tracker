@@ -54,6 +54,7 @@ import {
   EMPTY_SEARCH_QUERY,
   flattenCatalogPages,
   isCatalogQuerySearchable,
+  resolveSearchFooterView,
   resolveSearchResultsView,
   SEARCH_SKELETON_ROWS,
   SearchGesture,
@@ -103,6 +104,12 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
   // The staged selection is the truth of what Done would keep, so the count is its length whether or not
   // every entry can be named.
   const selectedCount = stagedDislikes.selection.length
+
+  const {showNextPageLoading, showSelectedHeader} = resolveSearchFooterView({
+    resultsView,
+    isFetchingNextPage,
+    selectedCount
+  })
 
   // At the cap the reducer refuses a tap on an unselected row, and no frame draws that state (AAP 0.2.5):
   // the caption below is what tells the user why the row did not take and how to make room.
@@ -256,6 +263,49 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
     [resultsAccessibilityLabel]
   )
 
+  // One card, two placements. The list's empty slot carries it while the first page loads; the footer carries
+  // it while a later page loads under rows that are already on screen, which is the only moment the empty slot
+  // is not rendered at all. The two placements are mutually exclusive — an empty list has no rows to load
+  // beneath — so sharing one element keeps the two loading affordances identical, as AAP 0.2.5 asks, and
+  // leaves exactly one labelled loading region in the tree for a screen reader to find.
+  const skeletonCard = useMemo(
+    () => (
+      <View style={styles.skeletonCard} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+        {SEARCH_SKELETON_ROWS.map((row, rowIndex) => (
+          <View key={rowIndex} style={[styles.skeletonRow, rowIndex > 0 && styles.skeletonRowDivider]}>
+            <View style={styles.skeletonTextColumn} onLayout={onSkeletonBarAreaLayout}>
+              {skeletonBarAreaWidth > 0 && (
+                <>
+                  <SkeletonBlock
+                    height={Sizes.SKELETON_BAR}
+                    width={skeletonBarWidth(skeletonBarAreaWidth, row.primary)}
+                    borderRadius={BorderRadius.CHECKBOX}
+                    style={styles.skeletonBar}
+                  />
+
+                  <SkeletonBlock
+                    height={Sizes.SKELETON_BAR_SM}
+                    width={skeletonBarWidth(skeletonBarAreaWidth, row.secondary)}
+                    borderRadius={BorderRadius.CHECKBOX}
+                    style={styles.skeletonBar}
+                  />
+                </>
+              )}
+            </View>
+
+            <SkeletonBlock
+              height={Sizes.ADD_CONTROL}
+              width={Sizes.ADD_CONTROL}
+              borderRadius={BorderRadius.PILL}
+              style={styles.skeletonBar}
+            />
+          </View>
+        ))}
+      </View>
+    ),
+    [onSkeletonBarAreaLayout, skeletonBarAreaWidth]
+  )
+
   const emptyBlock = useMemo((): React.JSX.Element | null => {
     if (resultsView === 'idle' || resultsView === 'results') {
       return null
@@ -277,40 +327,7 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
     }
 
     if (resultsView === 'loading') {
-      return (
-        <View style={styles.skeletonCard} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
-          {SEARCH_SKELETON_ROWS.map((row, rowIndex) => (
-            <View key={rowIndex} style={[styles.skeletonRow, rowIndex > 0 && styles.skeletonRowDivider]}>
-              <View style={styles.skeletonTextColumn} onLayout={onSkeletonBarAreaLayout}>
-                {skeletonBarAreaWidth > 0 && (
-                  <>
-                    <SkeletonBlock
-                      height={Sizes.SKELETON_BAR}
-                      width={skeletonBarWidth(skeletonBarAreaWidth, row.primary)}
-                      borderRadius={BorderRadius.CHECKBOX}
-                      style={styles.skeletonBar}
-                    />
-
-                    <SkeletonBlock
-                      height={Sizes.SKELETON_BAR_SM}
-                      width={skeletonBarWidth(skeletonBarAreaWidth, row.secondary)}
-                      borderRadius={BorderRadius.CHECKBOX}
-                      style={styles.skeletonBar}
-                    />
-                  </>
-                )}
-              </View>
-
-              <SkeletonBlock
-                height={Sizes.ADD_CONTROL}
-                width={Sizes.ADD_CONTROL}
-                borderRadius={BorderRadius.PILL}
-                style={styles.skeletonBar}
-              />
-            </View>
-          ))}
-        </View>
-      )
+      return skeletonCard
     }
 
     return (
@@ -318,18 +335,22 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
         {stringWithNamedParameters(MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE, {query: trimmedQuery})}
       </Text>
     )
-  }, [onRetryPressed, onSkeletonBarAreaLayout, resultsView, skeletonBarAreaWidth, trimmedQuery])
+  }, [onRetryPressed, resultsView, skeletonCard, trimmedQuery])
 
   const selectedSection = useMemo(
     () => (
       <View style={styles.selectedSection}>
-        <View style={styles.selectedHeaderRow}>
-          <SectionOverline
-            text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedCount})}
-            isHeading
-          />
+        {/* The whole row goes with the count: Figma prints it only once something is staged (`47:284` at two,
+            `47:424` at three) and never draws a zero, which is how the sibling frame 06 gates its selected
+            block too. The section itself stays mounted, because the footnote below it is drawn in every state
+            and the cap caption has to be able to appear. */}
+        {showSelectedHeader && (
+          <View style={styles.selectedHeaderRow}>
+            <SectionOverline
+              text={stringWithNamedParameters(MEAL_PLAN_SELECTED_COUNT_TEMPLATE, {count: selectedCount})}
+              isHeading
+            />
 
-          {selectedCount > 0 && (
             <TouchableOpacity
               style={styles.clearAllButton}
               activeOpacity={Opacity.PRESSED}
@@ -338,8 +359,8 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
               onPress={onClearAllPressed}>
               <Text style={styles.clearAllLabel}>{MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT}</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
 
         {selectedFoods.length > 0 && (
           <View style={styles.selectedChipsWrapper}>
@@ -356,7 +377,22 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
         )}
       </View>
     ),
-    [isSelectionAtCap, onChipRemoved, onClearAllPressed, selectedCount, selectedFoods]
+    [isSelectionAtCap, onChipRemoved, onClearAllPressed, selectedCount, selectedFoods, showSelectedHeader]
+  )
+
+  // The footer is where a later page announces itself: it loads beneath rows the list is already holding, so
+  // the empty slot that carries the first page's placeholder is not rendered then. The rung above the card is
+  // the same one the results overline uses, so the placeholder sits below the last row exactly as a results
+  // card does below the overline.
+  const listFooter = useMemo(
+    () => (
+      <>
+        {showNextPageLoading && <View style={styles.resultsListWrapper}>{skeletonCard}</View>}
+
+        {selectedSection}
+      </>
+    ),
+    [selectedSection, showNextPageLoading, skeletonCard]
   )
 
   return (
@@ -388,7 +424,7 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
             onEndReachedThreshold={SEARCH_PAGE_END_THRESHOLD}
             ListHeaderComponent={resultsView === 'idle' ? null : resultsHeader}
             ListEmptyComponent={emptyBlock}
-            ListFooterComponent={selectedSection}
+            ListFooterComponent={listFooter}
           />
         </ContentColumn>
       </KeyboardAvoidingView>

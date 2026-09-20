@@ -38,7 +38,7 @@ const CheckboxSquare = (props: Props): React.JSX.Element => {
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{checked: state !== 'unchecked', disabled}}
       onPress={onPress}>
-      {state !== 'unchecked' && <CheckIcon color={tickColor} size={Sizes.ICON_XS} />}
+      {state !== 'unchecked' && <CheckIcon variant="selection" color={tickColor} />}
     </TouchableOpacity>
   )
 }

@@ -28,10 +28,14 @@ const LINK_ACTION_HIT_SLOP_V = Math.ceil((Sizes.TOUCH_TARGET - FontSize.LABEL) /
 // The success banner's glyph is a construction rather than an exported asset, so it is drawn here instead of
 // under `components/icons`. Figma authors the tick `49:283` as an 8x5 frame with a 2 px bottom and left border
 // rotated -45 degrees — the CSS border-checkmark idiom — which leaves no path to transcribe; this is the
-// equivalent stroked centreline inside the disc `49:282`'s own 20-unit box. It is deliberately not `CheckIcon`:
-// the arms measure 4 and 7 (1:1.75) under a butt cap and a miter join against that glyph's 1:2.2 under round
-// ones, and no scale reconciles them — matching the long arm leaves the stroke 55% too thin, matching the
-// stroke makes the glyph 2.22x too large. `BannerCheckIcon` (`37:45`, 1:2.5) is no closer.
+// equivalent stroked centreline inside the disc `49:282`'s own 20-unit box. `CheckIcon`'s `default` variant
+// cannot serve it: these arms measure 4 and 7 (1:1.75) under a butt cap and a miter join against that
+// variant's 1:2.00 under round ones, and no scale reconciles them — scaled to match the long arm its stroke
+// falls to 1.44 where 2.00 is required, and scaled to match the stroke its long arm runs to 9.73 where 7.00
+// is required. That is the variant Workouts keeps, and why. `CheckIcon`'s `selection` variant is this same
+// construction and differs only in the host box it addresses (22 units there, 20 here); the tick still stays
+// here because the disc is a `Circle` and the tick a `Path` in one `Svg` sharing that 20-unit box, a composite
+// a single-glyph icon component cannot express. `BannerCheckIcon` (`37:45`, 1:2.5) is no closer.
 const DISC_TICK_PATH = 'M6.1109 9.3534L8.9394 12.1819L13.8891 7.2322'
 
 const DISC_VIEW_BOX = '0 0 20 20'
@@ -40,7 +44,7 @@ interface Props {
   tone?: 'neutral' | 'success' | 'error'
   glyph?: BannerGlyph
   title?: string
-  body: string
+  body?: string
   statusRole?: StatusRole
   actionLabel?: string
   onAction?: () => void
@@ -112,19 +116,31 @@ const InfoBanner = ({
         : tone === 'success'
           ? styles.successBody
           : styles.neutralBody
-  const bodyElement = <Text style={bodyStyle}>{body}</Text>
+  const bodyText = body === undefined ? null : <Text style={bodyStyle}>{body}</Text>
+  // `errorBodyWrapper` carries nothing but the title-to-body gap, so it is drawn only where both members are:
+  // a body the banner states on its own hangs off the same top edge as the glyph beside it.
+  const bodyElement =
+    bodyText !== null && isError && drawnTitle !== undefined ? (
+      <View style={styles.errorBodyWrapper}>{bodyText}</View>
+    ) : (
+      bodyText
+    )
   const textBlock = (
     <>
       {drawnTitle !== undefined && <Text style={styles.errorTitle}>{drawnTitle}</Text>}
 
-      {isError ? <View style={styles.errorBodyWrapper}>{bodyElement}</View> : bodyElement}
+      {bodyElement}
     </>
   )
   // A glyph the plan draws only for news carries its own status semantics, so the announcement does not depend
   // on the call site asking for it; an explicitly passed `statusRole` still decides.
   const statusSemantics = resolveStatusSemantics(statusRole ?? resolveDefaultStatusRole(resolvedGlyph))
   const statusMessage = composeStatusMessage({title: drawnTitle, body})
-  const announcedStatus = statusSemantics === null ? null : statusMessage
+  // Both members can now be absent, and a status with nothing to say is worse than none: an empty label on the
+  // group would replace the text it wraps with silence, and an empty announcement would interrupt for it. The
+  // status props and the announcement are withheld together, so the text block is still reached as prose.
+  const hasStatusMessage = statusMessage.length > 0
+  const announcedStatus = statusSemantics === null || !hasStatusMessage ? null : statusMessage
   const lastAnnouncedStatus = useRef<string | null>(null)
 
   useEffect(() => {
@@ -165,7 +181,7 @@ const InfoBanner = ({
       <View style={[styles.iconWrapper, isCentered && styles.iconWrapperCentered]}>{glyphElement}</View>
 
       <View style={[styles.textWrapper, (isCentered || isError) && styles.textWrapperFlush]}>
-        {statusSemantics === null ? (
+        {statusSemantics === null || !hasStatusMessage ? (
           textBlock
         ) : (
           // The role is declared through the ARIA `role` prop rather than `accessibilityRole`: RN 0.86's

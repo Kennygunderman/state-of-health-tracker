@@ -24,6 +24,10 @@ export interface MealPlanAboutYouFields {
 // values they happened to show nor withdraws the weigh-in suggestion from a weight field left untouched.
 export type AboutYouFieldOverrides = Partial<Record<keyof MealPlanAboutYouFields, string>>
 
+// What a field accepts as entered text: a whole count of years or feet or inches, or a measurement carrying
+// one decimal separator.
+export type AboutYouFieldContract = 'integer' | 'decimal'
+
 export type AboutYouErrorCode =
   | 'age_required'
   | 'age_range'
@@ -121,6 +125,65 @@ const parseDecimalField = (text: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+// Every Unicode decimal block is ten contiguous code points beginning at its own zero, so a digit folds by
+// subtracting the block's zero from its code point. A frozen table of those zeros rather than a `\p{Nd}`
+// property escape: Hermes' support for property escapes is not something a shipped bundle can rely on, and
+// a table is data this file's own tests can pin.
+const DECIMAL_DIGIT_BLOCK_ZEROS: readonly number[] = Object.freeze([
+  0x0660, // Arabic-Indic
+  0x06f0, // Extended Arabic-Indic (Persian, Urdu)
+  0x0966, // Devanagari
+  0x09e6, // Bengali
+  0x0a66, // Gurmukhi
+  0x0ae6, // Gujarati
+  0x0b66, // Oriya
+  0x0be6, // Tamil
+  0x0c66, // Telugu
+  0x0ce6, // Kannada
+  0x0d66, // Malayalam
+  0x0e50, // Thai
+  0x0ed0, // Lao
+  0x0f20, // Tibetan
+  0x1040, // Myanmar
+  0x17e0, // Khmer
+  0x1810, // Mongolian
+  0xff10 // Fullwidth
+])
+
+const ASCII_DIGIT_ZERO = 0x0030
+
+const ASCII_DIGIT_NINE = 0x0039
+
+const DECIMAL_SEPARATOR = '.'
+
+// What a keyboard offers as a decimal separator: the ASCII point, the comma every European layout types in
+// its place, and U+066B, the separator that comes with the Arabic-Indic digits.
+const DECIMAL_SEPARATOR_CHARACTERS: readonly string[] = Object.freeze([DECIMAL_SEPARATOR, ',', '\u066b'])
+
+const isAsciiDigit = (character: string): boolean => {
+  const codePoint = character.codePointAt(0)
+
+  return codePoint !== undefined && codePoint >= ASCII_DIGIT_ZERO && codePoint <= ASCII_DIGIT_NINE
+}
+
+const isDecimalSeparator = (character: string): boolean => DECIMAL_SEPARATOR_CHARACTERS.includes(character)
+
+const foldDecimalDigit = (character: string): string => {
+  const codePoint = character.codePointAt(0)
+
+  if (codePoint === undefined) {
+    return character
+  }
+
+  const blockZero = DECIMAL_DIGIT_BLOCK_ZEROS.find(zero => codePoint >= zero && codePoint <= zero + 9)
+
+  return blockZero === undefined ? character : String(codePoint - blockZero)
+}
+
+// Iterated by code point, never by UTF-16 unit: splitting a surrogate pair would leave half an emoji in the
+// field, which is a worse value than the one the user pasted.
+const foldDecimalDigits = (text: string): string => Array.from(text, foldDecimalDigit).join('')
+
 const isSupportedHeightCm = (centimeters: number): boolean =>
   Number.isFinite(centimeters) && centimeters >= MIN_HEIGHT_CM && centimeters <= MAX_HEIGHT_CM
 
@@ -200,6 +263,42 @@ const validateWeight = (weight: string, weightUnit: WeightUnitPref): AboutYouErr
 
   return parsed !== null && isSupportedBodyWeightInUnit(parsed, weightUnit) ? null : 'weight_range'
 }
+
+export const normalizeIntegerFieldText = (text: string): string =>
+  Array.from(foldDecimalDigits(text)).filter(isAsciiDigit).join('')
+
+// A leading zero survives, because '0.5' can only be typed through it, and so does a leading separator — the
+// value the submit-time parser accepts as '.5'. Only a second separator is dropped: '8.2.6' is a paste
+// nobody can mean two ways, and reading it as 8.26 keeps the digits the user gave.
+export const normalizeDecimalFieldText = (text: string): string =>
+  Array.from(foldDecimalDigits(text)).reduce<{text: string; hasSeparator: boolean}>(
+    (accumulated, character) => {
+      if (isAsciiDigit(character)) {
+        return {text: accumulated.text + character, hasSeparator: accumulated.hasSeparator}
+      }
+
+      if (!isDecimalSeparator(character) || accumulated.hasSeparator) {
+        return accumulated
+      }
+
+      return {text: accumulated.text + DECIMAL_SEPARATOR, hasSeparator: true}
+    },
+    {text: '', hasSeparator: false}
+  ).text
+
+export const ABOUT_YOU_FIELD_CONTRACTS: Readonly<Record<keyof MealPlanAboutYouFields, AboutYouFieldContract>> =
+  Object.freeze({
+    age: 'integer',
+    feet: 'integer',
+    inches: 'integer',
+    centimeters: 'decimal',
+    weight: 'decimal'
+  })
+
+// The whole per-field contract for entered text, so the screen's change handler stays one line and what each
+// field accepts is pinned by this file's tests rather than by four call sites.
+export const normalizeAboutYouFieldText = (field: keyof MealPlanAboutYouFields, text: string): string =>
+  ABOUT_YOU_FIELD_CONTRACTS[field] === 'integer' ? normalizeIntegerFieldText(text) : normalizeDecimalFieldText(text)
 
 export const selectLatestWeighIn = (weighIns: WeighIn[]): WeighIn | null =>
   weighIns.reduce<WeighIn | null>(

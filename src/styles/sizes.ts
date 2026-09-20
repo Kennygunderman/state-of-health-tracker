@@ -102,7 +102,14 @@ export const Stroke = {
   CART_HEADER: 1.275,
   SEARCH_MAGNIFIER: 1.61,
   HERO_ART_CLOCHE: 3.208,
-  SPINNER_TRACK_SM: 2.34
+  SPINNER_TRACK_SM: 2.34,
+
+  // `INFO_CIRCLE`, `BANNER_CHECK` and `WARNING_TRIANGLE` are three glyphs that happen to share 1.53, so by the
+  // rule at the top of this file they get three entries: WarningTriangleIcon draws `37:201`, InfoCircleIcon draws
+  // `34:272` and its recolours `34:497`/`36:438`/`47:91`, and BannerCheckIcon draws `37:45`. Re-measuring one
+  // node must not move the other two glyphs, which is exactly what a shared entry would do.
+  INFO_CIRCLE: 1.53,
+  BANNER_CHECK: 1.53
 }
 
 export const Opacity = {

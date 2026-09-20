@@ -5,13 +5,12 @@ import {TouchableOpacity, View} from 'react-native'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import {Theme} from '@styles/theme'
-import {lookupLabel} from '@utility/TextUtility'
 import Svg, {Path} from 'react-native-svg'
 
 import Text from '@components/Text'
 
 import {
-  CATALOG_CATEGORY_LABELS,
+  catalogCategoryLabel,
   MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE,
   stringWithNamedParameters
@@ -34,7 +33,12 @@ const FoodSearchResultRow = React.memo(({food, isAdded, isFirst, isLast, onToggl
   const rowContentStyle = [styles.rowContent, !isFirst && styles.rowContentDivider]
   const nameStyle = [styles.name, isAdded && styles.nameAdded]
 
-  const categoryLabel = lookupLabel(CATALOG_CATEGORY_LABELS, food.category)
+  // Through the shared accessor, not a bare table read: the category is a server code (AAP 0.5.2), so a
+  // catalog release may carry one this build has no label for, and `catalogCategoryLabel` answers that with
+  // the authored fallback. Reading the table directly returned undefined instead, which dropped the second
+  // line of the row and left two foods of different kinds looking identical — the same defect the Add Food
+  // section avoids by calling this accessor. Adding a category stays a data change, never a code change.
+  const categoryLabel = catalogCategoryLabel(food.category)
 
   const accessibilityLabel = stringWithNamedParameters(
     isAdded ? MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE : MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE,
@@ -56,7 +60,7 @@ const FoodSearchResultRow = React.memo(({food, isAdded, isFirst, isLast, onToggl
         <View style={styles.textColumn}>
           <Text style={nameStyle}>{food.name}</Text>
 
-          {!!categoryLabel && <Text style={styles.category}>{categoryLabel}</Text>}
+          <Text style={styles.category}>{categoryLabel}</Text>
         </View>
 
         {isAdded ? (

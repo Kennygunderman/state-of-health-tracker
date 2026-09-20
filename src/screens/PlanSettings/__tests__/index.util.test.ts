@@ -1059,6 +1059,52 @@ describe('earliestFlaggedDate', () => {
     expect(earliestFlaggedDate([])).toBeNull()
   })
 
+  // A flag code this build does not know is dropped by `convertAffectedMeals`, which leaves that row carrying
+  // no flags at all — the shape below. The banner counts only flagged rows, so the date sort must too:
+  // otherwise 'Review affected meals' opens a day the banner never counted and never named.
+  describe('a row whose flags were dropped as unrecognised', () => {
+    const mixedMeals = (): AffectedMeal[] => [
+      makeAffectedMeal({mealId: 'meal-unknown-code', date: FLAGGED_DINNER_DATE, flags: []}),
+      makeAffectedMeal({mealId: 'meal-2', date: FLAGGED_LUNCH_DATE, slot: 'lunch'})
+    ]
+
+    it('skips the earlier unflagged row and returns the earliest day that still carries a flag', () => {
+      expect(earliestFlaggedDate(mixedMeals())).toBe(FLAGGED_LUNCH_DATE)
+    })
+
+    it('names the same day the banner names', () => {
+      const meals = mixedMeals()
+      const banner = derivePlanSettingsBanner(meals, false)
+
+      expect(banner?.title).toBe('1 meal no longer matches your diet')
+      expect(banner?.body).toContain('Thursday lunch')
+      expect(banner?.body).not.toContain('Tuesday')
+      expect(earliestFlaggedDate(meals)).toBe(FLAGGED_LUNCH_DATE)
+    })
+
+    it('returns null when every row arrived without a flag the app could read', () => {
+      const meals = [
+        makeAffectedMeal({flags: []}),
+        makeAffectedMeal({mealId: 'meal-2', date: FLAGGED_LUNCH_DATE, slot: 'lunch', flags: []})
+      ]
+
+      expect(earliestFlaggedDate(meals)).toBeNull()
+      expect(derivePlanSettingsBanner(meals, false)).toBeNull()
+    })
+
+    // A code the banner cannot NAME is still a flag, and both read the set by the same rule: this row is
+    // counted by the banner and is the day the review lands on.
+    it('keeps a row whose flag code the banner cannot name', () => {
+      const meals = [
+        makeAffectedMeal({date: FLAGGED_DINNER_DATE, flags: [{code: UNMAPPED_FLAG_CODE, detail: []}]}),
+        makeAffectedMeal({mealId: 'meal-2', date: FLAGGED_LUNCH_DATE, slot: 'lunch'})
+      ]
+
+      expect(earliestFlaggedDate(meals)).toBe(FLAGGED_DINNER_DATE)
+      expect(derivePlanSettingsBanner(meals, false)?.body).toContain('Tuesday dinner')
+    })
+  })
+
   it('leaves the meals it was handed in their original order', () => {
     const meals = [
       makeAffectedMeal({mealId: 'meal-2', date: FLAGGED_LUNCH_DATE}),
@@ -1111,10 +1157,109 @@ describe('buildRegenerateSummaryRows', () => {
     expect(rows[2].value).toBe('Nothing logged yet')
   })
 
+  // The same ASCII thousands comma the screen's own targets row prints for '1,940 kcal': only the logged-entry
+  // count can reach four digits, and it must group like every other figure in the flow.
+  describe('the thousands separator', () => {
+    it('groups a four-digit logged count', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 1234}))
+
+      expect(rows[2].value).toBe('1,234 entries kept')
+    })
+
+    it('leaves a three-digit logged count ungrouped', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 999}))
+
+      expect(rows[2].value).toBe('999 entries kept')
+    })
+
+    it('groups at the four-digit boundary', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 1000}))
+
+      expect(rows[2].value).toBe('1,000 entries kept')
+    })
+
+    it('groups a planned-meal count that reaches four digits', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({plannedMeals: 1234}))
+
+      expect(rows[0].value).toBe('1,234 replaced')
+    })
+  })
+
+  // A negative or fractional count is a corrupt response the plan codec refuses; these cases pin what the
+  // rows state if one ever reaches them, so the wording and the digits can never contradict each other.
+  describe('counts no server arithmetic can produce', () => {
+    it('states no replaced meals for a negative planned-meal count', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({plannedMeals: -1}))
+
+      expect(rows[0].value).toBe('0 replaced')
+    })
+
+    it('rounds a fractional planned-meal count to a whole figure', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({plannedMeals: 20.6}))
+
+      expect(rows[0].value).toBe('21 replaced')
+    })
+
+    it('reads a fractional grocery count below a whole item as no items rather than as rebuilt', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({groceryItemCount: 0.4}))
+
+      expect(rows[1].value).toBe('No items')
+    })
+
+    it('reads a negative grocery count as no items', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({groceryItemCount: -2}))
+
+      expect(rows[1].value).toBe('No items')
+    })
+
+    it('rounds a fractional logged count to the plural of the whole figure', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 1.5}))
+
+      expect(rows[2].value).toBe('2 entries kept')
+    })
+
+    it('rounds a fractional logged count down into the singular', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 1.4}))
+
+      expect(rows[2].value).toBe('1 entry kept')
+    })
+
+    it('states no logged entries for a count that is not a number', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: NaN}))
+
+      expect(rows[2].value).toBe('Nothing logged yet')
+    })
+  })
+
   it('accents the logged-food row alone', () => {
     const rows = buildRegenerateSummaryRows(makeSummary())
 
     expect(rows.map(row => row.tone)).toEqual(['default', 'default', 'accent'])
+  })
+
+  // The accent carries the reassurance that logged food is KEPT. With nothing logged there is nothing kept,
+  // so the zero state takes the neutral tone rather than emphasising a claim it cannot make.
+  describe('the tone of the zero state', () => {
+    it('leaves the logged-food row unaccented when nothing is logged', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 0}))
+
+      expect(rows[2].value).toBe('Nothing logged yet')
+      expect(rows[2].tone).toBe('default')
+      expect(rows.map(row => row.tone)).toEqual(['default', 'default', 'default'])
+    })
+
+    it.each([0.4, -3, NaN])('leaves it unaccented for the count %p, which reads as nothing logged', count => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: count}))
+
+      expect(rows[2].value).toBe('Nothing logged yet')
+      expect(rows[2].tone).toBe('default')
+    })
+
+    it('accents a single logged entry, which the regeneration does keep', () => {
+      const rows = buildRegenerateSummaryRows(makeSummary({loggedEntryCount: 1}))
+
+      expect(rows[2].tone).toBe('accent')
+    })
   })
 
   it('emits a tone and never a colour of its own', () => {

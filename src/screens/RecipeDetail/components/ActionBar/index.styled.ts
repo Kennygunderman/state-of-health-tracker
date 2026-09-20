@@ -16,10 +16,16 @@ const ACTION_ROW_HEIGHT = Sizes.CTA + Spacing.X_SMALL
 
 // The bar is pinned over the screen's scroll view rather than inside it, so the screen has to reserve the
 // bar's own height as scroll padding or its last rows can never be scrolled clear. Derived from the very
-// tokens the bar lays itself out with, so the reserve cannot drift from the geometry: the top stroke (Figma
-// aligns it INSIDE, so `borderTopWidth` maps 1:1 and the band needs no padding compensation for it), the
+// tokens the bar lays itself out with, so the reserve cannot drift from the geometry: the top stroke, the
 // band's top padding, the action row, and the bottom-inset floor — a live safe-area inset only ever exceeds
 // that floor, and `actionBarPadding` adds the excess at render time.
+//
+// The stroke is one of those terms because its alignment DERIVES as INSIDE. The Figma API exposes no
+// `strokeAlign` on any node in this file, so it is never read: 49:669's own fill path tops at 757 in screen
+// space and at 0 bar-local, where OUTSIDE would need 758 and 1, and its doubled stroke band survives only
+// inside a mask shaped like the box. That is what makes `borderTopWidth` map 1:1 with no padding
+// compensation, and what puts 1 + 12 + 60 + 22 = 95 — the hug height Figma measures, 94 under OUTSIDE — in
+// the reserve. The painted band itself is identical under either alignment.
 const ACTION_BAR_ABOVE_INSET = Stroke.THIN + Spacing.SMALL + ACTION_ROW_HEIGHT
 
 export const ACTION_BAR_RESERVE = ACTION_BAR_ABOVE_INSET + Sizes.FOOTER_MIN_BOTTOM

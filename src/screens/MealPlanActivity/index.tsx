@@ -8,8 +8,6 @@ import {MealPlanActivityRouteProp, Navigation} from '@navigation/types'
 import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPreferencesQuery'
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
-import BorderRadius from '@styles/borderRadius'
-import {Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
@@ -21,9 +19,9 @@ import InfoBanner from '@components/InfoBanner'
 import InlineError from '@components/InlineError'
 import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
+import OptionCardSkeleton, {OptionCardSkeletonSubcopyLines} from '@components/OptionCardSkeleton'
 import PrimaryButton from '@components/PrimaryButton'
 import SetupFooter from '@components/SetupFooter'
-import SkeletonBlock from '@components/Skeleton'
 import Text from '@components/Text'
 import {showToast} from '@components/toast/util/ShowToast'
 import WizardHeader from '@components/WizardHeader'
@@ -53,7 +51,23 @@ interface ActivityOption {
   value: ActivityLevel
   label: string
   subcopy: string
+  skeletonSubcopyLines: OptionCardSkeletonSubcopyLines
 }
+
+// How many lines each option's sub-copy occupies at the reference width, which is what lets the read state
+// below reserve the height each card will actually have: only `lightly_active`, the longest of the four
+// descriptions, wraps to a second line. It is declared beside the copy it describes so a reworded option is
+// re-counted here rather than silently mis-reserved.
+//
+// A description that wraps differently on a narrower device or at a larger text size leaves that one card a
+// single 17.55px line box out — against the ~85px the whole group moved while every placeholder was
+// control-height.
+const SKELETON_SUBCOPY_LINES: Readonly<Record<ActivityLevel, OptionCardSkeletonSubcopyLines>> = Object.freeze({
+  not_very_active: 1,
+  lightly_active: 2,
+  active: 1,
+  very_active: 1
+})
 
 const ACTIVITY_CODES: readonly ActivityLevel[] = Object.freeze([
   'not_very_active',
@@ -67,22 +81,13 @@ const ACTIVITY_OPTIONS: readonly ActivityOption[] = Object.freeze(
     Object.freeze({
       value,
       label: MEAL_PLAN_ACTIVITY_LEVEL_LABELS[value],
-      subcopy: MEAL_PLAN_ACTIVITY_LEVEL_DESCRIPTIONS[value]
+      subcopy: MEAL_PLAN_ACTIVITY_LEVEL_DESCRIPTIONS[value],
+      skeletonSubcopyLines: SKELETON_SUBCOPY_LINES[value]
     })
   )
 )
 
 const ACTIVITY_CONFLICT_FIELDS: readonly (keyof MealPlanPreferences & string)[] = ['activityLevel']
-
-// One block per option card, so the pending read occupies the space the cards will take rather than
-// collapsing the screen. `CONTROL_LG` is the control-sized block the wizard's other read state is built from;
-// a shimmer placeholder stands in for the card, it does not reproduce its height.
-const SKELETON_BLOCK_HEIGHTS: readonly number[] = Object.freeze([
-  Sizes.CONTROL_LG,
-  Sizes.CONTROL_LG,
-  Sizes.CONTROL_LG,
-  Sizes.CONTROL_LG
-])
 
 const MealPlanActivityScreen = (): React.JSX.Element => {
   const navigation = useNavigation<Navigation>()
@@ -290,16 +295,12 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
               report itself even while this skeleton is showing. */}
           {isLoadingPreferences ? (
             <View style={styles.skeletonGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
-              {SKELETON_BLOCK_HEIGHTS.map((height, index) => (
-                <SkeletonBlock
-                  key={`${height}-${index}`}
-                  height={height}
-                  // The stretch style overrides this, but Skeleton measures its shimmer sweep from the prop,
-                  // so the column's own maximum is the width the animation is sized against.
-                  width={Sizes.CONTENT_MAX_WIDTH}
-                  borderRadius={BorderRadius.ITEM}
-                  style={styles.skeletonStretch}
-                />
+              {/* One placeholder per option, each shaped like the card it stands for — the same box model,
+                  a disc where the indicator goes and a line box per line of sub-copy — so the cards land
+                  where the placeholders stood instead of pushing the error row, the info card and the
+                  footer down when the saved answer arrives (AAP 0.2.5). */}
+              {ACTIVITY_OPTIONS.map(option => (
+                <OptionCardSkeleton key={option.value} subcopyLines={option.skeletonSubcopyLines} />
               ))}
             </View>
           ) : (

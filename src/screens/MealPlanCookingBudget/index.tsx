@@ -20,7 +20,7 @@ import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CheckboxSquare from '@components/CheckboxSquare'
-import ChipCloud from '@components/ChipCloud'
+import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
@@ -39,7 +39,9 @@ import {
   MEAL_PLAN_BUDGET_ERROR_TEXT,
   MEAL_PLAN_BUDGET_HEADER,
   MEAL_PLAN_BUDGET_HELPER_TEXT,
+  MEAL_PLAN_BUDGET_MAX_ERROR_TEXT,
   MEAL_PLAN_BUDGET_PLACEHOLDER,
+  MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT,
   MEAL_PLAN_BUDGET_UNIT,
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_COOKING_BUDGET_TITLE,
@@ -56,7 +58,7 @@ import {
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
-import styles from './index.styled'
+import styles, {NO_BUDGET_ROW_HIT_SLOP} from './index.styled'
 import {
   buildPlanSummaryRows,
   budgetFieldState,
@@ -68,11 +70,15 @@ import {
   validateCookingBudgetStep
 } from './index.util'
 
-// One message per code the step can report: a missing chip is the shared option-group sentence, an amount
-// outside the accepted whole-dollar range is 08's own field message.
+// One message per code the step can report, and one per remedy. A missing chip is the shared option-group
+// sentence; the three budget codes are 08's own field messages, because the amount field has no option to
+// choose and its two range failures are fixed in opposite directions. The Record is exhaustive over the
+// union, so a code added to the util cannot reach either error row without copy.
 const COOKING_BUDGET_ERROR_COPY: Readonly<Record<CookingBudgetErrorCode, string>> = Object.freeze({
   option_required: MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
-  budget_range: MEAL_PLAN_BUDGET_ERROR_TEXT
+  budget_required: MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT,
+  budget_range: MEAL_PLAN_BUDGET_ERROR_TEXT,
+  budget_above_max: MEAL_PLAN_BUDGET_MAX_ERROR_TEXT
 })
 
 // The answers this step owns. budget is one object, compared key by key, so the same amount and currency
@@ -312,18 +318,17 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
 
             {/* The four chips are one answer, so the group carries the radio semantics: a chip reports
                 itself as a selected button, which alone never says that choosing one releases the rest. */}
-            {/* BLITZY [A11Y]: the chips take SelectableChip's expanded pressable, which keeps the pill at the
-                32px Figma draws (47:619) and reaches the 44px minimum through the host instead of hit slop a
-                row hugging the pill would clip. The row renders 44px rather than the drawn 40px — the same
-                deviation every other chip row in setup carries, flagged for designer review. */}
-            <View style={styles.cookingChips} accessibilityRole="radiogroup">
+            {/* 47:619 draws this row 40px — its own 8px rung above four 32px pills — which is what the rung
+                below plus a cloud hugging its chips measures. The 44px touch minimum is reserved inside the
+                cloud's box instead of raising the row, and the height is handed back to the layout, so the
+                reserved band below falls outside this group: the slop here is what lets a touch reach it. */}
+            <View style={styles.cookingChips} accessibilityRole="radiogroup" hitSlop={CHIP_BAND_HIT_SLOP}>
               <ChipCloud>
                 {COOKING_TIME_OPTIONS.map(option => (
                   <SelectableChip
                     key={option.value}
                     label={option.label}
                     selected={draft.cookingTimeLimitMin === option.value}
-                    expandTouchTarget
                     onPress={() => onSelectCookingTime(option.value)}
                   />
                 ))}
@@ -370,6 +375,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
             <TouchableOpacity
               style={styles.preferenceRow}
               activeOpacity={Opacity.PRESSED}
+              hitSlop={NO_BUDGET_ROW_HIT_SLOP}
               accessibilityRole="checkbox"
               accessibilityLabel={MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL}
               accessibilityState={{checked: draft.noBudgetPreference}}

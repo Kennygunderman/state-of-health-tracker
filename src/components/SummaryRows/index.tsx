@@ -12,6 +12,7 @@ import Text from '@components/Text'
 import {MEAL_PLAN_SUMMARY_ROW_ACCESSIBILITY_HINT} from '@constants/strings'
 
 import styles, {valueTextColor} from './index.styled'
+import {summaryRowDisplayValue} from './index.util'
 
 export type SummaryRowValueSize = 'label' | 'body'
 
@@ -52,6 +53,8 @@ const SummaryRows = (props: Props): React.JSX.Element => {
 
         const labelText = <Text style={[styles.label, !divided && styles.labelInline]}>{row.label}</Text>
 
+        const displayValue = summaryRowDisplayValue(row.value)
+
         const valueText = (
           <Text
             style={[
@@ -60,7 +63,7 @@ const SummaryRows = (props: Props): React.JSX.Element => {
               divided ? styles.valueStacked : styles.valueInline,
               row.valueColor ? valueTextColor(row.valueColor) : undefined
             ]}>
-            {row.value}
+            {displayValue}
           </Text>
         )
 
@@ -91,10 +94,9 @@ const SummaryRows = (props: Props): React.JSX.Element => {
         // The value is composed into the name rather than left to accessibilityValue, because the name is what
         // voice control matches and what a rotor listing reads; the hint carries the one thing neither the
         // label nor the value says, which is that activating the row reopens the step that owns the answer.
-        // A row with nothing to report still gets a name from its label alone rather than a trailing separator,
-        // and a row whose answer is not recorded yet is one stop named by its label rather than that label
-        // followed by a silent one.
-        const accessibleName = row.accessibilityLabel ?? composeAccessibleName([row.label, row.value])
+        // It is the displayed value that is composed, so a row whose answer has not arrived reads 'Diet, Not
+        // set' — what the row draws — rather than a bare label that leaves the missing answer unspoken.
+        const accessibleName = row.accessibilityLabel ?? composeAccessibleName([row.label, displayValue])
 
         return row.onPress ? (
           <TouchableOpacity

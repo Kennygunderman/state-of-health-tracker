@@ -52,6 +52,8 @@ const TargetsCard = ({
   summaryAccessibilityLabel,
   onEditPress
 }: Props): React.JSX.Element => {
+  const hasMacros = macros.length > 0
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow} hitSlop={TARGETS_HEADER_ROW_HIT_SLOP}>
@@ -85,21 +87,28 @@ const TargetsCard = ({
           {estimateFigure ? <Text style={styles.estimateFigure}>{estimateFigure}</Text> : null}
         </View>
 
-        <View style={styles.dividerWrapper}>
-          <View style={styles.divider} />
-        </View>
+        {/* Both blocks are the legend's, so a partial-legacy set with a calorie figure and no macros drops
+            them together: 34:35 draws only the filled state, and the divider is a separator between the
+            figure and the legend rather than a rule this card ever draws above nothing. */}
+        {hasMacros ? (
+          <>
+            <View style={styles.dividerWrapper}>
+              <View style={styles.divider} />
+            </View>
 
-        <View style={styles.legendWrapper}>
-          {macros.map((macro, index) => (
-            <MacroLegendRow
-              key={macro.key}
-              label={macro.label}
-              valueText={macro.valueText}
-              dotColor={MACRO_DOT_COLORS[macro.key]}
-              isFirst={index === 0}
-            />
-          ))}
-        </View>
+            <View style={styles.legendWrapper}>
+              {macros.map((macro, index) => (
+                <MacroLegendRow
+                  key={macro.key}
+                  label={macro.label}
+                  valueText={macro.valueText}
+                  dotColor={MACRO_DOT_COLORS[macro.key]}
+                  isFirst={index === 0}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
       </View>
     </View>
   )

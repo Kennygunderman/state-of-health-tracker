@@ -29,7 +29,7 @@ import Text from '@components/Text'
 import {showToast} from '@components/toast/util/ShowToast'
 
 import Screens from '@constants/screens'
-import {MEAL_PLAN_ALLERGIES_KEPT_BANNER_BODY} from '@constants/strings'
+import {MEAL_PLAN_ALLERGIES_KEPT_BANNER_BODY, MEAL_PLAN_UNAVAILABLE_TEXT} from '@constants/strings'
 
 import LimitingConstraintRows from './components/LimitingConstraintRows'
 import styles from './index.styled'
@@ -534,6 +534,18 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
                   actionLabel={intentRefusal.actionLabel}
                   onAction={onIntentRefusalRetry}
                 />
+              </View>
+            )}
+
+            {/* Meal planning is switched off behind a mounted backend, so this frame draws no card and its
+                recovery leaves without a toast — which left nothing on screen at all until the navigator
+                moved. It states the refusal in the same words and the same neutral banner every other gated
+                surface uses (0.2.5), and offers no control, because a retry cannot change a server flag. No
+                live region: the frame is transient and the Macros entitlement card it leaves for is what
+                announces, so marking this would say it twice. */}
+            {view.showUnavailableNotice && (
+              <View style={styles.bannerBlock}>
+                <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_UNAVAILABLE_TEXT} />
               </View>
             )}
 

@@ -27,8 +27,12 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textMuted
   },
+  // 34:208 declares this block at 353x51 while its pinned line height resolves to 34.5, so the remainder
+  // closes the block on Figma's integer height the same way the editor's structurally identical headline
+  // does — without it every element below sits 0.5 short of the drawn ladder.
   headline: {
     paddingTop: Spacing.MEDIUM,
+    paddingBottom: Sizes.TITLE_BLOCK_INSET_B,
     fontSize: FontSize.SCREEN_TITLE,
     fontWeight: FontWeight.BOLD,
     lineHeight: LineHeight.SCREEN_TITLE,

@@ -105,7 +105,11 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
 
   const wizardSteps = stepsForRoute(preferences?.targetRoute ?? 'estimated')
   const cardSlots = mealSlotsForScheduleCard(draft.mealSchedule)
-  const scheduleError = hasSubmitted ? validateMealScheduleStep(draft.mealSchedule) : null
+  // Computed every render, shown only once Continue has been pressed (0.7.4: errors appear on press, never
+  // before), and read by both the error rows and the gate below so the two can never disagree.
+  const validation = validateMealScheduleStep(draft.mealSchedule, draft.mealTimes)
+  const scheduleError = hasSubmitted ? validation.scheduleError : null
+  const slotTimeErrors = hasSubmitted ? validation.slotTimeErrors : []
 
   const timeFor = useCallback(
     (slot: MealSlot): string => draft.mealTimes.find(entry => entry.slot === slot)?.time ?? '',
@@ -131,7 +135,10 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
   const onContinuePressed = useCallback(async (): Promise<void> => {
     setHasSubmitted(true)
 
-    if (validateMealScheduleStep(draft.mealSchedule) !== null || draft.mealSchedule === null) {
+    // The step's own answers are complete before anything is sent: a slot of the chosen schedule with no
+    // usable time would otherwise be written as an empty time the server can only refuse with a generic
+    // 400, and the user would be told nothing about which time is missing.
+    if (!validateMealScheduleStep(draft.mealSchedule, draft.mealTimes).isValid || draft.mealSchedule === null) {
       return
     }
 
@@ -290,6 +297,16 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
               <DashedPlaceholder message={MEAL_PLAN_SNACK_PLACEHOLDER_TEXT} />
             </View>
           )}
+
+          {/* One row per slot of the chosen schedule whose time is missing or unsendable, all of them at once
+              (0.7.4), below the times card whose pills they name — the dashed placeholder belongs to that card
+              and stays attached to it. Mounted whether or not it carries messages, for the reason the schedule
+              region above is. */}
+          <View accessibilityLiveRegion="polite">
+            {slotTimeErrors.map(error => (
+              <InlineError key={error.slot} message={error.message} />
+            ))}
+          </View>
 
           <Text style={styles.footnote}>{MEAL_PLAN_SCHEDULE_FOOTNOTE}</Text>
         </ScrollView>

@@ -96,6 +96,37 @@ export const resolveSearchResultsView = ({
   }
 }
 
+export interface SearchFooterInput {
+  resultsView: SearchResultsView
+  isFetchingNextPage: boolean
+  selectedCount: number
+}
+
+export interface SearchFooterView {
+  showNextPageLoading: boolean
+  showSelectedHeader: boolean
+}
+
+// What sits below the rows, which is two independent questions rather than one footer. Both are decided here
+// because both are gates the screen would otherwise answer by rendering unconditionally.
+export const resolveSearchFooterView = ({
+  resultsView,
+  isFetchingNextPage,
+  selectedCount
+}: SearchFooterInput): SearchFooterView => ({
+  // AAP 0.2.5 gives catalog search Skeleton rows while it loads, and a later page loads *under* rows that are
+  // already on screen — so the list's empty slot, which is where the first page's skeleton lives, is not
+  // rendered at that moment and the placeholder has to come from the footer instead. Binding it to the results
+  // view is what keeps it out of the other three: the retry card, the no-results caption and the first page's
+  // own skeleton each already fill the whole area, and a second placeholder beside any of them would announce
+  // a load that is not the one in flight.
+  showNextPageLoading: isFetchingNextPage && resultsView === 'results',
+  // Figma prints the count only once something is staged (`47:284` at two, `47:424` at three) and never draws a
+  // zero, which is also how the sibling frame 06 gates its selected block. Zero therefore renders no header at
+  // all rather than "Selected · 0".
+  showSelectedHeader: selectedCount > 0
+})
+
 export interface SelectedFoodChip {
   id: string
   name: string

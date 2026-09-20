@@ -1636,6 +1636,193 @@ describe('a preferences response that arrives after the user has started answeri
   })
 })
 
+// The same late response against a SET answer — the allergies and the dislikes — where keeping the edit
+// whole is itself the data loss. Before the first seed the draft's sets are empty, so every chip renders
+// unselected: a tap can only mean "add this", never "remove the selected thing I can see". Taking that tap
+// wholesale would delete a stored allergy the user was never shown, which Figma note `47:230` (allergies are
+// never removed automatically) and AAP 0.2.5 both refuse, so the first seed reconciles those three fields
+// with the stored answer instead of replacing them.
+describe('a preferences response that arrives after the user has touched a set answer', () => {
+  // The reproduction from the report, as the screen produces it: the diet screen mounted with no answer yet,
+  // the user tapped the Eggs chip, and the response holding Milk and Peanuts landed afterwards.
+  const eggsTappedBeforeAnswerArrived = (): MealPlanSetupDraftState =>
+    applyAllergenSelection(createEmptyDraft(), 'eggs')
+
+  it('keeps the allergies the response brought and adds the one tapped before it arrived', () => {
+    const {draft} = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+
+    expect(draft.allergens).toEqual(['milk', 'peanuts', 'eggs'])
+  })
+
+  it('leaves the step edited, so the reconciled selection is what the next save sends', () => {
+    const seeded = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+
+    expect(seeded.dirty.diet).toBe(true)
+  })
+
+  it('does not repeat an allergy the tap and the response both name', () => {
+    const tappedOne = applyAllergenSelection(createEmptyDraft(), 'milk')
+    const {draft} = seedDraftFromPreferences(makePreferences(), tappedOne)
+
+    expect(draft.allergens).toEqual(['milk', 'peanuts'])
+  })
+
+  // 'None' cannot travel beside a named allergy, and of the two it is the sentinel that goes: dropping an
+  // allergy would relax a restriction the user asked for, and this tap was made against an empty screen.
+  it('keeps the stored allergies when None was tapped before they arrived', () => {
+    const noneTapped = applyAllergenSelection(createEmptyDraft(), ALLERGEN_NONE)
+    const {draft} = seedDraftFromPreferences(makePreferences(), noneTapped)
+
+    expect(draft.allergens).toEqual(['milk', 'peanuts'])
+  })
+
+  it('keeps None when it was tapped and the response brought no allergies', () => {
+    const noneTapped = applyAllergenSelection(createEmptyDraft(), ALLERGEN_NONE)
+    const {draft} = seedDraftFromPreferences(makePreferences({allergens: []}), noneTapped)
+
+    expect(draft.allergens).toEqual([ALLERGEN_NONE])
+  })
+
+  it('keeps None when it was tapped and the response brought None too', () => {
+    const noneTapped = applyAllergenSelection(createEmptyDraft(), ALLERGEN_NONE)
+    const {draft} = seedDraftFromPreferences(makePreferences({allergens: [ALLERGEN_NONE]}), noneTapped)
+
+    expect(draft.allergens).toEqual([ALLERGEN_NONE])
+  })
+
+  // The stored 'no allergies' answer and a named allergy are the same pair the other way round, and the
+  // named one wins here too — the rule `applyAllergenSelection` already applies to a live tap.
+  it('drops a stored None when a named allergy was tapped before it arrived', () => {
+    const {draft} = seedDraftFromPreferences(
+      makePreferences({allergens: [ALLERGEN_NONE]}),
+      eggsTappedBeforeAnswerArrived()
+    )
+
+    expect(draft.allergens).toEqual(['eggs'])
+  })
+
+  it('reconciles the set answer of a step while its single-value answer still takes the edit', () => {
+    const dietChosenThenAllergyTapped = applyAllergenSelection(
+      setStepFields(createEmptyDraft(), 'diet', {diet: 'vegan'}),
+      'eggs'
+    )
+    const {draft} = seedDraftFromPreferences(makePreferences(), dietChosenThenAllergyTapped)
+
+    expect(draft.diet).toBe('vegan')
+    expect(draft.allergens).toEqual(['milk', 'peanuts', 'eggs'])
+  })
+
+  it('keeps the stored dislikes and adds the one selected before they arrived', () => {
+    const selectedBefore = toggleDislikedFoodId(createEmptyDraft(), 'food-broccoli')
+    const {draft} = seedDraftFromPreferences(makePreferences(), selectedBefore)
+
+    expect(draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive', 'food-broccoli'])
+  })
+
+  it('does not repeat a dislike the selection and the response both name', () => {
+    const selectedBefore = toggleDislikedFoodId(createEmptyDraft(), 'food-olive')
+    const {draft} = seedDraftFromPreferences(makePreferences(), selectedBefore)
+
+    expect(draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+  })
+
+  it('keeps the stored food groups and adds the one selected before they arrived', () => {
+    const groupSelectedBefore = setStepFields(createEmptyDraft(), 'dislikes', {dislikedFoodGroups: ['olive']})
+    const {draft} = seedDraftFromPreferences(makePreferences(), groupSelectedBefore)
+
+    expect(draft.dislikedFoodGroups).toEqual(['mushroom', 'olive'])
+  })
+
+  // A stored answer already at the hundred-id bound leaves no room for the addition made under it. The
+  // additions are refused as a set rather than trimmed to a count nobody chose, so the stored answer stands
+  // whole — the rule `commitDislikeStaging` applies when a response raises that answer mid-visit.
+  it('keeps the stored dislikes whole when the addition would take them past the bound', () => {
+    const atCap = makePreferences({dislikedFoods: savedDislikedFoods(MAX_DISLIKED_FOOD_IDS)})
+    const selectedBefore = toggleDislikedFoodId(createEmptyDraft(), 'food-one-too-many')
+    const {draft} = seedDraftFromPreferences(atCap, selectedBefore)
+
+    expect(draft.dislikedFoodIds).toEqual(dislikeIds(MAX_DISLIKED_FOOD_IDS))
+    expect(isDislikeSelectionAtCap(draft.dislikedFoodIds)).toBe(true)
+  })
+
+  it('still takes an addition that lands exactly on the bound', () => {
+    const oneShort = makePreferences({dislikedFoods: savedDislikedFoods(MAX_DISLIKED_FOOD_IDS - 1)})
+    const selectedBefore = toggleDislikedFoodId(createEmptyDraft(), 'food-last')
+    const {draft} = seedDraftFromPreferences(oneShort, selectedBefore)
+
+    expect(draft.dislikedFoodIds).toHaveLength(MAX_DISLIKED_FOOD_IDS)
+    expect(draft.dislikedFoodIds[MAX_DISLIKED_FOOD_IDS - 1]).toBe('food-last')
+  })
+
+  it('records the saved set answers as the baseline, whatever the reconciled draft holds', () => {
+    const seeded = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+
+    expect(seeded.baseline.allergens).toEqual(['milk', 'peanuts'])
+    expect(seeded.draft.allergens).toEqual(['milk', 'peanuts', 'eggs'])
+  })
+
+  // Reconciliation belongs to the FIRST seed alone. Once the draft has been seeded from a known answer, a
+  // removal in it is a removal the user chose against a selection they could see, so a background refetch
+  // landing afterwards still takes the edit whole — including what it takes away.
+  it('lets a removal made after the answer arrived stand through a later refetch', () => {
+    const saved = seedDraftFromPreferences(makePreferences())
+    const milkRemoved = applyAllergenSelection(saved, 'milk')
+    const refetched = seedDraftFromPreferences(makePreferences(), milkRemoved)
+
+    expect(milkRemoved.draft.allergens).toEqual(['peanuts'])
+    expect(refetched.draft.allergens).toEqual(['peanuts'])
+  })
+
+  it('lets a dislike removed after the answer arrived stay removed through a later refetch', () => {
+    const saved = seedDraftFromPreferences(makePreferences())
+    const oliveRemoved = toggleDislikedFoodId(saved, 'food-olive')
+    const refetched = seedDraftFromPreferences(makePreferences(), oliveRemoved)
+
+    expect(refetched.draft.dislikedFoodIds).toEqual(['food-mushroom'])
+  })
+
+  it('lets None chosen after the answer arrived clear the stored allergies through a later refetch', () => {
+    const saved = seedDraftFromPreferences(makePreferences())
+    const noneChosen = applyAllergenSelection(saved, ALLERGEN_NONE)
+    const refetched = seedDraftFromPreferences(makePreferences(), noneChosen)
+
+    expect(refetched.draft.allergens).toEqual([ALLERGEN_NONE])
+  })
+
+  it('reconciles a step the user edited without disturbing the steps they did not', () => {
+    const {draft} = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+
+    expect(draft.dislikedFoodIds).toEqual(['food-mushroom', 'food-olive'])
+    expect(draft.dislikedFoodGroups).toEqual(['mushroom'])
+    expect(draft.activityLevel).toBe('lightly_active')
+  })
+
+  it('reads the response and the state it replaces without mutating either', () => {
+    const preferences = makePreferences()
+    const previous = eggsTappedBeforeAnswerArrived()
+
+    seedDraftFromPreferences(preferences, previous)
+
+    expect(preferences.allergens).toEqual(['milk', 'peanuts'])
+    expect(previous.draft.allergens).toEqual(['eggs'])
+  })
+
+  it('hands the reconciled set to the draft as its own array', () => {
+    const preferences = makePreferences()
+    const seeded = seedDraftFromPreferences(preferences, eggsTappedBeforeAnswerArrived())
+
+    expect(seeded.draft.allergens).not.toBe(preferences.allergens)
+    expect(seeded.draft.allergens).not.toBe(seeded.baseline.allergens)
+  })
+
+  it('reconciles the same response and state to the same answer every time', () => {
+    const first = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+    const second = seedDraftFromPreferences(makePreferences(), eggsTappedBeforeAnswerArrived())
+
+    expect(first.draft).toEqual(second.draft)
+  })
+})
+
 // Cancel on a step opened in edit mode. The seven step screens write into the shared draft as the user
 // edits, so leaving without saving has to put the step back — and leaving is the swipe and the system back
 // as much as the drawn button.

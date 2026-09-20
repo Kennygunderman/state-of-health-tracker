@@ -2,13 +2,18 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {Opacity, Stroke} from '@styles/sizes'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
 import Text from '@components/Text'
 
 import styles from './index.styled'
+import {rowChevronGeometry} from './index.util'
+
+// Derived once: the glyph is the same on all seven rows, so the arguments 38:412 reconciles to are resolved
+// at module scope rather than per render.
+const {size: chevronSize, strokeWidth: chevronStrokeWidth} = rowChevronGeometry()
 
 interface Props {
   readonly label: string
@@ -34,7 +39,9 @@ const SettingsRow = (props: Props): React.JSX.Element => {
         <Text style={styles.value}>{value}</Text>
       </View>
 
-      <ChevronRightIcon color={Theme.colors.textFaint} strokeWidth={Stroke.BOLD} />
+      <View style={styles.chevronSlot}>
+        <ChevronRightIcon color={Theme.colors.textFaint} size={chevronSize} strokeWidth={chevronStrokeWidth} />
+      </View>
     </TouchableOpacity>
   )
 }

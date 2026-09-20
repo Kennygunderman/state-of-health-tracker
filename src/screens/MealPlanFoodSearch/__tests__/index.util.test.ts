@@ -6,11 +6,13 @@ import {
   EMPTY_SEARCH_QUERY,
   flattenCatalogPages,
   isCatalogQuerySearchable,
+  resolveSearchFooterView,
   resolveSearchResultsView,
   SEARCH_SKELETON_ROWS,
   SearchGesture,
   searchQueryAfter,
   SearchQueryState,
+  SearchResultsView,
   skeletonBarWidth
 } from '../index.util'
 
@@ -138,6 +140,64 @@ describe('resolveSearchResultsView', () => {
 
   it('reports results when the search returned some', () => {
     expect(resolveSearchResultsView(RESULTS)).toBe('results')
+  })
+})
+
+describe('resolveSearchFooterView', () => {
+  const EVERY_VIEW: readonly SearchResultsView[] = ['idle', 'error', 'loading', 'no_results', 'results']
+  const FOOTER = {resultsView: 'results' as SearchResultsView, isFetchingNextPage: false, selectedCount: 0}
+
+  describe('the next-page placeholder', () => {
+    it('loads a later page under the rows already on screen', () => {
+      expect(resolveSearchFooterView({...FOOTER, isFetchingNextPage: true}).showNextPageLoading).toBe(true)
+    })
+
+    it('shows nothing once the page has settled', () => {
+      expect(resolveSearchFooterView(FOOTER).showNextPageLoading).toBe(false)
+    })
+
+    it('never sits beside the retry card, the no-results caption or the first page own skeleton', () => {
+      EVERY_VIEW.filter(view => view !== 'results').forEach(resultsView => {
+        expect(resolveSearchFooterView({...FOOTER, resultsView, isFetchingNextPage: true}).showNextPageLoading).toBe(
+          false
+        )
+      })
+    })
+
+    it('shows nothing in any view while no page is in flight', () => {
+      EVERY_VIEW.forEach(resultsView => {
+        expect(resolveSearchFooterView({...FOOTER, resultsView}).showNextPageLoading).toBe(false)
+      })
+    })
+
+    it('is decided by the page in flight rather than by what is staged', () => {
+      expect(resolveSearchFooterView({...FOOTER, isFetchingNextPage: true, selectedCount: 3}).showNextPageLoading).toBe(
+        true
+      )
+    })
+  })
+
+  describe('the selected-count header', () => {
+    it('prints nothing when nothing is staged', () => {
+      expect(resolveSearchFooterView(FOOTER).showSelectedHeader).toBe(false)
+    })
+
+    it('prints the header from the first staged food onwards', () => {
+      expect(resolveSearchFooterView({...FOOTER, selectedCount: 1}).showSelectedHeader).toBe(true)
+      expect(resolveSearchFooterView({...FOOTER, selectedCount: 9}).showSelectedHeader).toBe(true)
+    })
+
+    it('stays hidden at zero in every view the results area can be in', () => {
+      EVERY_VIEW.forEach(resultsView => {
+        expect(resolveSearchFooterView({...FOOTER, resultsView}).showSelectedHeader).toBe(false)
+      })
+    })
+
+    it('is decided by what is staged rather than by the search behind it', () => {
+      EVERY_VIEW.forEach(resultsView => {
+        expect(resolveSearchFooterView({...FOOTER, resultsView, selectedCount: 2}).showSelectedHeader).toBe(true)
+      })
+    })
   })
 })
 

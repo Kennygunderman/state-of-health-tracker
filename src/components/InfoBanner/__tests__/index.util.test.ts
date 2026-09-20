@@ -34,6 +34,27 @@ describe('composeStatusMessage', () => {
     expect(composeStatusMessage({title: TITLE, body: ''})).toBe(`${TITLE}. `)
     expect(composeStatusMessage({body: ''})).toBe('')
   })
+
+  // A read error states one sentence and draws no body, so the title is the whole message: joining an absent
+  // body would leave a screen reader trailing a bare '. ' after it.
+  it('speaks a title-only banner as the title alone, with no trailing separator', () => {
+    expect(composeStatusMessage({title: TITLE})).toBe(TITLE)
+    expect(composeStatusMessage({title: TITLE, body: undefined})).toBe(TITLE)
+    expect(composeStatusMessage({title: TITLE})).not.toContain('. ')
+  })
+
+  it('composes nothing at all for a banner that draws neither member', () => {
+    expect(composeStatusMessage({})).toBe('')
+    expect(composeStatusMessage({title: undefined, body: undefined})).toBe('')
+  })
+
+  // The blank-title rule and the absent-body rule meet here: neither member is a fragment to join, so there is
+  // no sentence to speak rather than a separator standing in for one.
+  it('composes nothing for a blank title with no body, never a bare separator', () => {
+    expect(composeStatusMessage({title: ''})).toBe('')
+    expect(composeStatusMessage({title: '   '})).toBe('')
+    expect(composeStatusMessage({title: '\n\t'})).toBe('')
+  })
 })
 
 describe('resolveStatusSemantics', () => {

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, {useState} from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
@@ -6,6 +6,7 @@ import {Opacity, Sizes} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import {CATALOG_SEARCH_MAX_QUERY_LENGTH} from '@utility/CatalogSearchStateUtility'
 
+import {ROW_CHEVRON_REFERENCE_SIZE} from '@components/icons/ChevronGeometry'
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
 import SearchMagnifierIcon from '@components/icons/SearchMagnifierIcon'
 import Text from '@components/Text'
@@ -62,11 +63,17 @@ const CatalogSearchField = (props: Props): React.JSX.Element => {
   const {value, placeholder, accessibilityLabel} = props
   const hasValue = value.length > 0
 
+  // The green ring and green magnifier are the focused treatment Figma draws on `47:362`/`47:363`, so they
+  // are bound to whether the field actually holds focus rather than to being in input mode. `autoFocus`
+  // lights them on mount through the same callback, and dismissing the keyboard returns the field to the
+  // resting `47:275` treatment instead of leaving it looking editable.
+  const [isFocused, setIsFocused] = useState(false)
+
   return (
     <View style={styles.container}>
       {props.mode === 'input' ? (
-        <View style={[styles.field, styles.fieldFocused]}>
-          <SearchMagnifierIcon color={Theme.colors.accentGreen} />
+        <View style={[styles.field, isFocused && styles.fieldFocused]}>
+          <SearchMagnifierIcon color={isFocused ? Theme.colors.accentGreen : Theme.colors.textMuted} />
 
           <TextInput
             style={styles.input}
@@ -77,6 +84,8 @@ const CatalogSearchField = (props: Props): React.JSX.Element => {
             maxLength={props.maxLength ?? CATALOG_QUERY_MAX_LENGTH}
             accessibilityRole="search"
             accessibilityLabel={accessibilityLabel}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
           />
 
           {hasValue && (
@@ -104,7 +113,9 @@ const CatalogSearchField = (props: Props): React.JSX.Element => {
             {hasValue ? value : placeholder}
           </Text>
 
-          <ChevronRightIcon color={Theme.colors.textFaint} size={Sizes.ICON_MD} />
+          <View style={styles.chevronSlot}>
+            <ChevronRightIcon color={Theme.colors.textFaint} size={ROW_CHEVRON_REFERENCE_SIZE} />
+          </View>
         </TouchableOpacity>
       )}
 

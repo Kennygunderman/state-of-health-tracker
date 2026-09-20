@@ -7,6 +7,7 @@ import {API_ERROR_CODES} from '@utility/ApiErrorUtility'
 
 import {
   GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE,
+  GROCERY_AMOUNT_INCREASED_BODY_UNNAMED,
   GROCERY_AMOUNT_INCREASED_TITLE,
   GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE,
   GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE,
@@ -24,8 +25,8 @@ import {
   buildGroceryViewModel,
   classifyGroceryWriteFailure,
   contentColumnWidth,
-  countFlaggedItems,
   EMPTY_GROCERY_VIEW_MODEL,
+  flaggedItemNames,
   groceryBanner,
   groceryCategoryLabel,
   groceryEyebrow,
@@ -83,7 +84,11 @@ const makeItem = (overrides: Partial<GroceryItem> = {}): GroceryItem => ({
   ...overrides
 })
 
-const makeFlaggedItem = (id: string): GroceryItem => makeItem({id, isChecked: true, flag: INCREASE_FLAG})
+// Carries a name, because the banner is named from the flagged row rather than from the response's own
+// snapshot: a flagged fixture that kept `makeItem`'s default name would assert nothing about which row the
+// sentence points at.
+const makeFlaggedItem = (id: string, name: string = FLAGGED_ITEM_NAME): GroceryItem =>
+  makeItem({id, name, isChecked: true, flag: INCREASE_FLAG})
 
 const makeSection = (category: GroceryCategory, items: GroceryItem[]): GrocerySection => ({category, items})
 
@@ -583,8 +588,8 @@ describe('groceryRowVariant', () => {
     const decreased = makeItem({isChecked: true, flag: null, displayText: '1.8 lb'})
 
     expect(groceryRowVariant(decreased)).toBe('checkedMuted')
-    expect(countFlaggedItems([decreased])).toBe(0)
-    expect(groceryBanner(null, 0)).toBeNull()
+    expect(flaggedItemNames([decreased])).toEqual([])
+    expect(groceryBanner(null, [])).toBeNull()
   })
 
   it('maps an unchecked row to the unchecked variant even when it carries a flag', () => {
@@ -673,47 +678,72 @@ describe('groceryEyebrow', () => {
   })
 })
 
-describe('countFlaggedItems', () => {
-  it('returns zero for an empty list', () => {
-    expect(countFlaggedItems([])).toBe(0)
+describe('flaggedItemNames', () => {
+  it('names nothing for an empty list', () => {
+    expect(flaggedItemNames([])).toEqual([])
   })
 
-  it('returns zero when no row carries a flag', () => {
-    expect(countFlaggedItems([makeItem(), makeItem({id: 'item-avocado', isChecked: true})])).toBe(0)
+  it('names nothing when no row carries a flag', () => {
+    expect(flaggedItemNames([makeItem(), makeItem({id: 'item-avocado', isChecked: true})])).toEqual([])
   })
 
-  it('counts a single flagged row among unflagged ones', () => {
+  it('names a single flagged row among unflagged ones', () => {
     const items = [makeItem(), makeFlaggedItem('item-chicken'), makeItem({id: 'item-lime'})]
 
-    expect(countFlaggedItems(items)).toBe(1)
+    expect(flaggedItemNames(items)).toEqual([FLAGGED_ITEM_NAME])
   })
 
-  it('counts every flagged row', () => {
+  it('names every flagged row, in the order the Checked card draws them', () => {
     const items = [
       makeFlaggedItem('item-chicken'),
-      makeFlaggedItem('item-salmon'),
-      makeFlaggedItem('item-feta'),
+      makeFlaggedItem('item-salmon', 'Salmon fillet'),
+      makeFlaggedItem('item-feta', 'Feta'),
       makeItem()
     ]
 
-    expect(countFlaggedItems(items)).toBe(3)
+    expect(flaggedItemNames(items)).toEqual([FLAGGED_ITEM_NAME, 'Salmon fillet', 'Feta'])
+  })
+
+  // A flag on a row with no tick draws as a plain aisle row -- orderCheckedItems never promotes it -- so it
+  // may not reach the banner either: naming it would point the sentence at a row showing no flag at all.
+  it('ignores a flag on a row that is not checked', () => {
+    const items = [
+      makeItem({id: 'item-avocado', name: 'Avocado', flag: INCREASE_FLAG}),
+      makeFlaggedItem('item-chicken')
+    ]
+
+    expect(flaggedItemNames(items)).toEqual([FLAGGED_ITEM_NAME])
+  })
+
+  it('keeps a blank name rather than dropping the flagged row it belongs to', () => {
+    expect(flaggedItemNames([makeFlaggedItem('item-unnamed', '')])).toEqual([''])
+    expect(flaggedItemNames([makeFlaggedItem('item-unnamed', '')])).toHaveLength(1)
+  })
+
+  it('does not mutate the list it was given', () => {
+    const items = [makeFlaggedItem('item-chicken'), makeItem()]
+    const snapshot = JSON.parse(JSON.stringify(items))
+
+    flaggedItemNames(items)
+
+    expect(items).toEqual(snapshot)
   })
 })
 
 describe('groceryBanner', () => {
   describe('no banner', () => {
     it('returns null when the list carries no banner', () => {
-      expect(groceryBanner(null, 0)).toBeNull()
+      expect(groceryBanner(null, [])).toBeNull()
     })
 
     it('returns null when flags exist but no banner was sent', () => {
-      expect(groceryBanner(null, 3)).toBeNull()
+      expect(groceryBanner(null, [FLAGGED_ITEM_NAME, 'Salmon fillet', 'Feta'])).toBeNull()
     })
   })
 
   describe('updated after swap', () => {
     it('renders the success tick banner naming the swapped slot', () => {
-      const content = groceryBanner({code: 'updated_after_swap', mealSlot: 'lunch'}, 0)
+      const content = groceryBanner({code: 'updated_after_swap', mealSlot: 'lunch'}, [])
 
       expect(content?.tone).toBe('success')
       expect(content?.glyph).toBe('tick')
@@ -722,7 +752,7 @@ describe('groceryBanner', () => {
     })
 
     it('states the swap without inventing a slot when the banner names none', () => {
-      const content = groceryBanner({code: 'updated_after_swap'}, 0)
+      const content = groceryBanner({code: 'updated_after_swap'}, [])
 
       expect(content?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEXT)
       expect(content?.body).not.toContain('undefined')
@@ -730,14 +760,14 @@ describe('groceryBanner', () => {
     })
 
     it('states the swap without a slot for a slot code it does not know', () => {
-      const content = groceryBanner({code: 'updated_after_swap', mealSlot: UNKNOWN_MEAL_SLOT}, 0)
+      const content = groceryBanner({code: 'updated_after_swap', mealSlot: UNKNOWN_MEAL_SLOT}, [])
 
       expect(content?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEXT)
       expect(content?.body).not.toContain('undefined')
     })
 
     it.each(PROTOTYPE_KEYS)('states the swap without a slot for the inherited slot name %s', key => {
-      const content = groceryBanner({code: 'updated_after_swap', mealSlot: key}, 0)
+      const content = groceryBanner({code: 'updated_after_swap', mealSlot: key}, [])
 
       expect(content?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEXT)
       expect(typeof content?.body).toBe('string')
@@ -746,16 +776,16 @@ describe('groceryBanner', () => {
     })
 
     it('gives an inherited slot name the same banner as a slot code it does not know', () => {
-      const inherited = groceryBanner({code: 'updated_after_swap', mealSlot: INHERITED_KEY}, 0)
-      const unknown = groceryBanner({code: 'updated_after_swap', mealSlot: UNKNOWN_MEAL_SLOT}, 0)
+      const inherited = groceryBanner({code: 'updated_after_swap', mealSlot: INHERITED_KEY}, [])
+      const unknown = groceryBanner({code: 'updated_after_swap', mealSlot: UNKNOWN_MEAL_SLOT}, [])
 
       expect(inherited).toEqual(unknown)
     })
   })
 
   describe('amount increased', () => {
-    it('names the one item in the singular banner', () => {
-      const content = groceryBanner({code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]}, 1)
+    it('names the one flagged row in the singular banner', () => {
+      const content = groceryBanner({code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]}, [FLAGGED_ITEM_NAME])
 
       expect(content?.tone).toBe('error')
       expect(content?.glyph).toBe('warning')
@@ -764,9 +794,12 @@ describe('groceryBanner', () => {
       expect(content?.body).toContain(FLAGGED_ITEM_NAME)
     })
 
-    it('counts the items in the plural banner', () => {
-      const itemNames = [FLAGGED_ITEM_NAME, 'Spinach', 'Feta']
-      const content = groceryBanner({code: 'amount_increased', itemNames}, 3)
+    it('counts the flagged rows in the plural banner', () => {
+      const content = groceryBanner({code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]}, [
+        FLAGGED_ITEM_NAME,
+        'Spinach',
+        'Feta'
+      ])
 
       expect(content?.tone).toBe('error')
       expect(content?.glyph).toBe('warning')
@@ -776,24 +809,94 @@ describe('groceryBanner', () => {
       expect(content?.body).toContain('3')
     })
 
-    it('falls back to the plural banner when the flag names are missing', () => {
-      const content = groceryBanner({code: 'amount_increased'}, 1)
+    // The response names the row it flagged when it answered, and an untick since then may have cleared that
+    // very row. The rendered rows decide, so the sentence can only name a row still drawing a flag -- and the
+    // row that is actually flagged can never go unnamed while a cleared one is named in its place.
+    it('names the surviving flagged row rather than the one the response named', () => {
+      const content = groceryBanner({code: 'amount_increased', itemNames: ['Avocado']}, ['Bell pepper, red'])
 
-      expect(content?.title).toBe(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE.replace('{n}', '1'))
-      expect(content?.body).toBe(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE.replace('{n}', '1'))
+      expect(content?.title).toBe(GROCERY_AMOUNT_INCREASED_TITLE)
+      expect(content?.body).toContain('Bell pepper, red')
+      expect(content?.body).not.toContain('Avocado')
+    })
+
+    it('reads the rows alone, so stale response names change nothing', () => {
+      const fromRows = groceryBanner({code: 'amount_increased'}, [FLAGGED_ITEM_NAME])
+      const withStaleNames = groceryBanner({code: 'amount_increased', itemNames: ['Avocado', 'Lime']}, [
+        FLAGGED_ITEM_NAME
+      ])
+
+      expect(withStaleNames).toEqual(fromRows)
+    })
+
+    // Unticking the last flagged row clears its flag and leaves the response's banner untouched until the
+    // settle refetch lands, so the sentence has to withdraw: there is no flagged row "below", and the Checked
+    // card it points at has gone with it.
+    it('withdraws the banner once no flagged row survives', () => {
+      expect(groceryBanner({code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]}, [])).toBeNull()
+      expect(groceryBanner({code: 'amount_increased', itemNames: []}, [])).toBeNull()
+      expect(groceryBanner({code: 'amount_increased'}, [])).toBeNull()
+    })
+
+    // Grammar follows the count, never the availability of a name, so one nameless flag stays singular
+    // instead of reading "1 amounts went up after your swaps" / "1 items are flagged below".
+    it('keeps singular grammar for one flagged row that carries no name', () => {
+      const content = groceryBanner({code: 'amount_increased'}, [''])
+
+      expect(content?.tone).toBe('error')
+      expect(content?.glyph).toBe('warning')
+      expect(content?.title).toBe(GROCERY_AMOUNT_INCREASED_TITLE)
+      expect(content?.body).toBe(GROCERY_AMOUNT_INCREASED_BODY_UNNAMED)
+      expect(content?.title).not.toContain('1 amounts')
+      expect(content?.body).not.toContain('1 items')
       expect(content?.body).not.toContain('undefined')
+      expect(content?.body).not.toContain('{')
       expect(content?.body).not.toContain('  ')
       expect(content?.body).not.toMatch(/^\s/)
     })
 
-    it('falls back to the plural banner when the flag name list is empty', () => {
-      const content = groceryBanner({code: 'amount_increased', itemNames: []}, 1)
+    it('treats a whitespace-only name as no name rather than rendering a gap', () => {
+      const content = groceryBanner({code: 'amount_increased', itemNames: ['   ']}, ['   '])
 
-      expect(content?.title).toBe(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE.replace('{n}', '1'))
-      expect(content?.body).toBe(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE.replace('{n}', '1'))
-      expect(content?.body).not.toContain('undefined')
-      expect(content?.body).not.toContain('  ')
-      expect(content?.body).not.toMatch(/^\s/)
+      expect(content?.title).toBe(GROCERY_AMOUNT_INCREASED_TITLE)
+      expect(content?.body).toBe(GROCERY_AMOUNT_INCREASED_BODY_UNNAMED)
+      expect(content?.body).not.toContain('   ')
+    })
+
+    it('still pluralises when several flagged rows carry no names', () => {
+      const content = groceryBanner({code: 'amount_increased'}, ['', ''])
+
+      expect(content?.title).toBe(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE.replace('{n}', '2'))
+      expect(content?.body).toBe(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE.replace('{n}', '2'))
+    })
+
+    it('never renders a count the flagged rows do not support', () => {
+      const counts = [0, 1, 2, 3, 14]
+
+      counts.forEach(count => {
+        const names = Array.from({length: count}, (_unused, index) => `Item ${index}`)
+        const content = groceryBanner({code: 'amount_increased', itemNames: ['Avocado']}, names)
+
+        if (count === 0) {
+          expect(content).toBeNull()
+
+          return
+        }
+
+        const rendered = `${content?.title ?? ''} ${content?.body ?? ''}`
+
+        expect(rendered).not.toContain('0 amounts')
+        expect(rendered).not.toContain('1 amounts')
+        expect(rendered).not.toContain('1 items')
+        expect(rendered).not.toContain('Avocado')
+        expect(rendered).not.toContain('undefined')
+        expect(rendered).not.toContain('{')
+
+        if (count > 1) {
+          expect(content?.title).toContain(String(count))
+          expect(content?.body).toContain(String(count))
+        }
+      })
     })
   })
 })
@@ -848,6 +951,81 @@ describe('orderGrocerySections', () => {
         UNKNOWN_CATEGORY,
         'pantry_other'
       ])
+    })
+  })
+
+  // The converter files an aisle code this version does not know under the catch-all, which the response
+  // also sends in its own right, so two sections claiming one category is the ordinary consequence of a
+  // backend released ahead of the client (0.7.5). buildGroceryViewModel keys its blocks by category, so the
+  // sections have to leave here folded or the list is handed two cells under one key.
+  describe('sections sharing one category', () => {
+    it('folds them into the section that claimed the category first', () => {
+      const sections = [
+        makeSection('pantry_other', [makeItem({id: 'item-oil'})]),
+        makeSection('produce', [makeItem()]),
+        makeSection('pantry_other', [makeItem({id: 'item-peas'})])
+      ]
+      const ordered = orderGrocerySections(sections)
+
+      expect(ordered.map(section => section.category)).toEqual(['produce', 'pantry_other'])
+      expect(ordered[1].items.map(item => item.id)).toEqual(['item-oil', 'item-peas'])
+    })
+
+    it('lists no category twice, so the caller can key a list off it', () => {
+      const sections = [
+        makeSection('pantry_other', [makeItem({id: 'item-oil'})]),
+        makeSection('pantry_other', [makeItem({id: 'item-peas'})]),
+        makeSection('produce', [makeItem()]),
+        makeSection('produce', [makeItem({id: 'item-avocado'})])
+      ]
+      const categories = orderGrocerySections(sections).map(section => section.category)
+
+      expect(categories).toEqual(['produce', 'pantry_other'])
+      expect(new Set(categories).size).toBe(categories.length)
+    })
+
+    it('folds onto the surviving section when the first was emptied by its checked rows', () => {
+      const sections = [
+        makeSection('pantry_other', [makeItem({id: 'item-oil', isChecked: true})]),
+        makeSection('pantry_other', [makeItem({id: 'item-peas'})])
+      ]
+      const ordered = orderGrocerySections(sections)
+
+      expect(ordered).toHaveLength(1)
+      expect(ordered[0].items.map(item => item.id)).toEqual(['item-peas'])
+    })
+
+    it('drops the category outright when every one of its sections is checked through', () => {
+      const sections = [
+        makeSection('pantry_other', [makeItem({id: 'item-oil', isChecked: true})]),
+        makeSection('pantry_other', [makeItem({id: 'item-peas', isChecked: true})])
+      ]
+
+      expect(orderGrocerySections(sections)).toEqual([])
+    })
+
+    it('keeps distinct categories apart, an unknown code included', () => {
+      const sections = [
+        makeUnknownSection(UNKNOWN_CATEGORY, [makeItem({id: 'item-peas'})]),
+        makeSection('pantry_other', [makeItem({id: 'item-oil'})])
+      ]
+      const ordered = orderGrocerySections(sections)
+
+      expect(ordered.map(section => section.category)).toEqual([UNKNOWN_CATEGORY, 'pantry_other'])
+      expect(ordered.map(section => section.items.length)).toEqual([1, 1])
+    })
+
+    it('does not mutate the sections or the item arrays it folded', () => {
+      const sections = [
+        makeSection('pantry_other', [makeItem({id: 'item-oil'})]),
+        makeSection('pantry_other', [makeItem({id: 'item-peas'})])
+      ]
+      const snapshot = JSON.parse(JSON.stringify(sections))
+
+      orderGrocerySections(sections)
+
+      expect(sections).toEqual(snapshot)
+      expect(sections[0].items).toHaveLength(1)
     })
   })
 
@@ -1066,6 +1244,30 @@ describe('buildGroceryViewModel', () => {
 
       expect(new Set(blocks.map(block => block.key)).size).toBe(blocks.length)
     })
+
+    // Two sections claiming one category arrive whenever the response carries both an aisle code this
+    // version does not know and the catch-all it is filed under. Left apart they would hand the FlatList two
+    // cells keyed 'category:pantry_other' -- a duplicate-key error, two identical 'Pantry & other' headings,
+    // and recycled cells landing under the wrong one.
+    it('folds two sections claiming one category into a single keyed block', () => {
+      const {blocks} = buildGroceryViewModel(
+        makeList({
+          sections: [
+            makeSection('pantry_other', [makeItem({id: 'item-oil', name: 'Olive oil'})]),
+            makeSection('produce', [makeItem()]),
+            makeSection('pantry_other', [makeItem({id: 'item-peas', name: 'Frozen peas'})])
+          ]
+        })
+      )
+      const pantry = blocks.filter(block => block.key === 'category:pantry_other')
+
+      expect(pantry).toHaveLength(1)
+      expect(new Set(blocks.map(block => block.key)).size).toBe(blocks.length)
+      expect(pantry[0].items.map(item => item.id)).toEqual(['item-oil', 'item-peas'])
+      expect(
+        blocks.filter(block => block.kind === 'category' && block.label === GROCERY_CATEGORY_LABELS.pantry_other)
+      ).toHaveLength(1)
+    })
   })
 
   describe('banner and flags', () => {
@@ -1117,6 +1319,130 @@ describe('buildGroceryViewModel', () => {
     it('renders no banner when the list carries none', () => {
       expect(buildGroceryViewModel(stockedList()).banner).toBeNull()
       expect(buildGroceryViewModel(stockedList()).flagCount).toBe(0)
+    })
+
+    // The rendered Checked card is the naming authority. An untick clears the row's flag and leaves the
+    // response's itemNames pointing at it, so reading those names would name a row that is now neither
+    // flagged nor checked while the row that is still flagged went unnamed.
+    it('names the flagged row the Checked card is drawing, not the one the response named', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'amount_increased', itemNames: ['Avocado']},
+          checkedCount: 1,
+          checkedItems: [makeFlaggedItem('item-pepper', 'Bell pepper, red')]
+        })
+      )
+
+      expect(model.banner?.title).toBe(GROCERY_AMOUNT_INCREASED_TITLE)
+      expect(model.banner?.body).toContain('Bell pepper, red')
+      expect(model.banner?.body).not.toContain('Avocado')
+    })
+
+    // The optimistic untick clears the flag and leaves the response's banner untouched until the settle
+    // refetch lands, so the model is what has to stop asserting an increase: nothing is flagged, and the
+    // Checked card the sentence points at has gone with it.
+    it('drops the increase banner once the flags are cleared, response notwithstanding', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]},
+          checkedCount: 0,
+          checkedItems: []
+        })
+      )
+
+      expect(model.banner).toBeNull()
+      expect(model.flagCount).toBe(0)
+      expect(model.blocks.every(block => block.kind === 'category')).toBe(true)
+    })
+
+    // Still-checked rows with the flag cleared are the other half of that state: the Checked card remains,
+    // but nothing in it is flagged, so the increase sentence still has nothing to point at.
+    it('drops the increase banner while rows stay checked but unflagged', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]},
+          checkedCount: 2,
+          checkedItems: [
+            makeItem({id: 'item-chicken', name: FLAGGED_ITEM_NAME, isChecked: true}),
+            makeItem({id: 'item-spinach', isChecked: true})
+          ]
+        })
+      )
+
+      expect(model.banner).toBeNull()
+      expect(model.flagCount).toBe(0)
+      expect(model.blocks.some(block => block.kind === 'checked')).toBe(true)
+    })
+
+    it('keeps the swap banner after the last flag is cleared, being a claim about the swap', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'updated_after_swap', mealSlot: 'lunch'},
+          checkedCount: 0,
+          checkedItems: []
+        })
+      )
+
+      expect(model.banner?.tone).toBe('success')
+      expect(model.banner?.body).toBe(GROCERY_UPDATED_AFTER_SWAP_TEMPLATE.replace('{slot}', 'lunch'))
+    })
+
+    it('pluralises from the rows it counted even when the response named just one', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]},
+          checkedCount: 2,
+          checkedItems: [makeFlaggedItem('item-chicken'), makeFlaggedItem('item-salmon', 'Salmon fillet')]
+        })
+      )
+
+      expect(model.flagCount).toBe(2)
+      expect(model.banner?.title).toBe(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE.replace('{n}', '2'))
+      expect(model.banner?.body).toBe(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE.replace('{n}', '2'))
+    })
+
+    it('states one nameless flagged row in the singular, never as "1 amounts"', () => {
+      const model = buildGroceryViewModel(
+        stockedList({
+          banner: {code: 'amount_increased'},
+          checkedCount: 1,
+          checkedItems: [makeFlaggedItem('item-unnamed', '')]
+        })
+      )
+
+      expect(model.flagCount).toBe(1)
+      expect(model.banner?.title).toBe(GROCERY_AMOUNT_INCREASED_TITLE)
+      expect(model.banner?.body).toBe(GROCERY_AMOUNT_INCREASED_BODY_UNNAMED)
+      expect(model.banner?.title).not.toContain('1 amounts')
+      expect(model.banner?.body).not.toContain('1 items')
+    })
+
+    // The count beside the list and the sentence above it read one scan of the same rows, so a flag either
+    // shows up in both or in neither.
+    it('agrees between the flag count and the banner it rendered', () => {
+      const cases: Array<{checkedItems: GroceryItem[]; flagCount: number; hasBanner: boolean}> = [
+        {checkedItems: [], flagCount: 0, hasBanner: false},
+        {checkedItems: [makeItem({id: 'item-spinach', isChecked: true})], flagCount: 0, hasBanner: false},
+        {checkedItems: [makeFlaggedItem('item-chicken')], flagCount: 1, hasBanner: true},
+        {
+          checkedItems: [makeFlaggedItem('item-chicken'), makeFlaggedItem('item-salmon', 'Salmon fillet')],
+          flagCount: 2,
+          hasBanner: true
+        }
+      ]
+
+      cases.forEach(({checkedItems, flagCount, hasBanner}) => {
+        const model = buildGroceryViewModel(
+          stockedList({
+            banner: {code: 'amount_increased', itemNames: [FLAGGED_ITEM_NAME]},
+            checkedCount: checkedItems.length,
+            checkedItems
+          })
+        )
+
+        expect(model.flagCount).toBe(flagCount)
+        expect(model.banner !== null).toBe(hasBanner)
+      })
     })
   })
 

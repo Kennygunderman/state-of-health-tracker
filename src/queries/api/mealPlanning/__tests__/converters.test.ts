@@ -1784,6 +1784,101 @@ describe('convertGroceryList', () => {
     expect(result.sections[0].items).toHaveLength(1)
   })
 
+  // An unknown aisle is filed under 'pantry_other', which the response also sends in its own right, so a
+  // client older than the backend (0.7.5 releases the backend first) routinely receives both. The screen
+  // keys its list blocks by category, so two sections claiming that one code would hand the FlatList two
+  // cells under a single key: a React duplicate-key error, two identical 'Pantry & other' headings and
+  // recycled cells landing under the wrong one.
+  describe('aisles that collapse onto one category', () => {
+    it('folds an unrecognised aisle into the catch-all section rather than listing it twice', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'pantry_other', items: [makeGroceryItem({id: 'item-oil', name: 'Olive oil'})]},
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas', name: 'Frozen peas'})]}
+        ]
+      })
+
+      const result = convertGroceryList(response)
+
+      expect(result.sections).toHaveLength(1)
+      expect(result.sections[0].category).toBe('pantry_other')
+      expect(result.sections[0].items.map(item => item.id)).toEqual(['item-oil', 'item-peas'])
+    })
+
+    it('keeps the folded section where the category first appeared', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas'})]},
+          {category: 'produce', items: [makeGroceryItem({id: 'item-spinach'})]},
+          {category: 'pantry_other', items: [makeGroceryItem({id: 'item-oil'})]}
+        ]
+      })
+
+      const result = convertGroceryList(response)
+
+      expect(result.sections.map(section => section.category)).toEqual(['pantry_other', 'produce'])
+      expect(result.sections[0].items.map(item => item.id)).toEqual(['item-peas', 'item-oil'])
+    })
+
+    it('folds several unrecognised aisles together', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas'})]},
+          {category: 'deli_counter', items: [makeGroceryItem({id: 'item-ham'})]},
+          {category: 'bakery_fresh', items: [makeGroceryItem({id: 'item-roll'})]}
+        ]
+      })
+
+      const result = convertGroceryList(response)
+
+      expect(result.sections).toHaveLength(1)
+      expect(result.sections[0].items.map(item => item.id)).toEqual(['item-peas', 'item-ham', 'item-roll'])
+    })
+
+    it('leaves every category listed exactly once', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'produce', items: [makeGroceryItem({id: 'item-spinach'})]},
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas'})]},
+          {category: 'produce', items: [makeGroceryItem({id: 'item-avocado'})]},
+          {category: 'pantry_other', items: [makeGroceryItem({id: 'item-oil'})]}
+        ]
+      })
+
+      const categories = convertGroceryList(response).sections.map(section => section.category)
+
+      expect(categories).toEqual(['produce', 'pantry_other'])
+      expect(new Set(categories).size).toBe(categories.length)
+    })
+
+    it('stamps every folded row with the category it ended up filed under', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'pantry_other', items: [makeGroceryItem({id: 'item-oil'})]},
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas'})]}
+        ]
+      })
+
+      const result = convertGroceryList(response)
+
+      expect(result.sections[0].items.map(item => item.category)).toEqual(['pantry_other', 'pantry_other'])
+    })
+
+    it('keeps a recognised aisle out of the fold', () => {
+      const response = makeGroceryList({
+        sections: [
+          {category: 'frozen_foods', items: [makeGroceryItem({id: 'item-peas'})]},
+          {category: 'grains_bread', items: [makeGroceryItem({id: 'item-rice'})]}
+        ]
+      })
+
+      const result = convertGroceryList(response)
+
+      expect(result.sections.map(section => section.category)).toEqual(['pantry_other', 'grains_bread'])
+      expect(result.sections.map(section => section.items.length)).toEqual([1, 1])
+    })
+  })
+
   describe('the banner', () => {
     it('returns null when the response carries no banner', () => {
       expect(convertGroceryList(makeGroceryList({banner: null})).banner).toBeNull()

@@ -9,11 +9,14 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context'
 
 import BackCircleButton from '@components/BackCircleButton'
 import {heroStrokeFor, iconComponentFor} from '@components/MealIconTile'
+import Skeleton from '@components/Skeleton'
 import Text from '@components/Text'
 
 import {MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} from '@constants/strings'
 
-import styles, {backButtonPosition} from './index.styled'
+import styles, {backButtonPosition, heroGlyphSize, RecipeHeroSize} from './index.styled'
+
+export type {RecipeHeroSize} from './index.styled'
 
 // A stacking index rather than a design value, which is why it is named here instead of in the `@styles`
 // token maps: React Native paints and hit-tests siblings in tree order, so the back slot — rendered first
@@ -31,20 +34,66 @@ const BACK_SLOT_LAYER = 1
  * hero is an unreachable control for a screen reader, so a caller that supplies no label gets a button
  * named from `contextText`, the band's own visible context.
  */
-interface Props {
+interface RecipeProps {
+  variant?: 'recipe'
   iconKey: RecipeIconKey
   contextText: string
   onBack: () => void
-  size?: 'detail' | 'preview'
+  size?: RecipeHeroSize
   onPress?: () => void
   accessibilityLabel?: string
 }
 
+/**
+ * The same band while there is no recipe to present yet. It exists because the band, not the screen, owns
+ * the only back control on a route drawn with no header and no tab bar: a screen that swapped the whole band
+ * for a placeholder left a read that can run for the request timeout with no on-screen way out.
+ *
+ * `width` is a prop rather than a `useWindowDimensions()` call because `Skeleton` sizes its shimmer sweep
+ * from a number, and subscribing here would put a dimensions subscription on every hero the app renders.
+ */
+interface PendingProps {
+  variant: 'pending'
+  onBack: () => void
+  width: number
+}
+
+type Props = RecipeProps | PendingProps
+
 const RecipeHero = (props: Props): React.JSX.Element => {
-  const {iconKey, contextText, onBack, size = 'detail'} = props
   const insets = useSafeAreaInsets()
+
+  // The back button is the pressable's sibling, never its child: as a descendant it would be an accessible
+  // control inside another accessible control, which leaves a screen reader one button where there are two.
+  // It is drawn first in both variants so a reader reaches the escape before the band's own content, and
+  // `BACK_SLOT_LAYER` is what keeps it painted and hit-tested above the layer it now precedes.
+  const backSlot = (
+    <View style={[styles.backSlot, backButtonPosition(insets.top, BACK_SLOT_LAYER)]}>
+      <BackCircleButton
+        variant="scrim"
+        onPress={props.onBack}
+        accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL}
+      />
+    </View>
+  )
+
+  // No frame draws this state, so it is the band's own geometry with the app's `Skeleton` where the glyph and
+  // the context pill would be (AAP 0.2.5). The placeholder is deliberately NOT hidden from assistive tech the
+  // way a placeholder normally is: the back button inside it is the screen's only exit while the read is in
+  // flight, so hiding the band's descendants would hide the one control this variant exists to keep.
+  if (props.variant === 'pending') {
+    return (
+      <View style={styles.band}>
+        {backSlot}
+
+        <Skeleton height={Sizes.HERO_BAND_H} width={props.width} />
+      </View>
+    )
+  }
+
+  const {iconKey, contextText, size = 'detail'} = props
   const Glyph = iconComponentFor(iconKey)
-  const glyphSize = size === 'preview' ? Sizes.HERO_TILE_SM : Sizes.HERO_TILE
+  const glyphSize = heroGlyphSize(size)
   const glyphStroke = heroStrokeFor(iconKey)
 
   const content = (
@@ -59,15 +108,9 @@ const RecipeHero = (props: Props): React.JSX.Element => {
     </>
   )
 
-  // The back button is the pressable's sibling, never its child: as a descendant it would be an accessible
-  // control inside another accessible control, which leaves a screen reader one button where there are two.
-  // It is drawn first so a reader reaches the escape before the hero's own action, and `BACK_SLOT_LAYER` is
-  // what keeps it painted and hit-tested above the content layer it now precedes.
   return (
     <View style={styles.band}>
-      <View style={[styles.backSlot, backButtonPosition(insets.top, BACK_SLOT_LAYER)]}>
-        <BackCircleButton variant="scrim" onPress={onBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
-      </View>
+      {backSlot}
 
       {props.onPress ? (
         <TouchableOpacity

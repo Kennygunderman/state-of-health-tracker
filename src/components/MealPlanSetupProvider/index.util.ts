@@ -263,11 +263,81 @@ const copyDraftField = <Key extends keyof MealPlanSetupDraft>(
 const editedSteps = (dirty: MealPlanSetupDirty): MealPlanSetupStep[] =>
   SETUP_STEPS_ESTIMATED.filter(step => dirty[step])
 
+// The three answers that are a SET the user adds to rather than a single value they replace. They are the
+// only fields reconciled with the stored answer on a first seed (`reconcileFirstSeedSet` below); every other
+// field holds one value, where the user's own answer is simply the newer of the two.
+//
+// `mealTimes` is deliberately not one of them even though it is an array: its entries are one per slot of the
+// chosen schedule, so a union could hold two times for one slot and a schedule chosen before the answer
+// arrived has to keep the times seeded with it (`applyMealSchedule`).
+const RECONCILED_SET_FIELDS = Object.freeze(['allergens', 'dislikedFoodIds', 'dislikedFoodGroups'] as const)
+
+type ReconciledSetField = (typeof RECONCILED_SET_FIELDS)[number]
+
+const isReconciledSetField = (field: keyof MealPlanSetupDraft): field is ReconciledSetField =>
+  RECONCILED_SET_FIELDS.some(candidate => candidate === field)
+
+// The stored set with the additions made before it arrived, stored order first: the saved answer is never
+// reordered, and an addition the row already holds is not repeated.
+const withAdditions = (stored: readonly string[], edited: readonly string[]): string[] => [
+  ...stored,
+  ...edited.filter(value => !stored.includes(value))
+]
+
+// 'None' means "no allergies", so it cannot travel beside a named one. Where a selection made before the
+// answer arrived produces that pair, the named allergies are what stays: dropping the sentinel keeps every
+// declared allergy on screen, while dropping an allergy would quietly relax a restriction the user asked for,
+// and allergies are never removed automatically (Figma note `47:230`). It is the same correction
+// MealPlanDiet's chip builder applies to a stored row that arrives holding both.
+const withExclusiveNoneSettled = (allergens: string[]): string[] => {
+  const named = allergens.filter(value => value !== ALLERGEN_NONE)
+
+  return named.length > 0 ? named : allergens
+}
+
+// One set field, reconciled rather than replaced. The addition is honoured and the stored answer is kept
+// whole, which is what makes an answer the user never saw impossible to delete by touching the question.
+const reconcileFirstSeedSet = (
+  field: ReconciledSetField,
+  seeded: MealPlanSetupDraft,
+  previous: MealPlanSetupDraft
+): string[] => {
+  const stored = seeded[field]
+  const merged = withAdditions(stored, previous[field])
+
+  if (field === 'allergens') {
+    return withExclusiveNoneSettled(merged)
+  }
+
+  // The dislikes answer is bounded at a hundred distinct ids, so a stored answer at the bound leaves no room
+  // for an addition made under it. The additions are then refused as a set rather than trimmed to a count
+  // nobody chose — the rule `commitDislikeStaging` already applies when a response raises that answer
+  // mid-visit — so the stored answer stands and the user can add again with the selection in front of them.
+  if (field === 'dislikedFoodIds' && refusesDislikeSelection(merged, stored)) {
+    return [...stored]
+  }
+
+  return merged
+}
+
+const writeSetField = (target: MealPlanSetupDraft, field: ReconciledSetField, value: string[]): void => {
+  target[field] = value
+}
+
 // The answers the user has already given win over the answers just read from the server. A step screen stays
 // interactive while its preferences query is in flight, so a slow response resolves AFTER the user has
 // chosen a goal, an activity level or a diet, typed a budget or picked meal times — and a seed that took the
 // saved row wholesale would erase exactly those. A dirty step therefore keeps both its fields and its dirty
 // flag, and every untouched step adopts what is stored.
+//
+// A FIRST seed is the one case where taking the edit wholesale is itself data loss, and the set answers are
+// where it shows. Until that seed lands the draft's sets are empty, so every chip and row renders unselected:
+// a tap on one can only mean "add this", it can never mean "remove the thing I can see is selected", and
+// there is nothing in the draft for it to have removed. Replacing the stored set with it would therefore
+// delete allergies or dislikes the user was never shown — Figma note `47:230` and AAP 0.2.5 both refuse that —
+// so on a first seed those three fields are reconciled with the stored answer instead: the addition applies
+// on top of it. Every later reseed (a background refetch) still takes the edit whole, because by then the
+// draft was seeded from a known answer and a removal in it is a removal the user chose.
 const withEditedStepsPreserved = (
   seeded: MealPlanSetupDraft,
   previous: MealPlanSetupDraftState
@@ -275,7 +345,15 @@ const withEditedStepsPreserved = (
   const merged = {...seeded}
 
   editedSteps(previous.dirty).forEach(step =>
-    DRAFT_FIELDS_BY_STEP[step].forEach(field => copyDraftField(merged, previous.draft, field))
+    DRAFT_FIELDS_BY_STEP[step].forEach(field => {
+      if (!previous.seeded && isReconciledSetField(field)) {
+        writeSetField(merged, field, reconcileFirstSeedSet(field, seeded, previous.draft))
+
+        return
+      }
+
+      copyDraftField(merged, previous.draft, field)
+    })
   )
 
   return merged

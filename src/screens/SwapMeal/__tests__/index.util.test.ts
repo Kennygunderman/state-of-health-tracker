@@ -159,6 +159,12 @@ const undecodableError = (): AxiosError => axiosError(502, '<html>gateway</html>
 
 const bannerOf = (view: SwapView): SwapBannerContent | null => ('banner' in view ? view.banner : null)
 
+// The certainty guarantee is that the Tier-1 assurance appears in NEITHER field, and a banner may now draw its
+// headline with no body at all — so the two fields are read together and an absent one reads as nothing.
+// Asserting `toContain` against an undefined body would throw rather than fail, proving nothing either way.
+const bannerProse = (banner: SwapBannerContent | null): string =>
+  banner === null ? '' : `${banner.title ?? ''} ${banner.body ?? ''}`
+
 // The cast is the only way to reach the write the readonly row properties forbid at compile time. Writing to a
 // frozen object throws in strict mode and fails silently outside it, and which mode the transpiled test module
 // runs in is not what this asserts, so either outcome is accepted here and the surviving value is asserted by
@@ -211,9 +217,19 @@ describe('resolveSwapView', () => {
       expect(bannerOf(view)).toEqual({
         tone: 'error',
         glyph: 'alert',
-        body: "Couldn't load this right now.",
+        title: "Couldn't load this right now.",
+        body: 'Check your connection, then try again.',
         actionLabel: 'Try again'
       })
+    })
+
+    // The headline is the read that failed, so it belongs in the title the banner draws at 600/15 — the pair
+    // every other screen states a load failure with, and the reason the second constant exists.
+    it('draws the load failure as a headline and its detail, not as body copy alone', () => {
+      const banner = bannerOf(resolveSwapView(swapInput({currentMeal: null, dayError: transportError()})))
+
+      expect(banner?.title).toBe("Couldn't load this right now.")
+      expect(banner?.body).toBe('Check your connection, then try again.')
     })
 
     it('retries the day rather than the alternatives while the request is still in flight', () => {
@@ -341,9 +357,20 @@ describe('resolveSwapView', () => {
       expect(bannerOf(view)).toEqual({
         tone: 'error',
         glyph: 'alert',
-        body: "Couldn't find alternatives right now.",
+        title: "Couldn't find alternatives right now.",
         actionLabel: 'Try again'
       })
+    })
+
+    // 0.2.5 gives this state one sentence and a retry, so the sentence is the headline and there is no second
+    // one to invent: the banner carries a title and no body at all.
+    it('states its one sentence as the headline and carries no body copy', () => {
+      const banner = bannerOf(
+        resolveSwapView(swapInput({alternativesError: transportError(), alternatives: undefined}))
+      )
+
+      expect(banner?.title).toBe("Couldn't find alternatives right now.")
+      expect(banner?.body).toBeUndefined()
     })
 
     it('is the retry state even when the failure carried a decodable code', () => {
@@ -584,14 +611,30 @@ describe('resolveSwapView', () => {
       expect(rendersAlternatives(view) ? view.alternatives : null).toEqual([])
     })
 
+    // The assurance names the meal, so it cannot be stated truthfully without one: the headline stays — as the
+    // title, at the treatment 0.2.5 gives it — and the body it would have occupied is not drawn at all.
     it('promises nothing about the plan when the meal is not known', () => {
       const view = resolveSwapView(swapInput({currentMeal: null, swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
       const banner = bannerOf(view)
 
       expect(view.kind).toBe('failed')
-      expect(banner?.title).toBeUndefined()
-      expect(banner?.body).toBe("We couldn't swap that meal")
-      expect(banner?.body).not.toContain('unchanged')
+      expect(banner?.title).toBe("We couldn't swap that meal")
+      expect(banner?.body).toBeUndefined()
+      expect(bannerProse(banner)).not.toContain('unchanged')
+      expect(bannerProse(banner)).not.toContain('grocery list')
+    })
+
+    // The same headline whether or not the meal is known, so the failure never reads as two different events —
+    // only the assurance below it depends on the slot.
+    it('states the failure in the same headline with and without the meal', () => {
+      const withMeal = bannerOf(resolveSwapView(swapInput({swapError: apiError(502, API_ERROR_CODES.swapFailed)})))
+      const withoutMeal = bannerOf(
+        resolveSwapView(swapInput({currentMeal: null, swapError: apiError(502, API_ERROR_CODES.swapFailed)}))
+      )
+
+      expect(withoutMeal?.title).toBe(withMeal?.title)
+      expect(withMeal?.body).toBe('Your lunch is unchanged and your grocery list was not updated.')
+      expect(withoutMeal?.body).toBeUndefined()
     })
   })
 
@@ -623,7 +666,7 @@ describe('resolveSwapView', () => {
       expect(unconfirmed?.title).not.toBe(confirmed?.title)
       expect(unconfirmed?.body).not.toBe(confirmed?.body)
       expect(confirmed?.body).toContain('unchanged')
-      expect(unconfirmed?.body).not.toContain('unchanged')
+      expect(bannerProse(unconfirmed)).not.toContain('unchanged')
     })
 
     it('asks the user to retry without claiming the meal is unchanged', () => {
@@ -637,7 +680,7 @@ describe('resolveSwapView', () => {
         actionLabel: 'Try again',
         secondaryActionLabel: 'Back to alternatives'
       })
-      expect(bannerOf(view)?.body).not.toContain('unchanged')
+      expect(bannerProse(bannerOf(view))).not.toContain('unchanged')
     })
 
     it('withholds the alternatives list until the outcome resolves', () => {
@@ -683,7 +726,7 @@ describe('resolveSwapView', () => {
       expect(view.kind).toBe('retrying')
       expect(view.currentMealVariant).toBe('default')
       expect(bannerOf(view)).toEqual(bannerOf(resolveSwapView(swapInput({swapError: transportError()}))))
-      expect(bannerOf(view)?.body).not.toContain('unchanged')
+      expect(bannerProse(bannerOf(view))).not.toContain('unchanged')
     })
 
     it('names the slot being retried, and promises nothing when the meal is not known', () => {
@@ -693,8 +736,9 @@ describe('resolveSwapView', () => {
 
       const unknownMeal = bannerOf(retryingFailure({currentMeal: null}))
 
-      expect(unknownMeal?.title).toBeUndefined()
-      expect(unknownMeal?.body).not.toContain('unchanged')
+      expect(unknownMeal?.title).toBe("We couldn't swap that meal")
+      expect(unknownMeal?.body).toBeUndefined()
+      expect(bannerProse(unknownMeal)).not.toContain('unchanged')
     })
 
     // The rows are the danger: opening one commits a second swap under a key the first commit may already have
@@ -986,7 +1030,7 @@ describe('resolveSwapView', () => {
 
       expect(view.kind).toBe('error')
       expect(view.kind === 'error' ? view.retry : null).toBe('alternatives')
-      expect(bannerOf(view)?.body).toBe("Couldn't find alternatives right now.")
+      expect(bannerOf(view)?.title).toBe("Couldn't find alternatives right now.")
     })
 
     it('is 13c again while that retry is in flight', () => {
@@ -2247,19 +2291,128 @@ describe('resolveSwapRetryPlan', () => {
   it('returns an intent that describes the request actually in flight', () => {
     const attemptedAt = NOW + 9_000
 
+    // The minting branch: nothing is on record, so the key and the record both belong to this press and the
+    // record dates to it. The replay branch is asserted below, where the record already exists.
     const plan = resolveSwapRetryPlan({
-      state: stateWith(storedIntent()),
+      state: stateWith(null),
       snapshot: swapSnapshot(),
       userId: USER_ID,
       attemptedAt,
       freshKey: FRESH_KEY
     })
 
+    expect(plan.isReplay).toBe(false)
     expect(plan.intent.key).toBe(plan.idempotencyKey)
     expect(plan.intent.userId).toBe(USER_ID)
     expect(plan.intent.createdAt).toBe(attemptedAt)
     expect(plan.intent.request).toEqual(plan.request)
     expect(matchesFingerprint(plan.request, plan.intent.fingerprint)).toBe(true)
+  })
+
+  // The invariant `resolveSwapReservationRecord` states and the mount replay already holds: restating a key
+  // cannot extend its 7-day life. A replay re-writes the record the store holds, so the record's age stays a
+  // property of the press that minted the key rather than of the press asking again.
+  it('restates the stored record on a replay, so Try again cannot re-date the key', () => {
+    const intent = storedIntent()
+
+    const plan = resolveSwapRetryPlan({
+      state: stateWith(intent),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW + 3 * 24 * 60 * 60 * 1_000,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.isReplay).toBe(true)
+    expect(plan.intent).toBe(intent)
+    expect(plan.intent.createdAt).toBe(NOW)
+    expect(plan.intent.key).toBe(STORED_KEY)
+    expect(plan.intent.request).toEqual(plan.request)
+    expect(matchesFingerprint(plan.request, plan.intent.fingerprint)).toBe(true)
+  })
+
+  // Repeated presses are what the divergence cost: each one re-dated the record, so a key pressed once could
+  // be kept alive indefinitely by asking again every few days.
+  it('holds one createdAt across repeated presses, however late each one is', () => {
+    const intent = storedIntent()
+
+    const created = [NOW + 1_000, NOW + 24 * 60 * 60 * 1_000, NOW + 6 * 24 * 60 * 60 * 1_000].map(
+      attemptedAt =>
+        resolveSwapRetryPlan({
+          state: stateWith(intent),
+          snapshot: swapSnapshot(),
+          userId: USER_ID,
+          attemptedAt,
+          freshKey: FRESH_KEY
+        }).intent.createdAt
+    )
+
+    expect(created).toEqual([NOW, NOW, NOW])
+  })
+
+  // A record filed under another key is not this attempt's, so the fresh key carries a record of its own: the
+  // stored one describes a different request and would hand this press another request's age.
+  it('never adopts a record filed under a different key', () => {
+    const attemptedAt = NOW + 9_000
+    const stored = storedIntent(swapSnapshot({recipeVersionId: 'recipe-version-salad'}))
+
+    const plan = resolveSwapRetryPlan({
+      state: stateWith(stored),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.isReplay).toBe(false)
+    expect(plan.intent).not.toBe(stored)
+    expect(plan.intent.key).toBe(FRESH_KEY)
+    expect(plan.intent.createdAt).toBe(attemptedAt)
+    expect(plan.intent.request).toEqual(swapSnapshot())
+  })
+
+  // The record the slot holds is unusable in both cases — spent by age, or another account's — so the press
+  // mints, and the record it writes dates to the press rather than inheriting the one it could not use.
+  it('mints a record at the press when the stored one has expired or belongs to another user', () => {
+    const expiredAt = NOW + PENDING_INTENT_TTL_MS
+
+    const expired = resolveSwapRetryPlan({
+      state: stateWith(storedIntent()),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: expiredAt,
+      freshKey: FRESH_KEY
+    })
+
+    const anotherUser = resolveSwapRetryPlan({
+      state: stateWith(storedIntent(swapSnapshot(), OTHER_USER_ID)),
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW,
+      freshKey: FRESH_KEY
+    })
+
+    expect(expired.intent.createdAt).toBe(expiredAt)
+    expect(expired.intent.key).toBe(FRESH_KEY)
+    expect(anotherUser.intent.createdAt).toBe(NOW)
+    expect(anotherUser.intent.userId).toBe(USER_ID)
+  })
+
+  // The two replay paths are one behaviour now: the retry's record for a key is the record the mount replay
+  // would restate for it, so neither path can slide the life of a key the other preserves.
+  it('agrees with the mount replay about the record a replayed key carries', () => {
+    const intent = storedIntent()
+    const state = stateWith(intent)
+
+    const plan = resolveSwapRetryPlan({
+      state,
+      snapshot: swapSnapshot(),
+      userId: USER_ID,
+      attemptedAt: NOW + 5_000,
+      freshKey: FRESH_KEY
+    })
+
+    expect(plan.intent).toBe(resolveSwapReservationRecord(state, plan.idempotencyKey))
   })
 })
 

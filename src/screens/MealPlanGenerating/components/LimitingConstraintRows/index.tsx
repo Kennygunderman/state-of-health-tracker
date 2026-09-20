@@ -26,6 +26,12 @@ interface Props {
 // (34:464 is the stacked text column, not a row, and 34:103 is absent from the file); the node data above is
 // the authority. Composing SummaryRows again would need an additive emphasis variant on that shared
 // component, which several other screens consume.
+//
+// Read "inverts" above as inverted RELATIVE TO THE OTHER TWO CARDS, never relative to the design — this
+// comment is the thing a later reader acts on, and the looser reading invites a correction that would be a
+// regression. What renders here IS frame 10c: name 600/15/#EDF3EF on the upper line, value
+// 400/13/18.85/#7E8B84 under it, byte-identical to node 34:466. Aligning these rows to the shared
+// component's treatment would introduce the defect rather than remove one.
 const LimitingConstraintRows = ({rows, onEditConstraint}: Props): React.JSX.Element | null => {
   if (rows.length === 0) {
     return null

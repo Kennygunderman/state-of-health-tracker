@@ -11,7 +11,7 @@ import styles from './index.styled'
 
 export type EmptyStateVariant = 'tile' | 'badge'
 
-export type EmptyStateBottomInset = 'sm' | 'lg'
+export type EmptyStateBottomInset = 'none' | 'sm' | 'lg'
 
 interface Props {
   icon: React.JSX.Element
@@ -40,15 +40,20 @@ const EmptyState = ({
   const hasPrimaryAction = primaryLabel !== undefined && onPrimary !== undefined
 
   return (
-    <View style={[styles.container, bottomInset === 'lg' && styles.containerInsetLg]}>
+    <View
+      style={[
+        styles.container,
+        bottomInset === 'lg' && styles.containerInsetLg,
+        bottomInset === 'none' && styles.containerInsetNone
+      ]}>
       <View style={[styles.glyph, isBadge ? styles.badge : styles.tile]}>{icon}</View>
 
       <Text style={[styles.headline, isBadge ? styles.headlineCompact : styles.headlineLarge]}>{headline}</Text>
 
-      <Text style={styles.body}>{body}</Text>
+      <Text style={[styles.body, isBadge && styles.bodyCompact]}>{body}</Text>
 
       {primaryLabel !== undefined && onPrimary !== undefined && (
-        <View style={styles.action}>
+        <View style={[styles.action, isBadge && styles.actionCompact]}>
           {isBadge ? (
             <SecondaryButton variant="dark" label={primaryLabel} onPress={onPrimary} />
           ) : (
@@ -58,7 +63,7 @@ const EmptyState = ({
       )}
 
       {secondaryLabel !== undefined && onSecondary !== undefined && (
-        <View style={hasPrimaryAction ? styles.actionStacked : styles.action}>
+        <View style={hasPrimaryAction ? styles.actionStacked : [styles.action, isBadge && styles.actionCompact]}>
           <TertiaryTextButton label={secondaryLabel} onPress={onSecondary} />
         </View>
       )}

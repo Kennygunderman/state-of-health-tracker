@@ -465,6 +465,28 @@ describe('resolveBadgeLabels', () => {
   it('drops a code whose label is blank', () => {
     expect(resolveBadgeLabels(['quick'], {quick: ''})).toEqual([])
   })
+
+  // The badge row keys each pill by its label, so a `badges` column holding the same code twice — nothing
+  // constrains it to be unique — would render two children under one React key.
+  it('collapses a repeated code to a single label, keeping first-occurrence order', () => {
+    expect(resolveBadgeLabels(['high_protein', 'gluten_free', 'high_protein'], badgeLabels)).toEqual([
+      'Protein rich',
+      'No gluten'
+    ])
+  })
+
+  it('collapses two distinct codes that resolve to the same label', () => {
+    expect(
+      resolveBadgeLabels(['gluten_free', 'dairy_free'], {gluten_free: 'No allergens', dairy_free: 'No allergens'})
+    ).toEqual(['No allergens'])
+  })
+
+  it('returns labels that are unique whatever the stored array repeats', () => {
+    const labels = resolveBadgeLabels(['vegan', 'vegan', 'quick', 'vegan', 'quick'], badgeLabels)
+
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toEqual(['Plant based', 'Under 15'])
+  })
 })
 
 describe('shouldShowBadgeCaption', () => {

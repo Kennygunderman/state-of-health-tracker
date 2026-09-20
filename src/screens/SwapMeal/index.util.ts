@@ -19,6 +19,7 @@ import {lookupLabel, lookupMember} from '@utility/TextUtility'
 
 import {
   MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE,
+  MEAL_PLAN_LOAD_ERROR_BODY,
   MEAL_PLAN_LOAD_ERROR_TITLE,
   MEAL_PLAN_MEAL_CALORIES_TEMPLATE,
   MEAL_PLAN_MEAL_PROTEIN_TEMPLATE,
@@ -52,7 +53,7 @@ export interface SwapBannerContent {
   tone: 'error'
   glyph: 'alert'
   title?: string
-  body: string
+  body?: string
   actionLabel: string
   secondaryActionLabel?: string
 }
@@ -207,20 +208,18 @@ const isMeasurable = (value: number | null | undefined): value is number =>
 
 const slotWord = (slot: MealSlot): string => MEAL_SLOT_SENTENCE_LABELS[slot]
 
-// The drawn assurance names the meal it left alone, so it can only be stated once that meal is known: without
-// it the banner reports the failure and promises nothing about the plan or the grocery list.
-const swapFailedBanner = (slot: MealSlot | null): SwapBannerContent => {
-  const assurance = slot === null ? null : stringWithNamedParameters(SWAP_FAILED_BODY_TEMPLATE, {slot: slotWord(slot)})
-
-  return {
-    tone: 'error',
-    glyph: 'alert',
-    title: assurance === null ? undefined : SWAP_FAILED_TITLE,
-    body: assurance ?? SWAP_FAILED_TITLE,
-    actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
-    secondaryActionLabel: SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT
-  }
-}
+// The failure itself is always the headline, so it is always the title. The drawn assurance below it names the
+// meal it left alone, so it can only be stated once that meal is known: without it the banner reports the
+// failure and promises nothing about the plan or the grocery list — it carries no body at all rather than a
+// slot-less paraphrase of a guarantee that has to name the meal to be true.
+const swapFailedBanner = (slot: MealSlot | null): SwapBannerContent => ({
+  tone: 'error',
+  glyph: 'alert',
+  title: SWAP_FAILED_TITLE,
+  body: slot === null ? undefined : stringWithNamedParameters(SWAP_FAILED_BODY_TEMPLATE, {slot: slotWord(slot)}),
+  actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT,
+  secondaryActionLabel: SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT
+})
 
 const unconfirmedOutcomeBanner = (): SwapBannerContent => ({
   tone: 'error',
@@ -239,19 +238,23 @@ const retryingView = (outcome: SwapOutcomeMemory, slot: MealSlot | null): SwapVi
     ? {kind: 'retrying', currentMealVariant: 'stillYours', banner: swapFailedBanner(slot)}
     : {kind: 'retrying', currentMealVariant: 'default', banner: unconfirmedOutcomeBanner()}
 
+// One sentence and a retry (0.2.5): the read that failed is named as the banner's headline, so it carries a
+// title and no body rather than a second sentence this state has no copy for.
 const alternativesErrorBanner = (): SwapBannerContent => ({
   tone: 'error',
   glyph: 'alert',
-  body: SWAP_ALTERNATIVES_ERROR_TEXT,
+  title: SWAP_ALTERNATIVES_ERROR_TEXT,
   actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT
 })
 
 // Without the meal being replaced there is no slot to name and nothing to compare against, so the day failure
-// speaks about the screen rather than about the alternatives it never got to request.
+// speaks about the screen rather than about the alternatives it never got to request — in the same headline
+// and detail pair every other screen draws a read failure with.
 const dayErrorBanner = (): SwapBannerContent => ({
   tone: 'error',
   glyph: 'alert',
-  body: MEAL_PLAN_LOAD_ERROR_TITLE,
+  title: MEAL_PLAN_LOAD_ERROR_TITLE,
+  body: MEAL_PLAN_LOAD_ERROR_BODY,
   actionLabel: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT
 })
 
@@ -981,7 +984,9 @@ export function selectSwapAttemptState<TState extends KeyedMutationState>(
  * stored intent's, and the freshly minted key otherwise — the decision `resolveKeyedRequest` owns for all four
  * keyed writes (0.7.2). The wire body is read back from the plan's own request rather than from the snapshot
  * this retry was built from, so a replay is byte-identical to the request the key was minted for instead of
- * merely equal by fingerprint. `intent` is the record to re-write before the request leaves.
+ * merely equal by fingerprint. `intent` is the record to re-write before the request leaves: the stored record
+ * itself on a replay, so restating it cannot re-date a key the user pressed once, and a record minted at this
+ * press otherwise — the same split the mount replay makes, so one operation behaves one way on both paths.
  */
 export function resolveSwapRetryPlan(input: SwapRetryInput): SwapRetryPlan {
   const request = buildSwapRequest({
@@ -998,6 +1003,12 @@ export function resolveSwapRetryPlan(input: SwapRetryInput): SwapRetryPlan {
   // come back with a swap snapshot; the check narrows the union rather than guarding a reachable case.
   const sent = plan.request.action === 'swap' ? plan.request : request
 
+  // `isReplay` is true only because `resolveKeyedRequest` found a record under this very key, owned by this
+  // user and inside its 7-day life — so the lookup answers, and the mint below guards a case the decision
+  // above has already excluded rather than a reachable one. It is kept because a null record minted at
+  // `attemptedAt` still sends under the right key, while returning nothing would send nothing at all.
+  const stored = plan.isReplay ? resolveSwapReservationRecord(input.state, plan.idempotencyKey) : null
+
   return {
     idempotencyKey: plan.idempotencyKey,
     isReplay: plan.isReplay,
@@ -1011,7 +1022,7 @@ export function resolveSwapRetryPlan(input: SwapRetryInput): SwapRetryPlan {
         idempotencyKey: plan.idempotencyKey
       }
     },
-    intent: buildPendingIntent(sent, plan.idempotencyKey, input.userId, input.attemptedAt)
+    intent: stored ?? buildPendingIntent(sent, plan.idempotencyKey, input.userId, input.attemptedAt)
   }
 }
 

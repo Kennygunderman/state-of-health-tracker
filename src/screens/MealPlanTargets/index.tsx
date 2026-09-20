@@ -541,7 +541,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
 
       <View style={styles.answersCardWrapper}>
         <View style={styles.answersCard}>
-          <SummaryRows rows={answerRows(loaded)} divided />
+          <SummaryRows rows={answerRows(loaded)} valueSize="body" divided />
         </View>
       </View>
     </>

@@ -82,13 +82,20 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.accentGreen
   },
+  /* Node 47:451 declares no line height, so Figma resolves the automatic 13px box — 16 — and its wrapper
+     47:450 is a fixed 353 x 24 that cannot absorb more: X_SMALL + 16 closes it exactly. LineHeight.META's
+     18.85 belongs to the multi-line meta style the result rows declare explicitly (47:385 and its siblings,
+     via style_380213a2) and would draw this single line at 26.85 in a wrapper with 24 to give. */
   helperText: {
     paddingTop: Spacing.X_SMALL,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   },
+  /* Not the helper's 16: this caption has no Figma node (the empty result state is inferred) and wraps —
+     "No foods match '<query>'" runs past one line on a narrow device — so it keeps the authored multi-line
+     meta leading. */
   emptyCaption: {
     paddingVertical: Spacing.LARGE,
     fontSize: FontSize.LABEL,

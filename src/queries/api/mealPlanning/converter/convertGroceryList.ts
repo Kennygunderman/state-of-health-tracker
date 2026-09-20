@@ -1,4 +1,4 @@
-import {GroceryBannerCode, GroceryCategory, GroceryItem, GroceryList} from '@data/models/GroceryList'
+import {GroceryBannerCode, GroceryCategory, GroceryItem, GroceryList, GrocerySection} from '@data/models/GroceryList'
 import {GroceryItemResponse, GroceryListResponse} from '@queries/api/mealPlanning/decoder/MealPlanningDecoder'
 import * as io from 'io-ts'
 
@@ -40,6 +40,42 @@ export function convertGroceryItem(data: io.TypeOf<typeof GroceryItemResponse>):
   }
 }
 
+/**
+ * One section per resolved aisle, in the order the aisles first appear, with a folded aisle's rows appended
+ * to the section that claimed its category.
+ *
+ * Folding is required and not a tidiness. An aisle code this version does not know is filed under
+ * 'pantry_other' above, and 'pantry_other' is also a code the response sends in its own right, so a response
+ * carrying both yields two sections claiming that one category. The screen keys its list blocks by category
+ * (`buildGroceryViewModel`), so leaving them separate hands the `FlatList` two cells under a single key: a
+ * React duplicate-key error, two identical 'Pantry & other' headings, and recycled cells landing under the
+ * wrong one. AAP 0.7.5 releases the backend ahead of the client, so a client meeting an aisle code newer than
+ * itself is the expected case rather than a hypothetical one. Folding keeps every row, under the single
+ * heading the catch-all is meant to be.
+ *
+ * Each row is stamped with the category it ends up filed under, which is what lets an optimistic uncheck
+ * return it to the aisle the shopper saw it in.
+ */
+function convertGrocerySections(sections: io.TypeOf<typeof GroceryListResponse>['sections']): GrocerySection[] {
+  const merged: GrocerySection[] = []
+
+  sections.forEach(section => {
+    const category = resolveGroceryCategory(section.category)
+    const items = section.items.map(item => ({...convertGroceryItem(item), category}))
+    const claimed = merged.find(candidate => candidate.category === category)
+
+    if (claimed === undefined) {
+      merged.push({category, items})
+
+      return
+    }
+
+    claimed.items.push(...items)
+  })
+
+  return merged
+}
+
 export function convertGroceryList(data: io.TypeOf<typeof GroceryListResponse>): GroceryList {
   return {
     planId: data.planId,
@@ -60,11 +96,7 @@ export function convertGroceryList(data: io.TypeOf<typeof GroceryListResponse>):
     // Each sectioned row carries its aisle so an optimistic uncheck can return it there. The response states
     // the aisle per section and not per row, and it holds back the checked rows, so checkedItems rows get
     // none: they are re-filed by the next fetch, or by the aisle the row was stamped with when it was ticked.
-    sections: data.sections.map(section => {
-      const category = resolveGroceryCategory(section.category)
-
-      return {category, items: section.items.map(item => ({...convertGroceryItem(item), category}))}
-    }),
+    sections: convertGrocerySections(data.sections),
     checkedItems: data.checkedItems.map(convertGroceryItem)
   }
 }

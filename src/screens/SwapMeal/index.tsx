@@ -969,6 +969,7 @@ const SwapMealScreen = (): React.JSX.Element => {
                           />
                         }
                         variant="badge"
+                        bottomInset="none"
                         headline={SWAP_NO_ALTERNATIVES_TITLE}
                         body={buildNoAlternativesBody(currentMeal.slot)}
                         primaryLabel={MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT}

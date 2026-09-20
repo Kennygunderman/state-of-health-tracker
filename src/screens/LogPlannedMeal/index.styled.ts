@@ -72,10 +72,14 @@ export default StyleSheet.create({
   recipeCardSection: {
     paddingTop: Spacing.MEDIUM
   },
+  /* Node 38:50 declares no line height, and the box Figma resolves for it is 16: three painted instances of
+     the identical style (49:376, 49:379 and 38:188) each hug to 32 over 8/0 padding. Left unset, the label
+     would take the platform font's 15.73 and lift the stepper under it. */
   controlLabel: {
     paddingTop: Spacing.GUTTER,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textSecondary
   },
   // Node 38:52's 8px gap under the "Servings" label. The loaded body takes it from ServingsStepper's own row

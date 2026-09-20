@@ -7,11 +7,13 @@ import {
   confirmedTargetValues,
   formatCalories,
   formatCatalogPortionText,
+  formatCount,
   formatMacroGrams,
   formatMacroPair,
   formatSignedCalories,
   hasAnyTargetValue,
-  isPlannerConfirmedTargets
+  isPlannerConfirmedTargets,
+  toCountValue
 } from '../NutritionFormatUtility'
 
 const CAL_SUFFIX = 'cal'
@@ -90,6 +92,100 @@ describe('formatCalories', () => {
     it('renders NaN as the string NaN, matching the shipped diary formatter', () => {
       expect(formatCalories(NaN)).toBe('NaN')
     })
+  })
+})
+
+describe('toCountValue', () => {
+  describe('the whole counts the server sends', () => {
+    it.each([0, 1, 2, 21, 999, 1000, 1234, 1234567])('passes %p through unchanged', value => {
+      expect(toCountValue(value)).toBe(value)
+    })
+  })
+
+  describe('a negative count, which SQL count() cannot produce', () => {
+    it.each([-1, -3, -0.4, -1234])('reads %p as 0', value => {
+      expect(toCountValue(value)).toBe(0)
+    })
+
+    it('answers a positive zero, so a formatter can never render a negative zero', () => {
+      expect(Object.is(toCountValue(-0), 0)).toBe(true)
+    })
+  })
+
+  describe('a fractional count', () => {
+    it('rounds a sub-half fraction down to nothing counted', () => {
+      expect(toCountValue(0.4)).toBe(0)
+    })
+
+    it('rounds the half boundary up', () => {
+      expect(toCountValue(1.5)).toBe(2)
+    })
+
+    it('rounds below the half boundary down', () => {
+      expect(toCountValue(2.4)).toBe(2)
+    })
+
+    it('rounds up across the grouping separator', () => {
+      expect(toCountValue(1233.5)).toBe(1234)
+    })
+  })
+
+  describe('a value that is not a number at all', () => {
+    it.each([NaN, Infinity, -Infinity])('reads %p as 0', value => {
+      expect(toCountValue(value)).toBe(0)
+    })
+  })
+})
+
+describe('formatCount', () => {
+  describe('grouping boundary', () => {
+    it('leaves three digits ungrouped', () => {
+      expect(formatCount(999)).toBe('999')
+    })
+
+    it('groups at four digits', () => {
+      expect(formatCount(1000)).toBe('1,000')
+    })
+
+    it('groups the four-digit count the regenerate dialog can reach', () => {
+      expect(formatCount(1234)).toBe('1,234')
+    })
+
+    it('groups a seven-digit count twice', () => {
+      expect(formatCount(1234567)).toBe('1,234,567')
+    })
+  })
+
+  it('renders nothing counted as 0', () => {
+    expect(formatCount(0)).toBe('0')
+  })
+
+  describe('the values the clamp absorbs', () => {
+    it.each([-1, -3, -1234])('renders %p as 0 with no sign of any kind', value => {
+      const rendered = formatCount(value)
+
+      expect(rendered).toBe('0')
+      expect(rendered).not.toContain('-')
+      expect(rendered).not.toContain('\u2212')
+    })
+
+    it.each([
+      [0.4, '0'],
+      [1.5, '2'],
+      [1233.5, '1,234']
+    ])('renders the fractional %p as %p', (value, expected) => {
+      expect(formatCount(value)).toBe(expected)
+    })
+
+    it.each([NaN, Infinity, -Infinity])('renders %p as 0 rather than as a word', value => {
+      expect(formatCount(value)).toBe('0')
+    })
+  })
+
+  // The point of routing through formatWholeNumber: a count beside a grouped target figure must group by the
+  // same rule, so neither screen can drift from the other.
+  it.each(PARITY_VALUES)('groups %p exactly as the calorie formatter does', value => {
+    expect(formatCount(value)).toBe(formatCalories(value))
   })
 })
 

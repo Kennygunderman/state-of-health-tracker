@@ -832,6 +832,55 @@ describe('MealPlanResponse', () => {
     })
   })
 
+  // The three summary counts come from SQL count(), so a negative or fractional value is a corrupt response
+  // rather than a figure to render: the regenerate dialog would otherwise state '-1 replaced' or
+  // '1.5 entries kept', and a 0.4 grocery count would claim the list was rebuilt.
+  describe('the summary counts', () => {
+    const SUMMARY_MEMBERS = ['plannedMeals', 'groceryItemCount', 'loggedEntryCount'] as const
+
+    const withSummaryMember = (member: string, value: unknown): Record<string, unknown> =>
+      withMembers(makePlan(), {summary: {...makePlan().summary, [member]: value}})
+
+    it.each(SUMMARY_MEMBERS)('refuses a negative %s', member => {
+      expectRefused(MealPlanResponse, withSummaryMember(member, -1))
+    })
+
+    it.each(SUMMARY_MEMBERS)('refuses a fractional %s', member => {
+      expectRefused(MealPlanResponse, withSummaryMember(member, 1.5))
+    })
+
+    it.each(SUMMARY_MEMBERS)('refuses a %s that is not a number at all', member => {
+      ;['21', null, NaN, Infinity, true].forEach(value =>
+        expectRefused(MealPlanResponse, withSummaryMember(member, value))
+      )
+    })
+
+    it('accepts zero for every count', () => {
+      const plan = decodeRight(
+        MealPlanResponse,
+        makePlan({summary: {plannedMeals: 0, groceryItemCount: 0, loggedEntryCount: 0}})
+      )
+
+      expect(plan.summary).toEqual({plannedMeals: 0, groceryItemCount: 0, loggedEntryCount: 0})
+    })
+
+    it('accepts a large whole count, which the diary can genuinely reach', () => {
+      const plan = decodeRight(
+        MealPlanResponse,
+        makePlan({summary: {plannedMeals: 28, groceryItemCount: 96, loggedEntryCount: 1234}})
+      )
+
+      expect(plan.summary.loggedEntryCount).toBe(1234)
+      expect(plan.summary.groceryItemCount).toBe(96)
+    })
+
+    // Refused inside the envelope too: a corrupt count on either plan must not reach the Meal Plan tab.
+    it('refuses a corrupt count on a plan carried by the current-plan envelope', () => {
+      expectRefused(CurrentMealPlanResponse, {current: withSummaryMember('loggedEntryCount', -1), upcoming: null})
+      expectRefused(CurrentMealPlanResponse, {current: null, upcoming: withSummaryMember('plannedMeals', 0.4)})
+    })
+  })
+
   // `generationKey` is not one of the members the contract declares (0.5.2), so requiring it would refuse a
   // conforming plan response — a whole week of meals lost over a member nothing promised. It is decoded as an
   // extra instead: present when this server sends it, and simply absent otherwise.

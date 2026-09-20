@@ -1,3 +1,5 @@
+import type {Goal} from '@data/models/MealPlanPreferences'
+
 import {
   MEAL_PLAN_PACE_DEFICIT_SUBCOPY,
   MEAL_PLAN_PACE_RATE_TEMPLATE,
@@ -497,5 +499,53 @@ describe('validateMealPlanGoal', () => {
         goalWeightKg: 85.5
       })
     })
+  })
+})
+
+// Both doors into this screen are closed to a code outside the union — the preferences codec rejects the whole
+// response, and `onSelectGoal` only ever passes a member of it — but `GOAL_DIRECTIONS[goal]` widens to
+// `undefined` at runtime, and a direction that is neither a GoalDirection nor `null` reads as "this goal has a
+// direction" to every consumer, which is what used to throw inside `paceOptionsForGoal`.
+describe('a goal code outside the Goal union', () => {
+  const unknownCode: string = 'bogus'
+  const UNKNOWN_GOAL = unknownCode as Goal
+
+  // Indexing the table with a name every object inherits resolves that inherited member — a function, or
+  // Object.prototype itself — and neither is nullish, so membership has to be an ownership test.
+  const INHERITED_MEMBER_CODES = ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']
+
+  it('hides the pace section and the goal-weight group', () => {
+    expect(isPaceVisible(UNKNOWN_GOAL)).toBe(false)
+    expect(isGoalWeightVisible(UNKNOWN_GOAL)).toBe(false)
+  })
+
+  it('offers no paces rather than dereferencing a direction it does not have', () => {
+    expect(() => paceOptionsForGoal(UNKNOWN_GOAL)).not.toThrow()
+    expect(paceOptionsForGoal(UNKNOWN_GOAL)).toEqual([])
+  })
+
+  it('applies no side constraint to a goal weight either side of the current weight', () => {
+    expect(isGoalWeightOnGoalSide(90, 82.5, UNKNOWN_GOAL)).toBe(true)
+    expect(isGoalWeightOnGoalSide(77, 82.5, UNKNOWN_GOAL)).toBe(true)
+  })
+
+  it('asks for the goal instead of accepting the unrecognised code as an answer', () => {
+    const validation = validateMealPlanGoal(makeFields({goal: UNKNOWN_GOAL, goalWeightText: '170'}), makeContext())
+
+    expect(validation).toEqual({
+      errors: {goal: 'goal_required', goalWeight: null, pace: null},
+      isValid: false,
+      goalWeightKg: null
+    })
+  })
+
+  it.each(INHERITED_MEMBER_CODES)('treats the inherited member name %s as no goal at all', code => {
+    const goal = code as Goal
+
+    expect(isPaceVisible(goal)).toBe(false)
+    expect(isGoalWeightVisible(goal)).toBe(false)
+    expect(paceOptionsForGoal(goal)).toEqual([])
+    expect(isGoalWeightOnGoalSide(90, 82.5, goal)).toBe(true)
+    expect(validateMealPlanGoal(makeFields({goal}), makeContext()).errors.goal).toBe('goal_required')
   })
 })

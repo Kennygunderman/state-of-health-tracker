@@ -2,7 +2,7 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {Opacity, Sizes} from '@styles/sizes'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import CheckIcon from '@components/icons/CheckIcon'
@@ -26,7 +26,7 @@ const OptionCard = ({label, selected, onPress, subcopy}: Props): React.JSX.Eleme
     accessibilityLabel={subcopy ? `${label}. ${subcopy}` : label}
     onPress={onPress}>
     <View style={[styles.indicator, selected && styles.indicatorSelected]}>
-      {selected && <CheckIcon color={Theme.colors.white} size={Sizes.ICON_XS} />}
+      {selected && <CheckIcon variant="selection" color={Theme.colors.white} />}
     </View>
 
     <View style={styles.textColumn}>

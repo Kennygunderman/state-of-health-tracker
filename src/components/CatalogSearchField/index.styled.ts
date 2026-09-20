@@ -6,6 +6,36 @@ import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
+import {
+  chevronInkOffsetAt,
+  chevronInkShiftMargins,
+  chevronSlotCollapse,
+  ROW_CHEVRON,
+  ROW_CHEVRON_REFERENCE_SIZE
+} from '@components/icons/ChevronGeometry'
+
+// Figma gives the trailing chevron a square 8px slot (`Sizes.CHEVRON_SLOT`, wrapper `47:283`, fixed on both
+// axes) while the glyph itself paints larger than that slot and overhangs it on every side — neither the slot
+// nor the glyph's own frame clips, and the overhang on the right is the arrow's point. Symmetric negative
+// margins are what reconcile the two: they collapse the icon's reference-size layout footprint to the 8px
+// square the row should reserve, while leaving the icon's own box its natural size so no ancestor of the
+// artwork becomes a clipping parent. Both axes matter, and for different reasons — horizontally the collapse
+// is what restores the label's 278px track, and vertically it is what stops the glyph's canvas from being the
+// tallest item in the row: with it the row's content is the 18px label and the field measures Figma's 44px,
+// without it the canvas sets the content height and the field stands 2px too tall. A fixed 8px wrapper would
+// be the obvious alternative and is the wrong one: Android has clipped children to their parent's bounds
+// regardless of `overflow`, and here that would square off the apex.
+const CHEVRON_SLOT_OVERHANG = chevronSlotCollapse(ROW_CHEVRON_REFERENCE_SIZE, Sizes.CHEVRON_SLOT)
+
+// Collapsing the footprint centres the ink in the 8px slot, and Figma does not centre it there: its rotated
+// frame is centred on the slot but paints only the two edges facing the apex, leaving the ink 2.1213px to the
+// right of the slot's centre and its point overhanging the field's padding edge by 1.6569px. Centred ink puts
+// the point two whole pixel columns short of that and widens the visible right margin by 13.8%, so the
+// difference is applied here rather than left in place. It belongs at this call site and not in the glyph:
+// the artwork is shared with nine other rows whose slots are built differently, and shifting it there would
+// move all of them on the evidence of this one node.
+const CHEVRON_INK_SHIFT = chevronInkOffsetAt('right', ROW_CHEVRON, ROW_CHEVRON_REFERENCE_SIZE)
+
 export default StyleSheet.create({
   container: {
     flexDirection: 'row',
@@ -80,6 +110,11 @@ export default StyleSheet.create({
     fontSize: FontSize.OVERLINE,
     fontWeight: FontWeight.BOLD,
     color: Theme.colors.background
+  },
+  chevronSlot: {
+    marginTop: CHEVRON_SLOT_OVERHANG,
+    marginBottom: CHEVRON_SLOT_OVERHANG,
+    ...chevronInkShiftMargins(CHEVRON_SLOT_OVERHANG, CHEVRON_INK_SHIFT)
   },
   cancelLabel: {
     fontSize: FontSize.LABEL,

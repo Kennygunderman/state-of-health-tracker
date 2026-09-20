@@ -16,11 +16,10 @@ export const scrollBottomReserve = (bottomInset: number): ViewStyle => ({
   paddingBottom: actionBarReserve(bottomInset)
 })
 
-// The loading placeholder's dimensions. Skeleton sizes its shimmer sweep from a numeric width rather than a
-// style, so the one measured value it needs — the content column's live width — is resolved from tokens here
-// instead of leaving arithmetic over Spacing and Sizes in the screen.
-export const HERO_PLACEHOLDER_HEIGHT = Sizes.HERO_BAND_H
-
+// The loading strip's dimensions. Skeleton sizes its shimmer sweep from a numeric width rather than a style,
+// so the one measured value it needs — the content column's live width — is resolved from tokens here instead
+// of leaving arithmetic over Spacing and Sizes in the screen. The hero band is not among them: its pending
+// state is `RecipeHero`'s own variant, which keeps the band's height with its back control (AAP 0.2.5).
 export const PLACEHOLDER_RADIUS = BorderRadius.CARD_LG
 
 export const PLACEHOLDER_ROW_HEIGHTS: readonly number[] = [Sizes.CONTROL_LG, Sizes.CONTROL, Sizes.SKELETON_BAR]

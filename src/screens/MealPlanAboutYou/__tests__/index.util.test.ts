@@ -4,6 +4,7 @@ import {WeightUnit} from '@data/models/WeightUnit'
 import {KG_PER_LB, MAX_BODY_WEIGHT_KG, MIN_BODY_WEIGHT_KG} from '@utility/UnitConversionUtility'
 
 import {
+  ABOUT_YOU_FIELD_CONTRACTS,
   AboutYouErrors,
   AboutYouInitialInput,
   buildBodyStepValues,
@@ -12,6 +13,9 @@ import {
   initialFieldsFor,
   MealPlanAboutYouFields,
   mergeAboutYouFields,
+  normalizeAboutYouFieldText,
+  normalizeDecimalFieldText,
+  normalizeIntegerFieldText,
   resolveWeighInPrefill,
   selectLatestWeighIn,
   suggestedWeightField,
@@ -63,6 +67,16 @@ const errorsFor = (
   weightUnit: WeightUnitPref,
   sex: SexForEstimate | null = 'female'
 ): AboutYouErrors => validateAboutYou(makeFields(overrides), heightUnit, weightUnit, sex).errors
+
+// The screen's change handler applied to every field at once, which is how entered text reaches the
+// submit-time parsers: nothing validates raw keystrokes any more.
+const asEntered = (entered: MealPlanAboutYouFields): MealPlanAboutYouFields => ({
+  age: normalizeAboutYouFieldText('age', entered.age),
+  feet: normalizeAboutYouFieldText('feet', entered.feet),
+  inches: normalizeAboutYouFieldText('inches', entered.inches),
+  centimeters: normalizeAboutYouFieldText('centimeters', entered.centimeters),
+  weight: normalizeAboutYouFieldText('weight', entered.weight)
+})
 
 describe('selectLatestWeighIn', () => {
   it('returns null when the user has never weighed in', () => {
@@ -961,5 +975,235 @@ describe('a weigh-in that answers after the unit was switched', () => {
     expect(
       buildBodyStepValues(mergeAboutYouFields(converted, {age: '34', centimeters: '177.8'}), 'cm', 'kg')?.weightKg
     ).toBeCloseTo(82.6, 1)
+  })
+})
+
+describe('normalizeIntegerFieldText', () => {
+  it('keeps nothing from text that carries no digit', () => {
+    expect(normalizeIntegerFieldText('abc')).toBe('')
+    expect(normalizeIntegerFieldText('x')).toBe('')
+    expect(normalizeIntegerFieldText('   ')).toBe('')
+    expect(normalizeIntegerFieldText('')).toBe('')
+  })
+
+  it('keeps the digits out of mixed text and drops the rest', () => {
+    expect(normalizeIntegerFieldText('1a2')).toBe('12')
+    expect(normalizeIntegerFieldText('-5')).toBe('5')
+    expect(normalizeIntegerFieldText('-1')).toBe('1')
+    expect(normalizeIntegerFieldText('3e2')).toBe('32')
+  })
+
+  it('drops a decimal point rather than the digits around it', () => {
+    expect(normalizeIntegerFieldText('3.5')).toBe('35')
+    expect(normalizeIntegerFieldText('82,6')).toBe('826')
+  })
+
+  it('keeps a leading zero, which is the only way a zero-led value can be typed', () => {
+    expect(normalizeIntegerFieldText('007')).toBe('007')
+    expect(normalizeIntegerFieldText('0')).toBe('0')
+  })
+
+  it('folds a locale digit to the ASCII digit it means', () => {
+    expect(normalizeIntegerFieldText('\u0664\u0665')).toBe('45')
+    expect(normalizeIntegerFieldText('\u06f4\u06f5')).toBe('45')
+    expect(normalizeIntegerFieldText('\u0967\u096e')).toBe('18')
+    expect(normalizeIntegerFieldText('\u09ea\u09eb')).toBe('45')
+    expect(normalizeIntegerFieldText('\u0e54\u0e55')).toBe('45')
+    expect(normalizeIntegerFieldText('\u17e4\u17e5')).toBe('45')
+    expect(normalizeIntegerFieldText('\uff14\uff15')).toBe('45')
+  })
+
+  it('iterates code points, so an astral character cannot leave half of itself in the field', () => {
+    const normalized = normalizeIntegerFieldText('3\u{1f600}4')
+
+    expect(normalizeIntegerFieldText('3\u{1f600}')).toBe('3')
+    expect(normalized).toBe('34')
+    expect(Array.from(normalized)).toHaveLength(2)
+    expect(normalized).not.toContain('\ud83d')
+    expect(normalized).not.toContain('\ude00')
+  })
+
+  it('never returns more characters than it was given, so a field cannot outgrow its maxLength', () => {
+    const payloads = ['abc', '1a2', '-5', '3.5', '\u0664\u0665', '3\u{1f600}', '   ', '007', '\uff14\uff15']
+
+    payloads.forEach(payload => {
+      expect(normalizeIntegerFieldText(payload).length).toBeLessThanOrEqual(payload.length)
+    })
+  })
+
+  it('lets a whole number be typed one keystroke at a time', () => {
+    expect(['3', '34'].map(normalizeIntegerFieldText)).toEqual(['3', '34'])
+    expect(['1', '10', '100'].map(normalizeIntegerFieldText)).toEqual(['1', '10', '100'])
+  })
+
+  it('leaves already normalised text exactly as it is', () => {
+    const payloads = ['', '0', '34', '007', '100']
+
+    payloads.forEach(payload => {
+      expect(normalizeIntegerFieldText(payload)).toBe(payload)
+      expect(normalizeIntegerFieldText(normalizeIntegerFieldText(payload))).toBe(normalizeIntegerFieldText(payload))
+    })
+  })
+})
+
+describe('normalizeDecimalFieldText', () => {
+  it('reads a comma as the decimal separator it is on a European layout', () => {
+    expect(normalizeDecimalFieldText('82,6')).toBe('82.6')
+    expect(normalizeDecimalFieldText('177,8')).toBe('177.8')
+  })
+
+  it('reads the Arabic decimal separator the Arabic-Indic digits arrive with', () => {
+    expect(normalizeDecimalFieldText('\u0661\u0668\u066b\u0665')).toBe('18.5')
+  })
+
+  it('folds locale digits around an ASCII point', () => {
+    expect(normalizeDecimalFieldText('\u0661\u0668.\u0665')).toBe('18.5')
+    expect(normalizeDecimalFieldText('\uff18\uff12.\uff16')).toBe('82.6')
+  })
+
+  it('keeps the first separator and drops every later one, rather than the digits', () => {
+    expect(normalizeDecimalFieldText('8.2.6')).toBe('8.26')
+    expect(normalizeDecimalFieldText('1,2,3')).toBe('1.23')
+    expect(normalizeDecimalFieldText('82,6.4')).toBe('82.64')
+  })
+
+  it('keeps a leading separator, which the submit-time parser accepts as a fraction', () => {
+    expect(normalizeDecimalFieldText('.5')).toBe('.5')
+    expect(normalizeDecimalFieldText(',5')).toBe('.5')
+  })
+
+  it('keeps a leading zero, without which 0.5 could not be typed', () => {
+    expect(normalizeDecimalFieldText('007')).toBe('007')
+    expect(normalizeDecimalFieldText('0.5')).toBe('0.5')
+  })
+
+  it('keeps nothing from text carrying neither a digit nor a separator', () => {
+    expect(normalizeDecimalFieldText('abc')).toBe('')
+    expect(normalizeDecimalFieldText('   ')).toBe('')
+    expect(normalizeDecimalFieldText('')).toBe('')
+  })
+
+  it('drops a sign, a letter and an astral character without splitting it', () => {
+    expect(normalizeDecimalFieldText('-82.6')).toBe('82.6')
+    expect(normalizeDecimalFieldText('8a2.6')).toBe('82.6')
+    expect(normalizeDecimalFieldText('82.6\u{1f600}')).toBe('82.6')
+    expect(normalizeDecimalFieldText('8\u{1f600}2,6')).not.toContain('\ud83d')
+  })
+
+  it('never returns more characters than it was given, so a field cannot outgrow its maxLength', () => {
+    const payloads = ['abc', '82,6', '8.2.6', '   ', '.5', '\u0661\u0668\u066b\u0665', '82.6\u{1f600}']
+
+    payloads.forEach(payload => {
+      expect(normalizeDecimalFieldText(payload).length).toBeLessThanOrEqual(payload.length)
+    })
+  })
+
+  // Each keystroke re-enters the whole field, so a state the number pad passes through on its way to 82.6
+  // has to survive normalisation or the separator can never be typed.
+  it('lets a decimal be typed one keystroke at a time', () => {
+    expect(['8', '82', '82.', '82.6'].map(normalizeDecimalFieldText)).toEqual(['8', '82', '82.', '82.6'])
+    expect(['0', '0.', '0.5'].map(normalizeDecimalFieldText)).toEqual(['0', '0.', '0.5'])
+    expect(['.', '.5'].map(normalizeDecimalFieldText)).toEqual(['.', '.5'])
+  })
+
+  it('leaves already normalised text exactly as it is', () => {
+    const payloads = ['', '0.5', '.5', '007', '182.2', '82.6', '82.']
+
+    payloads.forEach(payload => {
+      expect(normalizeDecimalFieldText(payload)).toBe(payload)
+      expect(normalizeDecimalFieldText(normalizeDecimalFieldText(payload))).toBe(normalizeDecimalFieldText(payload))
+    })
+  })
+})
+
+describe('normalizeAboutYouFieldText', () => {
+  it('gives each field the contract its keyboard offers', () => {
+    expect(ABOUT_YOU_FIELD_CONTRACTS).toEqual({
+      age: 'integer',
+      feet: 'integer',
+      inches: 'integer',
+      centimeters: 'decimal',
+      weight: 'decimal'
+    })
+  })
+
+  it('reads a separator as a separator only in the fields that measure', () => {
+    expect(normalizeAboutYouFieldText('age', '3.5')).toBe('35')
+    expect(normalizeAboutYouFieldText('feet', '5,5')).toBe('55')
+    expect(normalizeAboutYouFieldText('inches', '1.5')).toBe('15')
+    expect(normalizeAboutYouFieldText('centimeters', '177,8')).toBe('177.8')
+    expect(normalizeAboutYouFieldText('weight', '82,6')).toBe('82.6')
+  })
+
+  it('applies the same digit folding and character rejection to every field', () => {
+    expect(normalizeAboutYouFieldText('age', '\u0664\u0665')).toBe('45')
+    expect(normalizeAboutYouFieldText('age', 'abc')).toBe('')
+    expect(normalizeAboutYouFieldText('feet', 'x')).toBe('')
+    expect(normalizeAboutYouFieldText('inches', '-1')).toBe('1')
+    expect(normalizeAboutYouFieldText('centimeters', 'abc')).toBe('')
+    expect(normalizeAboutYouFieldText('weight', '   ')).toBe('')
+    expect(normalizeAboutYouFieldText('weight', '3\u{1f600}')).toBe('3')
+  })
+})
+
+describe('what a field accepts at entry and what the step accepts on Continue', () => {
+  it('accepts an imperial form typed entirely in Arabic-Indic digits', () => {
+    const fields = asEntered(
+      makeFields({age: '\u0663\u0664', feet: '\u0665', inches: '\u0661\u0660', weight: '\u0661\u0668\u0662,\u0662'})
+    )
+
+    expect(fields).toEqual({age: '34', feet: '5', inches: '10', centimeters: '177.8', weight: '182.2'})
+    expect(validateAboutYou(fields, 'ft_in', 'lb', 'female').isValid).toBe(true)
+    expect(buildBodyStepValues(fields, 'ft_in', 'lb')).toEqual({age: 34, heightCm: 177.8, weightKg: 82.644529814})
+  })
+
+  it('accepts a metric form whose measurements were typed with commas', () => {
+    const fields = asEntered(makeFields({age: '34', feet: '', inches: '', centimeters: '177,8', weight: '82,6'}))
+
+    expect(fields.centimeters).toBe('177.8')
+    expect(fields.weight).toBe('82.6')
+    expect(validateAboutYou(fields, 'cm', 'kg', 'male').isValid).toBe(true)
+    expect(buildBodyStepValues(fields, 'cm', 'kg')).toEqual({age: 34, heightCm: 177.8, weightKg: 82.6})
+  })
+
+  it('accepts a fullwidth age and a Devanagari foot count', () => {
+    const fields = asEntered(makeFields({age: '\uff13\uff14', feet: '\u096b', inches: '\u0967\u0966'}))
+
+    expect(fields.age).toBe('34')
+    expect(fields.feet).toBe('5')
+    expect(fields.inches).toBe('10')
+    expect(validateAboutYou(fields, 'ft_in', 'lb', 'female').isValid).toBe(true)
+  })
+
+  it('leaves a field that normalised away empty, which the step reports as the missing answer it is', () => {
+    const fields = asEntered(makeFields({age: 'abc', weight: '   '}))
+
+    expect(fields.age).toBe('')
+    expect(fields.weight).toBe('')
+    expect(errorsFor(fields, 'ft_in', 'lb').age).toBe('age_required')
+    expect(errorsFor(fields, 'ft_in', 'lb').weight).toBe('weight_required')
+    expect(buildBodyStepValues(fields, 'ft_in', 'lb')).toBeNull()
+  })
+
+  it('keeps every entered value on screen when the step refuses it, per the 03b note', () => {
+    const fields = asEntered(makeFields({age: '5', feet: '1', inches: '-1', weight: '-8,5'}))
+
+    expect(fields).toEqual({age: '5', feet: '1', inches: '1', centimeters: '177.8', weight: '8.5'})
+
+    const validation = validateAboutYou(fields, 'ft_in', 'lb', 'female')
+
+    expect(validation.isValid).toBe(false)
+    expect(validation.errors.age).toBe('age_range')
+    expect(validation.errors.feet).toBe('feet_range')
+    expect(validation.errors.weight).toBe('weight_range')
+    expect(fields).toEqual(asEntered(fields))
+  })
+
+  it('carries a normalised weight through a unit switch unchanged', () => {
+    const entered = asEntered(makeFields({weight: '\u0661\u0668\u0662,\u0662'}))
+    const converted = mergeAboutYouFields(entered, convertWeightFieldToUnit(entered.weight, 'lb', 'kg'))
+
+    expect(entered.weight).toBe('182.2')
+    expect(converted.weight).toBe('82.6')
   })
 })

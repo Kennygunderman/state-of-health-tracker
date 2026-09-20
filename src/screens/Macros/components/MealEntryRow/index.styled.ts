@@ -16,9 +16,13 @@ export default StyleSheet.create({
   nameContainer: {
     flex: 1
   },
+  /* Node 38:264 declares no line height at node level or in either of its runs, so Figma resolves the
+     automatic 15px box of 18. The serving text below is a nested span of this same Text, which is why the
+     box belongs here and not on it: both runs share this one line box, as they do in the comp. */
   name: {
     fontSize: FontSize.BODY,
-    fontWeight: FontWeight.SEMIBOLD
+    fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.BODY_COMPACT
   },
   servingText: {
     fontWeight: FontWeight.REGULAR,
@@ -40,7 +44,7 @@ export default StyleSheet.create({
     fontWeight: FontWeight.BOLD
   },
   caloriesLabel: {
-    fontSize: FontSize.CAPTION,
-    color: Theme.colors.textSecondary
+    fontSize: FontSize.LABEL,
+    color: Theme.colors.textMuted
   }
 })

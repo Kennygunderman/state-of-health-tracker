@@ -13,16 +13,24 @@ export interface StatusSemantics {
 
 export interface StatusMessageParts {
   title?: string
-  body: string
+  body?: string
 }
 
 // A banner's title and body are two text nodes on screen, so a screen reader reaches them as two unrelated
-// fragments; the pair is spoken as one sentence instead. A title that is absent or blank is not a fragment to
-// join, and joining it anyway would open the sentence with a bare '. ' — the body alone is the whole message.
-export const composeStatusMessage = ({title, body}: StatusMessageParts): string =>
-  title !== undefined && title.trim().length > 0
-    ? stringWithNamedParameters(STATUS_ANNOUNCEMENT_TEMPLATE, {title, body})
-    : body
+// fragments; the pair is spoken as one sentence instead. Either member may be the only one the banner draws —
+// a read error states its headline alone, and an untitled note states its body alone — and joining an absent
+// one would open the sentence with a bare '. ' or close it with a trailing one, so the member that is present
+// is the whole message and a banner drawing neither announces nothing. A title that is blank or whitespace is
+// absent on the same terms: it is not a fragment to join.
+export const composeStatusMessage = ({title, body}: StatusMessageParts): string => {
+  const spoken = title !== undefined && title.trim().length > 0 ? title : null
+
+  if (spoken === null) {
+    return body ?? ''
+  }
+
+  return body === undefined ? spoken : stringWithNamedParameters(STATUS_ANNOUNCEMENT_TEMPLATE, {title: spoken, body})
+}
 
 // An 'alert' interrupts what is being read because the status it carries refused or lost the action the user
 // just asked for; a 'status' waits its turn. Null for an absent role, so a caller that asked for no status

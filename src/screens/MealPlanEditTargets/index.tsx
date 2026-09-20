@@ -43,7 +43,7 @@ import {
   MEAL_PLAN_BACK_ACCESSIBILITY_LABEL,
   MEAL_PLAN_CALORIES_HEADER,
   MEAL_PLAN_CHOSEN_TARGETS_CAPTION,
-  MEAL_PLAN_CHOSEN_TARGETS_OVERLINE,
+  MEAL_PLAN_CHOSEN_TARGETS_TITLE,
   MEAL_PLAN_DONE_BUTTON_TEXT,
   MEAL_PLAN_EDIT_TARGETS_SUBTITLE,
   MEAL_PLAN_EDIT_TARGETS_TITLE,
@@ -106,13 +106,11 @@ interface TargetFieldSpec {
   // what enforces them. Holding the text here is what keeps a bound and the sentence naming it from drifting.
   readonly minText: string
   readonly maxText: string
-  readonly maxLength: number
 }
 
-// The four fields in the order 34:214 draws them. Each field stops accepting characters at the width of its own
-// upper bound, so a figure the server would refuse outright cannot be typed — the bounds stay declared once, in
-// index.util, and the limit is read off them in the grouped presentation the field actually displays, which is
-// one character wider than the bare number.
+// The four fields in the order 34:214 draws them. The character limit is deliberately not held here: it depends
+// on what the field is currently showing as well as on the field's own bound — a stored target wider than the
+// bound must still display in full — so it is computed per render from the displayed text instead.
 const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
   Object.freeze({
     key: 'calories',
@@ -120,8 +118,7 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     unit: MEAL_PLAN_KCAL_UNIT,
     unitAccessibilityText: MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT,
     minText: targetFieldDisplayText(String(CALORIES_MIN)),
-    maxText: targetFieldDisplayText(String(CALORIES_MAX)),
-    maxLength: targetFieldMaxLength('calories')
+    maxText: targetFieldDisplayText(String(CALORIES_MAX))
   } as const),
   Object.freeze({
     key: 'protein',
@@ -129,8 +126,7 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     minText: targetFieldDisplayText(String(MACRO_MIN)),
-    maxText: targetFieldDisplayText(String(MACRO_MAX)),
-    maxLength: targetFieldMaxLength('protein')
+    maxText: targetFieldDisplayText(String(MACRO_MAX))
   } as const),
   Object.freeze({
     key: 'carbs',
@@ -138,8 +134,7 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     minText: targetFieldDisplayText(String(MACRO_MIN)),
-    maxText: targetFieldDisplayText(String(MACRO_MAX)),
-    maxLength: targetFieldMaxLength('carbs')
+    maxText: targetFieldDisplayText(String(MACRO_MAX))
   } as const),
   Object.freeze({
     key: 'fat',
@@ -147,8 +142,7 @@ const TARGET_FIELDS: readonly TargetFieldSpec[] = Object.freeze([
     unit: MEAL_PLAN_GRAMS_UNIT,
     unitAccessibilityText: MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT,
     minText: targetFieldDisplayText(String(MACRO_MIN)),
-    maxText: targetFieldDisplayText(String(MACRO_MAX)),
-    maxLength: targetFieldMaxLength('fat')
+    maxText: targetFieldDisplayText(String(MACRO_MAX))
   } as const)
 ])
 
@@ -506,8 +500,11 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
             <Text style={styles.headerLabel}>{MEAL_PLAN_REVIEW_HEADER_LABEL}</Text>
           </View>
 
+          {/* This screen's own headline constant on either route, not frame 09's card overline: that one is
+              an 11px uppercase label inside the review card, and one string serving both surfaces made a
+              re-wording of either silently re-word the other. */}
           <Text style={styles.headline} accessibilityRole="header">
-            {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_EDIT_TARGETS_TITLE}
+            {isManualRoute ? MEAL_PLAN_CHOSEN_TARGETS_TITLE : MEAL_PLAN_EDIT_TARGETS_TITLE}
           </Text>
 
           <Text style={styles.subCopy}>
@@ -571,6 +568,12 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
                 {TARGET_FIELDS.map(field => {
                   const errorCode = errors[field.key]
 
+                  // Grouped for display while the stored field keeps the bare digits the estimate comparison
+                  // and the save payload are built from. Derived once and read by both the value and the
+                  // character limit, so the limit can never be narrower than the figure on screen — a stored
+                  // target the legacy writer accepted above this field's bound still displays in full.
+                  const displayText = targetFieldDisplayText(fields[field.key])
+
                   // What went wrong, not merely that something did: the validator distinguishes an empty field
                   // from an unreadable one and both bounds from each other, so the message is resolved from its
                   // code rather than fixed per field. A 500 kcal entry told "above 0 kcal" is told a bound it
@@ -591,15 +594,13 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
                       <Text style={styles.fieldLabel}>{field.label}</Text>
 
                       <TextField
-                        // Grouped for display while the stored field keeps the bare digits the estimate
-                        // comparison and the save payload are built from.
-                        value={targetFieldDisplayText(fields[field.key])}
+                        value={displayText}
                         onChangeText={text => onChangeField(field.key, text)}
                         placeholder={field.label}
                         unit={field.unit}
                         state={errorCode === undefined ? 'default' : 'error'}
                         keyboardType="numeric"
-                        maxLength={field.maxLength}
+                        maxLength={targetFieldMaxLength(field.key, displayText)}
                         // The field names its own unit, and a field reporting an error carries the reason in
                         // its name too, so both are announced with the input and not only by the row beneath it.
                         accessibilityLabel={targetFieldAccessibilityLabel({
@@ -675,7 +676,6 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
           // rather than trapping the user behind a read that failed after their save landed.
           disabled={isBusy || (feasibilityBody === null && !readiness.canSave)}
           onPress={onSavePressed}
-          style={styles.ctaHeight}
         />
 
         <TertiaryTextButton label={CANCEL_BUTTON_TEXT} disabled={isBusy} onPress={onCancelPressed} />

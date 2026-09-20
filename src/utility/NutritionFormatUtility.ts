@@ -51,6 +51,33 @@ export function formatSignedCalories(delta: number, unitSuffix: string): string 
 }
 
 /**
+ * A counted figure read as the only thing a count can be: a finite, non-negative whole number. A non-finite
+ * or negative value answers 0 and a fractional one the nearest whole.
+ *
+ * Server counts arrive from SQL `count()` and cannot be either, so this is not a contract the surfaces
+ * negotiate — it is the clamp that keeps a corrupt response from rendering as a claim ('−1 replaced',
+ * '1.5 entries kept', or a 0.4 that reads as a rebuilt grocery list). Normalising once and deriving both the
+ * wording and the digits from the result is what stops a plural form disagreeing with the figure beside it.
+ */
+export function toCountValue(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0
+  }
+
+  return Math.round(value)
+}
+
+/**
+ * A count grouped for display: 1234 reads as '1,234'.
+ *
+ * Routed through `formatWholeNumber` for the same reason `formatCalories` is — one grouped presentation, so a
+ * count can never read '1,234' on one screen and '1234' on another beside a target that groups.
+ */
+export function formatCount(value: number): string {
+  return formatWholeNumber(toCountValue(value))
+}
+
+/**
  * Count units that name no measure, only that the thing is counted: the design writes '¼' for a quarter of
  * an avocado, not '¼ each'. The same five keys the server suppresses (`GENERIC_COUNT_UNIT_KEYS` in
  * `services/recipe.logic.ts`), so a counted catalog portion and a counted recipe ingredient drop the same

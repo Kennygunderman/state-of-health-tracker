@@ -48,19 +48,26 @@ export default StyleSheet.create({
     fontWeight: FontWeight.SEMIBOLD
   },
   valueLabel: {
-    fontSize: FontSize.LABEL
+    fontSize: FontSize.LABEL,
+    lineHeight: LineHeight.LABEL
   },
   valueBody: {
     fontSize: FontSize.BODY,
-    lineHeight: LineHeight.ROW_VALUE
+    lineHeight: LineHeight.BODY_COMPACT
   },
+  // The stacked variant is the Review answers card (34:98) — the one node where Figma authors a line height on
+  // the value, 19.5, and the box its 2/0.5 insets close on at 22. Every other card leaves the value automatic,
+  // so the authored box belongs here with those insets rather than on the size variant.
   valueStacked: {
     paddingTop: Sizes.ROW_VALUE_INSET_T,
-    paddingBottom: Sizes.ROW_VALUE_INSET_B
+    paddingBottom: Sizes.ROW_VALUE_INSET_B,
+    lineHeight: LineHeight.ROW_VALUE
   },
+  // No textAlign: every label and value across the three cards is drawn LEFT/TOP, and the right-hand look is
+  // the row's own space-between against a hug-width value. Right-aligning would only show up once a value
+  // wraps, and then against the design.
   valueInline: {
-    flexShrink: 1,
-    textAlign: 'right'
+    flexShrink: 1
   },
   overline: {
     marginBottom: Spacing.SMALL,

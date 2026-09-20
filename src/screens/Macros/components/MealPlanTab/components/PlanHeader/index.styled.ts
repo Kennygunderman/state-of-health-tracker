@@ -7,11 +7,18 @@ import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
+  // The header opens Spacing.MEDIUM below the slot boundary, as every sibling variant in that slot does, and
+  // the offset is split the way Figma splits it: half above this row, half as the title block's own paddingTop.
+  // The distribution is load-bearing, not cosmetic — the row's height is max(title-block hug, TOUCH_TARGET) and
+  // `alignItems: 'center'` centres the grocery button in it, so padding added inside the hug block is halved by
+  // that centring and would raise the disc. Above the row it passes through in full and the in-row geometry is
+  // untouched.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     alignSelf: 'stretch',
+    marginTop: Spacing.X_SMALL,
     columnGap: Spacing.SMALL
   },
   titleBlock: {

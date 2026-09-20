@@ -81,12 +81,22 @@ const sheetScrim = 'rgba(0,0,0,0.7)'
 // already clears the threshold, so most require no new colour. Ratios are measured at the composited values;
 // Figma applies no opacity to any of these layers.
 //
-// 1. `white` on `green` — 2.45:1, needing 4.5:1 as button and pill text, 3:1 as a required glyph. Figma
-//    46:120 + 46:121 (CTA label, 600/16px, not large text), 38:396 + 38:397 (banner action pill, 600/13px),
-//    49:282 + 49:283 (banner disc tick), 46:172 + 46:173 (option indicator), 37:262 + 37:263 and 47:387 +
-//    47:388 (checked-emphasis box). White is already maximum contrast, so only the accent can move: `page` on
+// 1. `white` on `green` — 2.45:1, needing 4.5:1 as button and pill text, 3:1 as a required glyph. This is
+//    the widest-reaching entry here: it is one pair rendered by the shared PrimaryButton, the shared
+//    InfoBanner, the shared OptionCard and the shared CheckboxSquare, so it is a single decision and not a
+//    per-screen one. Figma 46:120 + 46:121 and 34:420 and 34:511 (CTA label, 600/16px, not large text —
+//    34:420 is "Try again" on the generation-failure frame and 34:511 "Edit preferences" on the no-match
+//    frame, both drawn with the same white-on-accent label as every other primary CTA), 38:396 + 38:397
+//    (banner action pill, 600/13px), 49:282 + 49:283 (banner disc tick), 46:172 + 46:173 and 38:121 +
+//    38:122 (option indicator — the setup option cards and the log screen's slot picker draw the same
+//    accent disc under the same white tick), 37:262 + 37:263 and 47:387 + 47:388 (checked-emphasis box).
+//    Two surfaces carry this pair without a Figma node of their own, because they are inferred states built
+//    from the drawn language rather than from a frame: the Meal Plan tab's inline retry pill follows
+//    38:396 + 38:397, and the checked-muted tick 37:277 + 37:278 is the same drawing recoloured and sits
+//    well clear of the threshold. White is already maximum contrast, so only the accent can move: `page` on
 //    `green` measures 7.67:1 and `greenTint` on `green` 5.52:1, or darken the accent to relative luminance
-//    <= 0.183 for text and <= 0.300 for glyphs.
+//    <= 0.183 for text and <= 0.300 for glyphs. Apply an approved remedy at the token, never at one call
+//    site: doing it at a single surface is what makes two identical pills or two identical discs diverge.
 // 2. `textFaint` as placeholder — 3.31:1 on `inset` and 3.28:1 on `dangerTint`, needing 4.5:1. Figma 47:275 +
 //    47:280 and 46:446 + 46:448 (400/18px, which does not qualify as large text). Set once as the shared
 //    TextInput's `placeholderTextColor` prop, so it is the same paint in every shipped form. `textMuted`

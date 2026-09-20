@@ -91,6 +91,7 @@ import {
   initialFieldsFor,
   MealPlanAboutYouFields,
   mergeAboutYouFields,
+  normalizeAboutYouFieldText,
   resolveWeighInPrefill,
   selectLatestWeighIn,
   validateAboutYou,
@@ -225,9 +226,15 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
   // A weight the user typed, or one already saved, is their own number and carries no suggestion caption.
   const showsPrefillCaption = prefill.showCaption && draft.weightKg === null && !isWeightEdited
 
+  // Normalised as it arrives, not at submit: a number pad cannot type most of what these fields reject, but a
+  // paste, an autofill, a hardware keyboard or a third-party Android keyboard can — and a locale digit is a
+  // number the user means, so it folds to its ASCII digit rather than failing validation later. The controlled
+  // value differing from the text native holds is what reverts the rejected characters on screen.
   const onChangeField = useCallback((field: keyof MealPlanAboutYouFields, text: string) => {
-    setFieldOverrides(current => ({...current, [field]: text}))
+    setFieldOverrides(current => ({...current, [field]: normalizeAboutYouFieldText(field, text)}))
 
+    // Any edit of the weight field withdraws the weigh-in suggestion, including one that normalises away to
+    // nothing: the user did type into it.
     if (field === 'weight') {
       setIsWeightEdited(true)
     }

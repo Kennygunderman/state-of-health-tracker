@@ -1,5 +1,5 @@
 import {CurrentMealPlans, MealPlan} from '@data/models/MealPlan'
-import {MealPlanPreferences, SetupStep} from '@data/models/MealPlanPreferences'
+import {Diet, MealPlanPreferences, MealSchedule, SetupStep} from '@data/models/MealPlanPreferences'
 import {NutritionTargets} from '@data/models/NutritionTargets'
 import {LimitingConstraint, LimitingConstraintKey, LimitingConstraintUnit} from '@data/models/PlanGenerationResult'
 import {GenerationContext} from '@navigation/types'
@@ -60,6 +60,7 @@ import {
   GenerationRequestSnapshot,
   GenerationRequestStatus,
   GenerationViewKind,
+  LimitingConstraintRow,
   resolveActionRoute,
   resolveConstraintEditRoute,
   resolveConstraintReturnTo,
@@ -306,6 +307,7 @@ describe('resolveGenerationView', () => {
         headlineSize: 'default',
         body: MEAL_PLAN_GENERATING_BODY,
         showAllergiesBanner: false,
+        showUnavailableNotice: false,
         actions: null,
         terminalCode: null
       })
@@ -349,11 +351,12 @@ describe('resolveGenerationView', () => {
         kind: 'unconfirmed',
         isCentered: true,
         showSpinner: false,
-        badgeVariant: 'noMatch',
+        badgeVariant: 'unconfirmed',
         headline: MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
         headlineSize: 'default',
         body: MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY,
         showAllergiesBanner: false,
+        showUnavailableNotice: false,
         actions: {
           primary: {kind: 'retry', label: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT},
           secondary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT}
@@ -374,6 +377,7 @@ describe('resolveGenerationView', () => {
         headlineSize: 'alternate',
         body: MEAL_PLAN_NO_MATCH_BODY,
         showAllergiesBanner: true,
+        showUnavailableNotice: false,
         actions: {
           primary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT},
           secondary: {kind: 'retry', label: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT}
@@ -394,6 +398,7 @@ describe('resolveGenerationView', () => {
         headlineSize: 'default',
         body: MEAL_PLAN_GENERATION_FAILED_BODY,
         showAllergiesBanner: false,
+        showUnavailableNotice: false,
         actions: {
           primary: {kind: 'retry', label: MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT},
           secondary: {kind: 'editPreferences', label: MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT}
@@ -485,6 +490,44 @@ describe('resolveGenerationView', () => {
         expect(view.body).toBe('')
       })
     })
+
+    // The three card-less families all render no badge, no copy and no footer, but two of them speak on their
+    // way out: a plan-state refusal toasts, and the upcoming refusal toasts its own card title. The
+    // capability refusal carries no toast, so it is the one family that would paint an entirely blank frame
+    // until the navigator moved — which is the deploy-before-enable window AAP 0.7.5 prescribes. It states
+    // the refusal instead, in the neutral banner every other gated surface uses (0.2.5).
+    it('states the refusal on the one card-less family that would otherwise render nothing', () => {
+      UNAVAILABLE_TERMINAL_CODES.forEach(code => {
+        const view = resolveGenerationView('error', apiError(503, code), SETUP)
+
+        expect(view.showUnavailableNotice).toBe(true)
+        expect(view.headline).toBe('')
+        expect(view.body).toBe('')
+        expect(view.badgeVariant).toBeNull()
+        expect(view.showSpinner).toBe(false)
+        expect(view.actions).toBeNull()
+      })
+    })
+
+    it('leaves every other terminal refusal to its own card or toast', () => {
+      const others = TERMINAL_CODES.filter(code => !UNAVAILABLE_TERMINAL_CODES.includes(code))
+      const notices = others.map(
+        code => resolveGenerationView('error', apiError(409, code), SETUP).showUnavailableNotice
+      )
+
+      expect(others.length).toBeGreaterThan(0)
+      expect(notices).toEqual(others.map(() => false))
+    })
+
+    it('states the refusal whichever launch earned it, because the flag is the server answer', () => {
+      const contexts: readonly GenerationContext[] = [SETUP, NEXT_WEEK, REGENERATE]
+      const notices = contexts.map(
+        context =>
+          resolveGenerationView('error', apiError(503, API_ERROR_CODES.featureDisabled), context).showUnavailableNotice
+      )
+
+      expect(notices).toEqual([true, true, true])
+    })
   })
 
   describe('the chrome each state selects', () => {
@@ -509,8 +552,20 @@ describe('resolveGenerationView', () => {
       const unconfirmed = resolveGenerationView('error', apiError(502), SETUP)
 
       expect(failed.badgeVariant).toBe('failure')
-      expect(unconfirmed.badgeVariant).toBe('noMatch')
+      expect(unconfirmed.badgeVariant).toBe('unconfirmed')
       expect(failed.badgeVariant).not.toBe(unconfirmed.badgeVariant)
+    })
+
+    // Disc fill and glyph ink co-vary as one semantic pair in StatusBadgeCircle, so borrowing either drawn
+    // neutral-or-error badge would have this state assert something it was never told: 'failure' a confirmed
+    // failure, 'noMatch' a search that returned too little. It asserts nothing, so it owns its own variant.
+    it('borrows neither drawn badge for the outcome it could not confirm', () => {
+      const unconfirmed = resolveGenerationView('error', apiError(502), SETUP)
+      const noMatch = resolveGenerationView('error', apiError(422, API_ERROR_CODES.noMatchingMeals), SETUP)
+
+      expect(unconfirmed.badgeVariant).not.toBe(noMatch.badgeVariant)
+      expect(unconfirmed.badgeVariant).not.toBe('failure')
+      expect(unconfirmed.badgeVariant).toBe('unconfirmed')
     })
 
     it('gives every state the badge its own variant names, and only the drawn failure the failure disc', () => {
@@ -518,7 +573,7 @@ describe('resolveGenerationView', () => {
         pending: null,
         failed: 'failure',
         noMatch: 'noMatch',
-        unconfirmed: 'noMatch',
+        unconfirmed: 'unconfirmed',
         terminal: null
       }
       const resolved = VIEW_KINDS.map(
@@ -551,6 +606,18 @@ describe('resolveGenerationView', () => {
       )
 
       expect(spinners).toEqual([true, false, false, false, false])
+    })
+
+    // The notice answers a code rather than a kind, so no state earns it by its kind — including 'terminal',
+    // which errorForKind reaches through a refusal that draws its own card.
+    it('shows the unavailable notice for no state reached by its kind alone', () => {
+      const notices = VIEW_KINDS.map(
+        kind =>
+          resolveGenerationView(kind === 'pending' ? 'pending' : 'error', errorForKind(kind), SETUP)
+            .showUnavailableNotice
+      )
+
+      expect(notices).toEqual([false, false, false, false, false])
     })
   })
 
@@ -962,6 +1029,82 @@ describe('resolveGenerationSummary', () => {
       const summaries = VIEW_KINDS.map(kind => resolveGenerationSummary(kind, null, nutritionTargets(TARGET_CALORIES)))
 
       expect(summaries).toEqual([null, null, null, null, null])
+    })
+  })
+
+  // Diet and mealSchedule reach this module typed as closed unions because MealPlanningDecoder spells them as
+  // io.union literals, so no server can send these values today — the cast is how the test says so. The rows
+  // are typed string and rendered as React children all the same: an inherited member would render as its own
+  // source, '__proto__' would throw ("Objects are not valid as a React child"), and AAP 0.5.2's lenient
+  // decoding direction is exactly what would make either reachable.
+  describe('preference codes that are inherited Object members', () => {
+    PROTOTYPE_KEYS.forEach(key => {
+      it(`renders nothing for the diet code ${key}`, () => {
+        const summary = resolveGenerationSummary('pending', preferences({diet: key as Diet}), null)
+        const value = summary?.rows[0].value
+
+        expect(typeof value).toBe('string')
+        expect(value).toBe('')
+      })
+
+      it(`renders nothing for the meal schedule ${key}`, () => {
+        const summary = resolveGenerationSummary('pending', preferences({mealSchedule: key as MealSchedule}), null)
+        const value = summary?.rows[1].value
+
+        expect(typeof value).toBe('string')
+        expect(value).toBe('')
+      })
+    })
+
+    it('renders nothing for a diet code a later release introduces', () => {
+      const summary = resolveGenerationSummary('pending', preferences({diet: 'keto_new_release' as Diet}), null)
+
+      expect(summary?.rows[0].value).toBe('')
+    })
+
+    it('renders nothing for a meal schedule a later release introduces', () => {
+      const summary = resolveGenerationSummary(
+        'pending',
+        preferences({mealSchedule: 'four_plus_snack' as MealSchedule}),
+        null
+      )
+
+      expect(summary?.rows[1].value).toBe('')
+    })
+
+    it('renders no function source and no object cast for any inherited code, in either summary', () => {
+      const values = (['pending', 'failed'] as GenerationViewKind[]).flatMap(kind =>
+        PROTOTYPE_KEYS.flatMap(key => {
+          const dietRows = resolveGenerationSummary(kind, preferences({diet: key as Diet}), null)?.rows ?? []
+          const scheduleRows =
+            resolveGenerationSummary(kind, preferences({mealSchedule: key as MealSchedule}), null)?.rows ?? []
+
+          return [...dietRows, ...scheduleRows].map(row => row.value)
+        })
+      )
+
+      expect(values.every(value => typeof value === 'string')).toBe(true)
+      expect(values.some(value => value.includes('function'))).toBe(false)
+      expect(values.some(value => value.includes('[object'))).toBe(false)
+      expect(values.some(value => ['undefined', 'null'].includes(value))).toBe(false)
+    })
+
+    it('still names every diet code this release ships', () => {
+      const codes: readonly Diet[] = ['none', 'vegetarian', 'vegan', 'pescatarian']
+
+      expect(codes.map(diet => resolveGenerationSummary('pending', preferences({diet}), null)?.rows[0].value)).toEqual(
+        codes.map(diet => MEAL_PLAN_DIET_LABELS[diet])
+      )
+    })
+
+    it('still names every meal schedule this release ships', () => {
+      const schedules: readonly MealSchedule[] = ['three', 'three_plus_snack']
+
+      expect(
+        schedules.map(
+          mealSchedule => resolveGenerationSummary('pending', preferences({mealSchedule}), null)?.rows[1].value
+        )
+      ).toEqual(schedules.map(mealSchedule => MEAL_PLAN_MEALS_PER_DAY_VALUES[mealSchedule]))
     })
   })
 })
@@ -1437,6 +1580,55 @@ describe('buildLimitingConstraintRows', () => {
       )
 
       expect(rows.every(row => typeof row.value === 'string')).toBe(true)
+    })
+  })
+
+  // The 10c diet row reads the stored answer rather than the payload, so it is the second place a diet code
+  // becomes text and it needs the same guard the summary card's row does. The row keeps its label and its
+  // Edit pill either way, which is the point: an unnameable code costs the value, never the way to fix it.
+  describe('diet codes that are inherited Object members', () => {
+    const dietRow = (diet: string): LimitingConstraintRow => {
+      const [row] = buildLimitingConstraintRows(
+        [constraint({constraintKey: 'diet', value: null, unit: null, editStep: 'diet'})],
+        preferences({diet: diet as Diet})
+      )
+
+      return row
+    }
+
+    PROTOTYPE_KEYS.forEach(key => {
+      it(`renders nothing for the diet code ${key}`, () => {
+        const row = dietRow(key)
+
+        expect(typeof row.value).toBe('string')
+        expect(row.value).toBe('')
+      })
+    })
+
+    it('renders nothing for a diet code a later release introduces', () => {
+      expect(dietRow('keto_new_release').value).toBe('')
+    })
+
+    it('renders no function source and no object cast for any inherited code', () => {
+      const values = PROTOTYPE_KEYS.map(key => dietRow(key).value)
+
+      expect(values.some(value => value.includes('function'))).toBe(false)
+      expect(values.some(value => value.includes('[object'))).toBe(false)
+      expect(values.some(value => ['undefined', 'null'].includes(value))).toBe(false)
+    })
+
+    it('keeps the row labelled and editable when its code cannot be named', () => {
+      const row = dietRow('constructor')
+
+      expect(row.label).toBe(MEAL_PLAN_LIMITING_CONSTRAINT_LABELS.diet)
+      expect(row.editStep).toBe('diet')
+      expect(row.editLabel).toBe(MEAL_PLAN_EDIT_LINK_TEXT)
+    })
+
+    it('still names every diet code this release ships', () => {
+      const codes: readonly Diet[] = ['none', 'vegetarian', 'vegan', 'pescatarian']
+
+      expect(codes.map(diet => dietRow(diet).value)).toEqual(codes.map(diet => MEAL_PLAN_DIET_LABELS[diet]))
     })
   })
 })

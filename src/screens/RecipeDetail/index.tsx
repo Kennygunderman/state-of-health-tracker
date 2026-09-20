@@ -53,7 +53,6 @@ import {
 import ActionBar from './components/ActionBar'
 import RecipeRow from './components/RecipeRow'
 import styles, {
-  HERO_PLACEHOLDER_HEIGHT,
   PLACEHOLDER_RADIUS,
   PLACEHOLDER_ROW_HEIGHTS,
   placeholderWidth,
@@ -345,7 +344,10 @@ const RecipeDetail = (): React.JSX.Element => {
   const listHeader = (
     <>
       {content === null ? (
-        <Skeleton height={HERO_PLACEHOLDER_HEIGHT} width={windowWidth} />
+        // The band's pending variant rather than a bare `Skeleton`: the hero owns this screen's only back
+        // control, and this route is drawn with no header and no tab bar, so a placeholder that replaced the
+        // whole band left a read that can run to the 25 s request timeout with no on-screen way out.
+        <RecipeHero variant="pending" width={windowWidth} onBack={onBack} />
       ) : (
         <RecipeHero
           iconKey={content.recipe.iconKey}

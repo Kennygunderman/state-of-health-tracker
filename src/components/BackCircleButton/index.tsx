@@ -1,10 +1,11 @@
 import React from 'react'
 
-import {TouchableOpacity} from 'react-native'
+import {TouchableOpacity, View} from 'react-native'
 
 import {Opacity, Sizes, Stroke} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
+import {BACK_CHEVRON_REFERENCE_SIZE} from '@components/icons/ChevronGeometry'
 import ChevronLeftIcon from '@components/icons/ChevronLeftIcon'
 
 import styles from './index.styled'
@@ -27,7 +28,9 @@ const BackCircleButton = ({onPress, variant = 'default', accessibilityLabel}: Pr
     hitSlop={HIT_SLOP}
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel}>
-    <ChevronLeftIcon color={Theme.colors.text} size={Sizes.ICON_XL} strokeWidth={Stroke.BOLD} />
+    <View style={styles.glyph}>
+      <ChevronLeftIcon color={Theme.colors.text} size={BACK_CHEVRON_REFERENCE_SIZE} strokeWidth={Stroke.BOLD} />
+    </View>
   </TouchableOpacity>
 )
 

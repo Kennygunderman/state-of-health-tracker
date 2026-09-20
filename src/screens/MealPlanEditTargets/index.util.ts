@@ -172,12 +172,23 @@ export const targetFieldDisplayText = (value: string): string => {
 /**
  * How many characters a field accepts, measured in the grouped presentation it displays.
  *
- * The limit is the width of the field's own upper bound, so a figure the server would refuse outright cannot be
- * typed. Measuring it on the bare number instead is a character short of every grouped bound — it stops the
- * user four characters into '1,940' and puts the drawn calorie target out of reach entirely.
+ * The limit is the wider of the field's own upper bound and the figure the field is currently showing, both
+ * measured grouped. The bound is what stops a figure the server would refuse outright from being typed — and
+ * measuring it on the bare number instead is a character short of every grouped bound, which stops the user
+ * four characters into '1,940' and puts the drawn calorie target out of reach entirely.
+ *
+ * The displayed figure is the other half, and it is a required argument rather than an optional one because a
+ * limit narrower than the field's own value is how a target the user never touched gets silently rewritten:
+ * `PUT /api/user/targets` enforces no upper bound (0.1.3 keeps that route untouched), so a legacy or
+ * third-party target of 10,000 or more opens a field six characters wide against a five-character limit. On
+ * iOS `maxLength` gates edit events only; on Android it is an `InputFilter` that applies to programmatic text
+ * as well, so the field would show a truncated '60,00' that `sanitizeIntegerInput` then reads back as 6,000 —
+ * an order of magnitude below the stored figure, and a change the user never made. Widening the limit to the
+ * value on screen keeps the whole figure visible and leaves `validateEditTargets` to refuse it on Save, which
+ * names the real bound. The limit narrows again on its own as soon as the field holds a figure that fits.
  */
-export const targetFieldMaxLength = (key: EditTargetsFieldKey): number =>
-  targetFieldDisplayText(String(TARGET_FIELD_BOUNDS[key].max)).length
+export const targetFieldMaxLength = (key: EditTargetsFieldKey, displayedText: string): number =>
+  Math.max(targetFieldDisplayText(String(TARGET_FIELD_BOUNDS[key].max)).length, displayedText.length)
 
 export type EditTargetsReadinessStatus = 'loading' | 'read_failed' | 'unavailable' | 'estimate_unavailable' | 'ready'
 

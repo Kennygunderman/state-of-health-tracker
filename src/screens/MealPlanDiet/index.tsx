@@ -14,12 +14,13 @@ import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
-import ChipCloud from '@components/ChipCloud'
+import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
 import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
+import OptionCardSkeleton from '@components/OptionCardSkeleton'
 import PrimaryButton from '@components/PrimaryButton'
 import SelectableChip from '@components/SelectableChip'
 import SetupFooter from '@components/SetupFooter'
@@ -36,6 +37,7 @@ import {
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_DIET_TITLE,
   MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL,
   MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT,
   MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT,
   MEAL_PLAN_STALE_REVISION_DIALOG_TITLE,
@@ -45,6 +47,7 @@ import {
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
 
+import AllergenChipsSkeleton from './components/AllergenChipsSkeleton'
 import styles from './index.styled'
 import {buildAllergenChips, DIET_OPTIONS, dietWizardProgress, DietStepErrorCode, validateDietStep} from './index.util'
 
@@ -286,16 +289,30 @@ const MealPlanDietScreen = (): React.JSX.Element => {
             {MEAL_PLAN_DIET_TITLE}
           </Text>
 
-          <View style={styles.dietGroup} accessibilityRole="radiogroup">
-            {DIET_OPTIONS.map(option => (
-              <OptionCard
-                key={option.value}
-                label={option.label}
-                selected={draft.diet === option.value}
-                onPress={() => onSelectDiet(option.value)}
-              />
-            ))}
-          </View>
+          {/* The saved answer decides which card reads as selected, so the list waits for it rather than
+              showing an unselected state the response would then contradict (AAP 0.2.5) — and a card tapped
+              before the answer arrives is an edit made against an empty draft, which is what the read state
+              takes off the table. The placeholders are shaped like the cards, so nothing below them moves
+              when the answer lands. The error row beneath stays mounted throughout, because the CTA is live
+              during the read and a press with nothing chosen has to report itself even then. */}
+          {preferencesQuery.isLoading ? (
+            <View style={styles.dietGroup} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+              {DIET_OPTIONS.map(option => (
+                <OptionCardSkeleton key={option.value} />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.dietGroup} accessibilityRole="radiogroup">
+              {DIET_OPTIONS.map(option => (
+                <OptionCard
+                  key={option.value}
+                  label={option.label}
+                  selected={draft.diet === option.value}
+                  onPress={() => onSelectDiet(option.value)}
+                />
+              ))}
+            </View>
+          )}
 
           {/* Mounted whether or not there is a message: a live region announces a change inside a view the
               screen reader is already watching, so a region inserted together with its text announces
@@ -309,20 +326,35 @@ const MealPlanDietScreen = (): React.JSX.Element => {
             {MEAL_PLAN_ALLERGIES_HEADER}
           </Text>
 
-          <View style={styles.cloudWrapper}>
-            <ChipCloud>
-              {allergenChips.map(chip => (
-                <SelectableChip
-                  key={chip.code}
-                  label={chip.label}
-                  selected={chip.selected}
-                  removable={chip.removable}
-                  expandTouchTarget
-                  onPress={() => selectAllergen(chip.code)}
-                />
-              ))}
-            </ChipCloud>
-          </View>
+          {/* The allergy cloud waits for the same reason the cards do, and for one more: a chip tapped
+              before the saved answer arrives is a selection made against an empty draft, and the draft's
+              rule for an unseeded edit would then have to reconcile it with allergies the user was never
+              shown. Figma note `47:230` is what makes that worth preventing at the surface as well as in the
+              draft — allergies are never removed automatically. */}
+          {preferencesQuery.isLoading ? (
+            <View style={styles.cloudWrapper} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+              <AllergenChipsSkeleton count={allergenChips.length} />
+            </View>
+          ) : (
+            /* The cloud reserves the chips' 6px slop inside its own box and hands that height back to the
+                layout, so it still measures the drawn three 32px rows at a 40px pitch. This wrapper hugs it —
+                47:174 puts the 8px rung above the chips and nothing beneath them — so the reserved band below
+                falls outside the wrapper, and neither platform looks for a target outside an ancestor's hit
+                rect: the slop here is what lets a touch reach it. It moves no layout. */
+            <View style={styles.cloudWrapper} hitSlop={CHIP_BAND_HIT_SLOP}>
+              <ChipCloud>
+                {allergenChips.map(chip => (
+                  <SelectableChip
+                    key={chip.code}
+                    label={chip.label}
+                    selected={chip.selected}
+                    removable={chip.removable}
+                    onPress={() => selectAllergen(chip.code)}
+                  />
+                ))}
+              </ChipCloud>
+            </View>
+          )}
 
           <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             {allergenErrorMessage !== null && <InlineError message={allergenErrorMessage} />}

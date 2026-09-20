@@ -54,11 +54,15 @@ export default StyleSheet.create({
     alignSelf: 'stretch',
     paddingTop: Spacing.X_SMALL
   },
+  /* Node 47:323 declares no line height, so Figma resolves the automatic 13px box — 16 — and its wrapper
+     47:322 is a fixed 353 x 24 that cannot absorb more: X_SMALL + 16 closes it exactly. LineHeight.META's
+     18.85 is the box Figma authors on multi-line meta (the result-row categories declare it explicitly) and
+     would draw this single line at 26.85 inside a wrapper with 24 to give. */
   helperText: {
     paddingTop: Spacing.X_SMALL,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   },
   skeletonRow: {

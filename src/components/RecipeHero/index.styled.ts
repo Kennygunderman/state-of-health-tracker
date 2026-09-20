@@ -16,6 +16,14 @@ export const backButtonPosition = (topInset: number, layer: number): ViewStyle =
   zIndex: layer
 })
 
+export type RecipeHeroSize = 'detail' | 'preview'
+
+// Two glyph sizes, one per frame that draws this band: 76 for the recipe hero (`49:534`) and 70 for the
+// preview's cloche (`36:132`). It reads as a variant but is a size the renderer needs as a number, so it
+// resolves here beside the band's other geometry rather than as a second style object to merge.
+export const heroGlyphSize = (size: RecipeHeroSize): number =>
+  size === 'preview' ? Sizes.HERO_TILE_SM : Sizes.HERO_TILE
+
 export default StyleSheet.create({
   band: {
     alignSelf: 'stretch',

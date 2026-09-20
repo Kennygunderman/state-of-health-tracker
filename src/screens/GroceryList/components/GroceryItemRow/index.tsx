@@ -1,9 +1,8 @@
 import React from 'react'
 
-import {TouchableOpacity, View} from 'react-native'
+import {View} from 'react-native'
 
 import {GroceryItem} from '@data/models/GroceryList'
-import {Opacity} from '@styles/sizes'
 
 import CheckboxSquare from '@components/CheckboxSquare'
 import Text from '@components/Text'
@@ -40,16 +39,11 @@ const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): R
   }
 
   return (
-    <TouchableOpacity
-      style={rowStyle}
-      activeOpacity={Opacity.PRESSED}
-      disabled={isPending}
-      accessibilityRole="checkbox"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{checked: item.isChecked, busy: isPending, disabled: isPending}}
-      onPress={handleToggle}>
-      {/* CheckboxSquare declares its own checkbox role, so hiding it keeps the row a single announcement. */}
-      <View style={checkboxStyle} accessible={false} importantForAccessibility="no-hide-descendants">
+    <View style={rowStyle}>
+      {/* Figma draws the 22x22 box as the row's entire target and no pressed state, so the row is a plain
+          layout View and CheckboxSquare — which declares its own checkbox role, label and state, and reaches
+          44x44 through its own hit slop — is the one announced control here. */}
+      <View style={checkboxStyle}>
         <CheckboxSquare
           state={checkboxState}
           disabled={isPending}
@@ -61,7 +55,7 @@ const GroceryItemRow = ({item, variant, isFirst, isPending, onToggle}: Props): R
       <Text style={[styles.name, variant === 'checkedMuted' && styles.nameMuted]}>{item.name}</Text>
 
       <Text style={[styles.quantity, variant === 'checkedMuted' && styles.quantityMuted]}>{item.displayText}</Text>
-    </TouchableOpacity>
+    </View>
   )
 }
 

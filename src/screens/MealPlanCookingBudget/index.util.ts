@@ -78,19 +78,31 @@ export const sanitizeBudgetInput = (text: string, previous: string = ''): string
   return entry.replace(GROUP_SEPARATOR_PATTERN, '').replace(REDUNDANT_LEADING_ZERO_PATTERN, '')
 }
 
-export const parseWeeklyBudget = (amountText: string): number | null => {
-  const trimmed = amountText.trim()
-
+// The whole-dollar amount an entry denotes, before any bound is applied, and null where the entry is not an
+// amount at all. Split out because `parseWeeklyBudget` answers "is this a usable amount" with one null and
+// the field's messages need to know which side of the range was broken: the same null covers '0' and '10001',
+// whose remedies are opposite.
+const weeklyBudgetAmount = (trimmed: string): number | null => {
   if (!WHOLE_DOLLARS_PATTERN.test(trimmed)) return null
 
   const amount = Number(trimmed)
 
-  if (!Number.isInteger(amount) || amount < MIN_WEEKLY_BUDGET_USD || amount > MAX_WEEKLY_BUDGET_USD) return null
+  return Number.isInteger(amount) ? amount : null
+}
+
+export const parseWeeklyBudget = (amountText: string): number | null => {
+  const amount = weeklyBudgetAmount(amountText.trim())
+
+  if (amount === null || amount < MIN_WEEKLY_BUDGET_USD || amount > MAX_WEEKLY_BUDGET_USD) return null
 
   return amount
 }
 
-export type CookingBudgetErrorCode = 'option_required' | 'budget_range'
+// One code per remedy, which is the whole reason there are four rather than two. 'option_required' belongs to
+// the chip group, where choosing an option is the remedy; the three budget codes belong to the amount field,
+// where it is not — an empty field needs an amount or the preference box, an amount at the bottom of the
+// range needs a larger number, and one over the top of it needs a smaller one.
+export type CookingBudgetErrorCode = 'option_required' | 'budget_required' | 'budget_range' | 'budget_above_max'
 
 export interface CookingBudgetValidation {
   cookingTimeError: CookingBudgetErrorCode | null
@@ -105,15 +117,32 @@ export const validateCookingTime = (cookingTimeLimitMin: CookingTimeLimitMin | n
 // box with an empty field is unanswered rather than optional — Figma 08 draws the checked box and the
 // dimmed input as the state after that choice, not before it. Amounts are whole dollars: the server
 // takes an integer 1-10,000, so a cent typed here would be rejected there.
+//
+// The unanswered field reports its own code rather than the shared option-group one. Both rows on this
+// screen render from the same copy table, so borrowing that code printed 'Choose an option to continue'
+// twice on frame 08 — under the chips, where it is the remedy, and under a number field, where there is no
+// option to choose. The two range codes are likewise distinct: an entry over the maximum is not fixed by
+// raising it, which is what the single range message told the user to do.
+//
+// An entry that is not a whole-dollar amount at all reports 'budget_range' with it, because there is no
+// ceiling to name for something that is not a number. `sanitizeBudgetInput` already refuses those
+// characters at the keystroke, so the field can only hold digits and that arm is reachable only by calling
+// this validator directly.
 export const validateWeeklyBudget = (
   noBudgetPreference: boolean,
   amountText: string
 ): CookingBudgetErrorCode | null => {
   if (noBudgetPreference) return null
 
-  if (amountText.trim() === '') return 'option_required'
+  const trimmed = amountText.trim()
 
-  return parseWeeklyBudget(amountText) === null ? 'budget_range' : null
+  if (trimmed === '') return 'budget_required'
+
+  const amount = weeklyBudgetAmount(trimmed)
+
+  if (amount === null || amount < MIN_WEEKLY_BUDGET_USD) return 'budget_range'
+
+  return amount > MAX_WEEKLY_BUDGET_USD ? 'budget_above_max' : null
 }
 
 export const validateCookingBudgetStep = (
@@ -129,13 +158,24 @@ export const validateCookingBudgetStep = (
 
 export type BudgetFieldState = 'default' | 'error' | 'disabled'
 
+// The codes that draw the field itself as refused. Both ends of the range qualify: the value in the box is
+// the thing that is wrong, so the box says so. An unanswered field does not — nothing in it was refused, and
+// 'budget_required' only asks for an answer — so it keeps the default treatment and states its message in
+// the row beneath, which is the behaviour this screen already had for the empty field.
+const REFUSED_BUDGET_FIELD_CODES: readonly CookingBudgetErrorCode[] = Object.freeze([
+  'budget_range',
+  'budget_above_max'
+])
+
 export const budgetFieldState = (
   noBudgetPreference: boolean,
   validation: CookingBudgetValidation | null
 ): BudgetFieldState => {
   if (noBudgetPreference) return 'disabled'
 
-  return validation?.budgetError === 'budget_range' ? 'error' : 'default'
+  const code = validation?.budgetError ?? null
+
+  return code !== null && REFUSED_BUDGET_FIELD_CODES.includes(code) ? 'error' : 'default'
 }
 
 export interface PlanSummarySource {

@@ -30,7 +30,7 @@ import {
   MealPlanReadStatus,
   worstMealPlanReadState
 } from '@utility/MealPlanReadStateUtility'
-import {formatCalories} from '@utility/NutritionFormatUtility'
+import {formatCalories, formatCount, toCountValue} from '@utility/NutritionFormatUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {lookupLabel} from '@utility/TextUtility'
 import {centimetersToFeetInches, formatHeightImperial, kilogramsToPounds} from '@utility/UnitConversionUtility'
@@ -657,12 +657,22 @@ export const derivePlanSettingsBanner = (
 
 // 'yyyy-MM-dd' is fixed-width and zero-padded, so lexicographic order is calendar order: the earliest key falls
 // out of a plain sort with no Date built and no clock read. map() copies, so the argument is never sorted.
+//
+// The flag filter is the same one `derivePlanSettingsBanner` counts by, and it has to be: the codec admits any
+// flag code and `convertAffectedMeals` drops the ones this build does not know, leaving that row with no flags
+// at all. Sorting the unfiltered list would let such a row win the date sort, sending 'Review affected meals'
+// to a day the banner never counted and never named — a day with nothing to fix (AAP 0.7.4 R7).
 export const earliestFlaggedDate = (meals: AffectedMeal[]): string | null => {
-  const [earliest] = meals.map(meal => meal.date).sort()
+  const [earliest] = meals
+    .filter(meal => meal.flags.length > 0)
+    .map(meal => meal.date)
+    .sort()
 
   return earliest ?? null
 }
 
+// Takes the count already normalised by `toCountValue`, so the plural form and the digits printed beside it
+// are read off one integer and cannot disagree.
 const loggedFoodValue = (loggedEntryCount: number): string => {
   if (loggedEntryCount <= 0) {
     return PLAN_REGENERATE_NOTHING_LOGGED_TEXT
@@ -672,30 +682,43 @@ const loggedFoodValue = (loggedEntryCount: number): string => {
     return PLAN_REGENERATE_ONE_ENTRY_KEPT_TEXT
   }
 
-  return stringWithNamedParameters(PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE, {n: loggedEntryCount})
+  return stringWithNamedParameters(PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE, {n: formatCount(loggedEntryCount)})
 }
 
 // The three rows of the regenerate dialog (38:531), every value bound: the drawn '21 replaced' and 'Kept' are
 // sample content.
-export const buildRegenerateSummaryRows = (summary: MealPlanSummary): PlanRegenerateSummaryRow[] => [
-  {
-    label: PLAN_REGENERATE_PLANNED_MEALS_LABEL,
-    value: stringWithNamedParameters(PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE, {n: summary.plannedMeals}),
-    tone: 'default'
-  },
-  {
-    label: PLAN_REGENERATE_GROCERY_LIST_LABEL,
-    value: summary.groceryItemCount > 0 ? PLAN_REGENERATE_GROCERY_REBUILT_TEXT : PLAN_REGENERATE_GROCERY_EMPTY_TEXT,
-    tone: 'default'
-  },
-  {
-    label: PLAN_REGENERATE_LOGGED_FOOD_LABEL,
-    value: loggedFoodValue(summary.loggedEntryCount),
-    // 'accent' marks the one emphasised value on the 16b dialog — what survives a regeneration is the
-    // reassurance — and becomes a colour token in the screen's styled layer before the rows reach SummaryRows.
-    tone: 'accent'
-  }
-]
+//
+// Each count is normalised ONCE and every decision below — the wording, the rebuilt/empty test and the
+// rendered figure — is taken from that integer, so a corrupt response cannot produce a row whose words and
+// digits contradict each other (a 0.4 that reads 'Rebuilt', a '1.5 entries kept'). The codec refuses such a
+// response outright; this is the display half of the same guard.
+export const buildRegenerateSummaryRows = (summary: MealPlanSummary): PlanRegenerateSummaryRow[] => {
+  const plannedMeals = toCountValue(summary.plannedMeals)
+  const groceryItemCount = toCountValue(summary.groceryItemCount)
+  const loggedEntryCount = toCountValue(summary.loggedEntryCount)
+
+  return [
+    {
+      label: PLAN_REGENERATE_PLANNED_MEALS_LABEL,
+      value: stringWithNamedParameters(PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE, {n: formatCount(plannedMeals)}),
+      tone: 'default'
+    },
+    {
+      label: PLAN_REGENERATE_GROCERY_LIST_LABEL,
+      value: groceryItemCount > 0 ? PLAN_REGENERATE_GROCERY_REBUILT_TEXT : PLAN_REGENERATE_GROCERY_EMPTY_TEXT,
+      tone: 'default'
+    },
+    {
+      label: PLAN_REGENERATE_LOGGED_FOOD_LABEL,
+      value: loggedFoodValue(loggedEntryCount),
+      // 'accent' marks the one emphasised value on the 16b dialog — what survives a regeneration is the
+      // reassurance — and becomes a colour token in the screen's styled layer before the rows reach
+      // SummaryRows. Nothing logged is nothing kept, so the zero state carries no reassurance to emphasise
+      // and takes the neutral tone, which resolves to no colour at all.
+      tone: loggedEntryCount === 0 ? 'default' : 'accent'
+    }
+  ]
+}
 
 export const buildRegenerateDialogBody = (startDate: string, endDate: string): string =>
   stringWithNamedParameters(PLAN_REGENERATE_DIALOG_BODY_TEMPLATE, {

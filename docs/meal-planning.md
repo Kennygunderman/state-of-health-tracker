@@ -23,7 +23,7 @@ documents are right.
 | [7. Lint: the baseline gate](#7-lint-the-baseline-gate)                                                 | Two commands, and the exit code that is _not_ the gate                  |
 | [8. `npm ci` and the peer-dependency workaround](#8-npm-ci-and-the-peer-dependency-workaround)          | Documented, deliberately not fixed                                      |
 | [9. Why two files in `scripts/` are not TypeScript](#9-why-two-files-in-scripts-are-not-typescript)     | A convention break with a reason                                        |
-| [10. Physical-device verification checklist — UNRUN](#10-physical-device-verification-checklist--unrun) | Reproduced in full, every item unchecked                                |
+| [10. Physical-device verification checklist — UNRUN](#10-physical-device-verification-checklist--unrun) | Every item unchecked, why the hardware was unreachable, and the per-flow capture ledger plus the one Figma comparison each of the 14 flows still needs |
 | [11. Cross-repository pointers and delivery shape](#11-cross-repository-pointers-and-delivery-shape)    | The two pull requests and their order                                   |
 
 ---
@@ -542,15 +542,39 @@ could be pointed at a redirecting server.
 
 ## 5. Typeface: Helvetica Neue vs the platform default
 
-Every text style in the Figma file names **Helvetica Neue**. No file under `src/` sets a
-`fontFamily` — a repository-wide search returns zero matches — so the app renders **San Francisco on
-iOS and Roboto on Android**, and the new screens do the same as every shipped one.
+Every text style in the Figma file names **Helvetica Neue**. **No `fontFamily` declaration exists
+anywhere under `src/`** — the identifier appears exactly once, inside the header comment of
+`src/styles/fontSize.ts` that records this very decision, and `FontFamily` appears once in that same
+comment, as the name option B would introduce. Neither is a declaration and neither is a token. So
+the app renders **San Francisco on iOS and Roboto on Android**, and the new screens do the same as
+every shipped one.
 
-**Option A is the working decision of this delivery:** keep the platform default family and match
-size, weight, line height and letter spacing exactly. The consequence is a glyph-shape difference
-from the Figma frames that no token can remove, so **every screenshot comparison must note it**. It
-is a deviation from the visual source of truth, recorded here so it can be reversed knowingly rather
-than discovered later.
+**Option A is the working decision of this delivery, and it is an approved exception rather than an
+open defect.** AAP §0.1.4 and §0.6.3 adopt it deliberately: keep the platform default family and
+match size, weight, line height and letter spacing exactly. **The resolution of this item is that it
+stays recorded — not that the fonts change.** Changing them is option B below, which is a reversal
+of an approved decision and needs a licence review, not a fix.
+
+**What it costs, stated precisely, because it is the root of a whole family of sub-pixel
+differences.** Substituting the family changes glyph advance widths. Every consequence follows from
+that one fact:
+
+- rendered text-run widths differ slightly from the frames, so anything measured from a text edge
+  differs with it;
+- wrap points can land a word earlier or later in multi-line copy;
+- optical centring inside hug-width controls — chips, pills, segmented-control segments, badges —
+  shifts by a fraction of a pixel, because the control hugs a text width that is itself different;
+- baseline positions inside a fixed line box shift where the two families' ascent and descent
+  metrics differ.
+
+**Therefore: pre-declare this family to every visual comparison and reject it as a non-finding.**
+It is item 1 of
+[Pre-declared non-findings](#pre-declared-non-findings--pass-these-in-instructions-every-call), which
+the per-flow comparison record in section 10 passes on every call. Be strict about the boundary —
+the exception covers **only** the consequences of the substituted family listed above. The declared
+metrics themselves (size, weight, line height, letter spacing) and every non-text property (colour,
+geometry, spacing, radius, stroke, opacity, shadow) remain **fully reportable**, and a difference in
+any of them is a real finding that this exception must never be used to excuse.
 
 **Option B**, bundling a licensed Helvetica Neue, remains available and is smaller than it looks:
 `expo-font` is already a dependency and already registered in `app.json`'s plugin list, so the
@@ -657,7 +681,12 @@ node scripts/token-literal-scan.mjs $(git diff --name-only --diff-filter=ACMR ma
   -- 'src/**/*.styled.*' 'src/**/*.tsx' ':(exclude)src/**/__tests__/**')
 ```
 
-`master` is the base your branch forked from — substitute another if yours did not.
+`master` is the base your branch forked from — substitute another if yours did not, and check the
+file count before trusting a pass. A base that does not resolve makes this gate **silent rather than
+failing**: `git diff` exits non-zero with `fatal: bad revision`, the command substitution expands to
+nothing, and the scanner then reports no files and exits `0`, which reads exactly like a clean run.
+On a Blitzy working clone `master` is not a ref at all; the base is the AAP's mobile reference commit
+`788a36f`, against which the pathspec selects **216** files today — 89 of them `index.styled.ts`.
 
 The scan is the enforceable form of the styling rule's no-magic-numbers and no-hardcoded-hex
 clauses. It exits `1` on the **first** hit, printing `file:line:column`, the literal and a reason,
@@ -713,6 +742,17 @@ migrated with them: `Account`, `FoodListRow`, `FoodDetail` (stepper and fraction
 `Progress/components/ActivityTab` now press through `Opacity.PRESSED` (`0.6`), the added
 `Opacity.PRESSED_SUBTLE` (`0.7`) and `Opacity.PRESSED_TARGET_ROW` (`0.5`). **No rendered value
 changed** — each site kept the number it shipped; only the literal became a named entry.
+
+**One hit is open, and it is not an eighth entry in that list.**
+`src/components/toast/ToastConfig/index.tsx:75` still presses through a bare `activeOpacity={0.7}`,
+so the attribute scan exits `1` there. The feature did touch that file — it added the toast's
+accessibility role and label — which is precisely what brings this clause down on it, and the value
+it needs already exists as `Opacity.PRESSED_SUBTLE` (`0.7`), so the remedy is one import and one
+reference with **no rendered change**. It is recorded open rather than edited because no finding at
+this checkpoint assigns that file to anyone and it is outside every declared surface; whoever next
+touches `toast/` closes it under this same clause. Until then read the gate as it actually stands:
+**style-object scan clean across all 89 touched stylesheets, attribute scan one known hit at the line
+named above** — not as a blanket pass.
 
 ### Three gaps left open
 
@@ -970,11 +1010,53 @@ file, because its own specification gives it no suite of its own.
 > results. No passing TypeScript, lint or Jest run in this repository is evidence that the native
 > app behaves as described.
 
+### What this section is, and what it is not
+
+This section is the **client-side handoff record** for the device and visual pass: the states to
+reach, the hardware that reaches them, and the comparisons still owed. Read it as work to do.
+
+**Keep two readings apart, because they are routinely confused and only one of them is true here.**
+"The device pass is unrun" is a statement about this environment's hardware. "A functional issue is
+open" is a statement about the code. An unchecked box below is the first, never the second. Nothing
+in this section records a known defect; it records a measurement nobody could take.
+
+That distinction matters because of a gap in how evidence reaches this repository. **No upstream
+functional-checkpoint report is delivered here:** none is tracked in git, none is present in the
+clone this section was last updated from, and `blitzy/` — where such a run would write its
+artefacts — is git-excluded, so it cannot be the channel either. A gate phrased *"fail if an open
+functional issue remains"* therefore has no artefact to read. **Do not satisfy it by reading the
+unchecked boxes below as defects, and do not satisfy it by assuming closure.** Satisfy it against
+the evidence that does exist, and treat the routing as the thing a human has to fix.
+
+**The functional-closure evidence that does exist**, all re-measured on **19 September 2026** in
+this repository:
+
+| Evidence                       | Command                                     | Result                                              |
+| ------------------------------ | ------------------------------------------- | --------------------------------------------------- |
+| Type check, whole mobile tree  | `./node_modules/.bin/tsc --noEmit`          | exit 0 (TypeScript 6.0.3)                           |
+| Full mobile test suite         | `CI=true npx jest --runInBand --ci`         | **135 suites, 6930 tests, all passing**, exit 0     |
+| Lint, against a frozen baseline | section 7 → [The gate, in two steps](#the-gate-in-two-steps) | no finding outside the recorded baseline |
+| Style-token discipline         | section 6 → [The literal scan](#the-literal-scan) | style-object scan clean over all 89 touched stylesheets; attribute scan **1 known open hit**, [named in section 6](#migrate-on-touch) |
+| API side, requirement → test   | [`backend/docs/meal-planning/requirement-evidence-checklist.md`](../../backend/docs/meal-planning/requirement-evidence-checklist.md) | the mapping, plus its own [what is unrun or unverified](../../backend/docs/meal-planning/requirement-evidence-checklist.md#what-is-unrun-or-unverified) |
+
+**And what that evidence cannot do**, stated so it is never over-read: not one line of it is a pixel
+or a gesture. It establishes that the tree type-checks, that the derivations behave, and that the
+declared styles are the intended tokens. It says nothing about rasterised output, Yoga geometry,
+native font metrics, press feedback or scroll reachability — which is precisely the set this section
+exists to close, enumerated per flow in
+[Screenshots, per-flow capture ledger and Figma comparison](#screenshots-per-flow-capture-ledger-and-figma-comparison).
+
+**What a human must decide** (nothing in this repository can decide it): either upstream checkpoint
+reports land in a tracked path that travels with the code, or the gate is restated against this
+document. Until one of those happens, every checkpoint downstream of a functional pass will re-hit
+the same missing artefact.
+
 Why it could not be run:
 
 - **Native iOS build, simulator and visual comparison were unavailable** in the Linux environment
-  this work was produced in — no macOS, no Xcode, no iOS toolchain. `npm run ios` cannot execute
-  there, and Metro starting does not validate a native build.
+  this work was produced in — no macOS, no Xcode, no iOS toolchain. `npm run ios` refuses at the
+  first step with `iOS apps can only be built on macOS devices. Use eas build -p ios to build in the
+  cloud.`, and Metro starting does not validate a native build.
 - **The Firebase build files were not provided.** iOS needs `GoogleService-Info.plist` (delivered on
   EAS through `GOOGLE_SERVICES_INFO_PLIST_FILE`, which `app.config.js` reads) and Android needs
   `google-services.json`; `app.json` references both. They are build prerequisites to be injected as
@@ -1002,27 +1084,100 @@ Why it could not be run:
   simulator; the Android tooling above is absent, so there is no emulator; and with no web renderer
   there is no browser accessibility tree to read either. `@testing-library/react-native` is also
   absent, so even the render-level accessibility assertions a test could make do not exist.
-- **This delivery therefore contains no screenshot at all.** `blitzy/screenshots` and
-  `blitzy/screen_recordings` hold zero files, and will stay empty until someone runs this section on
-  hardware. Every statement this delivery makes about how the feature looks rests on a style or
-  derivation harness, never on a pixel.
+- **This delivery therefore contains no screenshot of the running app, and no screen recording at
+  all.** Every statement it makes about how the feature looks rests on a style or derivation
+  harness, never on a pixel. Be exact about where that leaves the evidence directories, because the
+  distinction decides what a later pass may do with their contents:
+  - `blitzy/screenshots` and `blitzy/screen_recordings` are **per-clone scratch, excluded from git**
+    (`.git/info/exclude` carries `blitzy/`). Nothing written there can enter a commit, so they are
+    not the handoff channel for anything and never travel with the repository. **This document is
+    the channel.**
+  - A verification harness may leave PNGs in `blitzy/screenshots` — the clone this section was last
+    updated from held **207 of them, and not one was a capture of a running app.** They were
+    drawings derived from the style tree plus magnified crops of single controls (4× progress
+    strips, 10× discs) **and downloaded Figma reference renders at 393×852**. Note that last kind
+    especially: a 393×852 PNG sitting in that directory is as likely to be the *design* side as
+    anything else, so handing the directory's contents to a comparison can end in comparing Figma
+    against Figma and reporting a perfect match.
+  - **Never feed such a drawing to `compare_screenshot_with_figma`.** A comparison between Figma and
+    a picture drawn from the same style declarations the implementation already asserts can only
+    re-confirm those declarations; it cannot see the overflow, clipping, wrap point, glyph advance
+    or scroll extent that the comparison exists to catch, and passing it would convert an unverified
+    property into a recorded pass. The per-flow comparison calls in
+    [Screenshots, per-flow capture ledger and Figma comparison](#screenshots-per-flow-capture-ledger-and-figma-comparison)
+    stay unspent until a native capture exists to feed them.
 
 Native configuration flows through `app.json` and Expo config plugins; the generated `ios/` and
 `android/` projects are git-ignored and are not present in the repository. Do not edit a generated
 native project — change the config and regenerate.
 
-**Six measurement passes are UNRUN in the strong sense** — not skipped, not inferred, and not
-covered in passing by the automated suites. Each is recorded below with what was run instead, the
-steps that close it, and the combinations still to be checked. Only the first blocks.
+### What was probed, and what the probe proves
 
-| Pass                                                                | Recorded under                                 | Blocking |
-| ------------------------------------------------------------------- | ---------------------------------------------- | -------- |
-| Measured geometry per device class                                  | Layout and accessibility → Responsive geometry | **yes**  |
-| Dynamic type at the six scale × width combinations                  | Layout and accessibility → Dynamic type        | no       |
-| VoiceOver and TalkBack passes                                       | Layout and accessibility → Screen readers      | no       |
-| Native confirmation of the recipe and swap states                   | Recipe and swap                                | no       |
-| Pixel comparison, interactive states, gestures, console cleanliness | Screenshots                                    | no       |
-| Regression over the shipped surfaces this feature touched           | Shipped surfaces, beside the pre-feature build | no       |
+The bullets above are not inherited from the plan — they were re-probed on **19 September 2026** in
+the environment this section was last updated from, and this is the probe, so that a reader on
+different hardware can tell in one pass whether the blockage is still theirs.
+
+| Probe                                                                                                              | Observed                                                                              |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `uname -srm`, `sw_vers`                                                                                            | `Linux … x86_64`; `sw_vers` not found — not macOS                                     |
+| `xcodebuild`, `xcrun`, `simctl`, `pod`, `swift`, `ibtool`, `actool`, `instruments`, `idb`, `ios-deploy`, `idevicescreenshot`, `applesimutils` | **12 of 12 absent**; `/Applications` and `/Library/Developer` do not exist            |
+| `adb`, `emulator`, `sdkmanager`, `avdmanager`, `java`, `javac`, `gradle`, `aapt2`, `qemu-system-x86_64`             | **9 of 9 absent**; `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `JAVA_HOME` unset; no `/dev/kvm` |
+| `mobile/GoogleService-Info.plist`, `mobile/google-services.json`, `GOOGLE_SERVICES_INFO_PLIST_FILE`, `EXPO_TOKEN`  | all four absent or empty — the two build secrets and the EAS credential               |
+| `mobile/ios`, `mobile/android`                                                                                     | absent, as expected: both are `.gitignore`d (lines 16–17) and generated on demand     |
+| `react-native-web`, `react-dom`, `@testing-library/react-native`, `detox`, `appium`, `jest-image-snapshot`, `puppeteer`, `playwright` | all absent from `node_modules`                                                        |
+| `react-test-renderer`                                                                                              | present (19.2.3, via `jest-expo`) — style and prop trees only, no Yoga, no font metrics |
+
+**What the probe proves, beyond the absences: the configuration layer is sound.**
+`npx expo prebuild --platform android --no-install` resolves the config, evaluates every plugin and
+generates the Android template, then fails at exactly one step —
+`[android.dangerous]: withAndroidDangerousBaseMod … Cannot copy google-services.json`, `ENOENT` on
+`mobile/google-services.json`. It never reaches, and never complains about, the missing SDK. So
+nothing in `app.json`, `app.config.js` or the plugin set is what stands between this repository and
+a native build: the two secrets and the host toolchain are. Treat a prebuild failure elsewhere in
+that pipeline as a real regression; this one is the expected shape of a missing secret. (The probe
+writes a generated `android/`; it is git-ignored, and it was removed after the observation.)
+
+**Four ways to unblock it.** Each is sufficient on its own for the platform it names.
+
+| Path                                                                     | What it needs                                                                     | How you then capture                                                                    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| macOS + Xcode + CocoaPods (the path this section is written for)         | `GoogleService-Info.plist` in `mobile/`, or `GOOGLE_SERVICES_INFO_PLIST_FILE` set | `npm run ios`, then `xcrun simctl io booted screenshot <file>.png` / `… recordVideo`    |
+| Android SDK + JDK + an emulator image or a device                        | `google-services.json` in `mobile/`; `/dev/kvm` for an x86 emulator image         | `npx expo run:android`, then `adb exec-out screencap -p >` / `adb shell screenrecord`   |
+| Authenticated EAS build **plus** a device farm that can drive the result | `eas login` or `EXPO_TOKEN`, both secrets as EAS secret files                     | the farm's own screenshot and recording controls                                        |
+| A genuine remote native console (hosted simulator or device session)     | network reach and an account, from the machine running the checkpoint             | that console's capture controls                                                         |
+
+**Substitutes already rejected, with the reason each fails.** Recorded so no later pass spends
+effort re-discovering them, and so none is mistaken for an acceptable stand-in.
+
+| Substitute                                | Why it is not a capture                                                                                                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Expo web export / a browser preview       | `npx expo export --platform web` exits 1 demanding `react-dom@19.2.3` and `react-native-web@^0.21.2`; installing them is a new mobile dependency, excluded by AAP §0.4.2. A web preview also is not the native app, so it could not carry the verdict even if it built. |
+| `react-test-renderer`                     | Runs no Yoga and applies no native font scaling — no computed boxes, so overflow, clipping, wrap points and scroll extent stay invisible. It is what the style-level statements rest on, and it is not a pixel. |
+| An EAS cloud build artefact on its own    | A produced `.app`/`.ipa` still needs macOS, a simulator or a device to run and rasterise; `eas-cli` is not authenticated here (`EXPO_TOKEN` empty).                                     |
+| Appetize / BrowserStack / Expo Snack      | Account-gated and not reachable or authorised from this host; Snack additionally cannot host this app's native modules.                                                                |
+| A harness drawing of the style tree       | See the last bullet above — it re-confirms the declarations it was drawn from and must never be fed to `compare_screenshot_with_figma`.                                                |
+
+**Seven measurement passes are UNRUN in the strong sense** — not skipped, not inferred, and not
+covered in passing by the automated suites. Each is recorded below with what was run instead, the
+steps that close it, and the combinations still to be checked. **Two of them block.**
+
+| Pass                                                                | Recorded under                                                                                          | Blocking |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------- |
+| Measured geometry per device class                                  | Layout and accessibility → Responsive geometry                                                          | **yes**  |
+| Per-flow Figma comparison of a rendered capture                     | [Screenshots, per-flow capture ledger and Figma comparison](#screenshots-per-flow-capture-ledger-and-figma-comparison) | **yes**  |
+| Dynamic type at the six scale × width combinations                  | Layout and accessibility → Dynamic type                                                                 | no       |
+| VoiceOver and TalkBack passes                                       | Layout and accessibility → Screen readers                                                               | no       |
+| Native confirmation of the recipe and swap states                   | Recipe and swap                                                                                         | no       |
+| Interactive states, gestures and console cleanliness                | Screenshots, per-flow capture ledger and Figma comparison                                               | no       |
+| Regression over the shipped surfaces this feature touched           | Shipped surfaces, beside the pre-feature build                                                          | no       |
+
+The second row is deliberately kept apart from the interactive-state row below it, and graded
+blocking, because it is the whole point of a visual checkpoint: **one `compare_screenshot_with_figma`
+call per flow is the act that adjudicates the implementation against the design contract**, and with
+no capture to feed it, every claim about fidelity, geometry, wrapping, overflow, glyph metrics and
+scroll extent is *unverified* rather than passing. The interactive-state and console row stays
+non-blocking because it is what a native pass observes on top of that adjudication, not the
+adjudication itself.
 
 ### Making the failure states reachable
 
@@ -1456,23 +1611,135 @@ announced meaninglessly:
       tab, 1 of 5" and that the bar is genuinely absent from the reader on the 18 routed screens,
       which could only be established here from the `display: 'none'` mechanism
 
-### Screenshots
+### Screenshots, per-flow capture ledger and Figma comparison
 
 - [ ] Capture a matched screenshot for each of the 31 frames at 393×852, and note the section 5 font
       delta on every one
 
-Capturing them is only the first half. **Five dimensions of the journey through this feature were
-never exercised**, because each needs a renderer, and every screen observation behind this delivery
-came instead from executing the shipped presentation layer — the `index.util.ts` derivations, the
-io-ts decoders, the converters and the mutation option factories — in-process against real HTTP
-payloads. That establishes values, state selection and copy. It establishes nothing about pixels,
-and the derived geometry it did confirm numerically is narrow: the day chip at 42.71 px on 375 px and
-45.29 px on 393 px, the metric-grid cell at 71.25 px on 393 px, and the content column at 335 px,
-353 px and 560 px for 375 px, 393 px and 1024 px. The five dimensions below are **UNRUN**.
+The generic line above is the minimum. **What is actually owed is enumerated per flow below**, so
+that a reader on capable hardware can execute it without re-deriving anything, and so that the size
+of the gap is visible rather than implied. The flow labels and node ids are the same ones section 1
+uses in [The 14 flows and their 31 states](#the-14-flows-and-their-31-states); the Figma file is
+`ZytSsn2tKVpMCSoibMJ274`.
 
-- [ ] Compare each captured screenshot pixel-for-pixel against its Figma node — at minimum frames
-      12, 13, 13b, 13c, 13d, 13e, 14, 14b, 14c and 16, which the journey passes through — and record
-      every difference that is not the section 5 typeface deviation
+#### The per-flow capture ledger — every cell UNRUN
+
+"Four widths" throughout means the set this section already works in: **375×667, 393×852, 430×932
+and an iPad** (content column capped at 600 px and centred). Record the section 5 font delta on
+every capture. The counts are the ones each visual checkpoint stated for its own flow; three of them
+are approximate because the checkpoint itself wrote "~". Summed, the ledger is **≈303 captures and
+10 recordings, none of them taken.**
+
+| Flow | Frames, in step order            | States to reach beyond the frames as drawn                                                                    | Captures | Recordings | Status |
+| ---- | -------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------- | ---------- | ------ |
+| F1   | `46:9` → `46:136`                | Intro first-entry vs "Continue setup"; goal unselected, each goal selected, pace revealed for lose/gain        | 8        | —          | UNRUN  |
+| F2   | `46:260` → `46:404`              | 03 first-entry, 03 with the weigh-in prefill, 03 with no prefill (out-of-range or `st`), 03b inline errors     | 16       | —          | UNRUN  |
+| F3   | `47:9` → `47:116`                | Activity unselected and each of the four selected; diet unselected; allergen chips incl. the exclusive "None"; **pressed and focus states, which Figma never authored** | 8        | —          | UNRUN  |
+| F4   | `47:238` → `47:346`              | 06 empty and with selections; 06b focused with a query, an added row, "Clear all", and the no-results state    | 8        | —          | UNRUN  |
+| F5   | `47:471` → `47:582`              | 3 meals vs 3 meals + snack (snack pill replaces the dashed placeholder); budget entered vs "No budget preference" | 8        | —          | UNRUN  |
+| F6   | `34:9` → `34:185`                | Review with an estimate, with confirmed targets, with `stale`/`legacy`; 09b focused, each field in error, the blank manual variant | 60       | —          | UNRUN  |
+| F7   | `34:301` → `34:364` → `34:436`   | 10 pending; 10b confirmed failure **and** its unconfirmed-outcome variant; 10c with each limiting-constraint set; the regenerate context's "Back to plan" | 36       | 4          | UNRUN  |
+| F8   | `49:433` → `49:9` → `49:251`     | 11c per setup status (`not_started` / `in_progress` / `ready_for_review` / `completed`); 11 selected-day strip; 11b banner, LOGGED card, last-day card | 12       | —          | UNRUN  |
+| F9   | `49:532`                         | Recipe detail in plan context and in preview context, each with "Your portion" and "Full recipe" selected      | 8        | —          | UNRUN  |
+| F10  | `36:291` → `36:9` → `36:130`     | 13c skeleton, 13 alternatives, 13b preview with a negative and a positive delta; **plus the grocery list captured after the commit**, to evidence the updated amounts | 25       | 1          | UNRUN  |
+| F11  | `36:372` / `36:459`              | **Sibling outcomes, never sequential** — 13d from an empty alternatives response; 13e from a confirmed `502 swap_failed`; and the unconfirmed-outcome variant, which must show neither the green-outlined card nor the "unchanged" copy | 26       | —          | UNRUN  |
+| F12  | `37:9` → `37:165` → `37:348`     | 14 all-unchecked (no "Uncheck all"), 14b flagged increase in the Checked section, 14c no-plan; **plus the two inferred states** — a checked row whose amount decreased, and a plan with an empty list | 20       | —          | UNRUN  |
+| F13  | `38:9` → `38:160`                | 15 stepper and each fraction chip, each slot in the picker, the date stepper; 11b as the post-log destination; 15b diary row with "From meal plan"; the commit-then-response-loss variant | 60       | 5          | UNRUN  |
+| F14  | `38:359` → `38:504`              | 16 with and without the affected-meals banner; 16b with **bound** summary counts, incl. the zero/singular/plural logged-food strings | 8        | —          | UNRUN  |
+
+#### The comparison call each flow needs — 15 calls across the 14 flows
+
+One `compare_screenshot_with_figma` call per flow, its steps passed as **ordered targets in step
+order** — that is what surfaces state which should have changed between steps and did not, and it
+reports a shared discrepancy once instead of once per step. Capture every step of a flow first, then
+compare the flow in a single call. Fifteen rather than fourteen because F11's two frames are sibling
+outcomes that never reach each other, so each is its own single-screen call. **All fifteen are
+unspent**, and deliberately so: the tool requires a viewable screenshot of the running app, none
+exists, and feeding it a harness drawing would manufacture a pass (see the last bullet of *Why it
+could not be run*).
+
+| Flow | Ordered targets                | Step labels to pass                                                                     |
+| ---- | ------------------------------ | --------------------------------------------------------------------------------------- |
+| F1   | `46:9`, `46:136`               | Introduction; Your goal, after "Build my plan"                                          |
+| F2   | `46:260`, `46:404`             | About you, first entry; About you with inline errors, after Continue with empty fields  |
+| F3   | `47:9`, `47:116`               | Activity, nothing selected; Diet and allergies, after Continue                          |
+| F4   | `47:238`, `47:346`             | Food preferences; Food search, after tapping the search field                           |
+| F5   | `47:471`, `47:582`             | Meals and schedule; Cooking and budget, after Continue                                  |
+| F6   | `34:9`, `34:185`               | Targets and review; Edit targets, after "Edit"                                          |
+| F7   | `34:301`, `34:364`, `34:436`   | Generating; Generation failed (`502`); No match (`422`) — the last two are **outcomes of the first, not successors** |
+| F8   | `49:433`, `49:9`, `49:251`     | No plan; Meal plan; Meal plan after logging a meal                                      |
+| F9   | `49:532`                       | Recipe detail, opened from a plan card                                                  |
+| F10  | `36:291`, `36:9`, `36:130`     | Swap loading; Alternatives; Preview, after tapping an alternative                       |
+| F11  | `36:372`, `36:459`            | No alternatives, from an empty response; Swap failed, from a confirmed `502` — **two calls, not one flow**, because neither reaches the other |
+| F12  | `37:9`, `37:165`, `37:348`     | Grocery list; Grocery list after a swap raised a checked amount; Grocery list with no plan |
+| F13  | `38:9`, `38:160`               | Log this meal; Diary showing the logged entry — note the journey passes through 11b between them |
+| F14  | `38:359`, `38:504`             | Plan settings; Regenerate confirmation, after "Regenerate this week"                    |
+
+**Where the step order comes from, since it is not authored.** The Figma file carries **no prototype
+wiring at all** — no reaction, transition or destination on any node — so no arrow in the file states
+which frame follows which. The order above is read from two things the file *does* carry: the
+adjacent `"<screen> — note"` frame beside each screen, and the page's own numbering convention, in
+which **a bare number advances the journey and a lettered suffix is a sub-state of the number it
+hangs off** (13, 13b, 13c, 13d, 13e are all states of screen 13). That is what makes F7's and F11's
+annotations above load-bearing rather than pedantic: 13d's note reads "The original meal is never
+cleared while looking for a replacement" — the same episode as 13c's "The current meal stays visible
+while alternatives load" — whereas 13e's reads "Failure keeps the original meal in place and says so
+plainly. Retry sits inside the error", which is a post-attempt outcome. **13d and 13e are siblings
+that never reach each other**, and a comparison that passed them as consecutive steps of one flow
+would be asserting a transition the design never describes.
+
+#### Pre-declared non-findings — pass these in `instructions`, every call
+
+Each of these is a **known, approved** difference from the frames. Declaring them up front is what
+keeps the comparison's output actionable; leaving them undeclared buries the real findings under
+noise that has already been adjudicated.
+
+1. **The typeface family, on every flow.** Section 5's approved deviation. Glyph advance widths
+   differ, so text-run widths, wrap points and optical centring inside hug-width controls differ
+   sub-pixel everywhere text appears. Declared size, weight, line height and letter spacing are
+   **not** covered by this and stay fully reportable, as do colour, geometry, spacing, radius and
+   stroke.
+2. **Pressed, focused and disabled states.** **The design file does not author interaction states at
+   all**, so there is nothing to compare against. This was measured rather than assumed: across the
+   54 nodes of `36:372` there are **0 component instances, 0 components and 0 component sets**, and
+   `componentId`, `componentProperties`, variant axes, `mainComponent`, `overrides` and `styleId` are
+   absent from every node — as are any pressed, focused, hover, disabled, loading or selected
+   variant, any `visible: false` twin layer, and any sub-1 opacity that could be a dimmed treatment
+   left in the file. The idiom is plain frames sharing property bags: the two CTAs on that screen are
+   separate frames sharing one layout token and one text token, differing only in whether a fill is
+   present — the opposite of a variant set. So **every interaction state is an implementation
+   obligation with no Figma reference.** Verify them against this section's own stated values (0.6
+   while held, 0.5 while disabled), never against a frame; F3's and F11's interaction cells exist for
+   exactly that. Note the awkward case while you are there: a surface-less tertiary action has no
+   drawn surface to darken, so its pressed feedback is a decision, not a match.
+3. **States that exist by design with no Figma counterpart** (AAP §0.2.5): the unconfirmed-outcome
+   variants of generate, swap and log; the empty-grocery-list copy as distinct from the no-plan
+   state; the logged-then-swapped caption; the decreased checked row; the plan-settings row; the
+   next-week link; the selected fraction chip; and the date stepper on 15. A missing counterpart is
+   not a mismatch.
+4. **Two numeric differences on F10, both correct as implemented.**
+   - The 13b calorie progress fill renders **≈1.9 px wider** than the frame. The mock authors the
+     fill at 301.73 of a 321 px track (93.9938%), which is an approximation; the real binding is
+     1,835 ÷ 1,940 = 94.5876%. Matching the frame here would mean displaying a wrong ratio.
+   - The 13b nutrition card carries a provenance caption that inserts **≈26.85 px** the frame does
+     not have, displacing everything below it by that much. It is required by the provenance rules
+     in section 1, which the prompt places above the frames.
+
+Capturing the ledger and spending those calls is only the first half. **Seven further checks of the
+journey through this feature were never exercised**, because each needs a renderer, and every screen
+observation behind this delivery came instead from executing the shipped presentation layer — the
+`index.util.ts` derivations, the io-ts decoders, the converters and the mutation option factories —
+in-process against real HTTP payloads. That establishes values, state selection and copy. It
+establishes nothing about pixels, and the derived geometry it did confirm numerically is narrow: the
+day chip at 42.71 px on 375 px and 45.29 px on 393 px, the metric-grid cell at 71.25 px on 393 px,
+and the content column at 335 px, 353 px and 560 px for 375 px, 393 px and 1024 px. All seven below
+are **UNRUN**.
+
+- [ ] Run the fifteen comparison calls recorded above — each flow's steps as ordered targets, the
+      pre-declared non-findings passed in `instructions` — and record every remaining difference. A
+      single walk through this feature already passes frames 12, 13, 13b, 13c, 13d, 13e, 14, 14b,
+      14c and 16, so F9–F12 and F14 are the cheapest to earn; the other flows still need their own
+      captures and their own call
 - [ ] Exercise the interactive states no static pass can reach: press and hold each CTA, each day
       chip and each pill and confirm it dims to 0.6 while held; confirm a disabled CTA dims to 0.5
       and ignores the press in each of its three real cases — a swap commit in flight, a grocery

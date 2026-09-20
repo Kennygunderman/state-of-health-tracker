@@ -8,6 +8,7 @@ import {lookupLabel} from '@utility/TextUtility'
 
 import {
   GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE,
+  GROCERY_AMOUNT_INCREASED_BODY_UNNAMED,
   GROCERY_AMOUNT_INCREASED_TITLE,
   GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE,
   GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE,
@@ -319,11 +320,45 @@ export function groceryEyebrow(view: GroceryView): GroceryEyebrow {
   return {text: formatPlanRange(startDate, endDate), tone: 'green'}
 }
 
-export function countFlaggedItems(items: GroceryItem[]): number {
-  return items.filter(item => item.flag !== null).length
+/**
+ * The names of the rows the Checked card is drawing as flagged, in the order it draws them.
+ *
+ * Filtered through `groceryRowVariant` rather than on `flag !== null`, so this is exactly the set of rows
+ * that render the flagged treatment: a row carrying a flag but no tick renders as a plain aisle row
+ * (37:54) and may neither be counted nor named. `orderCheckedItems` hoists the flagged rows and preserves
+ * their relative order, so reading `checkedItems` in its own order already yields the rendered order.
+ *
+ * Names come back exactly as the rows hold them, blanks included: the length has to equal the number of
+ * flagged rows on screen even when one of them has no name to state.
+ */
+export function flaggedItemNames(items: GroceryItem[]): string[] {
+  return items.filter(item => groceryRowVariant(item) === 'flagged').map(item => item.name)
 }
 
-export function groceryBanner(banner: GroceryBanner | null, flagCount: number): GroceryBannerContent | null {
+/**
+ * The banner above the list, derived from the response's code and from the flagged rows rendered beneath it.
+ *
+ * Those rows are the naming authority, never `banner.itemNames`. That array is the server's snapshot at
+ * response time, and both optimistic writers clear a row's flag without revising it — a toggle sets
+ * `flag: null` and "Uncheck all" clears every row — so from the write until the settle refetch lands, the
+ * response's names describe rows that are no longer flagged and may no longer be checked at all. Deriving
+ * from the rows keeps the banner's claim and the Checked card it points at in agreement at every moment,
+ * mid-flight included, instead of only once a refetch has landed. It is also why no fallback to
+ * `itemNames` exists: reading them when no row is flagged is precisely the claim that would be false.
+ *
+ * Three consequences, in the order the branches take them:
+ * - No flagged row survives, so the increase banner is dropped entirely. "flagged below ... stays checked"
+ *   has nothing left to point at once the last flag is cleared (0.7.3 — toggling a row clears its flag),
+ *   and the Checked block it refers to may itself be gone. `updated_after_swap` is untouched by this: it
+ *   reports that the swap rebuilt the list, which stays true however the flags then move.
+ * - Grammar follows the count alone. One flag is singular whether or not its row can be named, so an
+ *   unnamed one states the same fact without a name rather than borrowing the plural's "1 amounts went up".
+ * - A named singular names a row that is still flagged.
+ */
+export function groceryBanner(
+  banner: GroceryBanner | null,
+  flaggedNames: readonly string[]
+): GroceryBannerContent | null {
   if (banner === null) {
     return null
   }
@@ -342,36 +377,79 @@ export function groceryBanner(banner: GroceryBanner | null, flagCount: number): 
     }
   }
 
-  const [firstItemName] = banner.itemNames ?? []
+  if (flaggedNames.length === 0) {
+    return null
+  }
 
-  // The singular copy names the one item, so an unnamed flag set falls back to the plural rather than an empty name.
-  if (flagCount <= 1 && firstItemName !== undefined) {
+  if (flaggedNames.length === 1) {
+    const [name] = flaggedNames
+
     return {
       tone: 'error',
       glyph: 'warning',
       title: GROCERY_AMOUNT_INCREASED_TITLE,
-      body: stringWithNamedParameters(GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE, {name: firstItemName})
+      // Decoded rows always carry a string name, so emptiness is the only case left to answer for.
+      body:
+        name.trim() === ''
+          ? GROCERY_AMOUNT_INCREASED_BODY_UNNAMED
+          : stringWithNamedParameters(GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE, {name})
     }
   }
 
   return {
     tone: 'error',
     glyph: 'warning',
-    title: stringWithNamedParameters(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE, {n: flagCount}),
-    body: stringWithNamedParameters(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE, {n: flagCount})
+    title: stringWithNamedParameters(GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE, {n: flaggedNames.length}),
+    body: stringWithNamedParameters(GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE, {n: flaggedNames.length})
   }
+}
+
+/**
+ * Folds every section sharing a category code into the first one that claimed it, concatenating their rows in
+ * the order they arrived.
+ *
+ * One block per aisle is what the list downstream requires rather than a tidiness: `buildGroceryViewModel`
+ * keys each block by its category, so two sections carrying one code would hand the `FlatList` two cells
+ * under the same key — a React duplicate-key error, two identical aisle headings, and cell reuse across the
+ * wrong section. The converter collapses an aisle code this version does not know onto the catch-all
+ * (`convertGroceryList`), so a response holding both an unknown aisle and a real 'Pantry & other' is the
+ * ordinary way two sections come to share a code, and 0.7.5's backend-before-mobile release order makes that
+ * a matter of when rather than whether. Merging is applied here, at the point the keys are derived, so the
+ * invariant holds for any list this screen is handed and not only for one the converter produced.
+ *
+ * Neither the input nor any array inside it is touched: each merged section owns a fresh item array.
+ */
+function mergeSectionsByCategory(sections: GrocerySection[]): GrocerySection[] {
+  const merged: GrocerySection[] = []
+
+  sections.forEach(section => {
+    const claimed = merged.find(candidate => candidate.category === section.category)
+
+    if (claimed === undefined) {
+      merged.push({category: section.category, items: [...section.items]})
+
+      return
+    }
+
+    claimed.items.push(...section.items)
+  })
+
+  return merged
 }
 
 /**
  * Aisles run in store order and 'Pantry & other' closes the list (37:157), so a category code this version does
  * not know sorts after the named aisles but ahead of that closer. Checked rows belong to the Checked block alone,
  * so they are dropped here whether or not the server pre-filtered them — along with any aisle they empty, which
- * would otherwise render as a bare header.
+ * would otherwise render as a bare header. What survives holds one section per category code, so the caller can
+ * key a list off that code.
  */
 export function orderGrocerySections(sections: GrocerySection[]): GrocerySection[] {
-  const stocked: GrocerySection[] = sections
-    .map(section => ({category: section.category, items: section.items.filter(item => !item.isChecked)}))
-    .filter(section => section.items.length > 0)
+  const stocked: GrocerySection[] = mergeSectionsByCategory(
+    sections
+      .map(section => ({category: section.category, items: section.items.filter(item => !item.isChecked)}))
+      .filter(section => section.items.length > 0)
+  )
 
   const namedAisles = AISLE_ORDER.flatMap(category => stocked.filter(section => section.category === category))
   const unknownAisles = stocked.filter(
@@ -402,9 +480,12 @@ export function groceryCategoryLabel(category: string): string {
 /**
  * Composes the whole of what 14 / 14b render from one decoded list: the aisle blocks in store order with their
  * labels and the `isFirst` flag `CategoryLabel` turns into the opening aisle's taller padding-top, the Checked
- * block (37:320) with its "Checked · n" heading and its flagged-row-first ordering, the banner the flag count
- * pluralises (0.7.4) and the visibility of the "Uncheck all" action — which renders only when something is
- * checked, so 14 never draws a control that would do nothing (0.2.5).
+ * block (37:320) with its "Checked · n" heading and its flagged-row-first ordering, the banner the flagged rows
+ * both pluralise and name (0.7.4) and the visibility of the "Uncheck all" action — which renders only when
+ * something is checked, so 14 never draws a control that would do nothing (0.2.5).
+ *
+ * The flagged rows are scanned once, and the banner and `flagCount` both read that one scan, so the sentence
+ * above the list and the number reported beside it can never disagree about what is flagged.
  *
  * Pure in the list: no member of it, and no array inside it, is mutated, so the same list always yields the
  * same model and the caller can memoise on the list's own identity.
@@ -430,13 +511,13 @@ export function buildGroceryViewModel(list: GroceryList): GroceryViewModel {
         ]
       : []
 
-  const flagCount = countFlaggedItems(list.checkedItems)
+  const flaggedNames = flaggedItemNames(list.checkedItems)
 
   return {
     blocks: [...categoryBlocks, ...checkedBlocks],
-    banner: groceryBanner(list.banner, flagCount),
+    banner: groceryBanner(list.banner, flaggedNames),
     showsUncheckAll: shouldShowUncheckAll(list.checkedCount),
-    flagCount
+    flagCount: flaggedNames.length
   }
 }
 

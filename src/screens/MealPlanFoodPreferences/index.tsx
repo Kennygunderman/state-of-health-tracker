@@ -19,7 +19,7 @@ import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConfl
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CatalogSearchField from '@components/CatalogSearchField'
-import ChipCloud from '@components/ChipCloud'
+import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
@@ -153,7 +153,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
   // rather than by a hundred elements handed over on every render.
   const renderSelectedChip = useCallback(
     (food: DislikedFoodSummary): React.JSX.Element => (
-      <SelectableChip label={food.name} selected removable expandTouchTarget onPress={() => toggleDislikedFood(food)} />
+      <SelectableChip label={food.name} selected removable onPress={() => toggleDislikedFood(food)} />
     ),
     [toggleDislikedFood]
   )
@@ -279,7 +279,11 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
                 />
               </View>
 
-              <View style={styles.cloudWrapper}>
+              {/* 47:287 draws this row 40px — an 8px rung over one 32px chip — which the rung below plus a
+                  band hugging its chips measures without any minimum height. The band reserves the chips'
+                  slop inside its own box and hands the height back, so the reserved band falls outside this
+                  wrapper: the slop here is what lets a touch reach it. */}
+              <View style={styles.cloudWrapper} hitSlop={CHIP_BAND_HIT_SLOP}>
                 <ChipCloud variant="scroll" items={selectedDislikes.foods} renderChip={renderSelectedChip} />
               </View>
             </>
@@ -289,7 +293,12 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
             <SectionOverline text={MEAL_PLAN_SUGGESTIONS_HEADER} isHeading />
           </View>
 
-          <View style={styles.cloudWrapper}>
+          {/* 47:303 draws the suggestion cloud 80px — an 8px rung over two 32px rows at a 40px pitch — which
+              the skeleton already measures at Sizes.CHIP and the loaded cloud now matches, so the block no
+              longer grows when the suggestions arrive. The cloud reserves the chips' slop inside its own box
+              and hands the height back, so the reserved band falls outside this wrapper: the slop here is
+              what lets a touch reach it. */}
+          <View style={styles.cloudWrapper} hitSlop={CHIP_BAND_HIT_SLOP}>
             {suggestionsState === 'loading' && (
               <View style={styles.skeletonRow} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
                 {SUGGESTION_SKELETON_KEYS.map(key => (
@@ -314,7 +323,6 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
                     key={suggestion.id}
                     label={suggestion.name}
                     selected={draft.dislikedFoodIds.includes(suggestion.id)}
-                    expandTouchTarget
                     onPress={() => toggleDislikedFood(suggestion)}
                   />
                 ))}

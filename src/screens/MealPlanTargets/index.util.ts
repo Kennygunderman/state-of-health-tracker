@@ -604,9 +604,13 @@ const summaryAccessibilityLabel = (
  * is all four in the 'unavailable' state — there the screen shows the estimate-unavailable card in place of
  * the targets card (0.2.5), so the numeric fields read empty, not nil.
  *
- * The caption follows the same answer as the card label: a card headed "Your chosen targets" — a saved manual
- * set, or the manual route the user was sent down — cannot also call its figures starting estimates, so it
- * carries the neutral adjustable copy instead.
+ * The caption answers a narrower question than the card label: not whose figures these are, but whether an
+ * estimator produced them, because calling them "starting estimates" is the one claim the drawn sentence
+ * makes. A card headed "Your chosen targets" cannot also call its figures estimates — and neither can a card
+ * headed "Daily targets" over a set generation refuses, which is a legacy record written outside the planner
+ * or a partly filled one. Both carry the neutral adjustable copy; only figures the estimator actually
+ * produced keep the drawn sentence. The label and the caption therefore disagree in exactly one state, which
+ * is the legacy record the installed base most often arrives in (0.5.2, 0.7.3).
  */
 export const resolveDisplayedTargets = ({targets, estimate, preferences}: DisplayedTargetsInputs): DisplayedTargets => {
   const primary = resolvePrimaryFigures(targets, estimate)
@@ -615,6 +619,12 @@ export const resolveDisplayedTargets = ({targets, estimate, preferences}: Displa
   const isUnderReview = needsTargetReview(primary)
 
   const cardLabel = isManualDisplay ? MEAL_PLAN_CHOSEN_TARGETS_OVERLINE : MEAL_PLAN_DAILY_TARGETS_OVERLINE
+
+  // Whether an estimator produced the figures on the card. A set the user typed did not, and neither did a
+  // set generation refuses: 'legacy' and partly filled records resolve to 'unconfirmed_saved' and never to
+  // 'estimate' (`resolvePrimaryFigures`), so no part of them came from the calculation. The 'none' state
+  // keeps the drawn sentence because the card itself is replaced there (0.2.5) and the caption is never read.
+  const isEstimateDerivedDisplay = !isManualDisplay && primary.kind !== 'unconfirmed_saved'
   const savedCalories = figures?.calories ?? null
 
   // Three cases, and the middle one is the record that holds macros and no calorie target: its figure slot is
@@ -640,7 +650,7 @@ export const resolveDisplayedTargets = ({targets, estimate, preferences}: Displa
     calories,
     unitLabel: MEAL_PLAN_KCAL_UNIT,
     macros,
-    caption: isManualDisplay ? MEAL_PLAN_CHOSEN_TARGETS_CAPTION : MEAL_PLAN_TARGETS_CAPTION,
+    caption: isEstimateDerivedDisplay ? MEAL_PLAN_TARGETS_CAPTION : MEAL_PLAN_CHOSEN_TARGETS_CAPTION,
     editLabel: isUnderReview ? MEAL_PLAN_RECALCULATE_LINK_TEXT : MEAL_PLAN_EDIT_LINK_TEXT,
     freshEstimateText,
     summaryAccessibilityLabel: summaryAccessibilityLabel(cardLabel, spokenCalories, macros, freshEstimateText),

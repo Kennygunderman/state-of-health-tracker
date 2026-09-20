@@ -25,20 +25,29 @@ export default StyleSheet.create({
     paddingTop: Spacing.GUTTER,
     gap: Spacing.X_SMALL
   },
+  /* The same automatic 13px box as the helper below, which is how node 47:175's wrapper closes: 353 x 40 is
+     LARGE + 16, so the label's height is entirely this box and leaving it to the platform font's 15.73 would
+     lift the allergen cloud under it. */
   sectionLabel: {
     paddingTop: Spacing.LARGE,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textSecondary
   },
   cloudWrapper: {
     paddingTop: Spacing.X_SMALL
   },
+  /* Node 47:218 declares no line height — the style is inline, never tokenised — so Figma resolves the
+     automatic 13px box of 16, and wrapper 47:322 is a fixed 353 x 24 over 8/0/0 padding that closes on it
+     exactly, baseline at y=21.0. The wrapper cannot grow and the single line already consumes 352.67 of the
+     353 column with no truncation, so LineHeight.META's 18.85 did not merely draw the block 2.85 too tall —
+     it is the multi-line leading applied to a line that has no second line to give. */
   helperText: {
     paddingTop: Spacing.X_SMALL,
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
-    lineHeight: LineHeight.META,
+    lineHeight: LineHeight.LABEL,
     color: Theme.colors.textMuted
   }
 })

@@ -57,7 +57,9 @@ interface GoalWeightResult {
 // Maintain answers no direction question: it hides both the goal-weight field and the pace section (Figma
 // note 46:252) and has neither a deficit nor a surplus to describe. Holding that direction in one Record
 // over Goal keeps visibility, the pace sub-copy and the goal-side comparison from drifting apart, and makes
-// a fourth goal member a compile error here rather than a silently hidden control.
+// a fourth goal member a compile error here. The Record's index type is no runtime guarantee, though — an
+// out-of-type code reads back `undefined`, which every `!== null` consumer would take for a direction — so
+// `isGoalMember` tests membership and the lookup falls back to no direction.
 const GOAL_DIRECTIONS: Record<Goal, GoalDirection | null> = {
   lose: {paceSubcopy: MEAL_PLAN_PACE_DEFICIT_SUBCOPY, goalWeightBelowCurrent: true},
   maintain: null,
@@ -72,7 +74,13 @@ const PACE_PLACEHOLDER = '{pace}'
 const GOAL_WEIGHT_PATTERN = /^\d+(\.\d*)?$|^\.\d+$/
 const GOAL_WEIGHT_ROUNDING_FACTOR = 10
 
-const goalDirection = (goal: Goal | null): GoalDirection | null => (goal === null ? null : GOAL_DIRECTIONS[goal])
+// `Object.prototype.hasOwnProperty.call` rather than `in`: an inherited member name indexes the table to a
+// function, or to Object.prototype itself, and neither is nullish.
+const isGoalMember = (goal: Goal | null): goal is Goal =>
+  goal !== null && Object.prototype.hasOwnProperty.call(GOAL_DIRECTIONS, goal)
+
+const goalDirection = (goal: Goal | null): GoalDirection | null =>
+  isGoalMember(goal) ? (GOAL_DIRECTIONS[goal] ?? null) : null
 
 const formatPaceLabel = (pace: PaceLbPerWeek): string =>
   MEAL_PLAN_PACE_RATE_TEMPLATE.replace(PACE_PLACEHOLDER, String(pace))
@@ -96,6 +104,15 @@ export const isPaceVisible = (goal: Goal | null): boolean => goalDirection(goal)
 // the record's promise that a fourth Goal member becomes a compile error rather than a hidden control.
 export const isGoalWeightVisible = (goal: Goal | null): boolean => goal === null || goalDirection(goal) !== null
 
+/**
+ * The goal weight as a number in the unit on screen, to a tenth, and null where the entry is not one.
+ *
+ * Two different failures share that null: an entry the numeric pattern rejects, and one that reads as a
+ * number at or below zero. The pair is deliberate — the field takes a decimal in either unit, so a refused
+ * entry has no single wrong character to point at, and both are answered by typing a positive number — and
+ * `MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT` is worded to be true of both. It used to name only the
+ * magnitude, which told a user who had typed '17o' to raise a number they had never entered.
+ */
 export const parseGoalWeightInput = (text: string): number | null => {
   const normalized = text.replace(',', '.').trim()
 
@@ -179,7 +196,7 @@ export const validateMealPlanGoal = (
 ): MealPlanGoalValidation => {
   const goalWeight = resolveGoalWeight(fields, context)
   const errors: MealPlanGoalErrors = {
-    goal: fields.goal === null ? 'goal_required' : null,
+    goal: isGoalMember(fields.goal) ? null : 'goal_required',
     goalWeight: goalWeight.error,
     pace: isPaceVisible(fields.goal) && fields.paceLbPerWeek === null ? 'pace_required' : null
   }

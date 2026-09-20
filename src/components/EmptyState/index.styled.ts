@@ -15,6 +15,9 @@ export default StyleSheet.create({
   containerInsetLg: {
     paddingBottom: Sizes.EMPTY_BLOCK_BOTTOM_LG
   },
+  containerInsetNone: {
+    paddingBottom: 0
+  },
   glyph: {
     alignItems: 'center',
     justifyContent: 'center'
@@ -43,7 +46,11 @@ export default StyleSheet.create({
     lineHeight: LineHeight.SCREEN_TITLE,
     letterSpacing: LetterSpacing.TITLE
   },
+  // The three `*Compact` gaps are the in-card badge sequence 16/8/20 authored by frame `36:414`, which
+  // deliberately contradicts AAP 0.2.3's "gaps 20/12/24/8" — that prose describes the full-screen tile the
+  // unsuffixed keys keep.
   headlineCompact: {
+    marginTop: Spacing.MEDIUM,
     fontSize: FontSize.CARD_TITLE
   },
   body: {
@@ -55,9 +62,15 @@ export default StyleSheet.create({
     lineHeight: LineHeight.BODY,
     color: Theme.colors.textSecondary
   },
+  bodyCompact: {
+    marginTop: Spacing.X_SMALL
+  },
   action: {
     alignSelf: 'stretch',
     marginTop: Spacing.LARGE
+  },
+  actionCompact: {
+    marginTop: Spacing.GUTTER
   },
   actionStacked: {
     alignSelf: 'stretch',

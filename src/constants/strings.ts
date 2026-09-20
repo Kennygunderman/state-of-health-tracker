@@ -1048,7 +1048,15 @@ export const MEAL_PLAN_PACE_LABELS: Record<string, string> = {
 // follows the pattern the file's own targets screen authors ('Enter a carb target above 0 g', 09b `34:251`) with
 // the unit left off because this field's unit toggles between lb and kg, and the two below are this
 // implementation's copy, flagged for designer review.
-export const MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT = 'Enter a goal weight above 0'
+//
+// This one message covers two entries the screen's parser cannot tell apart, and so it names both remedies.
+// `parseGoalWeightInput` answers a value its numeric pattern rejects and a value at or below zero with the
+// same null, which is the right shape for the parser — the field accepts a decimal in either unit, so there
+// is no single wrong character to point at — but it means '17o' and '0' arrive at this sentence together.
+// Naming only the magnitude told the larger of those two users to raise a number they had not entered; the
+// number-and-bound wording is true of both. Splitting the parser's answer in two is the alternative and was
+// not taken: the remedy is one keystroke away in either case, and the screen's error row shows one sentence.
+export const MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT = 'Enter a goal weight as a number above 0'
 
 // The supported body-weight envelope is 30-300 kg (66-661 lb). The bounds are deliberately not quoted: they
 // live in UnitConversionUtility and differ per unit, so naming them here would mean formatting them on the
@@ -1265,6 +1273,12 @@ export const MEAL_PLAN_SNACK_PLACEHOLDER_TEXT = 'Snack appears with 3 meals + 1 
 
 export const MEAL_PLAN_SCHEDULE_FOOTNOTE = 'Approximate times are fine. You can change these later.'
 
+// A slot of the chosen schedule whose time is missing or not a wire-shaped 'HH:mm'. No frame draws this
+// state — 07 only ever shows times already seeded — so the copy is inferred and flagged for designer
+// review; it is in family with 03b's authored field messages ("Enter your age to continue"), and the slot
+// word comes from MEAL_SLOT_SENTENCE_LABELS so it reads mid-sentence ("Choose a snack time to continue").
+export const MEAL_PLAN_SLOT_TIME_REQUIRED_ERROR_TEMPLATE = 'Choose a {slot} time to continue'
+
 // --- Meal planning: cooking and budget (08) ---
 
 export const MEAL_PLAN_COOKING_BUDGET_TITLE = 'Make it fit your day.'
@@ -1290,7 +1304,25 @@ export const MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL =
 
 export const MEAL_PLAN_BUDGET_HELPER_TEXT = 'A preference only — grocery prices vary by store.'
 
+// The three ways the weekly amount can be refused, one sentence each. AAP 0.2.5 authors the first verbatim,
+// so it is kept exactly and kept to the entry it is true of: an amount at or below zero. It used to answer
+// the opposite failure as well — an amount above the accepted maximum — where it states a bound the entry
+// already clears and asks for the number to be raised, which is the reverse of the remedy.
 export const MEAL_PLAN_BUDGET_ERROR_TEXT = 'Enter a weekly budget above $0'
+
+// The ceiling stated as a figure, in the notation the field itself uses, because "outside the accepted range"
+// leaves the user guessing at which end and by how much. The number is `MAX_WEEKLY_BUDGET_USD` on this
+// screen's util and the currency sign is in the copy for the same reason as
+// `MEAL_PLAN_BUDGET_VALUE_TEMPLATE` — this version accepts USD only. That is a copy of a value the check
+// owns, so the screen's util test asserts this sentence names the bound actually enforced; the pair cannot
+// drift without failing.
+export const MEAL_PLAN_BUDGET_MAX_ERROR_TEXT = 'Enter a weekly budget of $10,000 or less'
+
+// An empty amount field with the preference box unchecked. Distinct from the shared option-group sentence,
+// which was previously reused here and so printed the same words twice on one screen — once under the
+// cooking chips, where choosing an option is exactly the remedy, and once under a number field, where it is
+// not. This names both ways out and quotes the checkbox the user has to reach for (AAP 0.2.5, 0.7.4).
+export const MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT = 'Enter an amount, or choose No budget preference'
 
 // A saved budget as the Review and Plan-settings rows read it back. The currency sign is part of the copy
 // because this version accepts USD only; a second currency turns this into a per-currency lookup.
@@ -1321,10 +1353,16 @@ export const MEAL_PLAN_CHOSEN_TARGETS_OVERLINE = 'Your chosen targets'
 
 export const MEAL_PLAN_TARGETS_CAPTION = 'Starting estimates. You can adjust them any time.'
 
-// The caption for a card showing figures the user chose rather than ones the app calculated: the manual route
-// (09b) and any saved manual set. It keeps the second half of the drawn caption and drops the claim that the
-// numbers are estimates, which is the one part of it that is untrue of a set the user typed — a card headed
-// 'Your chosen targets' can never also call them starting estimates.
+// The caption for a card whose figures no estimator produced. It keeps the second half of the drawn caption
+// and drops the claim that the numbers are estimates, which is the one part of it that is untrue of them.
+//
+// Two states qualify, not one. The first is a set the user chose — the manual route (09b) and any saved
+// manual set — where a card headed 'Your chosen targets' can never also call them starting estimates. The
+// second is a saved set the server will not vouch for: `source: 'legacy'`, written through the pre-planner
+// target endpoint, or a partly filled record. Those lead a card still headed 'Daily targets', so the label
+// does not give them away, and they are the state the installed base most often arrives in — calling them
+// starting estimates attributes them to a calculation that never ran. `resolveDisplayedTargets` selects on
+// that question rather than on the card's heading (0.5.2's 'legacy' source, 0.7.3's estimate route).
 export const MEAL_PLAN_CHOSEN_TARGETS_CAPTION = 'You can adjust these any time.'
 
 export const MEAL_PLAN_TARGETS_CLAMPED_CAPTION = "Adjusted to the app's minimum for your details"
@@ -1389,11 +1427,28 @@ export const MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT = 'Enter targets manua
 
 export const MEAL_PLAN_EDIT_TARGETS_TITLE = 'Daily targets'
 
+// The same heading on the manual route, where 09b is entered with no estimate behind it and note `34:293`
+// heads it with what the user is about to choose rather than what the app worked out. Its own constant, not
+// frame 09's card overline `34:190`: that overline is an 11px uppercase label inside the review card and this
+// is a 30px screen headline, so one string serving both would let a re-wording of either silently re-word a
+// surface nobody was looking at. Two constants holding the same words is the pattern this screen already
+// follows for `MEAL_PLAN_EDIT_TARGETS_TITLE` and `MEAL_PLAN_DAILY_TARGETS_OVERLINE`.
+export const MEAL_PLAN_CHOSEN_TARGETS_TITLE = 'Your chosen targets'
+
 export const MEAL_PLAN_EDIT_TARGETS_SUBTITLE = 'These replace the estimate we calculated.'
 
 export const MEAL_PLAN_CALORIES_HEADER = 'Calories'
 
-export const MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT = 'Enter a calorie target above 0 kcal'
+// The calorie floor, named as a figure and substituted from the validator's own constant. One sentence serves
+// both codes that break that floor — an entry under it and an empty field — because the remedy is the same
+// number in both cases, and holding it once is what keeps them saying the same thing.
+//
+// The macro fields answer those two codes with the drawn 'above 0' sentence instead, and that is right for
+// them: a macro's minimum is 1, so 0 is the only entry that can be too small and 'above 0' names the bound
+// exactly. Calories have a floor of 800, so the same wording here prompted an empty field with a bound 800
+// short of the one enforced — the user typed a number that cleared it and was refused a second time, by a
+// different sentence, for the bound the first one never mentioned.
+export const MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE = 'Enter a calorie target of at least {min} kcal'
 
 export const MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT = 'Enter a protein target above 0 g'
 
@@ -1413,12 +1468,16 @@ export const MEAL_PLAN_FAT_TARGET_ERROR_TEXT = 'Enter a fat target above 0 g'
 // The drawn sentences are reused rather than reworded: 34:251 draws "Enter a carb target above 0 g" on a field
 // holding 0, which is this screen's below_min for a macro — macros are whole numbers with a minimum of 1, so 0
 // is the only entry that can reach that code — and the same sentence is the right prompt for an empty field.
-// Both codes therefore point at the constant above, and the calorie floor is the one below_min that has a real
-// number to state.
+// Both macro codes therefore point at the constant above.
+//
+// Calories do not follow that pattern, because their floor is 800 rather than 1: an empty calorie field and
+// an entry below the floor both point at the floor-naming template, so neither is prompted with a bound it
+// would clear. That is the one place where a field's required message differs from the drawn wording, and it
+// is deliberate — 'above 0 kcal' understated the constraint by 800.
 export const MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS: Partial<Record<string, string>> = {
-  'calories.required': MEAL_PLAN_CALORIES_TARGET_ERROR_TEXT,
+  'calories.required': MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE,
   'calories.not_a_number': 'Enter your calorie target as a whole number',
-  'calories.below_min': 'Enter a calorie target of at least {min} kcal',
+  'calories.below_min': MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE,
   'calories.above_max': 'Enter a calorie target of {max} kcal or less',
 
   'protein.required': MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
@@ -1769,10 +1828,13 @@ export const SWAP_PREVIEW_DAY_TOTAL_TEMPLATE = '{day} total if you swap'
 
 export const SWAP_PREVIEW_OF_TARGET_TEMPLATE = 'of {calories} kcal'
 
-export const SWAP_PREVIEW_DELTA_DOWN_TEMPLATE = '−{calories} cal'
-
-export const SWAP_PREVIEW_DELTA_UP_TEMPLATE = '+{calories} cal'
-
+// 13b's delta pill has no template here on purpose. Its visible text is built by `formatSignedCalories` in
+// @utility/NutritionFormatUtility, which signs the figure and carries the same mathematical minus the frame
+// draws, and which the swap, plan and grocery surfaces all format their signed figures through. A pair of
+// per-direction templates used to sit here duplicating that logic with nothing reading them, so a re-wording
+// of the pill made here would have changed nothing on screen. The pill's spoken text does need its own copy,
+// because the minus glyph is announced inconsistently: that is
+// SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE and its up twin, further down in the accessibility block.
 export const SWAP_USE_THIS_MEAL_BUTTON_TEXT = 'Use this meal'
 
 export const SWAP_SUCCESS_TOAST = 'Meal swapped. Grocery list updated.'
@@ -1800,6 +1862,13 @@ export const GROCERY_AMOUNT_INCREASED_TITLE = 'One amount went up after your swa
 
 export const GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE =
   '{name} is flagged below. It stays checked so nothing disappears from your list.'
+
+// Inferred. AAP 0.7.4 gives the singular body a name and the plural body a count, and frame 14b draws the
+// named singular alone (37:200): neither states the one flagged amount whose row carries no name. Its second
+// sentence is the named singular's verbatim and its first is the plural body's shape in the singular, so a
+// nameless flag keeps singular grammar instead of borrowing the plural's "1 amounts went up after your swaps".
+export const GROCERY_AMOUNT_INCREASED_BODY_UNNAMED =
+  'One item is flagged below. It stays checked so nothing disappears from your list.'
 
 export const GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE = '{n} amounts went up after your swaps'
 

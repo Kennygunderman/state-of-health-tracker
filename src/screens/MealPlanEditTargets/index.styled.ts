@@ -110,13 +110,5 @@ export default StyleSheet.create({
   },
   skeletonStretch: {
     width: '100%'
-  },
-  /* Figma fixes the primary CTA at 52 tall (node 34:285) and declares no padding on it, so the height is
-     authored rather than derived from the label. PrimaryButton sizes itself from paddingVertical plus its
-     label box instead, which lands on 50 and leaves the footer 2 short. Correcting that here rather than in
-     the shared component keeps the pre-existing callers outside this feature at the height they ship with. */
-  ctaHeight: {
-    minHeight: Sizes.CTA,
-    justifyContent: 'center'
   }
 })

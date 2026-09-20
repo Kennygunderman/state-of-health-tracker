@@ -1,9 +1,8 @@
 import React from 'react'
 
-import {TouchableOpacity, View} from 'react-native'
+import {View} from 'react-native'
 
 import {GroceryItem} from '@data/models/GroceryList'
-import {Opacity} from '@styles/sizes'
 
 import CheckboxSquare from '@components/CheckboxSquare'
 import DeltaPill from '@components/DeltaPill'
@@ -59,22 +58,16 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
   }
 
   return (
-    <TouchableOpacity
-      style={rowStyle}
-      activeOpacity={Opacity.PRESSED}
-      disabled={isPending}
-      accessibilityRole="checkbox"
-      accessibilityLabel={rowAccessibilityLabel}
-      accessibilityState={{checked: true, busy: isPending, disabled: isPending}}
-      onPress={handleToggle}>
+    <View style={rowStyle}>
       {/* BLITZY [A11Y]: this row renders no colour of its own — its checked-emphasis box and its danger delta
           pill both come from shared components whose Figma-exact pairs measure below the WCAG minimums (white
           on accent 2.45:1 against 3:1; danger on dangerTint 4.41:1 against 4.5:1). Both are upheld and
           flagged at their source, and the coordinated decision is recorded in the accessible-colour register
           in `@styles/theme`. */}
-      {/* CheckboxSquare declares its own checkbox role and exposes no accessibility pass-through, so it is
-          hidden here to keep the row a single announced control. */}
-      <View accessible={false} importantForAccessibility="no-hide-descendants">
+      {/* CheckboxSquare declares its own checkbox role, label and state, and Figma draws that 22x22 box as the
+          row's entire target with no pressed state — so it is the row's one announced control and the row
+          itself is a plain layout View. */}
+      <View>
         <CheckboxSquare
           state="checkedEmphasis"
           disabled={isPending}
@@ -83,7 +76,10 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
         />
       </View>
 
-      <View style={styles.textColumn}>
+      {/* Grouped so the flag reads as one statement — name, "amount went up", now/was and the delta — rather
+          than as the two text fragments it is drawn as; the delta is folded into that label, which is why the
+          pill below stays hidden. */}
+      <View style={styles.textColumn} accessible accessibilityLabel={rowAccessibilityLabel}>
         <Text style={styles.name}>{item.name}</Text>
 
         <Text style={styles.subLine}>{changeText}</Text>
@@ -92,7 +88,7 @@ const GroceryFlagRow = ({item, isFirst, isPending, onToggle}: Props): React.JSX.
       <View accessible={false} importantForAccessibility="no-hide-descendants">
         <DeltaPill tone="danger" text={flag.deltaDisplayText} />
       </View>
-    </TouchableOpacity>
+    </View>
   )
 }
 

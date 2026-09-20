@@ -141,10 +141,6 @@ const CARD_INSET_SIDES = 2
 
 const RETRY_PILL_HIT_SLOP = (Sizes.TOUCH_TARGET - Sizes.PILL_SM) / 2
 
-// The bottom padding the host Macros screen puts on its scroll content. Subtracted from the measured
-// remainder so filling it leaves the empty state centred rather than scrollable by that padding.
-const HOST_SCROLL_BOTTOM_PADDING = Spacing.X_LARGE
-
 const NO_DAY_KEYS: string[] = []
 
 const NO_MEAL_CARDS: MealCardModel[] = []
@@ -1001,10 +997,12 @@ const MealPlanTab = ({segmentedControl}: Props): React.JSX.Element => {
     </View>
   )
 
-  // minHeight rather than height: a scaled-up text size must still be able to grow the block and scroll.
+  // minHeight rather than height: a scaled-up text size must still be able to grow the block and scroll. The
+  // remainder runs from the region's top down to the tab bar's top edge, which is where the frame puts the
+  // block's box; the host's own scroll padding is handed back below the region by `emptyRegion`, so the block
+  // centres on the whole remainder instead of on a box shortened by that padding.
   const emptyBlock = (cta: EmptyPlanCta): React.JSX.Element => {
-    const availableHeight =
-      windowHeight - safeAreaInsets.top - tabBarHeight - emptyRegionTop - HOST_SCROLL_BOTTOM_PADDING
+    const availableHeight = windowHeight - safeAreaInsets.top - tabBarHeight - emptyRegionTop
 
     return (
       <View style={emptyRegion(Math.max(0, availableHeight))} onLayout={onEmptyRegionLayout}>

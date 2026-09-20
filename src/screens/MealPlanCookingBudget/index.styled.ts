@@ -1,10 +1,23 @@
-import {StyleSheet} from 'react-native'
+import {Insets, StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
 import {Sizes} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
+
+/* BLITZY [A11Y]: the whole checkbox row is the pressable and 47:646 draws it 34px tall — a 12px rung over the
+   22px box, with zero slack — so the 44px minimum AAP 0.7.2 asks for is reached by hit slop rather than by a
+   minimum height, which would render the row 10px taller than drawn. Figma outranks the 44px default here
+   (AAP 0.6.5). The edge is arithmetic on the row's own composition, not a chosen inset: Spacing.SMALL is its
+   rung and Sizes.ICON_LG is CheckboxSquare's edge, so bottom + rung + box is exactly Sizes.TOUCH_TARGET. All
+   of it is pushed downward because the rung sits inside the pressable: the row's top edge is flush against
+   the 48px budget field above it, and the row — being the later sibling — would win that overlap and shrink
+   the field's own target. Downward it lands inside the footnote's 8px rung, which takes no touches. */
+export const NO_BUDGET_ROW_HIT_SLOP: Insets = {
+  top: 0,
+  bottom: Sizes.TOUCH_TARGET - Spacing.SMALL - Sizes.ICON_LG
+}
 
 export default StyleSheet.create({
   // Deliberately not @components/Screen: its side margins would compound with
@@ -69,14 +82,12 @@ export default StyleSheet.create({
     paddingTop: Spacing.X_SMALL
   },
 
-  /* BLITZY [A11Y]: 47:646 draws a 22px checkbox in a row that hugs it, which reaches 34px including this
-     rung. The whole row is the pressable, so it carries the 44px minimum AAP 0.7.2 requires rather than hit
-     slop a hugging parent would clip — rendering the row 10px taller than drawn, flagged for designer review. */
+  // 47:646 draws a 22px checkbox in a row that hugs it, so the row measures the drawn 34px including this
+  // rung and declares no height of its own. Its 44px touch target is NO_BUDGET_ROW_HIT_SLOP above.
   preferenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     columnGap: Spacing.SMALL,
-    minHeight: Sizes.TOUCH_TARGET,
     paddingTop: Spacing.SMALL
   },
   preferenceLabel: {

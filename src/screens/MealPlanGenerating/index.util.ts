@@ -108,6 +108,15 @@ export interface GenerationView {
   headlineSize: GenerationHeadlineSize
   body: string
   showAllergiesBanner: boolean
+  /**
+   * Whether this frame states that meal planning is switched off. The capability refusal draws no card and
+   * carries no toast — its recovery is a silent departure to the Macros tab, where the entitlement router
+   * says the same thing — so without this the frame renders nothing at all until the navigator moves, which
+   * for the deploy-before-enable window AAP 0.7.5 prescribes is a blank screen the user can see. The other
+   * two card-less families already speak on their way out: a plan-state refusal toasts, and the upcoming
+   * refusal toasts its own card title.
+   */
+  showUnavailableNotice: boolean
   actions: GenerationActionPair | null
   terminalCode: string | null
 }
@@ -281,12 +290,22 @@ const SETUP_STEPS: readonly SetupStep[] = [
   'targets_manual'
 ]
 
-// Record<string, string> indexing types as string, so all three maps are read through a widened alias to
-// keep the unknown-key branch reachable: a slot, allergen or terminal code from a newer server release must
-// never be rendered raw, and an absent entry must fall through rather than reach a formatter as undefined.
+// Record<string, string> indexing types as string, so every label map this module keys by a server-chosen
+// value is read through a widened alias to keep the unknown-key branch reachable: a slot, allergen, diet,
+// schedule or terminal code from a newer server release must never be rendered raw, and an absent entry must
+// fall through rather than reach a formatter as undefined.
+//
+// diet and mealSchedule reach this module already typed as closed unions, because MealPlanningDecoder spells
+// both as io.union literals today — but that is a decoder promise, not a runtime one. The alias is what keeps
+// the branch honest if AAP 0.5.2's lenient-decoding direction is ever applied to those two codes, and what
+// keeps this file's prototype-safe convention whole rather than leaving one bare index among six guarded ones.
 const SLOT_LABELS: Record<string, string | undefined> = MEAL_SLOT_LABELS
 
 const ALLERGEN_LABELS: Record<string, string | undefined> = MEAL_PLAN_ALLERGEN_LABELS
+
+const DIET_LABELS: Record<string, string | undefined> = MEAL_PLAN_DIET_LABELS
+
+const MEALS_PER_DAY_VALUES: Record<string, string | undefined> = MEAL_PLAN_MEALS_PER_DAY_VALUES
 
 const TERMINAL_COPY: Record<string, TerminalOutcomeCopy | undefined> = MEAL_PLAN_GENERATION_TERMINAL_COPY
 
@@ -324,9 +343,11 @@ interface GenerationViewChrome {
 }
 
 // A Record over the kind union rather than a switch: the compiler requires an entry per kind, so a new
-// state cannot ship without its chrome. 'noMatch' carries the unconfirmed badge too because it is the
-// only 64px disc StatusBadgeCircle fills neutrally and the component offers no fill override — the
-// 'failure' badge asserts a confirmed failure that an unconfirmed outcome has not observed.
+// state cannot ship without its chrome. The unconfirmed outcome owns its own badge variant rather than
+// borrowing one: 'failure' asserts a confirmed failure it has not observed, and 'noMatch' — the other
+// neutral 64px disc — pairs that disc with the lime magnifier-minus, which reads "we searched and found too
+// little". An outcome the client could not confirm asserts nothing, so it takes the neutral ink instead
+// (StatusBadgeCircle's 'unconfirmed', invented and recorded as such there).
 // 10 and 10b both centre their content column on both axes, and the unconfirmed variant renders in 10b's
 // layout, so those three agree. Only 10c is top-aligned — its column declares neither centring key, its copy
 // is left-aligned and its badge starts at the content edge, because the constraint rows under it are a list
@@ -356,7 +377,7 @@ const VIEW_CHROME: Record<GenerationViewKind, GenerationViewChrome> = {
   unconfirmed: {
     isCentered: true,
     showSpinner: false,
-    badgeVariant: 'noMatch',
+    badgeVariant: 'unconfirmed',
     headlineSize: 'default',
     showAllergiesBanner: false
   },
@@ -504,6 +525,9 @@ export const resolveGenerationView = (
     headlineSize: chrome.headlineSize,
     body: copy.body,
     showAllergiesBanner: chrome.showAllergiesBanner,
+    // Derived from the code rather than the kind, because 'terminal' covers three families and only this one
+    // is silent. It is deliberately not a VIEW_CHROME entry for that reason: chrome is keyed by kind.
+    showUnavailableNotice: terminalCode !== null && UNAVAILABLE_TERMINAL_CODES.has(terminalCode),
     actions: resolveActions(kind, context, terminalCode),
     terminalCode
   }
@@ -822,11 +846,15 @@ export const resolveGenerationLaunch = (input: GenerationLaunchInput): Generatio
   )
 }
 
+// An unlabelled code reads as no answer rather than as its own machine name, for the reason slotsValue
+// states: the row is a claim about what the user chose, and this release can only make that claim for a code
+// it can name. The ownEntry guard is what keeps an inherited member ('constructor', '__proto__') out of a
+// string-typed row, where a function would render as its own source and an object would throw on render.
 const dietValue = (preferences: MealPlanPreferences): string =>
-  preferences.diet === null ? NO_VALUE : MEAL_PLAN_DIET_LABELS[preferences.diet]
+  preferences.diet === null ? NO_VALUE : (ownEntry(DIET_LABELS, preferences.diet) ?? NO_VALUE)
 
 const mealsPerDayValue = (preferences: MealPlanPreferences): string =>
-  preferences.mealSchedule === null ? NO_VALUE : MEAL_PLAN_MEALS_PER_DAY_VALUES[preferences.mealSchedule]
+  preferences.mealSchedule === null ? NO_VALUE : (ownEntry(MEALS_PER_DAY_VALUES, preferences.mealSchedule) ?? NO_VALUE)
 
 const cookingTimeValue = (preferences: MealPlanPreferences): string =>
   preferences.cookingTimeLimitMin === null
@@ -1005,9 +1033,10 @@ const constraintValue = (constraint: LimitingConstraint, preferences: MealPlanPr
   }
 
   // The 422 payload carries no diet code, so the diet row reads the user's own answer; every other
-  // constraint without a value keeps its label and pill rather than showing its machine code.
+  // constraint without a value keeps its label and pill rather than showing its machine code. The guard is
+  // dietValue's, for dietValue's reason: this row is typed string and is rendered as a React child.
   if (constraint.constraintKey === 'diet' && preferences !== null && preferences.diet !== null) {
-    return MEAL_PLAN_DIET_LABELS[preferences.diet]
+    return ownEntry(DIET_LABELS, preferences.diet) ?? NO_VALUE
   }
 
   return NO_VALUE
