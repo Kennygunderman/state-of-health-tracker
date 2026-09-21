@@ -2,6 +2,7 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import {Opacity} from '@styles/sizes'
 import {BaseToast, ToastData, ToastProps} from 'react-native-toast-message'
 
 import Text from '@components/Text'
@@ -72,7 +73,7 @@ export default {
 
       <TouchableOpacity
         style={styles.actionButton}
-        activeOpacity={0.7}
+        activeOpacity={Opacity.PRESSED_SUBTLE}
         accessibilityRole="button"
         accessibilityLabel={props.actionLabel}
         onPress={props.onAction}>

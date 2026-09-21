@@ -5,6 +5,7 @@ import {TouchableOpacity, View} from 'react-native'
 import {Meal} from '@data/models/Meal'
 import {MealEntry} from '@data/models/MealEntry'
 import {AntDesign} from '@expo/vector-icons'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import {Swipeable} from 'react-native-gesture-handler'
 
@@ -50,7 +51,7 @@ const MealCard = (props: Props) => {
 
         <TouchableOpacity
           style={styles.addButton}
-          activeOpacity={0.6}
+          activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
           accessibilityLabel={stringWithNamedParameters(MEAL_CARD_ADD_FOOD_ACCESSIBILITY_TEMPLATE, {
             meal: meal.name
@@ -77,7 +78,7 @@ const MealCard = (props: Props) => {
       {!hasEntries && (
         <TouchableOpacity
           style={styles.emptyCta}
-          activeOpacity={0.6}
+          activeOpacity={Opacity.PRESSED}
           accessibilityRole="button"
           accessibilityLabel={stringWithNamedParameters(MEAL_CARD_EMPTY_CTA_ACCESSIBILITY_TEMPLATE, {
             cta: EMPTY_MEAL_CTA,

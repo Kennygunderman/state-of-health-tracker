@@ -686,7 +686,7 @@ file count before trusting a pass. A base that does not resolve makes this gate 
 failing**: `git diff` exits non-zero with `fatal: bad revision`, the command substitution expands to
 nothing, and the scanner then reports no files and exits `0`, which reads exactly like a clean run.
 On a Blitzy working clone `master` is not a ref at all; the base is the AAP's mobile reference commit
-`788a36f`, against which the pathspec selects **216** files today — 89 of them `index.styled.ts`.
+`788a36f`, against which the pathspec selects **222** files today — 91 of them `index.styled.ts`.
 
 The scan is the enforceable form of the styling rule's no-magic-numbers and no-hardcoded-hex
 clauses. It exits `1` on the **first** hit, printing `file:line:column`, the literal and a reason,
@@ -736,23 +736,31 @@ there — that is also why the scan is fed a diff rather than a fixed file list,
 pulled in.
 
 The clause covers a design value written onto a component's props just as it covers one written in a
-stylesheet, so the `activeOpacity` literals on the shipped lines of the seven touched components were
+stylesheet, so the `activeOpacity` literals on the shipped lines of the ten touched components were
 migrated with them: `Account`, `FoodListRow`, `FoodDetail` (stepper and fraction chips), `Macros`,
-`Macros/components/DailySummaryCard`, `Macros/components/MealEntryRow` and
+`Macros/components/DailySummaryCard`, `Macros/components/MealEntryRow`,
+`Macros/components/LogWithAICard`, `Macros/components/MealCard`, `toast/ToastConfig` and
 `Progress/components/ActivityTab` now press through `Opacity.PRESSED` (`0.6`), the added
 `Opacity.PRESSED_SUBTLE` (`0.7`) and `Opacity.PRESSED_TARGET_ROW` (`0.5`). **No rendered value
 changed** — each site kept the number it shipped; only the literal became a named entry.
 
-**One hit is open, and it is not an eighth entry in that list.**
-`src/components/toast/ToastConfig/index.tsx:75` still presses through a bare `activeOpacity={0.7}`,
-so the attribute scan exits `1` there. The feature did touch that file — it added the toast's
-accessibility role and label — which is precisely what brings this clause down on it, and the value
-it needs already exists as `Opacity.PRESSED_SUBTLE` (`0.7`), so the remedy is one import and one
-reference with **no rendered change**. It is recorded open rather than edited because no finding at
-this checkpoint assigns that file to anyone and it is outside every declared surface; whoever next
-touches `toast/` closes it under this same clause. Until then read the gate as it actually stands:
-**style-object scan clean across all 89 touched stylesheets, attribute scan one known hit at the line
-named above** — not as a blanket pass.
+**The hit this section used to record as open is now closed.**
+`src/components/toast/ToastConfig/index.tsx:75` pressed through a bare `activeOpacity={0.7}`, so the
+attribute scan exited `1` there. An earlier revision left it open on the grounds that no finding
+assigned that file to anyone; the final acceptance gate then raised it as a blocking finding, which
+assigned it, and the value it needed already existed as `Opacity.PRESSED_SUBTLE` (`0.7`) — one import
+and one reference, with **no rendered change**.
+
+Closing it exposed two more files, because **the scanner reports only the first hit it finds in a
+file and stops the whole run on the first file that has one**. With `ToastConfig` clean the run
+advanced and failed on `Macros/components/LogWithAICard`, and with that clean it failed again on
+`Macros/components/MealCard` — four literals between the two, every one of them inside a hunk this
+feature had already written, so the same migrate-on-touch clause covered them and they were migrated
+the same way. Treat a green run as evidence about the files ahead of the first failure only; if you
+need the whole picture, run the scanner per file rather than once over the list.
+
+The gate now stands as **style-object scan clean across all 91 touched stylesheets, attribute scan
+clean, 222 files scanned, exit 0** — a blanket pass, and measured as one.
 
 ### Three gaps left open
 
@@ -766,8 +774,10 @@ These are recorded, not closed. Do not read them as resolved.
 3. **Colour contrast.** `src/styles/theme.ts` carries an accessible-colour register whose status it
    records in two parts, because they have different owners: **engineering, complete** — every pair
    implements the value Figma draws, and the accessibility work that needs no ruling (roles, labels,
-   44px targets) is applied — and **design, open**. Eight colour pairs ship below their WCAG 2.1
-   thresholds, from `white` on `green` at 2.45:1 to `inputBorder` on `inset` at 1.12:1. Each entry
+   44px targets) is applied — and **design, open**. Nine colour pairs ship below their WCAG 2.1
+   thresholds, from `white` on `green` at 2.45:1 to `inputBorder` on `inset` at 1.12:1 — the ninth,
+   `textMuted` on `inset` at 4.12:1, was registered at the final acceptance boundary for the summary
+   labels the regenerate dialog and the shared `TextField` unit suffix render on that fill. Each entry
    names the Figma nodes that draw it, the measured ratio, the threshold and a pre-computed remedy
    using existing palette tokens. They were not changed unilaterally because Figma draws them
    exactly as the app renders them and the constants are read across the app, well beyond this
@@ -886,7 +896,7 @@ by `scripts/__tests__/lint-baseline-compare.test.ts`.
 
 ### State after this feature
 
-The measured after-run: **886 files linted, 38 findings in 20 files — 26 errors and 12 warnings**,
+The measured after-run: **947 files linted, 38 findings in 20 files — 26 errors and 12 warnings**,
 and the comparator reports **0 new findings**. The count fell from 49 by eleven, and each of the
 eleven is accounted for rather than left to the total. Eight sat in files this feature touched and
 were fixed there: `src/constants/endpoints.ts`, `src/constants/strings.ts`,
@@ -1034,9 +1044,9 @@ this repository:
 | Evidence                       | Command                                     | Result                                              |
 | ------------------------------ | ------------------------------------------- | --------------------------------------------------- |
 | Type check, whole mobile tree  | `./node_modules/.bin/tsc --noEmit`          | exit 0 (TypeScript 6.0.3)                           |
-| Full mobile test suite         | `CI=true npx jest --runInBand --ci`         | **135 suites, 6930 tests, all passing**, exit 0     |
+| Full mobile test suite         | `CI=true npx jest --runInBand --ci`         | **170 suites, 7,594 tests, all passing**, exit 0    |
 | Lint, against a frozen baseline | section 7 → [The gate, in two steps](#the-gate-in-two-steps) | no finding outside the recorded baseline |
-| Style-token discipline         | section 6 → [The literal scan](#the-literal-scan) | style-object scan clean over all 89 touched stylesheets; attribute scan **1 known open hit**, [named in section 6](#migrate-on-touch) |
+| Style-token discipline         | section 6 → [The literal scan](#the-literal-scan) | **222 files scanned, exit 0** — style-object scan clean over all 91 touched stylesheets, attribute scan clean, [history in section 6](#migrate-on-touch) |
 | API side, requirement → test   | [`backend/docs/meal-planning/requirement-evidence-checklist.md`](../../backend/docs/meal-planning/requirement-evidence-checklist.md) | the mapping, plus its own [what is unrun or unverified](../../backend/docs/meal-planning/requirement-evidence-checklist.md#what-is-unrun-or-unverified) |
 
 **And what that evidence cannot do**, stated so it is never over-read: not one line of it is a pixel

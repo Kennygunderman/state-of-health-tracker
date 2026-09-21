@@ -37,7 +37,6 @@ import {
   MEAL_PLAN_CONTINUE_BUTTON_TEXT,
   MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE,
   MEAL_PLAN_GOAL_LABELS,
-  MEAL_PLAN_GOAL_TITLE,
   MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT,
   MEAL_PLAN_GOAL_WEIGHT_HEADER,
   MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT,
@@ -63,6 +62,7 @@ import {
   MealPlanGoalErrorCode,
   paceOptionsForGoal,
   parseGoalWeightInput,
+  resolveMealPlanGoalHeadings,
   validateMealPlanGoal
 } from './index.util'
 
@@ -137,6 +137,7 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
 
   const wizardSteps = stepsForRoute(preferences?.targetRoute ?? 'estimated')
   const isPaceScope = params.mode === 'edit' && params.scope === 'pace'
+  const headings = resolveMealPlanGoalHeadings(isPaceScope)
   const unit = draft.weightUnitPref ?? preferences?.weightUnitPref ?? weightUnitPrefFor(weightUnit)
 
   // parseGoalWeightInput owns the one-decimal rule in both directions, so the kilograms → display round trip
@@ -324,8 +325,10 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
           enableOnAndroid
           extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
+          {/* The pace-scope edit hides every goal control, so the headline asks the question this route is
+              actually for rather than one whose answers are all suppressed (0.7.4). */}
           <Text style={styles.headline} accessibilityRole="header">
-            {MEAL_PLAN_GOAL_TITLE}
+            {headings.headline}
           </Text>
 
           {!isPaceScope && (
@@ -380,7 +383,9 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
 
           {isPaceVisible(draft.goal) && (
             <View style={styles.paceSection}>
-              <Text style={styles.controlLabel}>{MEAL_PLAN_PACE_HEADER}</Text>
+              {/* Dropped where the headline above has become the pace question itself: the label would
+                  otherwise repeat those words two lines under it. */}
+              {headings.isPaceLabelVisible && <Text style={styles.controlLabel}>{MEAL_PLAN_PACE_HEADER}</Text>}
 
               <PaceCards options={paceOptions} selected={draft.paceLbPerWeek} onSelect={onSelectPace} />
             </View>

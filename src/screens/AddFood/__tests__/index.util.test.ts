@@ -1,11 +1,12 @@
 import {BrandedFood} from '@data/models/BrandedFood'
 import {CatalogFood} from '@data/models/CatalogFood'
 import {FoodSourceEnum, formatServingText} from '@data/models/Food'
-import {resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
+import {CatalogSearchState, resolveCatalogSearchState} from '@utility/CatalogSearchStateUtility'
 
 import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
 
 import {
+  AddFoodPagingFooterInput,
   CATALOG_SKELETON_ROWS,
   catalogProvenanceBadge,
   catalogServingPresentation,
@@ -15,7 +16,8 @@ import {
   isCatalogSectionVisible,
   mapBrandedFoodToFood,
   mapCatalogFoodToFood,
-  newFoodButtonOwner
+  newFoodButtonOwner,
+  resolveAddFoodPagingFooter
 } from '../index.util'
 
 const makeBrandedFood = (overrides: Partial<BrandedFood> = {}): BrandedFood => ({
@@ -580,5 +582,91 @@ describe('the Add Food catalog section', () => {
 
   it('is hidden while an offline-paused query has answered nothing', () => {
     expect(resolveSection()).toEqual({state: 'idle', isVisible: false})
+  })
+})
+
+// The list's next-page affordance: one answer per paged section, because the library and the catalog page
+// independently off their own `pagination` blocks and reaching the end of the list can advance both.
+describe('resolveAddFoodPagingFooter', () => {
+  const EVERY_CATALOG_STATE: readonly CatalogSearchState[] = ['hidden', 'idle', 'rows', 'loading', 'error', 'empty']
+
+  const SETTLED: AddFoodPagingFooterInput = {
+    isFetchingMoreFoods: false,
+    isFetchingMoreCatalogFoods: false,
+    showLibrary: true,
+    catalogState: 'rows'
+  }
+
+  it('draws no footer while neither section is paging', () => {
+    expect(resolveAddFoodPagingFooter(SETTLED)).toEqual({
+      isLibraryPaging: false,
+      isCatalogPaging: false,
+      isVisible: false
+    })
+  })
+
+  it('announces a library page on its own', () => {
+    expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreFoods: true})).toEqual({
+      isLibraryPaging: true,
+      isCatalogPaging: false,
+      isVisible: true
+    })
+  })
+
+  it('announces a catalog page on its own', () => {
+    expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreCatalogFoods: true})).toEqual({
+      isLibraryPaging: false,
+      isCatalogPaging: true,
+      isVisible: true
+    })
+  })
+
+  it('announces both pages at once when the end of the list advances the two queries together', () => {
+    expect(
+      resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreFoods: true, isFetchingMoreCatalogFoods: true})
+    ).toEqual({isLibraryPaging: true, isCatalogPaging: true, isVisible: true})
+  })
+
+  it('keeps a library page quiet while the library section yields to branded results', () => {
+    expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreFoods: true, showLibrary: false})).toEqual({
+      isLibraryPaging: false,
+      isCatalogPaging: false,
+      isVisible: false
+    })
+  })
+
+  it('still announces a catalog page while the library section is hidden', () => {
+    expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreCatalogFoods: true, showLibrary: false})).toEqual({
+      isLibraryPaging: false,
+      isCatalogPaging: true,
+      isVisible: true
+    })
+  })
+
+  it('announces a catalog page only once the section holds rows to extend', () => {
+    EVERY_CATALOG_STATE.filter(catalogState => catalogState !== 'rows').forEach(catalogState => {
+      expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreCatalogFoods: true, catalogState})).toEqual({
+        isLibraryPaging: false,
+        isCatalogPaging: false,
+        isVisible: false
+      })
+    })
+  })
+
+  it('leaves a library page unaffected by whatever the catalog section is reporting', () => {
+    EVERY_CATALOG_STATE.forEach(catalogState => {
+      expect(resolveAddFoodPagingFooter({...SETTLED, isFetchingMoreFoods: true, catalogState})).toEqual({
+        isLibraryPaging: true,
+        isCatalogPaging: false,
+        isVisible: true
+      })
+    })
+  })
+
+  it('draws no footer in any catalog state while no page is in flight', () => {
+    EVERY_CATALOG_STATE.forEach(catalogState => {
+      expect(resolveAddFoodPagingFooter({...SETTLED, catalogState}).isVisible).toBe(false)
+      expect(resolveAddFoodPagingFooter({...SETTLED, catalogState, showLibrary: false}).isVisible).toBe(false)
+    })
   })
 })

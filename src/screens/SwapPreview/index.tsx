@@ -72,7 +72,6 @@ import {
 
 import CalorieProgressBar from './components/CalorieProgressBar'
 import styles, {
-  HERO_PLACEHOLDER_HEIGHT,
   PLACEHOLDER_BAR_RADIUS,
   placeholderCardWidth,
   placeholderWidth,
@@ -571,16 +570,6 @@ const SwapPreviewScreen = (): React.JSX.Element => {
     })
   }, [navigation, params.date, params.mealId, params.planId, params.planRevision, params.recipeVersionId])
 
-  // The 13b hero is a 180px full-bleed band, so its placeholder is one too — dropping it and starting the
-  // screen at the content column would move every row up by the height of the band that is about to appear.
-  // Outside `ContentColumn` for the same reason the hero itself is: the band spans the window, and only the
-  // rows below it take the gutter.
-  const heroPlaceholder = (): React.JSX.Element => (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <SkeletonBlock height={HERO_PLACEHOLDER_HEIGHT} width={windowWidth} />
-    </View>
-  )
-
   // Skeleton reads its width as a number rather than from a style, so the width a bar stands in for is passed
   // in: the content column's for the title block, the cards' inner width for what sits inside a card.
   const placeholderBars = (heights: readonly number[], width: number): React.JSX.Element[] =>
@@ -776,7 +765,14 @@ const SwapPreviewScreen = (): React.JSX.Element => {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {isShellLoading && heroPlaceholder()}
+        {/* The band's pending variant rather than a bare `Skeleton`: the hero owns this route's only back
+            control — no header, no tab bar — so a placeholder that replaced the whole band left a read that can
+            run to the request timeout with no way out, on screen or through a screen reader. It also keeps the
+            13b hero's 180px full-bleed band in place, so no row moves when the real hero arrives (AAP 0.2.5:
+            the loading Skeletons sit UNDER the hero). Recipe detail's loading state resolves this the same way.
+            Outside `ContentColumn` for the same reason the hero itself is: the band spans the window, and only
+            the rows below it take the gutter. */}
+        {isShellLoading && <RecipeHero variant="pending" width={windowWidth} onBack={navigation.goBack} />}
 
         {/* The hero opens the recipe through its own content pressable, so the back button it draws stays a
             sibling of that pressable rather than a control nested inside one. */}

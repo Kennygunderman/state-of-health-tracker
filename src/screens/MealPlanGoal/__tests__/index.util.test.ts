@@ -1,7 +1,9 @@
 import type {Goal} from '@data/models/MealPlanPreferences'
 
 import {
+  MEAL_PLAN_GOAL_TITLE,
   MEAL_PLAN_PACE_DEFICIT_SUBCOPY,
+  MEAL_PLAN_PACE_HEADER,
   MEAL_PLAN_PACE_RATE_TEMPLATE,
   MEAL_PLAN_PACE_RECOMMENDED_SUFFIX,
   MEAL_PLAN_PACE_SURPLUS_SUBCOPY
@@ -16,6 +18,7 @@ import {
   MealPlanGoalFields,
   paceOptionsForGoal,
   parseGoalWeightInput,
+  resolveMealPlanGoalHeadings,
   validateMealPlanGoal
 } from '../index.util'
 
@@ -30,6 +33,33 @@ const makeContext = (overrides: Partial<MealPlanGoalContext> = {}): MealPlanGoal
   currentWeightKg: null,
   unit: 'lb',
   ...overrides
+})
+
+describe('resolveMealPlanGoalHeadings', () => {
+  it('asks the goal question and labels the pace section on the setup flow', () => {
+    expect(resolveMealPlanGoalHeadings(false)).toEqual({headline: MEAL_PLAN_GOAL_TITLE, isPaceLabelVisible: true})
+  })
+
+  it('asks the pace question on the pace-scope edit, where no goal control is on screen', () => {
+    expect(resolveMealPlanGoalHeadings(true).headline).toBe(MEAL_PLAN_PACE_HEADER)
+    expect(resolveMealPlanGoalHeadings(true).headline).not.toBe(MEAL_PLAN_GOAL_TITLE)
+  })
+
+  // The headline and the label carry the same constant, so the pace-scope route has to drop one of them or
+  // say "How fast?" twice, two lines apart.
+  it('drops the pace section label exactly where the headline has become the pace question', () => {
+    const paceScope = resolveMealPlanGoalHeadings(true)
+
+    expect(paceScope.isPaceLabelVisible).toBe(false)
+    expect(paceScope.headline).toBe(MEAL_PLAN_PACE_HEADER)
+  })
+
+  it('reuses approved copy rather than inventing a headline for either route', () => {
+    expect([resolveMealPlanGoalHeadings(false).headline, resolveMealPlanGoalHeadings(true).headline]).toEqual([
+      MEAL_PLAN_GOAL_TITLE,
+      MEAL_PLAN_PACE_HEADER
+    ])
+  })
 })
 
 describe('isPaceVisible', () => {

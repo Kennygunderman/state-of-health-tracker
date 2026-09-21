@@ -50,6 +50,7 @@ import {
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
+  PLAN_SETTINGS_NOT_SET_VALUE,
   stringWithNamedParameters,
   TerminalOutcomeCopy,
   TOAST_GENERIC_ERROR
@@ -1042,6 +1043,19 @@ const constraintValue = (constraint: LimitingConstraint, preferences: MealPlanPr
   return NO_VALUE
 }
 
+// NO_VALUE is this module's internal sentinel for "nothing to phrase" — it is what the segment join filters on
+// and what the precedence above tests — so the row's rendered value is resolved here, at the one point the
+// derivation becomes display text. An empty string reaches the card as a blank line under the constraint name,
+// which collapses the row to its label and Edit pill and leaves an unknown measurement unspoken: the 422 body
+// types `value` and `unit` nullable (0.5.2), and `slot_coverage`/`catalog_coverage` in particular can arrive
+// with neither. 'Not set' is the answer Plan Settings and the summary rows already give for an absent value,
+// so the surfaces agree and no new copy enters the feature.
+const constraintDisplayValue = (constraint: LimitingConstraint, preferences: MealPlanPreferences | null): string => {
+  const value = constraintValue(constraint, preferences)
+
+  return value === NO_VALUE ? PLAN_SETTINGS_NOT_SET_VALUE : value
+}
+
 // The server's order is its analysis order, so the rows are neither sorted nor de-duplicated here.
 export const buildLimitingConstraintRows = (
   constraints: LimitingConstraint[],
@@ -1053,7 +1067,7 @@ export const buildLimitingConstraintRows = (
     return {
       constraintKey: constraint.constraintKey,
       label,
-      value: constraintValue(constraint, preferences),
+      value: constraintDisplayValue(constraint, preferences),
       editStep: constraint.editStep,
       editLabel: MEAL_PLAN_EDIT_LINK_TEXT,
       editAccessibilityLabel: stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_EDIT_ACCESSIBILITY_TEMPLATE, {label})

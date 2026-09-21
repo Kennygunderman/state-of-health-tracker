@@ -2,6 +2,7 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 import LinearGradient from 'react-native-linear-gradient'
 import Svg, {Circle, Path} from 'react-native-svg'
@@ -27,7 +28,7 @@ const LogWithAICard = ({onPress}: Props) => {
   return (
     <TouchableOpacity
       style={styles.card}
-      activeOpacity={0.6}
+      activeOpacity={Opacity.PRESSED}
       accessibilityRole="button"
       accessibilityLabel={LOG_WITH_AI_TITLE}
       accessibilityHint={LOG_WITH_AI_CARD_SUBTITLE}
@@ -54,7 +55,7 @@ const LogWithAICard = ({onPress}: Props) => {
       {/* The camera button opens no camera: it repeats the card's own onPress, so it is a duplicate stop. */}
       <TouchableOpacity
         style={styles.cameraButton}
-        activeOpacity={0.6}
+        activeOpacity={Opacity.PRESSED}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         onPress={onPress}>

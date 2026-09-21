@@ -62,12 +62,17 @@ import {
   isCatalogSectionVisible,
   mapBrandedFoodToFood,
   mapCatalogFoodToFood,
-  newFoodButtonOwner
+  newFoodButtonOwner,
+  resolveAddFoodPagingFooter
 } from './index.util'
 
 const SEARCH_DEBOUNCE_MS = 400
 
 const BRANDED_MIN_QUERY_LENGTH = 2
+
+// How far from the end of the list, as a fraction of its visible length, `onEndReached` fires — the same
+// distance the wizard's catalog search pages at, so the two search surfaces fetch their next page alike
+const END_REACHED_THRESHOLD = 0.2
 
 // An empty query is what keeps the catalog request from firing while the section is hidden: the search hook
 // stays mounted on every render (hook order never changes) and its `enabled` predicate rejects the query.
@@ -180,6 +185,19 @@ const AddFoodScreen = () => {
   // Exactly one section draws the "New Food" button — the first one that renders
   const newFoodOwner = newFoodButtonOwner({showLibrary, showCatalog, showBranded})
 
+  // What the list draws under its last row while `onEndReached` is advancing either paged section. Derived
+  // per section rather than as one flag, because the two queries page independently and can both be in flight
+  const {
+    isLibraryPaging,
+    isCatalogPaging,
+    isVisible: isPagingFooterVisible
+  } = resolveAddFoodPagingFooter({
+    isFetchingMoreFoods,
+    isFetchingMoreCatalogFoods,
+    showLibrary,
+    catalogState
+  })
+
   const sections = useMemo<Section[]>(() => {
     const visibleSections: Section[] = []
 
@@ -228,6 +246,38 @@ const AddFoodScreen = () => {
   const onSkeletonBarAreaLayout = useCallback(
     (event: LayoutChangeEvent) => setSkeletonBarAreaWidth(event.nativeEvent.layout.width),
     []
+  )
+
+  // The placeholder block, shaped like a loaded row, that both of this screen's loading answers draw: the
+  // catalog section's first load in its header, and either paged section's next page in the list footer. Held
+  // once so the two read as the same language, and rebuilt only when the measured column or the handler
+  // changes — the bars are sized against the filled column, which every site lays out to the same width
+  const skeletonRows = useMemo(
+    () =>
+      CATALOG_SKELETON_ROWS.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.catalogSkeletonRow}>
+          <View style={styles.catalogSkeletonBarArea} onLayout={onSkeletonBarAreaLayout}>
+            {skeletonBarAreaWidth > 0 && (
+              <>
+                <Skeleton
+                  height={Sizes.SKELETON_BAR}
+                  width={catalogSkeletonBarWidth(skeletonBarAreaWidth, row.primary)}
+                  borderRadius={BorderRadius.CHECKBOX}
+                  style={styles.catalogSkeletonBar}
+                />
+
+                <Skeleton
+                  height={Sizes.SKELETON_BAR_SM}
+                  width={catalogSkeletonBarWidth(skeletonBarAreaWidth, row.secondary)}
+                  borderRadius={BorderRadius.CHECKBOX}
+                  style={styles.catalogSkeletonBar}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      )),
+    [onSkeletonBarAreaLayout, skeletonBarAreaWidth]
   )
 
   // Held as its own stable callback so the section header does not have to close over the query object to
@@ -304,29 +354,7 @@ const AddFoodScreen = () => {
 
             {catalogState === 'loading' && (
               <View accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
-                {CATALOG_SKELETON_ROWS.map((row, rowIndex) => (
-                  <View key={rowIndex} style={styles.catalogSkeletonRow}>
-                    <View style={styles.catalogSkeletonBarArea} onLayout={onSkeletonBarAreaLayout}>
-                      {skeletonBarAreaWidth > 0 && (
-                        <>
-                          <Skeleton
-                            height={Sizes.SKELETON_BAR}
-                            width={catalogSkeletonBarWidth(skeletonBarAreaWidth, row.primary)}
-                            borderRadius={BorderRadius.CHECKBOX}
-                            style={styles.catalogSkeletonBar}
-                          />
-
-                          <Skeleton
-                            height={Sizes.SKELETON_BAR_SM}
-                            width={catalogSkeletonBarWidth(skeletonBarAreaWidth, row.secondary)}
-                            borderRadius={BorderRadius.CHECKBOX}
-                            style={styles.catalogSkeletonBar}
-                          />
-                        </>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                {skeletonRows}
               </View>
             )}
 
@@ -388,8 +416,7 @@ const AddFoodScreen = () => {
     },
     [
       catalogState,
-      skeletonBarAreaWidth,
-      onSkeletonBarAreaLayout,
+      skeletonRows,
       onCatalogRetryPressed,
       debouncedQuery,
       newFoodOwner,
@@ -419,6 +446,23 @@ const AddFoodScreen = () => {
     fetchMoreCatalogFoods
   ])
 
+  // Where a later page announces itself (AAP 0.2.5): a footer under the rows the list is already holding,
+  // never in place of them, so the results the user is reading stay on screen while the next page loads. Each
+  // paged section that is fetching draws its own block, because reaching the end can advance both at once.
+  // `null` rather than an empty element while nothing is paging — the list then renders no footer at all
+  const listFooter = useMemo(
+    () =>
+      isPagingFooterVisible ? (
+        <View style={styles.pagingFooter} accessible accessibilityLabel={MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL}>
+          {/* One wrapper per block, so the two copies of the placeholder rows keep their keys to themselves */}
+          {isLibraryPaging && <View>{skeletonRows}</View>}
+
+          {isCatalogPaging && <View>{skeletonRows}</View>}
+        </View>
+      ) : null,
+    [isPagingFooterVisible, isLibraryPaging, isCatalogPaging, skeletonRows]
+  )
+
   return (
     <SectionList<SectionItem, Section>
       keyboardShouldPersistTaps="handled"
@@ -444,8 +488,9 @@ const AddFoodScreen = () => {
       }
       renderSectionHeader={renderSectionHeader}
       renderItem={renderItem}
+      ListFooterComponent={listFooter}
       onEndReached={onEndReached}
-      onEndReachedThreshold={0.2}
+      onEndReachedThreshold={END_REACHED_THRESHOLD}
     />
   )
 }

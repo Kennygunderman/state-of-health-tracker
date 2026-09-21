@@ -47,6 +47,7 @@ import {
   MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE,
   MEAL_PLAN_VALUE_SEPARATOR,
   MEAL_SLOT_LABELS,
+  PLAN_SETTINGS_NOT_SET_VALUE,
   stringWithNamedParameters,
   TOAST_GENERIC_ERROR
 } from '@constants/strings'
@@ -1288,22 +1289,22 @@ describe('buildLimitingConstraintRows', () => {
       expect(row.value).toBe(MEAL_PLAN_DIET_LABELS.vegan)
     })
 
-    it('leaves the diet row empty while the preferences are unknown', () => {
+    it('reads the diet row as Not set while the preferences are unknown', () => {
       const [row] = buildLimitingConstraintRows(
         [constraint({constraintKey: 'diet', value: null, unit: null, editStep: 'diet'})],
         null
       )
 
-      expect(row.value).toBe('')
+      expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
     })
 
-    it('leaves the diet row empty when the user answered no diet question', () => {
+    it('reads the diet row as Not set when the user answered no diet question', () => {
       const [row] = buildLimitingConstraintRows(
         [constraint({constraintKey: 'diet', value: null, unit: null, editStep: 'diet'})],
         preferences({diet: null})
       )
 
-      expect(row.value).toBe('')
+      expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
     })
 
     it('keeps a row with nothing to show rather than printing its machine code', () => {
@@ -1312,7 +1313,7 @@ describe('buildLimitingConstraintRows', () => {
         preferences()
       )
 
-      expect(row.value).toBe('')
+      expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
       expect(row.label).toBe(MEAL_PLAN_LIMITING_CONSTRAINT_LABELS.catalog_coverage)
       expect(row.editLabel).toBe(MEAL_PLAN_EDIT_LINK_TEXT)
     })
@@ -1396,6 +1397,136 @@ describe('buildLimitingConstraintRows', () => {
         stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 0})
       ])
       expect(rows.every(row => !row.value.includes(MEAL_PLAN_VALUE_SEPARATOR))).toBe(true)
+    })
+  })
+
+  // The 422 body types `value` and `unit` nullable (0.5.2) and the two coverage keys carry no figure at all, so
+  // a row with no measurement to phrase is a state the card renders rather than a branch it defends against.
+  // The value line has to stay drawn for it — a row that collapses to its name says nothing about the missing
+  // measurement — so these cases pin the placeholder rather than the empty string that removed the line.
+  describe('a measurement the analysis withheld', () => {
+    const MEASUREMENTLESS_PAIRS: ReadonlyArray<[LimitingConstraintUnit | null, number | null]> = [
+      ['minutes', null],
+      [null, 30],
+      [null, null]
+    ]
+
+    const CONSTRAINT_KEYS: readonly LimitingConstraintKey[] = [
+      'cooking_time',
+      'dislikes',
+      'diet',
+      'nutrition_tolerance',
+      'portion_limits',
+      'slot_coverage',
+      'catalog_coverage'
+    ]
+
+    it('states the placeholder in the copy Plan Settings and the summary rows already use', () => {
+      expect(PLAN_SETTINGS_NOT_SET_VALUE).toBe('Not set')
+    })
+
+    MEASUREMENTLESS_PAIRS.forEach(([unit, value]) => {
+      it(`reads a cooking_time row of unit ${String(unit)} and value ${String(value)} as the placeholder`, () => {
+        const [row] = buildLimitingConstraintRows(
+          [constraint({constraintKey: 'cooking_time', value, unit, slots: [], editStep: 'cooking'})],
+          preferences()
+        )
+
+        expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
+        expect(row.label).toBe(MEAL_PLAN_LIMITING_CONSTRAINT_LABELS.cooking_time)
+        expect(row.editLabel).toBe(MEAL_PLAN_EDIT_LINK_TEXT)
+      })
+    })
+
+    // The keys whose analysis is a coverage verdict rather than a figure: their measurement half is routinely
+    // absent even when the payload is complete, so they are the state a real 422 reaches this card in.
+    const VALUE_LESS_KEYS: readonly LimitingConstraintKey[] = ['slot_coverage', 'catalog_coverage']
+
+    VALUE_LESS_KEYS.forEach(constraintKey => {
+      MEASUREMENTLESS_PAIRS.forEach(([unit, value]) => {
+        it(`reads a ${constraintKey} row of unit ${String(unit)} and value ${String(value)} as the placeholder`, () => {
+          const [row] = buildLimitingConstraintRows(
+            [constraint({constraintKey, value, unit, slots: [], editStep: 'review'})],
+            preferences()
+          )
+
+          expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
+          expect(row.label).toBe(MEAL_PLAN_LIMITING_CONSTRAINT_LABELS[constraintKey])
+        })
+      })
+    })
+
+    // The invariant the card relies on, asserted over every key and every half-answered pair: no row value is
+    // blank, whatever the analysis withheld, so the value line can never be dropped for want of text.
+    it('gives every key a value line to draw, whichever half of the measurement is missing', () => {
+      const rows = buildLimitingConstraintRows(
+        CONSTRAINT_KEYS.flatMap(constraintKey =>
+          MEASUREMENTLESS_PAIRS.map(([unit, value]) =>
+            constraint({constraintKey, value, unit, slots: [], editStep: 'review'})
+          )
+        ),
+        preferences({diet: null})
+      )
+
+      expect(rows).toHaveLength(CONSTRAINT_KEYS.length * MEASUREMENTLESS_PAIRS.length)
+      expect(rows.every(row => row.value.trim().length > 0)).toBe(true)
+    })
+
+    // The placeholder must not become the answer for a row that has one: a populated measurement, and a
+    // coverage row carrying both its slots and its count, still read exactly as they did.
+    it('leaves a fully populated measurement untouched', () => {
+      const [row] = buildLimitingConstraintRows(
+        [constraint({constraintKey: 'cooking_time', value: 30, unit: 'minutes', slots: [], editStep: 'cooking'})],
+        preferences()
+      )
+
+      expect(row.value).toBe(stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.minutes, {value: 30}))
+      expect(row.value).not.toBe(PLAN_SETTINGS_NOT_SET_VALUE)
+    })
+
+    it('leaves a populated coverage analysis reading as its slots and its count', () => {
+      const [row] = buildLimitingConstraintRows(
+        [
+          constraint({
+            constraintKey: 'slot_coverage',
+            value: 0,
+            unit: 'recipes',
+            slots: ['breakfast'],
+            editStep: 'schedule'
+          })
+        ],
+        preferences()
+      )
+
+      expect(row.value).toBe(
+        [
+          MEAL_SLOT_LABELS.breakfast,
+          stringWithNamedParameters(MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES.recipes, {value: 0})
+        ].join(MEAL_PLAN_VALUE_SEPARATOR)
+      )
+      expect(row.value).not.toContain(PLAN_SETTINGS_NOT_SET_VALUE)
+    })
+
+    // A half-answered measurement must not cost the slots the analysis did name — the placeholder answers only
+    // a row with nothing at all to say.
+    it('still names the slots of a coverage row whose count is missing', () => {
+      const [row] = buildLimitingConstraintRows(
+        [
+          constraint({
+            constraintKey: 'slot_coverage',
+            value: null,
+            unit: null,
+            slots: ['breakfast', 'dinner'],
+            editStep: 'schedule'
+          })
+        ],
+        preferences()
+      )
+
+      expect(row.value).toBe(
+        [MEAL_SLOT_LABELS.breakfast, MEAL_SLOT_LABELS.dinner].join(MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR)
+      )
+      expect(row.value).not.toContain(PLAN_SETTINGS_NOT_SET_VALUE)
     })
   })
 
@@ -1516,7 +1647,7 @@ describe('buildLimitingConstraintRows', () => {
         preferences({diet: null})
       )
 
-      expect(rows.map(row => row.value)).toEqual(CONSTRAINT_UNITS_BY_KEY.map(() => ''))
+      expect(rows.map(row => row.value)).toEqual(CONSTRAINT_UNITS_BY_KEY.map(() => PLAN_SETTINGS_NOT_SET_VALUE))
       expect(rows.every(row => row.editLabel === MEAL_PLAN_EDIT_LINK_TEXT)).toBe(true)
       expect(rows.every(row => row.label.length > 0)).toBe(true)
     })
@@ -1524,18 +1655,18 @@ describe('buildLimitingConstraintRows', () => {
 
   describe('slot names that are inherited Object members', () => {
     PROTOTYPE_KEYS.forEach(key => {
-      it(`renders nothing for the slot name ${key}`, () => {
+      it(`names no slot for the inherited slot name ${key}`, () => {
         const [row] = buildLimitingConstraintRows(
           [constraint({constraintKey: 'slot_coverage', value: null, unit: null, slots: [key], editStep: 'schedule'})],
           preferences()
         )
 
         expect(typeof row.value).toBe('string')
-        expect(row.value).toBe('')
+        expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
       })
     })
 
-    it('renders nothing for a slot list made entirely of inherited names', () => {
+    it('names no slot for a slot list made entirely of inherited names', () => {
       const [row] = buildLimitingConstraintRows(
         [
           constraint({
@@ -1549,7 +1680,7 @@ describe('buildLimitingConstraintRows', () => {
         preferences()
       )
 
-      expect(row.value).toBe('')
+      expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
       expect(row.value).not.toContain('function')
       expect(row.value).not.toContain('[object')
     })
@@ -1597,16 +1728,16 @@ describe('buildLimitingConstraintRows', () => {
     }
 
     PROTOTYPE_KEYS.forEach(key => {
-      it(`renders nothing for the diet code ${key}`, () => {
+      it(`names no diet for the inherited code ${key}`, () => {
         const row = dietRow(key)
 
         expect(typeof row.value).toBe('string')
-        expect(row.value).toBe('')
+        expect(row.value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
       })
     })
 
-    it('renders nothing for a diet code a later release introduces', () => {
-      expect(dietRow('keto_new_release').value).toBe('')
+    it('names no diet for a code a later release introduces', () => {
+      expect(dietRow('keto_new_release').value).toBe(PLAN_SETTINGS_NOT_SET_VALUE)
     })
 
     it('renders no function source and no object cast for any inherited code', () => {

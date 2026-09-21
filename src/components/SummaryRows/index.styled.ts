@@ -34,6 +34,14 @@ export default StyleSheet.create({
   textColumn: {
     flex: 1
   },
+  /* BLITZY [A11Y]: the label implements the `textMuted` Figma authors for every card this component draws
+     (400 13, node 38:531 and its siblings). On the `card` fill that the three screen call sites give it —
+     MealPlanTargets, MealPlanCookingBudget, MealPlanGenerating — it measures 4.75:1 and clears the 4.5:1 AA
+     default; inside PlanConfirmDialog's `summaryPanel`, whose fill is `inset`, the same paint measures
+     4.12:1 and misses it. Figma specifies the label and that panel fill and outranks the default, so the
+     colour is matched rather than lightened; `textSecondary` reaches 6.01:1 on `inset`. The operative fill
+     is the panel's, not this component's — see the marker on `PlanConfirmDialog/index.styled` and entry 9
+     of the accessible-colour register in `@styles/theme`. */
   label: {
     fontSize: FontSize.LABEL,
     fontWeight: FontWeight.REGULAR,
@@ -69,6 +77,10 @@ export default StyleSheet.create({
   valueInline: {
     flexShrink: 1
   },
+  /* BLITZY [A11Y]: the overline carries the same `textMuted` as the label, so it reads 4.75:1 on the `card`
+     call sites and would read 4.12:1 on PlanConfirmDialog's `inset` panel — no panel call site passes an
+     overline today. Same disposition and same remedy as the label above; entry 9 of the register in
+     `@styles/theme`. */
   overline: {
     marginBottom: Spacing.SMALL,
     fontSize: FontSize.OVERLINE,

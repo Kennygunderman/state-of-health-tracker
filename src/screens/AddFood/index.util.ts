@@ -197,3 +197,45 @@ export const newFoodButtonOwner = ({
  * renders for every verdict except the two that have nothing to report.
  */
 export const isCatalogSectionVisible = (state: CatalogSearchState): boolean => state !== 'hidden' && state !== 'idle'
+
+export interface AddFoodPagingFooterInput {
+  isFetchingMoreFoods: boolean
+  isFetchingMoreCatalogFoods: boolean
+  showLibrary: boolean
+  catalogState: CatalogSearchState
+}
+
+export interface AddFoodPagingFooterView {
+  isLibraryPaging: boolean
+  isCatalogPaging: boolean
+  isVisible: boolean
+}
+
+/**
+ * What the list draws beneath its last row while a later page is in flight — two independent questions, one
+ * per paged section, rather than one "something is loading" flag: `onEndReached` advances whichever of the
+ * two queries still has pages (they page separately on their own `pagination` blocks), so both can be in
+ * flight at once and the footer has to be able to say so.
+ *
+ * AAP 0.2.5 gives both paged queries Skeleton blocks shaped like their loaded rows, and a later page loads
+ * *under* rows that are already on screen — the footer never replaces the list body, so existing results stay
+ * visible throughout.
+ *
+ * Each flag is gated on its own section actually rendering, because a placeholder for a section the user
+ * cannot see would announce a load they have no rows for: the library yields to branded results when it is
+ * empty, and the catalog only pages once it holds rows — its `loading` verdict already fills the section with
+ * the first page's own skeleton (drawn in the section header), and its `error`, `empty`, `hidden` and `idle`
+ * verdicts each fill or hide the section instead, so a second placeholder beside any of them would report a
+ * load that is not the one in flight.
+ */
+export const resolveAddFoodPagingFooter = ({
+  isFetchingMoreFoods,
+  isFetchingMoreCatalogFoods,
+  showLibrary,
+  catalogState
+}: AddFoodPagingFooterInput): AddFoodPagingFooterView => {
+  const isLibraryPaging = isFetchingMoreFoods && showLibrary
+  const isCatalogPaging = isFetchingMoreCatalogFoods && catalogState === 'rows'
+
+  return {isLibraryPaging, isCatalogPaging, isVisible: isLibraryPaging || isCatalogPaging}
+}

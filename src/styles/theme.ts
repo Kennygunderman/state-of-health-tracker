@@ -129,6 +129,26 @@ const sheetScrim = 'rgba(0,0,0,0.7)'
 //    Figma 37:282 and 37:285 author these as opaque fills rather than an opacity, so there is no alpha to
 //    remove and any remedy changes a colour. `textMuted` clears the threshold at 4.75:1 but collapses the
 //    two-tone mute into a single grey.
+// 9. `textMuted` on `inset` — 4.12:1, needing 4.5:1. Two surfaces render it, and Figma authors both small
+//    and regular, so neither qualifies as large text. The first is SummaryRows' `label` inside
+//    PlanConfirmDialog's `summaryPanel` — the F14 regenerate-confirm dialog's summary rows. Figma draws the
+//    dialog 38:520 on `card` and its panel 38:531 on `inset` (radius 20, padding 16), with all three labels
+//    400 13/18.85 and no opacity on any layer, so the composited pair is the declared one. Its `overline`
+//    carries the same `textMuted`, so a panel call site that passes one draws the same pair; the dialog
+//    passes none today. The second is the shared `TextField`'s `unit` suffix (400 15), which sits inside the
+//    field's own `container` at `inset` — Figma 46:197, 34:220, 34:246 and 47:639 — so it is one paint in
+//    every form that renders a unit-bearing field rather than a screen's own, like the placeholder in
+//    entry 2. The panel's fill is what drops the label here, not the component: the three other SummaryRows
+//    call sites (MealPlanTargets, MealPlanCookingBudget, MealPlanGenerating) and the two screen-local rows
+//    that draw the same muted label (PlanSettings' `SettingsRow`, MealPlanGenerating's
+//    `LimitingConstraintRows`) all sit on `card`, where it measures 4.75:1 and clears the threshold — so
+//    moving the panel fill is an alternative to moving the text colour, and either is design's decision.
+//    `textSecondary` on `inset` measures 6.01:1 and stays in the same grey family; the other measured
+//    neighbours are `text` on `inset` at 13.02:1 and `textMuted` on `card` at 4.75:1. As in entry 2 the
+//    pair also ships outside this feature and predates it — FoodDetail's "this adds" row, LogWithAI's
+//    summary card, and CreateFood's macro-cell unit suffixes and calories row — and that reach is left
+//    countable rather than quoted: `grep -rl 'colors\.inset' src --include=*.styled.ts | xargs grep -l
+//    'colors\.textMuted' | wc -l` bounds the stylesheets carrying both.
 
 export const Theme = {
   dark: true,

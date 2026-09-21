@@ -252,7 +252,14 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <ContentColumn>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <WizardHeader step={progress.step} totalSteps={progress.totalSteps} onBack={navigation.goBack} />
+          {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
+              back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
+          <WizardHeader
+            step={progress.step}
+            totalSteps={progress.totalSteps}
+            onBack={navigation.goBack}
+            isProgressVisible={params.mode !== 'edit'}
+          />
 
           <Text style={styles.headline} accessibilityRole="header">
             {MEAL_PLAN_FOOD_PREFERENCES_TITLE}

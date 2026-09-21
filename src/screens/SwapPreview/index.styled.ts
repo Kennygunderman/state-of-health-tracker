@@ -15,9 +15,10 @@ import {Theme} from '@styles/theme'
  * `ContentColumn` (width 100% capped at `CONTENT_MAX_WIDTH`, `GUTTER` either side) and with the card padding
  * below, or a placeholder is a different width from the content it stands in for. Recipe detail's loading
  * state splits the same way.
+ *
+ * The band above the column is not sized here: that state is `RecipeHero`'s own `variant='pending'`, whose
+ * geometry — and whose back button, this route's only one — belong to the band rather than to this screen.
  */
-export const HERO_PLACEHOLDER_HEIGHT = Sizes.HERO_BAND_H
-
 export const PLACEHOLDER_BAR_RADIUS = BorderRadius.CHECKBOX
 
 /** Title then subtitle, each at the line height of the text it replaces. */

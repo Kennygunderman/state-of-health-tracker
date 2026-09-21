@@ -85,5 +85,8 @@ export default StyleSheet.create({
   catalogSkeletonBarArea: {
     alignSelf: 'stretch',
     rowGap: Spacing.XX_SMALL
+  },
+  pagingFooter: {
+    marginTop: Spacing.SMALL
   }
 })

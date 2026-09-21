@@ -54,6 +54,13 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     color: Theme.colors.textSecondary
   },
+  /* BLITZY [A11Y]: this fill is what drops the summary rows' label below the threshold. Figma 38:531 draws
+     the panel `inset` on the dialog's `card` surface (radius 20, padding 16) and its labels `textMuted`
+     400 13/18.85, which measures 4.12:1 here against the 4.5:1 AA default, where the same label on `card`
+     measures 4.75:1 and clears it. Figma specifies both values and outranks that default, so the panel is
+     matched rather than lightened, and either side can move under an approved decision: `textSecondary` on
+     this fill measures 6.01:1, and `card` under the existing label 4.75:1. See entry 9 of the
+     accessible-colour register in `@styles/theme`. */
   summaryPanel: {
     marginTop: Spacing.MEDIUM,
     padding: Spacing.MEDIUM,

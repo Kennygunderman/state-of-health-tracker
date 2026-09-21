@@ -7,6 +7,8 @@ import Spacing from '@styles/spacing'
 
 import Text from '@components/Text'
 
+import {PLAN_SETTINGS_NOT_SET_VALUE} from '@constants/strings'
+
 import styles from './index.styled'
 import {LimitingConstraintRow} from '../../index.util'
 
@@ -45,7 +47,11 @@ const LimitingConstraintRows = ({rows, onEditConstraint}: Props): React.JSX.Elem
           <View style={styles.textColumn} accessible>
             <Text style={styles.name}>{row.label}</Text>
 
-            {!!row.value && <Text style={styles.value}>{row.value}</Text>}
+            {/* Drawn unconditionally: a row whose measurement the analysis withheld is still a two-line row,
+                and a value line omitted for want of text collapses it to a name the group announces with no
+                measurement at all. The fallback repeats the derivation's own placeholder rather than trusting
+                it, because these rows arrive as props and the card owns the line it draws. */}
+            <Text style={styles.value}>{row.value || PLAN_SETTINGS_NOT_SET_VALUE}</Text>
           </View>
 
           <TouchableOpacity

@@ -64,6 +64,15 @@ export default StyleSheet.create({
     fontWeight: FontWeight.REGULAR,
     color: Theme.colors.textFaint
   },
+  /* BLITZY [A11Y]: the unit suffix implements Figma `46:197` exactly — `textMuted` 400 15 inside the `inset`
+     container declared above (also `34:220`, `34:246`, `47:639`) — measuring 4.12:1 against the 4.5:1 AA
+     default, 15px regular being well short of large text. That is the same 4.12:1 the two markers above
+     name as a remedy candidate for the border and the placeholder; on this key it is the pair actually
+     rendered, in every form that passes a `unit`. Figma specifies it and outranks the default, so it is
+     matched rather than lightened; `textSecondary` on this fill measures 6.01:1 and `text` 13.02:1, the
+     latter giving up the suffix's subordination to the value it follows. The suffix is drawn and never
+     announced (see `index.tsx`), so the gap is the sighted low-vision case only. See entry 9 of the
+     accessible-colour register in `@styles/theme`. */
   unit: {
     fontSize: FontSize.BODY,
     fontWeight: FontWeight.REGULAR,
