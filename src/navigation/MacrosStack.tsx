@@ -1,40 +1,17 @@
 import React from 'react'
 
-import {createNativeStackNavigator} from '@react-navigation/native-stack'
-import {Theme} from '@styles/theme'
+import MealPlanSetupProvider from '@components/MealPlanSetupProvider'
 
-import AddFoodScreen from '@screens/AddFood'
-import CreateFoodScreen from '@screens/CreateFood'
-import FoodDetailScreen from '@screens/FoodDetail'
-import LogWithAIScreen from '@screens/LogWithAI'
-import MacrosScreen from '@screens/Macros'
-import MacrosHistoryScreen from '@screens/MacrosHistory'
+import MacrosRoutesStack from './MacrosRoutesStack'
 
-import Screens from '@constants/screens'
-
-const Stack = createNativeStackNavigator()
-
-const MacrosStack = () => {
+// The meal-plan setup draft is provided around the route registrations, not inside a wizard screen:
+// the seven steps are separate routes, so a provider mounted on one of them would drop every answer
+// the moment the user continued to the next. See the lifecycle note in MealPlanSetupProvider.
+const MacrosStack = (): React.JSX.Element => {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerBackButtonDisplayMode: 'minimal',
-        headerStyle: {backgroundColor: Theme.colors.background},
-        headerTintColor: Theme.colors.white,
-        headerShadowVisible: false
-      }}>
-      <Stack.Screen name={Screens.MACROS} component={MacrosScreen} options={{headerShown: false}} />
-
-      <Stack.Screen name={Screens.ADD_FOOD} component={AddFoodScreen} options={{title: ''}} />
-
-      <Stack.Screen name={Screens.FOOD_DETAIL_SCREEN} component={FoodDetailScreen} options={{title: ''}} />
-
-      <Stack.Screen name={Screens.CREATE_FOOD} component={CreateFoodScreen} options={{title: ''}} />
-
-      <Stack.Screen name={Screens.LOG_WITH_AI} component={LogWithAIScreen} options={{title: ''}} />
-
-      <Stack.Screen name={Screens.MACROS_HISTORY} component={MacrosHistoryScreen} options={{title: ''}} />
-    </Stack.Navigator>
+    <MealPlanSetupProvider>
+      <MacrosRoutesStack />
+    </MealPlanSetupProvider>
   )
 }
 

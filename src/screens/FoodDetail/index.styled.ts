@@ -1,7 +1,8 @@
 import {StyleSheet} from 'react-native'
 
 import BorderRadius from '@styles/borderRadius'
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
+import {Sizes, Stroke} from '@styles/sizes'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -12,13 +13,13 @@ export default StyleSheet.create({
   },
   eyebrow: {
     fontSize: FontSize.CAPTION,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: FontWeight.BOLD,
+    letterSpacing: LetterSpacing.EYEBROW,
     color: Theme.colors.accentGreen
   },
   title: {
     fontSize: FontSize.SCREEN_TITLE,
-    fontWeight: 'bold',
+    fontWeight: FontWeight.BOLD,
     marginTop: Spacing.XX_SMALL
   },
   subtitle: {
@@ -38,6 +39,13 @@ export default StyleSheet.create({
   legend: {
     flex: 1,
     marginLeft: Spacing.LARGE
+  },
+  provenanceCaption: {
+    marginTop: Spacing.X_SMALL,
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.textMuted
   },
 
   servingsCard: {
@@ -60,8 +68,8 @@ export default StyleSheet.create({
     alignItems: 'center'
   },
   stepperButton: {
-    width: 36,
-    height: 36,
+    width: Sizes.CONTROL_SM,
+    height: Sizes.CONTROL_SM,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Theme.colors.inset,
@@ -69,14 +77,14 @@ export default StyleSheet.create({
   },
   stepperButtonText: {
     fontSize: FontSize.H2,
-    fontWeight: '600',
+    fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.textSecondary
   },
   stepperValue: {
-    minWidth: 56,
+    minWidth: Sizes.STEPPER_VALUE_MIN_W,
     textAlign: 'center',
     fontSize: FontSize.STAT,
-    fontWeight: 'bold'
+    fontWeight: FontWeight.BOLD
   },
 
   fractionChipsRow: {
@@ -90,7 +98,7 @@ export default StyleSheet.create({
     marginHorizontal: Spacing.XX_SMALL,
     backgroundColor: Theme.colors.inset,
     borderRadius: BorderRadius.PILL,
-    borderWidth: 1,
+    borderWidth: Stroke.THIN,
     borderColor: Theme.colors.inset
   },
   fractionChipSelected: {
@@ -102,7 +110,7 @@ export default StyleSheet.create({
     color: Theme.colors.textSecondary
   },
   fractionChipTextSelected: {
-    fontWeight: '600',
+    fontWeight: FontWeight.SEMIBOLD,
     color: Theme.colors.accentGreen
   },
 
@@ -126,7 +134,7 @@ export default StyleSheet.create({
   },
   addsCalories: {
     fontSize: FontSize.BODY,
-    fontWeight: 'bold',
+    fontWeight: FontWeight.BOLD,
     color: Theme.colors.text
   },
 

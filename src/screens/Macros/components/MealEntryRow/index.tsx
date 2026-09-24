@@ -2,7 +2,8 @@ import React from 'react'
 
 import {TouchableOpacity, View} from 'react-native'
 
-import {entryCalories, entryServingText, MealEntry} from '@data/models/MealEntry'
+import {entryCalories, entryProvenanceLabel, entryServingText, MealEntry} from '@data/models/MealEntry'
+import {Opacity} from '@styles/sizes'
 import {Swipeable} from 'react-native-gesture-handler'
 
 import SwipeDeleteListItem from '@components/SwipeDeleteListItem'
@@ -20,21 +21,24 @@ interface Props {
   onSwipeActivated: () => void
 }
 
-const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeActivated}: Props) => {
+const MealEntryRow = ({entry, onPress, onDeletePressed, swipeableRef, onSwipeActivated}: Props): React.JSX.Element => {
   const servingLabel = entryServingText(entry)
+  const provenanceLabel = entryProvenanceLabel(entry)
 
   return (
     <SwipeDeleteListItem
       swipeableRef={swipeableRef}
       onSwipeActivated={onSwipeActivated}
       onDeletePressed={onDeletePressed}>
-      <TouchableOpacity style={styles.row} activeOpacity={0.6} disabled={!onPress} onPress={onPress}>
+      <TouchableOpacity style={styles.row} activeOpacity={Opacity.PRESSED} disabled={!onPress} onPress={onPress}>
         <View style={styles.nameContainer}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={styles.name}>
             {entry.name}
 
             {!!servingLabel && <Text style={styles.servingText}>{` · ${servingLabel}`}</Text>}
           </Text>
+
+          {!!provenanceLabel && <Text style={styles.provenanceCaption}>{provenanceLabel}</Text>}
         </View>
 
         <View style={styles.caloriesContainer}>

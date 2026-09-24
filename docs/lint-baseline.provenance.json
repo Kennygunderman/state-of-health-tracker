@@ -1,0 +1,69 @@
+{
+  "artifact": "docs/lint-baseline.json",
+  "purpose": "The pre-feature ESLint state of this repository. scripts/lint-baseline-compare.mjs compares a fresh report against it and fails only on findings absent from it, so the artifact is the reference the lint gate measures every change by, and this record is what proves the artifact is the reviewed one.",
+  "sourceCommit": "603718ee — \"Merge release/2.0.1 into master\", the mobile HEAD this feature branched from and an ancestor of every commit on the branch (git merge-base --is-ancestor 603718ee HEAD).",
+  "capturedAt": "Before the first meal-planning edit was linted. The report was taken from a pristine worktree of 603718ee rather than from the feature tree; the artifact itself entered this branch in commit 18eddc7.",
+  "captureCwd": "The repository root of that pristine worktree, /tmp/soh-34/lint-base — the root still embedded in every filePath of the capture, which is how the artifact evidences where it came from. The comparator strips each report's own root, so the recorded paths stay comparable from any checkout.",
+  "captureScope": "eslint . — byte-for-byte the scope npm run lint uses, governed by .eslintrc.js ignorePatterns (node_modules, coverage, android, ios, jest-stare) and .eslintignore. That scope lints .js, .ts and .tsx and leaves .mjs alone, which is why 487 files are covered and why the comparator derives its lintable extensions from this artifact instead of assuming a set.",
+  "captureCommand": "npx eslint --no-fix -f json . -o docs/lint-baseline.json",
+  "projection": {
+    "command": "node scripts/lint-baseline-compare.mjs --project <raw capture> docs/lint-baseline.json",
+    "reason": "ESLint's raw report embeds the linted file's own text: `source` carries the whole file for every result that holds a finding, `output` carries the fixed file, and a message's `fix`/`suggestions` carry replacement source. Committing that into a long-lived artifact commits file content with it — the release API host in src/constants/endpoints.ts among it — so the tracked artifact is the raw capture with those fields elided. Nothing the comparison keys on is touched: filePath, ruleId, message, line and column all survive.",
+    "droppedResultFields": ["source", "output"],
+    "droppedMessageFields": ["fix", "suggestions"],
+    "elidedContentAudit": "At projection time every elided `source` field was byte-identical to `git show 603718ee:<path>` — 31 of 31, none missing, none different — so the raw capture remains re-derivable from git and the elision cost the artifact no evidence."
+  },
+  "totals": {
+    "lintedFiles": 487,
+    "filesWithFindings": 31,
+    "findings": 49,
+    "errors": 34,
+    "warnings": 15
+  },
+  "composition": {
+    "fatalFindings": 4,
+    "filesWithFindingsOutsideSrc": 6,
+    "findingsOutsideSrc": 9,
+    "findingsByRule": {
+      "@typescript-eslint/no-explicit-any": 13,
+      "@typescript-eslint/no-var-requires": 8,
+      "prettier/prettier": 7,
+      "(fatal)": 4,
+      "react-native/no-inline-styles": 4,
+      "react-hooks/exhaustive-deps": 4,
+      "react/no-unstable-nested-components": 3,
+      "jest/no-identical-title": 2,
+      "@typescript-eslint/ban-ts-comment": 2,
+      "@typescript-eslint/no-shadow": 1,
+      "padding-line-between-statements": 1
+    }
+  },
+  "changedFileCoverage": {
+    "source": "git-diff",
+    "baseCommit": "603718ee",
+    "reason": "A file this feature added or renamed is not in the baseline, so requiring only baseline paths would let a new file drop out of the lint scope unnoticed. The gate therefore derives the changed lintable files itself — everything changed since this commit in the working tree, plus untracked files — and demands the after report covers them. It is not an option a caller can forget: the plain two-argument invocation performs the derivation, and a checkout that cannot resolve this commit (a shallow clone) is an error, not a skipped check. --require overrides the derivation for a caller that already holds the list.",
+    "commands": [
+      "git rev-parse --verify <baseCommit>^{commit}",
+      "git diff --name-only --diff-filter=ACMR <baseCommit>",
+      "git ls-files --others --exclude-standard"
+    ],
+    "filters": "A derived candidate is demanded of the after report only where a full \"eslint .\" run would have reported it: its extension appears in this artifact (see captureScope, which is why .mjs is never demanded), it still exists on disk (so a deletion and a rename's old path drop out), and ESLint does not ignore it — .eslintignore plus the ignorePatterns of .eslintrc.js, which is what keeps untracked coverage/ and jest-stare/ output out of the requirement even though .gitignore does not list them. The same filters apply to a --require list.",
+    "onFailure": "Any demanded path absent from the after report — a derived changed file, or a baseline path that still exists on disk — fails the gate with exit 1 and the path named. An after report holding no results at all fails the same way: a run that linted nothing cannot evidence that anything lints clean. A derivation that cannot be performed (an unresolvable baseCommit, no git) is exit 2, never a skipped check."
+  },
+  "verification": {
+    "resolvedAs": "The comparator reads this record from the baseline path it was given with .json replaced by .provenance.json, so the record travels beside the artifact: a baseline copied or moved carries its record or is refused.",
+    "checks": [
+      "digest.algorithm is sha256 and digest.value is the digest recomputed from the artifact on the spot",
+      "every field of totals equals the count measured from the artifact",
+      "every composition count stated here equals the count measured from the artifact — compared rule by rule, because findingsByRule is ordered by descending count rather than by name",
+      "changedFileCoverage.baseCommit is present, since the changed-file derivation cannot run without it"
+    ],
+    "onFailure": "The run stops with exit 2 before comparing anything, naming both the recorded value and the measured one. A record that is missing, unreadable, malformed or of the wrong shape is refused the same way rather than ignored — so a regenerated or hand-edited baseline cannot pass by describing itself, and cannot pass by carrying no description at all."
+  },
+  "digest": {
+    "algorithm": "sha256",
+    "value": "ed2375f87057e4eb6bf1dc3ae72f8eaad3389cd57fbad26abd1f55eeeb05ec05",
+    "covers": "JSON.stringify of the projected results array. The digest identifies the capture rather than the file's bytes, so the raw and projected forms of one capture hash alike and reformatting or a different line ending cannot change it."
+  },
+  "recapture": "The baseline is not regenerated to make a change pass; new findings are fixed in the files that introduced them. A genuine recapture — the lint scope or the ESLint configuration changing on purpose — means re-running the capture command against the new base, projecting it, and updating totals, composition and digest here in the same reviewed commit. The comparator refuses to run against a baseline this record does not describe."
+}

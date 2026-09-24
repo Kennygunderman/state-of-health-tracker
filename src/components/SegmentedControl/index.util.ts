@@ -1,0 +1,63 @@
+// Declared here rather than in `index.tsx` because `index.styled.ts` derives the control's envelope
+// geometry from the helpers below, so the util must not import back from the component.
+export type SegmentedControlVariant = 'large' | 'small' | 'unit'
+
+/**
+ * The segments divide what the track's leading and trailing insets leave behind.
+ * Returns 0 while the track is unmeasured (before onLayout), has no segments to divide, or is
+ * narrower than the two insets it must give away.
+ */
+export const segmentWidthFor = (trackWidth: number, optionCount: number, trackInset: number): number => {
+  if (trackWidth <= 0 || optionCount <= 0) {
+    return 0
+  }
+
+  return Math.max(0, (trackWidth - trackInset - trackInset) / optionCount)
+}
+
+/**
+ * The drawn track surrounds its pill with the same inset above and below, so the control the design
+ * draws is the pill plus both insets: 36 for the stretched large variant, 29 for a hugging one.
+ */
+export const visualTrackHeightFor = (segmentHeight: number, trackInset: number): number =>
+  segmentHeight + trackInset + trackInset
+
+/**
+ * Hit slop cannot lift a segment to the minimum target here: React Native never extends a touch
+ * past the parent's bounds, and the parent is the track the design fixes at 36 (or 29). So each
+ * option is rendered inside a press envelope of the target height, and this is the inset from that
+ * envelope to the drawn track. The envelope carries it back as a negative vertical margin, so the
+ * envelope occupies exactly the track's height in layout and nothing moves on screen. A track that
+ * already reaches the target, as it does once the label scales up, needs no envelope and no inset.
+ */
+export const segmentEnvelopeInsetFor = (visualTrackHeight: number, touchTarget: number): number => {
+  const shortfall = touchTarget - visualTrackHeight
+
+  if (!Number.isFinite(shortfall) || shortfall <= 0) {
+    return 0
+  }
+
+  return shortfall / 2
+}
+
+/**
+ * The option's own box, which is what the user presses: the drawn pill plus the envelope inset and
+ * the track inset above and below it. It is a real view of this height inside an envelope of the
+ * same height, so nothing clips it.
+ */
+export const optionBoxHeightFor = (segmentHeight: number, envelopeInset: number, trackInset: number): number => {
+  const inset = envelopeInset + trackInset
+
+  return segmentHeight + inset + inset
+}
+
+export const isFlexSegments = (variant: SegmentedControlVariant | undefined): boolean =>
+  (variant ?? 'large') === 'large'
+
+/**
+ * Keyed on the variant's presence rather than its value: the feature's Figma-authored controls
+ * declare a variant and require single-line labels that scale down inside their fixed track
+ * (AAP 0.2.3, 0.7.4), while a caller that declares none is the generic pre-feature control whose
+ * rendering AAP 0.6.2 requires to be unchanged — its labels wrap.
+ */
+export const usesFixedLabelLayout = (variant: SegmentedControlVariant | undefined): boolean => variant !== undefined

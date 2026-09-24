@@ -1,11 +1,11 @@
-export type MacroKey = 'protein' | 'carbs' | 'fat'
+import {CatalogSourcedFood, Food, parseRouteFood} from '@data/models/Food'
+import {InputMethodEnum, LogCatalogMealEntryPayload, MealEntry} from '@data/models/MealEntry'
+import {NutritionProvenance} from '@data/models/NutritionProvenance'
+import {FoodDetailParams} from '@navigation/types'
 
-export interface PerServingMacros {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-}
+import {CATALOG_PROVENANCE_BADGE_LABELS} from '@constants/strings'
+
+export type MacroKey = 'protein' | 'carbs' | 'fat'
 
 export interface MacroBreakdownSlice {
   key: MacroKey
@@ -22,79 +22,13 @@ export interface DonutSegment {
   lengthFraction: number
 }
 
-export interface ServingFraction {
-  glyph: string
-  value: number
-}
-
-export const MIN_SERVINGS = 0.25
-
-export const SERVING_FRACTIONS: ServingFraction[] = [
-  {glyph: '¼', value: 0.25},
-  {glyph: '⅓', value: 0.33},
-  {glyph: '½', value: 0.5},
-  {glyph: '⅔', value: 0.66},
-  {glyph: '¾', value: 0.75}
-]
-
 export const MACRO_LABELS: Record<MacroKey, string> = {
   protein: 'Protein',
   carbs: 'Carbs',
   fat: 'Fat'
 }
 
-const FRACTION_EPSILON = 0.001
-
 const DONUT_GAP_FRACTION = 0.02
-
-// Keeps stepper/chip math away from floating point dust (0.30000000000000004)
-const roundServings = (servings: number): number => Math.round(servings * 100) / 100
-
-export const getFractionalPart = (servings: number): number => roundServings(servings - Math.floor(servings))
-
-// 1 -> '1', 1.5 -> '1½', 0.25 -> '¼', 1.2 -> '1.2'
-export const formatServingsDisplay = (servings: number): string => {
-  const whole = Math.floor(servings)
-  const fraction = getFractionalPart(servings)
-
-  if (fraction === 0) {
-    return String(whole)
-  }
-
-  const glyph = SERVING_FRACTIONS.find(f => Math.abs(f.value - fraction) < FRACTION_EPSILON)?.glyph
-
-  if (!glyph) {
-    return String(roundServings(servings))
-  }
-
-  return whole === 0 ? glyph : `${whole}${glyph}`
-}
-
-// Each whole number splits into the same stops as the fraction chips:
-// 1 -> 1¼ -> 1⅓ -> 1½ -> 1⅔ -> 1¾ -> 2
-const STEP_FRACTIONS = [0, ...SERVING_FRACTIONS.map(f => f.value)]
-
-export const stepServings = (servings: number, direction: 1 | -1): number => {
-  const whole = Math.floor(servings)
-  const fraction = getFractionalPart(servings)
-
-  if (direction === 1) {
-    const next = STEP_FRACTIONS.find(f => f > fraction + FRACTION_EPSILON)
-    return roundServings(next === undefined ? whole + 1 : whole + next)
-  }
-
-  const prev = [...STEP_FRACTIONS].reverse().find(f => f < fraction - FRACTION_EPSILON)
-  const stepped = prev === undefined ? whole - 1 + 0.75 : whole + prev
-
-  return Math.max(MIN_SERVINGS, roundServings(stepped))
-}
-
-// Replaces only the fractional part, keeping the whole part: 1.5 + ¼ -> 1.25
-export const applyFractionPart = (servings: number, fraction: number): number =>
-  roundServings(Math.floor(servings) + fraction)
-
-export const isFractionSelected = (servings: number, fraction: number): boolean =>
-  Math.abs(getFractionalPart(servings) - fraction) < FRACTION_EPSILON
 
 export const buildMacroBreakdown = (protein: number, carbs: number, fat: number): MacroBreakdownSlice[] => {
   const slices: {key: MacroKey; grams: number; calories: number}[] = [
@@ -149,13 +83,6 @@ export const buildDonutSegments = (
   })
 }
 
-export const scaleMacros = (perServing: PerServingMacros, servings: number): PerServingMacros => ({
-  calories: Math.round(perServing.calories * servings),
-  protein: Math.round(perServing.protein * servings),
-  carbs: Math.round(perServing.carbs * servings),
-  fat: Math.round(perServing.fat * servings)
-})
-
 // '2g P · 75g C · 5g F'
 export const formatMacroSummary = (protein: number, carbs: number, fat: number): string =>
   `${Math.round(protein)}g P · ${Math.round(carbs)}g C · ${Math.round(fat)}g F`
@@ -171,3 +98,75 @@ export const formatDetailSubtitle = (
 
   return [brand, servingText, calText].filter(Boolean).join(' · ')
 }
+
+// Keyed by the full union so a new provenance value cannot compile without a caption decision
+const CATALOG_PROVENANCE_CAPTIONS: Record<NutritionProvenance, string | null> = {
+  source_backed: CATALOG_PROVENANCE_BADGE_LABELS.source_backed,
+  ingredient_derived: CATALOG_PROVENANCE_BADGE_LABELS.ingredient_derived,
+  ai_estimated: CATALOG_PROVENANCE_BADGE_LABELS.ai_estimated,
+  user_entered: null
+}
+
+export const catalogProvenanceLabel = (provenance: NutritionProvenance | null | undefined): string | null =>
+  provenance ? CATALOG_PROVENANCE_CAPTIONS[provenance] : null
+
+// What the screen renders and acts on: either a food it has validated, or an entry it is editing.
+export type FoodDetailSource = {path: 'add'; food: Food} | {path: 'update'; entry: MealEntry}
+
+// States the two display-only fields as null when the param leaves them unstated, so parseRouteFood reads an
+// omitted brand or servingUnit the way it already reads an explicit null. Only a strictly undefined value is
+// filled — a present-but-malformed one (brand: 42) reaches the parse and is still rejected — and no other
+// member is introduced, because a personal food carrying any catalog member at all is refused by design.
+const withUnstatedDisplayFields = (value: unknown): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  return {
+    ...candidate,
+    ...(candidate.brand === undefined ? {brand: null} : {}),
+    ...(candidate.servingUnit === undefined ? {servingUnit: null} : {})
+  }
+}
+
+// Resolves the route params into the source the screen may trust, or null when it may trust neither.
+//
+// The 'add' param is re-validated rather than taken as given, because React Navigation rehydrates persisted
+// state from arbitrary JSON: a restored param is untrusted input, and a food whose source claim cannot be
+// verified must not have its numbers shown or be logged. Failing closed to null is the only honest outcome —
+// the repairs available are inventing a catalog id or discarding a provenance, and either would make this
+// client the author of a claim the server never made.
+//
+// brand and servingUnit are the single exception, and they are stated rather than repaired: the model declares
+// both `string | null`, so an absent one already means "not stated" — precisely what null says — and naming it
+// asserts nothing the server did not. Identity and provenance stay fail-closed: a catalog food whose
+// catalogFoodId, nutritionProvenance or catalogServingDescription is missing or malformed still resolves to
+// null, as does any brand or servingUnit that is present and not a string.
+export const resolveFoodDetailSource = (params: FoodDetailParams): FoodDetailSource | null => {
+  if (params.path === 'update') {
+    return {path: 'update', entry: params.entry}
+  }
+
+  const food = parseRouteFood(withUnstatedDisplayFields(params.food))
+
+  return food ? {path: 'add', food} : null
+}
+
+// Request body for logging a published catalog food by id. servingText is the stored
+// catalog_food_portions.description of the portion these numbers were projected onto, carried verbatim from
+// the catalog response on food.catalogServingDescription — never rebuilt from servingAmount/servingUnit: the
+// server accepts a servingText only when it equals one of that food's stored descriptions, and most stored
+// descriptions are not '<amount> <unit>' ('RACC', 'lemon', '1 cup, halves'), so a reconstruction matches by
+// coincidence at best and is rejected as invalid_serving. When the food carries no description the member is
+// omitted entirely rather than sent as undefined, which is what makes the server derive the default portion —
+// either way the stored label and the stored per-serving macros come from the same portion row.
+// Takes the food rather than its id so the id can only have come from a food the type already proves is
+// catalog-sourced — an arbitrary string, including a library food's own id, cannot be logged down this route.
+export const buildCatalogLogPayload = (food: CatalogSourcedFood, servings: number): LogCatalogMealEntryPayload => ({
+  catalogFoodId: food.catalogFoodId,
+  servings,
+  ...(food.catalogServingDescription === undefined ? {} : {servingText: food.catalogServingDescription}),
+  inputMethod: InputMethodEnum.SEARCH
+})

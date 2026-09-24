@@ -4,7 +4,7 @@ import {Linking, TouchableWithoutFeedback, View} from 'react-native'
 
 import BottomSheet from '@gorhom/bottom-sheet'
 import {getMinimumAppVersion, initRemoteConfig} from '@service/remoteConfig/initRemoteConfig'
-import {Theme} from '@styles/theme'
+import CrashUtility from '@utility/CrashUtility'
 import Constants from 'expo-constants'
 import {noop} from 'lodash'
 
@@ -22,20 +22,27 @@ const MinimumVersionSheet = () => {
 
   const [isOpen, setIsOpen] = useState(false)
 
+  // The app's single Remote Config fetch, kept mount-only: there is no foreground refresh (AAP 0.7.5), and the
+  // activation it settles is broadcast by the service itself to the consumers that read activated values.
   useEffect(() => {
-    initRemoteConfig().then(initialized => {
-      if (initialized) {
-        const appVersion = Constants.expoConfig?.version ?? ''
-        const remoteMinimum = getMinimumAppVersion()
+    initRemoteConfig()
+      .then(initialized => {
+        if (initialized) {
+          const appVersion = Constants.expoConfig?.version ?? ''
+          const remoteMinimum = getMinimumAppVersion()
 
-        if (!isVersionGreaterOrEqual(appVersion, remoteMinimum)) {
-          setTimeout(() => {
-            sheetRef.current?.expand()
-            setIsOpen(true)
-          }, 2_000)
+          if (!isVersionGreaterOrEqual(appVersion, remoteMinimum)) {
+            setTimeout(() => {
+              sheetRef.current?.expand()
+              setIsOpen(true)
+            }, 2_000)
+          }
         }
-      }
-    })
+      })
+      // A failed fetch leaves the last activated values in force, so there is nothing to show the user and
+      // nothing to retry here — but the failure is still reported rather than swallowed, through the same
+      // channel the rest of the app uses.
+      .catch(error => CrashUtility.recordError(error))
   }, [])
 
   const onUpdateButtonPress = async () => {
@@ -63,7 +70,7 @@ const MinimumVersionSheet = () => {
         enablePanDownToClose={false}
         enableHandlePanningGesture={false}
         handleComponent={null}
-        backgroundStyle={{backgroundColor: Theme.colors.background}}
+        backgroundStyle={styles.sheetBackground}
         style={styles.sheetShadow}
         onClose={noop}>
         <View style={styles.sheetContent}>

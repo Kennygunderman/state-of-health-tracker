@@ -1,0 +1,26 @@
+import React from 'react'
+
+import {Sizes, Stroke} from '@styles/sizes'
+import Svg, {Path} from 'react-native-svg'
+
+import {IconProps} from './IconProps'
+
+const EmptyCalendarIcon = ({color, size = Sizes.ICON_EMPTY, strokeWidth = Stroke.EMPTY_CALENDAR}: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 46 46" fill="none">
+    <Path
+      d="M33.5417 8.625H12.4584C9.28274 8.625 6.70837 11.1994 6.70837 14.375V33.5417C6.70837 36.7173 9.28274 39.2917 12.4584 39.2917H33.5417C36.7173 39.2917 39.2917 36.7173 39.2917 33.5417V14.375C39.2917 11.1994 36.7173 8.625 33.5417 8.625Z"
+      stroke={color}
+      strokeWidth={strokeWidth}
+    />
+
+    <Path
+      d="M6.70837 18.2084H39.2917M16.2917 8.62508V4.79175M29.7084 8.62508V4.79175"
+      stroke={color}
+      strokeWidth={strokeWidth}
+    />
+
+    <Path d="M15.3334 25.875H21.0834M15.3334 31.625H26.8334" stroke={color} strokeWidth={strokeWidth} />
+  </Svg>
+)
+
+export default EmptyCalendarIcon

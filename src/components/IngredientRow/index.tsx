@@ -1,0 +1,24 @@
+import React from 'react'
+
+import {View} from 'react-native'
+
+import Text from '@components/Text'
+
+import styles from './index.styled'
+
+interface Props {
+  name: string
+  quantityText: string
+}
+
+const IngredientRow = ({name, quantityText}: Props): React.JSX.Element => {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.name}>{name}</Text>
+
+      <Text style={styles.quantity}>{quantityText}</Text>
+    </View>
+  )
+}
+
+export default IngredientRow

@@ -1,0 +1,48 @@
+import {StyleSheet} from 'react-native'
+
+import BorderRadius from '@styles/borderRadius'
+import FontSize, {FontWeight, LetterSpacing} from '@styles/fontSize'
+import {Sizes} from '@styles/sizes'
+import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
+
+export default StyleSheet.create({
+  strip: {
+    flexDirection: 'row',
+    columnGap: Spacing.TIGHT,
+    alignSelf: 'stretch'
+  },
+  chip: {
+    flex: 1,
+    minHeight: Sizes.CONTROL_LG,
+    paddingVertical: Spacing.X_SMALL,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BorderRadius.TILE,
+    backgroundColor: Theme.colors.card
+  },
+  chipSelected: {
+    backgroundColor: Theme.colors.greenTint
+  },
+  weekday: {
+    fontSize: FontSize.TAB_LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    letterSpacing: LetterSpacing.OVERLINE,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    color: Theme.colors.textMuted
+  },
+  weekdaySelected: {
+    color: Theme.colors.greenOnTint
+  },
+  dayNumber: {
+    paddingTop: Sizes.DAY_CHIP_NUMBER_INSET_T,
+    fontSize: FontSize.BODY,
+    fontWeight: FontWeight.BOLD,
+    textAlign: 'center',
+    color: Theme.colors.textSecondary
+  },
+  dayNumberSelected: {
+    color: Theme.colors.text
+  }
+})

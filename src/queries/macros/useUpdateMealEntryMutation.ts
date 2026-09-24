@@ -1,19 +1,12 @@
-import {UpdateMealEntryPayload} from '@data/models/MealEntry'
-import {updateMealEntry} from '@queries/api/macros/updateMealEntry'
-import {useMutation, useQueryClient} from '@tanstack/react-query'
+import {MealEntry, UpdateMealEntryPayload} from '@data/models/MealEntry'
+import {DefaultError, useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-query'
 
-import {mutationKeys, queryKeys} from '../keys'
+import {buildUpdateMealEntryMutationOptions} from './useUpdateMealEntryMutation.util'
 
-export const useUpdateMealEntryMutation = (date: string) => {
+export const useUpdateMealEntryMutation = (
+  date: string
+): UseMutationResult<MealEntry, DefaultError, {entryId: string; payload: UpdateMealEntryPayload}> => {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationKey: mutationKeys.updateMealEntry,
-    mutationFn: ({entryId, payload}: {entryId: string; payload: UpdateMealEntryPayload}) =>
-      updateMealEntry(entryId, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({queryKey: queryKeys.dailyMacros(date)})
-      queryClient.invalidateQueries({queryKey: queryKeys.macrosHistory})
-    }
-  })
+  return useMutation(buildUpdateMealEntryMutationOptions(queryClient, date))
 }

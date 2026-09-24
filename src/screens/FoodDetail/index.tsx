@@ -1,9 +1,9 @@
-import React, {useState} from 'react'
+import React, {useEffect, useMemo, useState} from 'react'
 
 import {ScrollView, TouchableOpacity, View} from 'react-native'
 
-import {FoodSourceEnum, formatServingText} from '@data/models/Food'
-import {InputMethodEnum} from '@data/models/MealEntry'
+import {FoodSourceEnum, formatServingText, isCatalogFood} from '@data/models/Food'
+import {ClientInputMethod, InputMethodEnum} from '@data/models/MealEntry'
 import {Navigation} from '@navigation/types'
 import {FoodDetailRouteProp} from '@navigation/types'
 import {useCreateFoodMutation} from '@queries/foods/useCreateFoodMutation'
@@ -11,6 +11,16 @@ import {useLogMealEntryMutation} from '@queries/macros/useLogMealEntryMutation'
 import {useUpdateMealEntryMutation} from '@queries/macros/useUpdateMealEntryMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import {useSessionStore} from '@store/session/useSessionStore'
+import {Opacity} from '@styles/sizes'
+import {
+  applyFractionPart,
+  formatServingsDisplay,
+  isFractionSelected,
+  PerServingMacros,
+  scaleMacros,
+  SERVING_FRACTIONS,
+  stepServings
+} from '@utility/ServingsUtility'
 
 import MacroGramRow from '@components/MacroGramRow'
 import PrimaryButton from '@components/PrimaryButton'
@@ -21,7 +31,12 @@ import {
   ADDING_TO_EYEBROW,
   CAL_LABEL,
   CAL_PER_SERVING_SUFFIX,
+  MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL,
+  MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL,
+  MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE,
+  MEAL_PLAN_SERVING_FRACTION_NAMES,
   SERVINGS_HEADER,
+  stringWithNamedParameters,
   THIS_ADDS_LABEL,
   TOAST_ADDED_TO_MEAL_PREFIX,
   TOAST_GENERIC_ERROR,
@@ -31,19 +46,15 @@ import {
 import MacroDonut, {MACRO_COLORS} from './components/MacroDonut'
 import styles from './index.styled'
 import {
-  applyFractionPart,
+  buildCatalogLogPayload,
   buildMacroBreakdown,
+  catalogProvenanceLabel,
   dominantMacroKey,
   formatDetailSubtitle,
   formatMacroSummary,
-  formatServingsDisplay,
-  isFractionSelected,
   MACRO_LABELS,
   MacroKey,
-  PerServingMacros,
-  scaleMacros,
-  SERVING_FRACTIONS,
-  stepServings
+  resolveFoodDetailSource
 } from './index.util'
 
 // Missing from @constants/strings — the toast string is 'Added to' but there is
@@ -61,70 +72,97 @@ const FoodDetailScreen = () => {
   const logMealEntryMutation = useLogMealEntryMutation(sessionStartDateIso)
   const updateMealEntryMutation = useUpdateMealEntryMutation(sessionStartDateIso)
 
-  const macroSource = params.path === 'add' ? params.food : params.entry
-  const servingText = params.path === 'add' ? formatServingText(params.food) : params.entry.servingText
-  const brand = params.path === 'add' ? params.food.brand : null
+  // A restored param is untrusted input, so the source is resolved through the
+  // validating helper rather than read off the route; null means the param is
+  // not a food and the screen leaves instead of rendering one whose provenance
+  // is unknown.
+  const source = useMemo(() => resolveFoodDetailSource(params), [params])
+  const routeFood = source?.path === 'add' ? source.food : null
+  const entry = source?.path === 'update' ? source.entry : null
+  const macroSource = routeFood ?? entry
 
   const perServing: PerServingMacros = {
-    calories: macroSource.calories,
-    protein: macroSource.protein,
-    carbs: macroSource.carbs,
-    fat: macroSource.fat
+    calories: macroSource?.calories ?? 0,
+    protein: macroSource?.protein ?? 0,
+    carbs: macroSource?.carbs ?? 0,
+    fat: macroSource?.fat ?? 0
   }
 
   const breakdown = buildMacroBreakdown(perServing.protein, perServing.carbs, perServing.fat)
 
-  const [servings, setServings] = useState(params.path === 'update' ? params.entry.servings : 1)
+  const [servings, setServings] = useState(entry?.servings ?? 1)
   const [selectedMacro, setSelectedMacro] = useState<MacroKey>(() => dominantMacroKey(breakdown))
 
   const totals = scaleMacros(perServing, servings)
   const isSubmitting =
     createFoodMutation.isPending || logMealEntryMutation.isPending || updateMealEntryMutation.isPending
 
-  const onAddPressed = async () => {
-    if (params.path !== 'add') {
+  useEffect(() => {
+    if (macroSource) {
       return
     }
 
-    const {mealId, food} = params
+    showToast('error', TOAST_GENERIC_ERROR)
+    navigation.goBack()
+  }, [macroSource, navigation])
+
+  const onAddPressed = async () => {
+    if (params.path !== 'add' || !routeFood) {
+      return
+    }
+
+    const {mealId} = params
+    const food = routeFood
 
     try {
-      let foodId = food.id
-      let inputMethod = InputMethodEnum.LIBRARY
-
-      // Branded results live in the external catalog — persist a copy into the
-      // user's library first, then log against the created food
-      if (food.source === FoodSourceEnum.BRANDED) {
-        const createdFood = await createFoodMutation.mutateAsync({
-          name: food.name,
-          servingAmount: food.servingAmount,
-          servingUnit: food.servingUnit ?? undefined,
-          calories: food.calories,
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
-          brand: food.brand ?? undefined,
-          source: FoodSourceEnum.BRANDED
+      // A published catalog food is logged by id: the server resolves the row and
+      // derives the snapshot, so no library copy is created and no macros are sent
+      if (isCatalogFood(food)) {
+        await logMealEntryMutation.mutateAsync({
+          mealId,
+          payload: buildCatalogLogPayload(food, servings)
         })
+      } else {
+        let foodId = food.id
+        // Annotated rather than inferred: the legacy body may only claim a
+        // method the client is allowed to choose, and 'meal_plan' is the
+        // server's alone.
+        let inputMethod: ClientInputMethod = InputMethodEnum.LIBRARY
 
-        foodId = createdFood.id
-        inputMethod = InputMethodEnum.SEARCH
-      }
+        // Branded results live in the external catalog — persist a copy into the
+        // user's library first, then log against the created food
+        if (food.source === FoodSourceEnum.BRANDED) {
+          const createdFood = await createFoodMutation.mutateAsync({
+            name: food.name,
+            servingAmount: food.servingAmount,
+            servingUnit: food.servingUnit ?? undefined,
+            calories: food.calories,
+            protein: food.protein,
+            carbs: food.carbs,
+            fat: food.fat,
+            brand: food.brand ?? undefined,
+            source: FoodSourceEnum.BRANDED
+          })
 
-      await logMealEntryMutation.mutateAsync({
-        mealId,
-        payload: {
-          foodId,
-          name: food.name,
-          servingText: formatServingText(food),
-          servings,
-          calories: food.calories,
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
-          inputMethod
+          foodId = createdFood.id
+          inputMethod = InputMethodEnum.SEARCH
         }
-      })
+
+        await logMealEntryMutation.mutateAsync({
+          mealId,
+          payload: {
+            foodId,
+            name: food.name,
+            servingText: formatServingText(food),
+            servings,
+            calories: food.calories,
+            protein: food.protein,
+            carbs: food.carbs,
+            fat: food.fat,
+            inputMethod
+          }
+        })
+      }
 
       // Land back on Add Food (not Macros) so more items can be added to the
       // same meal without re-entering the flow
@@ -149,6 +187,16 @@ const FoodDetailScreen = () => {
       showToast('error', TOAST_GENERIC_ERROR)
     }
   }
+
+  // The effect above is already leaving; rendering nothing keeps the zeroed
+  // placeholder figures off the screen while it does.
+  if (!macroSource) {
+    return null
+  }
+
+  const servingText = routeFood ? formatServingText(routeFood) : (entry?.servingText ?? null)
+  const brand = routeFood?.brand ?? null
+  const provenanceCaption = routeFood ? catalogProvenanceLabel(routeFood.nutritionProvenance) : null
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -183,14 +231,20 @@ const FoodDetailScreen = () => {
         </View>
       </View>
 
+      {provenanceCaption && <Text style={styles.provenanceCaption}>{provenanceCaption}</Text>}
+
       <View style={styles.servingsCard}>
         <View style={styles.servingsRow}>
           <Text style={styles.servingsLabel}>{SERVINGS_HEADER}</Text>
 
+          {/* The stepper and the chips below carry the same accessible names as their twin on the Log meal
+              screen (LogPlannedMeal's ServingsStepper and FractionChips), so the two surfaces cannot drift. */}
           <View style={styles.stepper}>
             <TouchableOpacity
               style={styles.stepperButton}
-              activeOpacity={0.7}
+              activeOpacity={Opacity.PRESSED_SUBTLE}
+              accessibilityRole="button"
+              accessibilityLabel={MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL}
               onPress={() => setServings(current => stepServings(current, -1))}>
               <Text style={styles.stepperButtonText}>−</Text>
             </TouchableOpacity>
@@ -199,7 +253,9 @@ const FoodDetailScreen = () => {
 
             <TouchableOpacity
               style={styles.stepperButton}
-              activeOpacity={0.7}
+              activeOpacity={Opacity.PRESSED_SUBTLE}
+              accessibilityRole="button"
+              accessibilityLabel={MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL}
               onPress={() => setServings(current => stepServings(current, 1))}>
               <Text style={styles.stepperButtonText}>+</Text>
             </TouchableOpacity>
@@ -214,7 +270,13 @@ const FoodDetailScreen = () => {
               <TouchableOpacity
                 key={fraction.glyph}
                 style={[styles.fractionChip, isSelected && styles.fractionChipSelected]}
-                activeOpacity={0.7}
+                activeOpacity={Opacity.PRESSED_SUBTLE}
+                accessibilityRole="button"
+                // Screen readers pronounce ¼ ⅓ ½ ⅔ ¾ inconsistently, so the name spells the fraction out.
+                accessibilityLabel={stringWithNamedParameters(MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE, {
+                  fraction: MEAL_PLAN_SERVING_FRACTION_NAMES[fraction.glyph] ?? fraction.glyph
+                })}
+                accessibilityState={{selected: isSelected}}
                 onPress={() => setServings(current => applyFractionPart(current, fraction.value))}>
                 <Text style={[styles.fractionChipText, isSelected && styles.fractionChipTextSelected]}>
                   {fraction.glyph}

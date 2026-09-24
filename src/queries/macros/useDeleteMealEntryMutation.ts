@@ -1,17 +1,9 @@
-import {deleteMealEntry} from '@queries/api/macros/deleteMealEntry'
-import {useMutation, useQueryClient} from '@tanstack/react-query'
+import {DefaultError, useMutation, UseMutationResult, useQueryClient} from '@tanstack/react-query'
 
-import {mutationKeys, queryKeys} from '../keys'
+import {buildDeleteMealEntryMutationOptions} from './useDeleteMealEntryMutation.util'
 
-export const useDeleteMealEntryMutation = (date: string) => {
+export const useDeleteMealEntryMutation = (date: string): UseMutationResult<void, DefaultError, string> => {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationKey: mutationKeys.deleteMealEntry,
-    mutationFn: (entryId: string) => deleteMealEntry(entryId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({queryKey: queryKeys.dailyMacros(date)})
-      queryClient.invalidateQueries({queryKey: queryKeys.macrosHistory})
-    }
-  })
+  return useMutation(buildDeleteMealEntryMutationOptions(queryClient, date))
 }

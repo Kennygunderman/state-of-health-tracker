@@ -2,16 +2,20 @@ import React, {useState} from 'react'
 
 import {LayoutChangeEvent, TouchableOpacity, View} from 'react-native'
 
+import {Opacity, Sizes} from '@styles/sizes'
 import Animated, {SharedValue, useAnimatedStyle} from 'react-native-reanimated'
 
 import Text from '@components/Text'
 
-import styles, {indicatorWidth, TRACK_PADDING} from './index.styled'
+import styles, {indicatorWidth} from './index.styled'
+import {isFlexSegments, SegmentedControlVariant, segmentWidthFor, usesFixedLabelLayout} from './index.util'
 
 export interface SegmentedControlOption<T extends string> {
   key: T
   label: string
 }
+
+export type {SegmentedControlVariant}
 
 interface Props<T extends string> {
   options: SegmentedControlOption<T>[]
@@ -21,12 +25,22 @@ interface Props<T extends string> {
   // provided, the highlight pill tracks the swipe instead of snapping between
   // segments
   scrollProgress?: SharedValue<number>
+  variant?: SegmentedControlVariant
 }
 
-const SegmentedControl = <T extends string>({options, selected, onChange, scrollProgress}: Props<T>) => {
+const SegmentedControl = <T extends string>({
+  options,
+  selected,
+  onChange,
+  scrollProgress,
+  variant
+}: Props<T>): React.JSX.Element => {
   const [trackWidth, setTrackWidth] = useState(0)
 
-  const segmentWidth = trackWidth > 0 ? (trackWidth - TRACK_PADDING * 2) / options.length : 0
+  const flexSegments = isFlexSegments(variant)
+  const fixedLabelLayout = usesFixedLabelLayout(variant)
+
+  const segmentWidth = segmentWidthFor(trackWidth, options.length, Sizes.SEGMENT_TRACK_INSET)
 
   const onLayout = (event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width)
 
@@ -40,8 +54,13 @@ const SegmentedControl = <T extends string>({options, selected, onChange, scroll
   })
 
   return (
-    <View style={styles.track} onLayout={onLayout}>
-      {scrollProgress && segmentWidth > 0 && (
+    <View style={[styles.envelope, flexSegments ? styles.envelopeLarge : styles.envelopeCompact]} onLayout={onLayout}>
+      <View
+        style={[styles.trackSurface, flexSegments ? styles.trackSurfaceLarge : styles.trackSurfaceCompact]}
+        pointerEvents="none"
+      />
+
+      {flexSegments && scrollProgress && segmentWidth > 0 && (
         <Animated.View style={[styles.indicator, indicatorWidth(segmentWidth), indicatorStyle]} />
       )}
 
@@ -51,10 +70,25 @@ const SegmentedControl = <T extends string>({options, selected, onChange, scroll
         return (
           <TouchableOpacity
             key={option.key}
-            style={[styles.segment, !scrollProgress && isSelected && styles.segmentSelected]}
-            activeOpacity={0.7}
+            style={[styles.option, !flexSegments && styles.optionCompact]}
+            activeOpacity={Opacity.PRESSED_SEGMENT}
+            accessibilityRole="tab"
+            accessibilityState={{selected: isSelected}}
+            accessibilityLabel={option.label}
             onPress={() => onChange(option.key)}>
-            <Text style={[styles.label, isSelected && styles.labelSelected]}>{option.label}</Text>
+            <View
+              style={[
+                styles.segment,
+                !flexSegments && styles.segmentCompact,
+                !scrollProgress && isSelected && styles.segmentSelected
+              ]}>
+              <Text
+                style={[styles.label, !flexSegments && styles.labelCompact, isSelected && styles.labelSelected]}
+                numberOfLines={fixedLabelLayout ? 1 : undefined}
+                adjustsFontSizeToFit={fixedLabelLayout}>
+                {option.label}
+              </Text>
+            </View>
           </TouchableOpacity>
         )
       })}

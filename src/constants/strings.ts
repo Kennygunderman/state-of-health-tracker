@@ -1,4 +1,6 @@
+import {PaceLbPerWeek} from '@data/models/MealPlanPreferences'
 import {WeightUnit} from '@data/models/WeightUnit'
+import {lookupLabel} from '@utility/TextUtility'
 
 export const CAL_LABEL = 'cal'
 
@@ -480,7 +482,8 @@ export const BURN_INFO_STEPS_BODY =
 
 export const BURN_INFO_RUNS_TITLE = 'Runs'
 
-export const BURN_INFO_RUNS_BODY = 'Estimated from each run’s distance. This is the same number you see on the Runs screen.'
+export const BURN_INFO_RUNS_BODY =
+  'Estimated from each run’s distance. This is the same number you see on the Runs screen.'
 
 export const BURN_INFO_DISCLAIMER =
   'Body weight comes from your most recent weigh-in. These are estimates, and actual burn varies with intensity and physiology.'
@@ -661,9 +664,46 @@ export function stringWithParameters(str: string = '', ...parameters: string[]):
   return updatedStr
 }
 
+/**
+ * A template's `{name}` placeholders replaced by the matching values, in exactly one pass over the template.
+ *
+ * One pass, because a value is finished text rather than a template. Composing copy by feeding one formatted
+ * string in as another's value is this feature's normal pattern — a flagged meal's `{detail}` arrives already
+ * formatted through MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, and an accessibility label is assembled from a food
+ * name the server sent — so a scan per key would substitute a placeholder that a value merely contains, and the
+ * result would depend on the order the caller happened to write the object in. Scanning the template once and
+ * resolving each placeholder where it stands removes both.
+ *
+ * A placeholder with no value is dropped rather than left standing: a raw `{name}` is never something to show a
+ * user, so the sentence reads short instead of reading like a bug. Lookups are own-property only and accept a
+ * string or a number only, so a key naming `constructor` or `__proto__` resolves to nothing instead of
+ * rendering a function or an object — the rule the label lookups in @utility/TextUtility are built on, and it
+ * matters here because some of these values are server text.
+ */
+export function stringWithNamedParameters(template: string = '', values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) {
+      return ''
+    }
+
+    const value: unknown = values[key]
+
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+  })
+}
+
 // --- Macros (nutrition) feature ---
 
 export const EMPTY_MEAL_CTA = 'Add food or log with AI'
+
+// The diary draws one icon-only "+" per meal card and one empty-state row per empty card, so four cards give
+// four identical glyphs and four identical CTA strings. Both names carry the bucket, which is the only thing
+// that tells a reader the Breakfast control from the Dinner one.
+export const MEAL_CARD_ADD_FOOD_ACCESSIBILITY_TEMPLATE = 'Add food to {meal}'
+
+// Opens with the CTA exactly as drawn so the spoken name stays a superset of the visible one for voice
+// control (WCAG 2.5.3), then adds the bucket the row belongs to.
+export const MEAL_CARD_EMPTY_CTA_ACCESSIBILITY_TEMPLATE = '{cta}, {meal}'
 
 export const LOG_WITH_AI_TITLE = 'Log with AI'
 
@@ -767,3 +807,1448 @@ export const AI_FREE_FOR_NOW_CAPTION = 'Free for a limited time'
 export const AI_DAILY_LIMIT_TOAST = "You've used today's free AI estimates. More tomorrow!"
 
 export const AI_UNAVAILABLE_TEXT = 'AI logging is temporarily unavailable. Check back soon.'
+
+// --- Meal planning: shared ---
+
+export const MEAL_PLAN_TITLE = 'Meal Plan'
+
+export const MEAL_PLAN_OVERLINE = 'Meal plan'
+
+export const DIARY_SEGMENT_LABEL = 'Diary'
+
+export const MEAL_PLAN_SEGMENT_LABEL = 'Meal Plan'
+
+export const MEAL_PLAN_CONTINUE_BUTTON_TEXT = 'Continue'
+
+export const MEAL_PLAN_SKIP_BUTTON_TEXT = 'Skip'
+
+export const MEAL_PLAN_DONE_BUTTON_TEXT = 'Done'
+
+export const MEAL_PLAN_SAVE_CHANGES_BUTTON_TEXT = 'Save changes'
+
+export const MEAL_PLAN_TRY_AGAIN_BUTTON_TEXT = 'Try again'
+
+export const MEAL_PLAN_EDIT_PREFERENCES_BUTTON_TEXT = 'Edit preferences'
+
+export const MEAL_PLAN_BACK_TO_PLAN_BUTTON_TEXT = 'Back to plan'
+
+export const MEAL_PLAN_CONTINUE_SETUP_BUTTON_TEXT = 'Continue setup'
+
+export const MEAL_PLAN_CREATE_BUTTON_TEXT = 'Create my plan'
+
+export const MEAL_PLAN_EDIT_LINK_TEXT = 'Edit'
+
+export const MEAL_PLAN_CHANGE_LINK_TEXT = 'Change'
+
+export const MEAL_PLAN_RECALCULATE_LINK_TEXT = 'Recalculate'
+
+// The recalculated figure shown beside a saved target the user has not reconfirmed, so the two can be compared
+// before anything is replaced: generation keeps using the saved set until the user acts on the link beside this.
+export const MEAL_PLAN_FRESH_ESTIMATE_TEMPLATE = 'New estimate {calories}'
+
+// The card's figure slot when the saved record holds macros but no calorie target. The four target fields are
+// independently nullable (0.5.2), so this state is reachable, and the calculated figure may not stand in for
+// the absent one: that would present a number the user never chose as their target. The dash says the target
+// is unset and the Recalculate link beside it is how one gets set.
+export const MEAL_PLAN_NO_TARGET_FIGURE_TEXT = '—'
+
+// Spoken in place of the dash, which a screen reader would otherwise read as punctuation or skip entirely.
+export const MEAL_PLAN_NO_TARGET_FIGURE_ACCESSIBILITY_TEXT = 'not set'
+
+export const MEAL_PLAN_OPTIONAL_LABEL = 'Optional'
+
+export const MEAL_PLAN_REVIEW_HEADER_LABEL = 'Review'
+
+export const MEAL_PLAN_WIZARD_STEP_TEMPLATE = '{n} of {m}'
+
+export const MEAL_PLAN_KCAL_UNIT = 'kcal'
+
+export const MEAL_PLAN_GRAMS_UNIT = 'g'
+
+// Spoken forms of the two unit suffixes above. A screen reader announcing the drawn abbreviation reads 'g' as a
+// letter and 'kcal' as a word fragment, so a numeric field names its unit with the word instead.
+export const MEAL_PLAN_KCAL_UNIT_ACCESSIBILITY_TEXT = 'kilocalories'
+
+export const MEAL_PLAN_GRAMS_UNIT_ACCESSIBILITY_TEXT = 'grams'
+
+export const MEAL_PLAN_LB_UNIT = 'lb'
+
+export const MEAL_PLAN_KG_UNIT = 'kg'
+
+export const MEAL_PLAN_SELECTED_COUNT_TEMPLATE = 'Selected · {count}'
+
+export const MEAL_PLAN_SELECTED_VALUE_TEMPLATE = '{count} selected'
+
+export const MEAL_PLAN_MACRO_PAIR_TEMPLATE = '{value} / {target}g'
+
+export const MEAL_PLAN_OPTION_REQUIRED_ERROR_TEXT = 'Choose an option to continue'
+
+export const MEAL_PLAN_UNAVAILABLE_TEXT = "Meal planning isn't available right now."
+
+export const MEAL_PLAN_LOAD_ERROR_TITLE = "Couldn't load this right now."
+
+// The body of a failed read. Distinct from MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY, which belongs to a write whose
+// outcome the server never described: a read that failed changed nothing, so retrying it is plainly safe.
+export const MEAL_PLAN_LOAD_ERROR_BODY = 'Check your connection, then try again.'
+
+export const MEAL_PLAN_OFFLINE_BANNER_TEXT = 'Showing your last saved plan'
+
+export const MEAL_PLAN_UNCONFIRMED_OUTCOME_TITLE = "We couldn't confirm that"
+
+export const MEAL_PLAN_UNCONFIRMED_OUTCOME_BODY = 'Check your connection and try again.'
+
+// An earlier swap or log on a DIFFERENT meal is still unresolved, and each of those actions has one
+// idempotency-key slot, so this meal's control is withheld until that key is answered rather than overwriting
+// it (0.7.2). Distinct from MEAL_PLAN_UNCONFIRMED_OUTCOME_*, which describes the user's OWN request going
+// unanswered: here nothing the user did on this meal has failed, and there is nothing for them to retry, so
+// the copy names the wait instead of asking them to check their connection.
+export const MEAL_PLAN_OTHER_MEAL_PENDING_TITLE = "We're still confirming another meal"
+
+export const MEAL_PLAN_OTHER_MEAL_PENDING_BODY = "We'll finish that one first, then this meal is yours to change."
+
+export const MEAL_PLAN_STALE_PLAN_TOAST = 'Your plan changed. Try that again.'
+
+export const MEAL_PLAN_STALE_REVISION_DIALOG_TITLE = 'Your preferences changed on another device'
+
+export const MEAL_PLAN_STALE_REVISION_USE_THEIRS_BUTTON_TEXT = 'Use theirs'
+
+export const MEAL_PLAN_STALE_REVISION_KEEP_MINE_BUTTON_TEXT = 'Keep mine'
+
+// Also the canonical diary-bucket names: the API self-heals a Breakfast, Lunch, Dinner and Snack bucket
+// for every date, so a planned log matches its bucket by deriving the name from this one map instead of
+// repeating the four words, and the displayed copy and the matching can never drift apart.
+export const MEAL_SLOT_LABELS: Record<string, string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  dinner: 'Dinner',
+  snack: 'Snack'
+}
+
+export const MEAL_SLOT_SENTENCE_LABELS: Record<string, string> = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snack: 'snack'
+}
+
+export const MEAL_PLAN_GOAL_ROW_LABEL = 'Goal'
+
+export const MEAL_PLAN_DIET_ROW_LABEL = 'Diet'
+
+export const MEAL_PLAN_MEALS_ROW_LABEL = 'Meals'
+
+export const MEAL_PLAN_TARGETS_ROW_LABEL = 'Targets'
+
+export const MEAL_PLAN_ALLERGIES_ROW_LABEL = 'Allergies'
+
+export const MEAL_PLAN_MAX_COOKING_TIME_ROW_LABEL = 'Maximum cooking time'
+
+export const MEAL_PLAN_DISLIKED_INGREDIENTS_ROW_LABEL = 'Disliked ingredients'
+
+export const MEAL_PLAN_WEEKLY_BUDGET_ROW_LABEL = 'Weekly budget'
+
+// --- Meal planning: introduction (01) ---
+
+export const MEAL_PLAN_INTRO_TITLE = "Let's plan your meals."
+
+export const MEAL_PLAN_INTRO_BODY =
+  "Tell us about your goals and the foods you like. We'll build your meals and grocery list for the week."
+
+export const MEAL_PLAN_INTRO_SAMPLE_WEEK_OVERLINE = 'Example week'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BADGE_TEXT = 'Sample'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_MONDAY = 'Mon'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_TUESDAY = 'Tue'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_WEDNESDAY = 'Wed'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_THURSDAY = 'Thu'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DAY_FRIDAY = 'Fri'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_SLOT = 'Breakfast · 8:00 AM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_NAME = 'Greek yogurt bowl'
+
+export const MEAL_PLAN_INTRO_SAMPLE_BREAKFAST_META = '420 cal · 32g protein'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_SLOT = 'Lunch · 12:30 PM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_NAME = 'Chicken burrito bowl'
+
+export const MEAL_PLAN_INTRO_SAMPLE_LUNCH_META = '610 cal · 45g protein'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_SLOT = 'Dinner · 6:30 PM'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_NAME = 'Salmon with roasted veg'
+
+export const MEAL_PLAN_INTRO_SAMPLE_DINNER_META = '680 cal · 41g protein'
+
+export const MEAL_PLAN_INTRO_GROCERY_INCLUDED_TEXT = 'Grocery list included'
+
+export const MEAL_PLAN_INTRO_CALORIES_PLANNED_TEXT = '1,710 cal planned'
+
+export const MEAL_PLAN_INTRO_PRIMARY_BUTTON_TEXT = 'Build my plan'
+
+export const MEAL_PLAN_INTRO_DISMISS_BUTTON_TEXT = 'Not now'
+
+// --- Meal planning: your goal (02) ---
+
+export const MEAL_PLAN_GOAL_TITLE = "What's your goal?"
+
+export const MEAL_PLAN_GOAL_LABELS: Record<string, string> = {
+  lose: 'Lose weight',
+  maintain: 'Maintain weight',
+  gain: 'Gain weight'
+}
+
+export const MEAL_PLAN_GOAL_WEIGHT_HEADER = 'Goal weight'
+
+export const MEAL_PLAN_PACE_HEADER = 'How fast?'
+
+export const MEAL_PLAN_PACE_RATE_TEMPLATE = '{pace} lb a week'
+
+// The finished sentence each pace card carries, keyed by lb per week (Figma 02 `46:170`). The daily figure
+// it quotes is the server's pace policy — 500 cal a day per pound a week, which targets.logic derives from
+// the 3,500 cal per pound equivalence — so it is held here as approved copy per approved pace instead of
+// being multiplied out on the client, where a policy change would leave this copy contradicting the
+// estimate the same user is shown moments later. Keyed over PaceLbPerWeek, so admitting a fourth pace is a
+// compile error in the copy module rather than a silently unlabelled card, and frozen because the pace
+// cards read these tables on every render: a consumer rewriting one in place would change the copy every
+// screen shows from then on, and would make the derivation that reads it non-deterministic.
+export const MEAL_PLAN_PACE_DEFICIT_SUBCOPY: Readonly<Record<PaceLbPerWeek, string>> = Object.freeze({
+  0.5: 'About 250 cal under maintenance',
+  1: 'About 500 cal under maintenance',
+  1.5: 'About 750 cal under maintenance'
+})
+
+export const MEAL_PLAN_PACE_SURPLUS_SUBCOPY: Readonly<Record<PaceLbPerWeek, string>> = Object.freeze({
+  0.5: 'About 250 cal over maintenance',
+  1: 'About 500 cal over maintenance',
+  1.5: 'About 750 cal over maintenance'
+})
+
+export const MEAL_PLAN_PACE_RECOMMENDED_SUFFIX = ' · recommended'
+
+// The word form a chosen pace reads as on the Review and Plan-settings rows, keyed by lb per week. Figma draws
+// only 'Gradual' (09 and 16 both sample the recommended 1 lb a week); 'Gentle' and 'Fast' are this
+// implementation's copy for the two paces the file never draws, and are flagged for designer review.
+export const MEAL_PLAN_PACE_LABELS: Record<string, string> = {
+  '0.5': 'Gentle',
+  '1': 'Gradual',
+  '1.5': 'Fast'
+}
+
+// One message per way the optional goal weight can fail, because the three have different remedies and a
+// shared sentence would send the user to the wrong one. Frame 02's goal-weight input `46:197` is drawn filled
+// and error-free, so none of the three is drawn copy: under AAP 0.7.4's copy inventory and AAP 0.2.5's
+// inferred-copy rule, a state Figma never draws takes its copy from the file's own vocabulary, so the first
+// follows the pattern the file's own targets screen authors ('Enter a carb target above 0 g', 09b `34:251`) with
+// the unit left off because this field's unit toggles between lb and kg, and the two below are this
+// implementation's copy, flagged for designer review.
+//
+// This one message covers two entries the screen's parser cannot tell apart, and so it names both remedies.
+// `parseGoalWeightInput` answers a value its numeric pattern rejects and a value at or below zero with the
+// same null, which is the right shape for the parser — the field accepts a decimal in either unit, so there
+// is no single wrong character to point at — but it means '17o' and '0' arrive at this sentence together.
+// Naming only the magnitude told the larger of those two users to raise a number they had not entered; the
+// number-and-bound wording is true of both. Splitting the parser's answer in two is the alternative and was
+// not taken: the remedy is one keystroke away in either case, and the screen's error row shows one sentence.
+export const MEAL_PLAN_GOAL_WEIGHT_INVALID_ERROR_TEXT = 'Enter a goal weight as a number above 0'
+
+// The supported body-weight envelope is 30-300 kg (66-661 lb). The bounds are deliberately not quoted: they
+// live in UnitConversionUtility and differ per unit, so naming them here would mean formatting them on the
+// screen, and a copy of them in this module would be free to drift from the check that actually rejects.
+export const MEAL_PLAN_GOAL_WEIGHT_RANGE_ERROR_TEXT = 'Enter a realistic goal weight'
+
+// Raised when the goal weight sits on the wrong side of the current weight — above it while losing, below it
+// while gaining. Worded without naming a direction because either answer is the one the user may have meant
+// to change, and because a per-direction sentence would need a derivation the screen is not allowed to hold.
+export const MEAL_PLAN_GOAL_WEIGHT_DIRECTION_ERROR_TEXT = "Your goal weight doesn't match the goal you chose"
+
+// --- Meal planning: about you (03, 03b) ---
+
+export const MEAL_PLAN_ABOUT_YOU_TITLE = 'A little about you.'
+
+export const MEAL_PLAN_ABOUT_YOU_SUBTITLE = "We'll use this to estimate your daily targets."
+
+export const MEAL_PLAN_AGE_HEADER = 'Age'
+
+export const MEAL_PLAN_AGE_UNIT = 'years'
+
+export const MEAL_PLAN_HEIGHT_HEADER = 'Height'
+
+// The height unit toggle names both imperial units together, while the feet input's own placeholder and
+// suffix name only feet. Figma draws them as three separate strings (nodes 46:469, 46:477 and 46:480), so
+// collapsing the toggle onto MEAL_PLAN_FEET_UNIT would silently drop the "/in" half of the choice.
+export const MEAL_PLAN_HEIGHT_UNIT_FT_IN = 'ft/in'
+
+export const MEAL_PLAN_FEET_UNIT = 'ft'
+
+export const MEAL_PLAN_INCHES_UNIT = 'in'
+
+export const MEAL_PLAN_CM_UNIT = 'cm'
+
+export const MEAL_PLAN_CURRENT_WEIGHT_HEADER = 'Current weight'
+
+export const MEAL_PLAN_SEX_HEADER = 'Sex used for calorie estimate'
+
+export const MEAL_PLAN_SEX_LABELS: Record<string, string> = {
+  female: 'Female',
+  male: 'Male',
+  prefer_not_to_say: 'Prefer not to say'
+}
+
+export const MEAL_PLAN_WEIGHT_PREFILL_CAPTION = "From your last weigh-in. Edit if it's changed."
+
+export const MEAL_PLAN_AGE_ERROR_TEXT = 'Enter your age to continue'
+
+export const MEAL_PLAN_FEET_ERROR_TEXT = 'Enter feet to continue'
+
+export const MEAL_PLAN_INCHES_ERROR_TEXT = 'Enter inches to continue'
+
+export const MEAL_PLAN_HEIGHT_ERROR_TEXT = 'Enter your height to continue'
+
+export const MEAL_PLAN_WEIGHT_ERROR_TEXT = 'Enter your weight to continue'
+
+// --- Meal planning: activity level (04) ---
+
+export const MEAL_PLAN_ACTIVITY_TITLE = 'How active are you?'
+
+// Both of screen 04's own sentences diverge from the drawn copy, for one reason. AAP 0.1.4 replaces the
+// "don't include the workouts you log" instruction because it contradicts the model the feature implements: the
+// level is the user's habitual overall activity INCLUDING their usual training — which is exactly what the
+// option sub-copy anchors below describe ("1–2 workouts a week", "3–5", "6+") — so its factor multiplies BMR
+// once and the workouts and runs the user logs are tracked separately, never added to the targets (AAP 0.7.3).
+// The frame states that instruction twice, as this sub-copy (node `47:44`, "Outside of workouts you log in the
+// app.") and again in the info card (`47:95`, "…counted separately, so don't include them here."), and AAP
+// 0.1.4 quotes the sub-copy's wording while citing the card's node. Replacing one and keeping the other left
+// the screen telling the user to include and to exclude the same training at once, so both are replaced and
+// neither drawn sentence is restored. The divergence is recorded in AAP 0.7.4's copy inventory.
+export const MEAL_PLAN_ACTIVITY_SUBTITLE = 'Your usual activity, including how often you train.'
+
+// The 04 info-card body: the replacement AAP 0.1.4 specifies verbatim, which is also the sentence that states
+// this policy in the Settings "Activity and pace" helper text.
+export const MEAL_PLAN_ACTIVITY_INFO_BODY =
+  'Include your usual training. Workouts and runs you log are tracked separately and never added to your targets.'
+
+export const MEAL_PLAN_ACTIVITY_LEVEL_LABELS: Record<string, string> = {
+  not_very_active: 'Not very active',
+  lightly_active: 'Lightly active',
+  active: 'Active',
+  very_active: 'Very active'
+}
+
+export const MEAL_PLAN_ACTIVITY_LEVEL_DESCRIPTIONS: Record<string, string> = {
+  not_very_active: 'Desk job, under 5,000 steps a day',
+  lightly_active: 'On your feet part of the day, or 1–2 workouts a week',
+  active: 'Moving most of the day, or 3–5 workouts a week',
+  very_active: 'Physical job, or 6+ workouts a week'
+}
+
+// --- Meal planning: diet and allergies (05) ---
+
+export const MEAL_PLAN_DIET_TITLE = 'How do you eat?'
+
+export const MEAL_PLAN_DIET_LABELS: Record<string, string> = {
+  none: 'No specific diet',
+  vegetarian: 'Vegetarian',
+  vegan: 'Vegan',
+  pescatarian: 'Pescatarian'
+}
+
+// The same diet codes in the lower case a sentence needs ("doesn't fit your vegetarian diet"), for the same
+// reason MEAL_SLOT_SENTENCE_LABELS exists: the title-case row labels above cannot be spliced mid-sentence.
+// Deliberately no 'none' entry — "no specific diet" excludes nothing, so a diet flag naming it has no true
+// sentence to make and its caller falls back to generic copy rather than inventing one.
+export const MEAL_PLAN_DIET_SENTENCE_LABELS: Record<string, string> = {
+  vegetarian: 'vegetarian',
+  vegan: 'vegan',
+  pescatarian: 'pescatarian'
+}
+
+export const MEAL_PLAN_ALLERGIES_HEADER = 'Food allergies'
+
+export const MEAL_PLAN_ALLERGEN_LABELS: Record<string, string> = {
+  none: 'None',
+  milk: 'Milk',
+  eggs: 'Eggs',
+  peanuts: 'Peanuts',
+  tree_nuts: 'Tree nuts',
+  soy: 'Soy',
+  wheat: 'Wheat',
+  fish: 'Fish',
+  shellfish: 'Shellfish',
+  sesame: 'Sesame'
+}
+
+// The same allergen codes in the lower case a sentence needs ('contains tree nuts'), because the title-case
+// labels above read as a settings row and this copy reads mid-sentence. Deliberately no 'none' entry — a meal
+// cannot contain "no allergies", so a flag detail naming the sentinel is unstateable and its caller falls back
+// to generic copy.
+export const MEAL_PLAN_ALLERGEN_SENTENCE_LABELS: Record<string, string> = {
+  milk: 'milk',
+  eggs: 'eggs',
+  peanuts: 'peanuts',
+  tree_nuts: 'tree nuts',
+  soy: 'soy',
+  wheat: 'wheat',
+  fish: 'fish',
+  shellfish: 'shellfish',
+  sesame: 'sesame'
+}
+
+export const MEAL_PLAN_ALLERGIES_HELPER_TEXT = "We'll exclude recipes containing anything you select here."
+
+export const MEAL_PLAN_ALLERGIES_ERROR_TEXT = 'Choose None or at least one allergy'
+
+// The answer a saved step cannot carry: 'None' is exclusive both ways (Figma note `47:230`), and the
+// preferences payload accepts exactly ['none'] or named allergens, never a mix. Figma draws no message for
+// the contradiction because its chip cloud cannot produce one; this sentence is this implementation's copy
+// for a contradictory stored answer, and is flagged for designer review.
+export const MEAL_PLAN_ALLERGIES_EXCLUSIVE_ERROR_TEXT = 'Choose None or your allergies, not both'
+
+// --- Meal planning: food preferences (06, 06b) ---
+
+export const MEAL_PLAN_FOOD_PREFERENCES_TITLE = "Anything you'd rather skip?"
+
+export const MEAL_PLAN_FOOD_PREFERENCES_SUBTITLE = 'Optional. These are preferences, not allergies.'
+
+export const MEAL_PLAN_FOOD_SEARCH_PLACEHOLDER = 'Search foods and ingredients'
+
+export const MEAL_PLAN_SUGGESTIONS_HEADER = 'Suggestions'
+
+export const MEAL_PLAN_SUGGESTIONS_UNAVAILABLE_TEXT = 'Suggestions unavailable'
+
+export const MEAL_PLAN_FOOD_PREFERENCES_HELPER_TEXT = 'Add allergies on the previous screen instead.'
+
+export const MEAL_PLAN_FOOD_SEARCH_RESULTS_HEADER = 'Results'
+
+export const MEAL_PLAN_FOOD_SEARCH_CLEAR_ALL_TEXT = 'Clear all'
+
+export const MEAL_PLAN_FOOD_SEARCH_HELPER_TEXT = 'Adding here only affects recipe suggestions.'
+
+// The selection has reached the most the server stores (100 distinct ids, AAP 0.5.2). No frame draws this
+// state — it is an inferred state in the 0.2.5 sense — so the sentence states the limit and the way out
+// rather than claiming a design, and is flagged for designer review.
+export const MEAL_PLAN_DISLIKES_CAP_TEMPLATE = 'You can add up to {count} foods. Remove one to add another.'
+
+export const MEAL_PLAN_FOOD_SEARCH_NO_RESULTS_TEMPLATE = "No foods match '{query}'"
+
+// Announced on the results list region so a screen reader hears the count change as the query is typed;
+// the Results overline itself carries no count (47:376), so the two strings are deliberately separate.
+export const MEAL_PLAN_FOOD_SEARCH_RESULTS_ACCESSIBILITY_TEMPLATE = 'Results, {count} found'
+
+export const MEAL_PLAN_SEARCH_CLEAR_GLYPH = '✕'
+
+// The remove affordance on a selected chip (47:191). Same character as the search clear disc, kept
+// separate because the two are different controls and either may be restyled without the other.
+export const MEAL_PLAN_CHIP_REMOVE_GLYPH = '✕'
+
+// --- Meal planning: meals and schedule (07) ---
+
+export const MEAL_PLAN_SCHEDULE_TITLE = 'How many meals a day?'
+
+export const MEAL_PLAN_SCHEDULE_LABELS: Record<string, string> = {
+  three: '3 meals',
+  three_plus_snack: '3 meals + 1 snack'
+}
+
+export const MEAL_PLAN_USUAL_TIMES_HEADER = 'Usual times'
+
+// The time picker's resting label. No frame draws the picker, and a slot whose time is not yet seeded
+// carries an empty value that matches no option, so without this the dropdown shows its own packaged
+// English string rather than app copy.
+export const MEAL_PLAN_TIME_PICKER_PLACEHOLDER = 'Choose a time'
+
+// The meridiem suffixes every meal time renders with, on the schedule pills and in the time picker
+// (07: '8:00 AM', '12:30 PM', '6:30 PM').
+export const MEAL_PLAN_TIME_AM_SUFFIX = 'AM'
+
+export const MEAL_PLAN_TIME_PM_SUFFIX = 'PM'
+
+export const MEAL_PLAN_SNACK_PLACEHOLDER_TEXT = 'Snack appears with 3 meals + 1 snack'
+
+export const MEAL_PLAN_SCHEDULE_FOOTNOTE = 'Approximate times are fine. You can change these later.'
+
+// A slot of the chosen schedule whose time is missing or not a wire-shaped 'HH:mm'. No frame draws this
+// state — 07 only ever shows times already seeded — so the copy is inferred and flagged for designer
+// review; it is in family with 03b's authored field messages ("Enter your age to continue"), and the slot
+// word comes from MEAL_SLOT_SENTENCE_LABELS so it reads mid-sentence ("Choose a snack time to continue").
+export const MEAL_PLAN_SLOT_TIME_REQUIRED_ERROR_TEMPLATE = 'Choose a {slot} time to continue'
+
+// --- Meal planning: cooking and budget (08) ---
+
+export const MEAL_PLAN_COOKING_BUDGET_TITLE = 'Make it fit your day.'
+
+export const MEAL_PLAN_COOKING_TIME_HEADER = 'Maximum cooking time per meal'
+
+export const MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE = '{minutes} min'
+
+export const MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE = '{minutes} minutes'
+
+export const MEAL_PLAN_BUDGET_HEADER = 'Weekly grocery budget'
+
+export const MEAL_PLAN_BUDGET_PLACEHOLDER = '$0'
+
+export const MEAL_PLAN_BUDGET_UNIT = 'per week'
+
+export const MEAL_PLAN_NO_BUDGET_PREFERENCE_LABEL = 'No budget preference'
+
+// The visible label names the answer; only the sighted user can see that checking it empties and greys the
+// amount field above, so the spoken label carries that consequence (frame 08's note 47:697).
+export const MEAL_PLAN_NO_BUDGET_PREFERENCE_ACCESSIBILITY_LABEL =
+  'No budget preference. When checked, the weekly amount field is cleared and disabled.'
+
+export const MEAL_PLAN_BUDGET_HELPER_TEXT = 'A preference only — grocery prices vary by store.'
+
+// The three ways the weekly amount can be refused, one sentence each. AAP 0.2.5 authors the first verbatim,
+// so it is kept exactly and kept to the entry it is true of: an amount at or below zero. It used to answer
+// the opposite failure as well — an amount above the accepted maximum — where it states a bound the entry
+// already clears and asks for the number to be raised, which is the reverse of the remedy.
+export const MEAL_PLAN_BUDGET_ERROR_TEXT = 'Enter a weekly budget above $0'
+
+// The ceiling stated as a figure, in the notation the field itself uses, because "outside the accepted range"
+// leaves the user guessing at which end and by how much. The number is `MAX_WEEKLY_BUDGET_USD` on this
+// screen's util and the currency sign is in the copy for the same reason as
+// `MEAL_PLAN_BUDGET_VALUE_TEMPLATE` — this version accepts USD only. That is a copy of a value the check
+// owns, so the screen's util test asserts this sentence names the bound actually enforced; the pair cannot
+// drift without failing.
+export const MEAL_PLAN_BUDGET_MAX_ERROR_TEXT = 'Enter a weekly budget of $10,000 or less'
+
+// An empty amount field with the preference box unchecked. Distinct from the shared option-group sentence,
+// which was previously reused here and so printed the same words twice on one screen — once under the
+// cooking chips, where choosing an option is exactly the remedy, and once under a number field, where it is
+// not. This names both ways out and quotes the checkbox the user has to reach for (AAP 0.2.5, 0.7.4).
+export const MEAL_PLAN_BUDGET_REQUIRED_ERROR_TEXT = 'Enter an amount, or choose No budget preference'
+
+// A saved budget as the Review and Plan-settings rows read it back. The currency sign is part of the copy
+// because this version accepts USD only; a second currency turns this into a per-currency lookup.
+export const MEAL_PLAN_BUDGET_VALUE_TEMPLATE = '${amount} per week'
+
+export const MEAL_PLAN_SUMMARY_HEADER = 'Your plan so far'
+
+export const MEAL_PLAN_SUMMARY_GOAL_WITH_WEIGHT_TEMPLATE = '{goal} · {weight} {unit}'
+
+// Frame 08's summary card states the schedule as a count per day ('Meals / 3 per day'), which is not the
+// wording of the option card the answer was given on ('3 meals'), so the two readings are separate copy:
+// MEAL_PLAN_SCHEDULE_LABELS stays the frame 07 option and Plan-settings row wording, and this map is the
+// summary's. The snack route keeps frame 07's '+ 1 snack' suffix, the schedule the card does not draw.
+export const MEAL_PLAN_SCHEDULE_SUMMARY_LABELS: Record<string, string> = {
+  three: '3 per day',
+  three_plus_snack: '3 per day + 1 snack'
+}
+
+// --- Meal planning: targets and review (09) ---
+
+export const MEAL_PLAN_REVIEW_TITLE = "Here's your starting plan."
+
+export const MEAL_PLAN_REVIEW_MANUAL_TITLE = 'Your chosen targets.'
+
+export const MEAL_PLAN_DAILY_TARGETS_OVERLINE = 'Daily targets'
+
+export const MEAL_PLAN_CHOSEN_TARGETS_OVERLINE = 'Your chosen targets'
+
+export const MEAL_PLAN_TARGETS_CAPTION = 'Starting estimates. You can adjust them any time.'
+
+// The caption for a card whose figures no estimator produced. It keeps the second half of the drawn caption
+// and drops the claim that the numbers are estimates, which is the one part of it that is untrue of them.
+//
+// Two states qualify, not one. The first is a set the user chose — the manual route (09b) and any saved
+// manual set — where a card headed 'Your chosen targets' can never also call them starting estimates. The
+// second is a saved set the server will not vouch for: `source: 'legacy'`, written through the pre-planner
+// target endpoint, or a partly filled record. Those lead a card still headed 'Daily targets', so the label
+// does not give them away, and they are the state the installed base most often arrives in — calling them
+// starting estimates attributes them to a calculation that never ran. `resolveDisplayedTargets` selects on
+// that question rather than on the card's heading (0.5.2's 'legacy' source, 0.7.3's estimate route).
+export const MEAL_PLAN_CHOSEN_TARGETS_CAPTION = 'You can adjust these any time.'
+
+export const MEAL_PLAN_TARGETS_CLAMPED_CAPTION = "Adjusted to the app's minimum for your details"
+
+export const MEAL_PLAN_PLAN_STARTS_LABEL = 'Plan starts'
+
+export const MEAL_PLAN_YOUR_ANSWERS_OVERLINE = 'Your answers'
+
+export const MEAL_PLAN_ANSWER_DIET_LABEL = 'Diet and allergies'
+
+export const MEAL_PLAN_ANSWER_MEALS_LABEL = 'Daily meals'
+
+export const MEAL_PLAN_GENERATE_BUTTON_TEXT = 'Generate my weekly plan'
+
+// The one middot for every variable-arity join in the planner: the review and settings rows ('Lose weight ·
+// 170 lb · 1 lb a week'), the recipe hero context pill ('Midday plate · Sat Jul 5 · 12:30 PM') and the swap
+// meal-meta line ('540 cal · 38g protein · 15 min'). Each of the three drops a missing segment together with
+// its separator, which is why the middot is a join separator here rather than being baked into a fixed
+// template the way MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE bakes its own.
+export const MEAL_PLAN_VALUE_SEPARATOR = ' · '
+
+// Same characters as MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR, kept separate because a row listing the user's own
+// answers and a card explaining why a meal is flagged are different surfaces that may be reworded apart.
+export const MEAL_PLAN_LIST_SEPARATOR = ', '
+
+// The value a review row shows when the answer is an empty set or is not recorded yet, so a row never renders
+// a blank, a 'null' or an 'undefined'.
+export const MEAL_PLAN_VALUE_NONE = 'None'
+
+// Every 'number then unit' value the planner renders (182.2 lb, 178 cm, 1,940 kcal, ¾ cup). The unit is data,
+// so the space that joins it to its figure is copy rather than a detail of whichever helper produced the figure.
+export const MEAL_PLAN_UNIT_VALUE_TEMPLATE = '{value} {unit}'
+
+// The same template under the name the review screen's weight row means.
+export const MEAL_PLAN_WEIGHT_VALUE_TEMPLATE = MEAL_PLAN_UNIT_VALUE_TEMPLATE
+
+// 'Sat, Jul 5' — the weekday and date as the swap screen's day line reads them (13, 13c).
+export const MEAL_PLAN_WEEKDAY_DATE_TEMPLATE = '{weekday}, {date}'
+
+// 'Sat Jul 5' — the same pair without the comma, for the recipe hero context pill (49:543) and the swap preview
+// hero pill (13b), whose shared RecipeHero stylesheet uppercases the text: set in caps beside two middots, a
+// comma reads as noise rather than as punctuation.
+export const MEAL_PLAN_WEEKDAY_DATE_COMPACT_TEMPLATE = '{weekday} {date}'
+
+export const MEAL_PLAN_MACRO_LABELS: Record<string, string> = {
+  protein: 'Protein',
+  carbs: 'Carbs',
+  fat: 'Fat'
+}
+
+// The plan-start stepper names the first two reachable days rather than dating them; every later day reads as
+// its date. Separate from LOG_WEIGHT_TODAY_LABEL so the weigh-in stepper and the planner can diverge.
+export const MEAL_PLAN_START_DATE_TODAY_LABEL = 'Today'
+
+export const MEAL_PLAN_START_DATE_TOMORROW_LABEL = 'Tomorrow'
+
+export const MEAL_PLAN_ESTIMATE_UNAVAILABLE_TITLE = "We couldn't calculate an estimate"
+
+export const MEAL_PLAN_ENTER_TARGETS_MANUALLY_BUTTON_TEXT = 'Enter targets manually'
+
+// --- Meal planning: edit targets (09b) ---
+
+export const MEAL_PLAN_EDIT_TARGETS_TITLE = 'Daily targets'
+
+// The same heading on the manual route, where 09b is entered with no estimate behind it and note `34:293`
+// heads it with what the user is about to choose rather than what the app worked out. Its own constant, not
+// frame 09's card overline `34:190`: that overline is an 11px uppercase label inside the review card and this
+// is a 30px screen headline, so one string serving both would let a re-wording of either silently re-word a
+// surface nobody was looking at. Two constants holding the same words is the pattern this screen already
+// follows for `MEAL_PLAN_EDIT_TARGETS_TITLE` and `MEAL_PLAN_DAILY_TARGETS_OVERLINE`.
+export const MEAL_PLAN_CHOSEN_TARGETS_TITLE = 'Your chosen targets'
+
+export const MEAL_PLAN_EDIT_TARGETS_SUBTITLE = 'These replace the estimate we calculated.'
+
+export const MEAL_PLAN_CALORIES_HEADER = 'Calories'
+
+// The calorie floor, named as a figure and substituted from the validator's own constant. One sentence serves
+// both codes that break that floor — an entry under it and an empty field — because the remedy is the same
+// number in both cases, and holding it once is what keeps them saying the same thing.
+//
+// The macro fields answer those two codes with the drawn 'above 0' sentence instead, and that is right for
+// them: a macro's minimum is 1, so 0 is the only entry that can be too small and 'above 0' names the bound
+// exactly. Calories have a floor of 800, so the same wording here prompted an empty field with a bound 800
+// short of the one enforced — the user typed a number that cleared it and was refused a second time, by a
+// different sentence, for the bound the first one never mentioned.
+export const MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE = 'Enter a calorie target of at least {min} kcal'
+
+export const MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT = 'Enter a protein target above 0 g'
+
+export const MEAL_PLAN_CARBS_TARGET_ERROR_TEXT = 'Enter a carb target above 0 g'
+
+export const MEAL_PLAN_FAT_TARGET_ERROR_TEXT = 'Enter a fat target above 0 g'
+
+// What each 09b field says per validation code, keyed '<field>.<code>' over the four fields and the four codes
+// the screen's validator produces (required, not_a_number, below_min, above_max).
+//
+// One sentence per field is not enough, because three of those codes break a different bound: an entry of 500
+// told "above 0 kcal" is told a bound it already satisfies and never learns that the floor is 800, and the same
+// message on a 60,001 entry is simply untrue. So the two range codes name their bound, substituted from the
+// validator's own constants by the caller ({min}, {max}, already grouped by the field's display formatter) so
+// the copy cannot drift from the numbers actually enforced.
+//
+// The drawn sentences are reused rather than reworded: 34:251 draws "Enter a carb target above 0 g" on a field
+// holding 0, which is this screen's below_min for a macro — macros are whole numbers with a minimum of 1, so 0
+// is the only entry that can reach that code — and the same sentence is the right prompt for an empty field.
+// Both macro codes therefore point at the constant above.
+//
+// Calories do not follow that pattern, because their floor is 800 rather than 1: an empty calorie field and
+// an entry below the floor both point at the floor-naming template, so neither is prompted with a bound it
+// would clear. That is the one place where a field's required message differs from the drawn wording, and it
+// is deliberate — 'above 0 kcal' understated the constraint by 800.
+export const MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS: Partial<Record<string, string>> = {
+  'calories.required': MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE,
+  'calories.not_a_number': 'Enter your calorie target as a whole number',
+  'calories.below_min': MEAL_PLAN_CALORIES_TARGET_MIN_ERROR_TEMPLATE,
+  'calories.above_max': 'Enter a calorie target of {max} kcal or less',
+
+  'protein.required': MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  'protein.not_a_number': 'Enter your protein target as a whole number',
+  'protein.below_min': MEAL_PLAN_PROTEIN_TARGET_ERROR_TEXT,
+  'protein.above_max': 'Enter a protein target of {max} g or less',
+
+  'carbs.required': MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  'carbs.not_a_number': 'Enter your carb target as a whole number',
+  'carbs.below_min': MEAL_PLAN_CARBS_TARGET_ERROR_TEXT,
+  'carbs.above_max': 'Enter a carb target of {max} g or less',
+
+  'fat.required': MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  'fat.not_a_number': 'Enter your fat target as a whole number',
+  'fat.below_min': MEAL_PLAN_FAT_TARGET_ERROR_TEXT,
+  'fat.above_max': 'Enter a fat target of {max} g or less'
+}
+
+// Stated only if a field or a code ever reaches this resolver without copy. Both are closed unions where the
+// screen calls from, so this is the read being total rather than a message anyone should see; it still has to
+// be a sentence, because the alternative is an empty error row under a refused field.
+export const MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT = 'Enter a target we can use'
+
+export interface TargetFieldErrorCopyInputs {
+  // 'calories' | 'protein' | 'carbs' | 'fat', as the screen's field key spells it.
+  field: string
+  // The validator's code for this field.
+  code: string
+  // The field's own bounds, formatted exactly as the field formats its value, so '6,000' in the message and
+  // '6,000' in the input are the same notation.
+  minText: string
+  maxText: string
+}
+
+// The one read of the table above: own-property only, because a bare index answers an inherited name with a
+// function that no `?? fallback` can catch, and total, because an error row with no message is a field that
+// refuses a value and will not say why.
+export function targetFieldErrorText({field, code, minText, maxText}: TargetFieldErrorCopyInputs): string {
+  const template = lookupLabel(MEAL_PLAN_TARGET_FIELD_ERROR_TEXTS, `${field}.${code}`)
+
+  return template === undefined
+    ? MEAL_PLAN_TARGET_GENERIC_ERROR_TEXT
+    : stringWithNamedParameters(template, {min: minText, max: maxText})
+}
+
+export const MEAL_PLAN_MANUAL_MACROS_BANNER_BODY =
+  "Macros don't have to add up to your calorie target. We won't adjust them for you."
+
+export const MEAL_PLAN_SAVE_TARGETS_BUTTON_TEXT = 'Save targets'
+
+export const MEAL_PLAN_TARGET_WARNING_LABELS: Record<string, string> = {
+  macro_energy_mismatch: "Your macros don't add up to your calorie target.",
+  below_catalog_min: 'These targets are lower than most meals in the catalog.',
+  above_catalog_max: 'These targets are higher than most meals in the catalog.'
+}
+
+// --- Meal planning: generation (10, 10b, 10c) ---
+
+export const MEAL_PLAN_GENERATING_TITLE = 'Building your week.'
+
+export const MEAL_PLAN_GENERATING_BODY = 'This usually takes a moment.'
+
+export const MEAL_PLAN_GENERATING_SUMMARY_HEADER = 'Using your preferences'
+
+export const MEAL_PLAN_GENERATING_MEALS_PER_DAY_LABEL = 'Meals per day'
+
+export const MEAL_PLAN_GENERATING_COOKING_TIME_LABEL = 'Cooking time'
+
+export const MEAL_PLAN_GENERATION_FAILED_TITLE = "We couldn't finish your plan."
+
+export const MEAL_PLAN_GENERATION_FAILED_BODY = 'Your answers are saved. Try again, or change your preferences first.'
+
+export const MEAL_PLAN_SAVED_ANSWERS_HEADER = 'Saved answers'
+
+export const MEAL_PLAN_NO_MATCH_TITLE = 'Not enough meals match these preferences.'
+
+export const MEAL_PLAN_NO_MATCH_BODY =
+  'These are narrowing the results the most. Changing any one usually opens up the week.'
+
+export const MEAL_PLAN_ALLERGIES_KEPT_BANNER_BODY =
+  "Your allergies stay in place. We won't suggest removing them to find more meals."
+
+export const MEAL_PLAN_TARGETS_KCAL_TEMPLATE = '{calories} kcal'
+
+export const MEAL_PLAN_COOKING_TIME_MAX_TEMPLATE = '{minutes} minutes max'
+
+export const MEAL_PLAN_MEALS_PER_DAY_VALUES: Record<string, string> = {
+  three: '3',
+  three_plus_snack: '4'
+}
+
+export const MEAL_PLAN_LIMITING_CONSTRAINT_LABELS: Record<string, string> = {
+  cooking_time: 'Maximum cooking time',
+  dislikes: 'Disliked ingredients',
+  diet: 'Diet',
+  nutrition_tolerance: 'Daily nutrition targets',
+  portion_limits: 'Portion sizes',
+  slot_coverage: 'Meal slots',
+  catalog_coverage: 'Recipe variety'
+}
+
+export const MEAL_PLAN_CONSTRAINT_VALUE_TEMPLATES: Record<string, string> = {
+  minutes: '{value} minutes',
+  foods: '{value} selected',
+  percent: '{value}%',
+  recipes: '{value} recipes'
+}
+
+export const MEAL_PLAN_CONSTRAINT_SLOT_SEPARATOR = ', '
+
+export const MEAL_PLAN_CONSTRAINT_EDIT_ACCESSIBILITY_TEMPLATE = 'Edit {label}'
+
+export interface TerminalOutcomeCopy {
+  title: string
+  body: string
+}
+
+// The generation outcomes that a same-key retry can never resolve: the request was refused for a reason
+// that only a fresh decision elsewhere can clear, so each one names what moved and where to go next
+// instead of offering the 10b retry. One record rather than parallel title/body maps so the pair of a
+// code can never drift apart.
+export const MEAL_PLAN_GENERATION_TERMINAL_COPY: Record<string, TerminalOutcomeCopy> = {
+  stale_revision: {
+    title: 'Your answers changed',
+    body: 'Your preferences were updated somewhere else. Review them, then generate your plan again.'
+  },
+  plan_overlap: {
+    title: 'A plan already covers that week',
+    body: 'Pick a different start date, or replace the plan you already have.'
+  },
+  upcoming_exists: {
+    title: 'You already have a plan for next week',
+    body: 'Open it from your plan, or replace it before building another.'
+  },
+  preferences_incomplete: {
+    title: 'Finish setting up your plan',
+    body: 'A few answers are still missing. Complete setup, then generate your plan.'
+  },
+  targets_missing: {
+    title: 'Confirm your daily targets',
+    body: 'We need your calorie and macro targets before we can build a plan.'
+  },
+  targets_unconfirmed: {
+    title: 'Confirm your daily targets',
+    body: 'Your targets changed outside the planner. Review them, then generate your plan again.'
+  },
+  idempotency_conflict: {
+    title: 'Start that again',
+    body: 'Something about this request changed. Go back and generate your plan again.'
+  }
+}
+
+// The same card for a confirmed refusal this release has no wording of its own for — a validation error, or a
+// code a later server release introduces. It claims only what a confirmed answer establishes (the attempt was
+// described, so the saved answers stand) and points at the one screen from which every answer can be changed,
+// which is exactly what the card's Edit preferences action opens.
+export const MEAL_PLAN_GENERATION_TERMINAL_FALLBACK_COPY: TerminalOutcomeCopy = {
+  title: "We couldn't build your plan",
+  body: 'Your answers are saved. Review them, then generate your plan again.'
+}
+
+// --- Meal planning: plan tab (11, 11b, 11c) ---
+
+export const MEAL_PLAN_EMPTY_TITLE = 'Your week starts here.'
+
+export const MEAL_PLAN_EMPTY_BODY = "Answer a few questions and we'll build seven days of meals with a grocery list."
+
+export const MEAL_PLAN_GO_TO_DIARY_BUTTON_TEXT = 'Go to diary'
+
+export const MEAL_PLAN_PLAN_NEXT_WEEK_BUTTON_TEXT = 'Plan your next week'
+
+export const MEAL_PLAN_PLANNED_FOR_TEMPLATE = 'Planned for {day}'
+
+export const MEAL_PLAN_DAY_TARGET_TEMPLATE = 'Target {calories}'
+
+// The planned-totals unit line, in the two forms the count needs. A one-meal day is a real day — a plan whose
+// schedule holds one slot, or a day the user has swapped down to one — and "across 1 meals" is not copy this
+// app ships: every other counted line in this file keeps a singular of its own (the flagged-banner titles, the
+// grocery flagged-amount banner). Zero keeps the plural, which is how English counts nothing.
+export const MEAL_PLAN_MEAL_COUNT_TEMPLATE = 'kcal across {n} meals'
+
+export const MEAL_PLAN_MEAL_COUNT_SINGULAR_TEMPLATE = 'kcal across {n} meal'
+
+export const MEAL_PLAN_MEAL_SLOT_TIME_TEMPLATE = '{slot} · {time}'
+
+export const MEAL_PLAN_MEAL_CALORIES_TEMPLATE = '{calories} cal'
+
+// The fixed-arity MEAL_PLAN_MEAL_META_TEMPLATE below bakes this same fragment for the plan card, where all
+// three figures are always present; this is the standalone form a variable-arity meta line needs to drop the
+// protein segment on its own, alongside MEAL_PLAN_MEAL_CALORIES_TEMPLATE and MEAL_PLAN_COOKING_TIME_CHIP_TEMPLATE.
+export const MEAL_PLAN_MEAL_PROTEIN_TEMPLATE = '{protein} protein'
+
+export const MEAL_PLAN_MEAL_META_TEMPLATE = '{portion} · {minutes} min · {protein} protein'
+
+// A logged meal's card drops the cooking time: the meal is already made, so its duration no longer informs a choice.
+export const MEAL_PLAN_MEAL_META_LOGGED_TEMPLATE = '{portion} · {protein} protein'
+
+export const MEAL_PLAN_SWAP_BUTTON_TEXT = 'Swap'
+
+export const MEAL_PLAN_LOG_MEAL_BUTTON_TEXT = 'Log meal'
+
+export const MEAL_PLAN_VIEW_IN_DIARY_BUTTON_TEXT = 'View in diary'
+
+export const MEAL_PLAN_VIEW_DIARY_LINK_TEXT = 'View diary'
+
+export const MEAL_PLAN_LOGGED_BADGE_TEXT = 'LOGGED'
+
+export const MEAL_PLAN_ADDED_TO_SLOT_TEMPLATE = 'Added to {slot}'
+
+export const MEAL_PLAN_ADDED_TO_DAY_SLOT_TEMPLATE = "Added to {weekday}'s {slot}"
+
+export const MEAL_PLAN_TARGETS_STALE_CAPTION = 'Targets changed since this plan was built'
+
+export const MEAL_PLAN_LOGGED_PREVIOUS_RECIPE_TEMPLATE = 'You logged {recipe} for this slot'
+
+// What a flagged card states when the reason cannot be stated specifically: a set of flags whose codes differ,
+// a code this build has no copy for, or a detail it cannot render. Borrowing a specific reason instead would
+// tell the user, for instance, that an ingredient they merely dislike is an allergen.
+export const MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT = "Doesn't match your preferences"
+
+// The flagged-card meta line, keyed by the server's flag code. The allergen entry is the only one Figma draws
+// (0.2.5, "Contains milk"); the rest exist so a dislike or a cooking-time overrun is never shown as an
+// allergen.
+//
+// '{detail}' means something different per code, because the server's flag detail does: an ingredient the
+// recipe contains for 'allergen' and 'dislike', the USER's own diet for 'diet', and the RECIPE's own duration
+// for 'cooking_time' (backend recipe.logic.ts emits `[preferences.diet]` and `[String(total_minutes)]`
+// respectively). Hence only the first two say "contains" — stating a diet name or a minute count as something
+// the meal contains is false however well the value itself is formatted — and hence 'cooking_time' does not
+// call the number "yours". That is the same rule, and deliberately the same phrasing, as the settings banner's
+// PLAN_SETTINGS_FLAGGED_BANNER_BODY_* templates further down; the card states it as a terse meta line with '·'
+// joining the qualifying clause, and the banner as a sentence.
+//
+// The caller formats the detail before substituting it — allergen and diet codes through the sentence-label
+// maps, a duration through MEAL_PLAN_COOKING_TIME_VALUE_TEMPLATE, dislike names as sent — so no template here
+// ever splices in a raw server token. Declared partial because the key is an open server string: a bare index
+// is then honestly `string | undefined`, and mealFlagTemplate below is the read that cannot fail.
+export const MEAL_PLAN_MEAL_FLAG_TEMPLATES: Partial<Record<string, string>> = {
+  diet: "Doesn't fit your {detail} diet",
+  allergen: 'Contains {detail}',
+  dislike: 'Contains {detail} · an ingredient you skip',
+  cooking_time: 'Takes {detail} · longer than your cooking time',
+  mixed: MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT
+}
+
+// Whether this build can state a flag code specifically. The card decides its reason with this before it reads
+// the table, exactly as the settings banner does, so an unrecognised code becomes the generic reason at the
+// point the reason is chosen rather than an absent template at the point the line is rendered.
+export function hasMealFlagTemplate(code: string): boolean {
+  return lookupLabel(MEAL_PLAN_MEAL_FLAG_TEMPLATES, code) !== undefined
+}
+
+// The total read of the table above: every input answers with copy. An own-property read is the only correct
+// one here because the code is an open server string — a bare index answers an inherited name ('constructor',
+// '__proto__') with a function, which is not nullish, so a `?? fallback` would never fire and a non-string
+// would reach React text; and an absent code answered `undefined` is what crashed this card's render before
+// (TypeError on `.split` of undefined).
+export function mealFlagTemplate(code: string): string {
+  return lookupLabel(MEAL_PLAN_MEAL_FLAG_TEMPLATES, code) ?? MEAL_PLAN_MEAL_FLAG_GENERIC_TEXT
+}
+
+export const MEAL_PLAN_MEAL_FLAG_DETAIL_SEPARATOR = ', '
+
+export const MEAL_PLAN_LAST_DAY_TITLE = 'Last day of this plan'
+
+export const MEAL_PLAN_PLAN_ANOTHER_WEEK_BUTTON_TEXT = 'Plan another week'
+
+export const MEAL_PLAN_VIEW_NEXT_WEEK_BUTTON_TEXT = 'View next week'
+
+export const MEAL_PLAN_NEXT_WEEK_LINK_TEXT = 'Next week →'
+
+export const MEAL_PLAN_THIS_WEEK_LINK_TEXT = '← This week'
+
+export const MEAL_PLAN_SETTINGS_ROW_LABEL = 'Plan settings'
+
+// --- Meal planning: recipe detail (12) ---
+
+export const RECIPE_DETAIL_PLANNED_PORTION_LABEL = 'Your planned portion'
+
+export const RECIPE_DETAIL_INGREDIENTS_HEADER = 'Ingredients'
+
+export const RECIPE_DETAIL_INSTRUCTIONS_HEADER = 'Instructions'
+
+export const RECIPE_DETAIL_YOUR_PORTION_SEGMENT_LABEL = 'Your portion'
+
+export const RECIPE_DETAIL_FULL_RECIPE_SEGMENT_LABEL = 'Full recipe'
+
+export const RECIPE_DETAIL_UNAVAILABLE_TEXT = "This recipe isn't available"
+
+export const RECIPE_BADGE_LABELS: Record<string, string> = {
+  high_protein: 'High protein',
+  gluten_free: 'Gluten free',
+  dairy_free: 'Dairy free',
+  vegan: 'Vegan',
+  quick: 'Quick'
+}
+
+export const RECIPE_BADGE_DISCLAIMER_CAPTION = 'Based on ingredients only, not a cross-contact guarantee.'
+
+export const RECIPE_NUTRITION_METHOD_CAPTION = 'Calculated from source-backed ingredients'
+
+// --- Meal planning: swap a meal (13, 13b, 13c, 13d, 13e) ---
+
+export const SWAP_TITLE_TEMPLATE = 'Swap your {slot}'
+
+export const SWAP_CURRENT_MEAL_LABEL = 'Current meal'
+
+export const SWAP_CURRENT_MEAL_UNCHANGED_LABEL = 'Current meal, unchanged'
+
+export const SWAP_STILL_YOURS_TEMPLATE = 'Still your {slot}'
+
+export const SWAP_ALTERNATIVES_HEADER = 'Alternatives'
+
+export const SWAP_FITS_TARGETS_LABEL = 'Fits your targets'
+
+export const SWAP_FINDING_ALTERNATIVES_TEXT = 'Finding alternatives'
+
+export const SWAP_ALTERNATIVES_FOOTNOTE =
+  "Opening an alternative doesn't replace your meal — you confirm on the next screen."
+
+export const SWAP_ALTERNATIVES_ERROR_TEXT = "Couldn't find alternatives right now."
+
+export const SWAP_NO_ALTERNATIVES_TITLE = 'No alternatives for this slot'
+
+export const SWAP_NO_ALTERNATIVES_BODY_TEMPLATE =
+  'Nothing else matches your targets, cooking time, and dislikes for {slot} this week.'
+
+export const SWAP_NO_ALTERNATIVES_BANNER_BODY =
+  'Your allergies stay in place. Cooking time and dislikes are the usual limits here.'
+
+export const SWAP_KEEP_CURRENT_MEAL_BUTTON_TEXT = 'Keep current meal'
+
+export const SWAP_FAILED_TITLE = "We couldn't swap that meal"
+
+export const SWAP_FAILED_BODY_TEMPLATE = 'Your {slot} is unchanged and your grocery list was not updated.'
+
+export const SWAP_BACK_TO_ALTERNATIVES_BUTTON_TEXT = 'Back to alternatives'
+
+export const SWAP_PREVIEW_REPLACING_TEMPLATE = 'Replacing {slot} · {date}'
+
+export const SWAP_PREVIEW_SUBTITLE_SEPARATOR = ' · '
+
+export const SWAP_PREVIEW_TOTAL_MINUTES_TEMPLATE = '{minutes} min total'
+
+export const SWAP_PREVIEW_THIS_MEAL_LABEL = 'This meal'
+
+export const SWAP_PREVIEW_DAY_TOTAL_TEMPLATE = '{day} total if you swap'
+
+export const SWAP_PREVIEW_OF_TARGET_TEMPLATE = 'of {calories} kcal'
+
+// 13b's delta pill has no template here on purpose. Its visible text is built by `formatSignedCalories` in
+// @utility/NutritionFormatUtility, which signs the figure and carries the same mathematical minus the frame
+// draws, and which the swap, plan and grocery surfaces all format their signed figures through. A pair of
+// per-direction templates used to sit here duplicating that logic with nothing reading them, so a re-wording
+// of the pill made here would have changed nothing on screen. The pill's spoken text does need its own copy,
+// because the minus glyph is announced inconsistently: that is
+// SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE and its up twin, further down in the accessibility block.
+export const SWAP_USE_THIS_MEAL_BUTTON_TEXT = 'Use this meal'
+
+export const SWAP_SUCCESS_TOAST = 'Meal swapped. Grocery list updated.'
+
+export const SWAP_RECIPE_INELIGIBLE_TOAST = 'That meal no longer fits your plan.'
+
+// --- Meal planning: grocery list (14, 14b, 14c) ---
+
+export const GROCERY_LIST_TITLE = 'Grocery list'
+
+export const GROCERY_UNCHECK_ALL_BUTTON_TEXT = 'Uncheck all'
+
+export const GROCERY_UPDATED_AFTER_SWAP_TEMPLATE = 'Updated after your {slot} swap'
+
+// Used when the banner names no slot, so the same fact is stated without inventing one for the sentence.
+export const GROCERY_UPDATED_AFTER_SWAP_TEXT = 'Updated after your swap'
+
+export const GROCERY_CHECKED_PROGRESS_TEMPLATE = '{checked} of {total} checked'
+
+export const GROCERY_CHECKED_HEADER_TEMPLATE = 'Checked · {n}'
+
+export const GROCERY_STILL_ON_LIST_CAPTION = 'Still on your list'
+
+export const GROCERY_AMOUNT_INCREASED_TITLE = 'One amount went up after your swap'
+
+export const GROCERY_AMOUNT_INCREASED_BODY_TEMPLATE =
+  '{name} is flagged below. It stays checked so nothing disappears from your list.'
+
+// Inferred. AAP 0.7.4 gives the singular body a name and the plural body a count, and frame 14b draws the
+// named singular alone (37:200): neither states the one flagged amount whose row carries no name. Its second
+// sentence is the named singular's verbatim and its first is the plural body's shape in the singular, so a
+// nameless flag keeps singular grammar instead of borrowing the plural's "1 amounts went up after your swaps".
+export const GROCERY_AMOUNT_INCREASED_BODY_UNNAMED =
+  'One item is flagged below. It stays checked so nothing disappears from your list.'
+
+export const GROCERY_AMOUNTS_INCREASED_TITLE_TEMPLATE = '{n} amounts went up after your swaps'
+
+export const GROCERY_AMOUNTS_INCREASED_BODY_TEMPLATE =
+  '{n} items are flagged below. They stay checked so nothing disappears from your list.'
+
+export const GROCERY_FLAG_CHANGE_TEMPLATE = 'Now {newAmount}, was {oldAmount}'
+
+export const GROCERY_FLAG_DELTA_TEMPLATE = '+{delta}'
+
+export const GROCERY_CATEGORY_LABELS: Record<string, string> = {
+  produce: 'Produce',
+  protein: 'Protein',
+  dairy_alternatives: 'Dairy & alternatives',
+  grains_bread: 'Grains & bread',
+  pantry_other: 'Pantry & other'
+}
+
+export const GROCERY_NO_PLAN_EYEBROW = 'No active plan'
+
+export const GROCERY_NO_PLAN_TITLE = 'Nothing to shop for yet'
+
+export const GROCERY_NO_PLAN_BODY = 'Your grocery list fills in from the meals in your weekly plan.'
+
+export const GROCERY_EMPTY_PLAN_TITLE = 'No groceries in this plan'
+
+export const GROCERY_EMPTY_PLAN_BODY = "This plan doesn't need any ingredients right now."
+
+// --- Meal planning: log a planned meal (15) ---
+
+export const LOG_PLANNED_MEAL_TITLE = 'Log this meal'
+
+export const LOG_PLANNED_MEAL_RECIPE_OVERLINE = 'RECIPE'
+
+export const LOG_PLANNED_MEAL_ADD_TO_HEADER = 'Add to'
+
+export const LOG_PLANNED_MEAL_ADD_TO_DIARY_BUTTON_TEXT = 'Add to diary'
+
+export const LOG_PLANNED_MEAL_SLOT_FALLBACK_CAPTION = 'Choose where this goes in your diary'
+
+// --- Meal planning: plan settings (16, 16b) ---
+
+export const PLAN_SETTINGS_TITLE = 'Plan settings'
+
+// Keyed by the server's flag code, plus 'mixed' for a flagged set whose codes differ. Figma 38:385 draws only
+// the diet change whose body names an allergen, so that scenario keeps its wording exactly; the three reasons
+// the file never draws get copy of their own rather than borrowing the allergen sentence, which would state a
+// dislike or a cooking-time overrun as an allergen condition.
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_SINGULAR_LABELS: Record<string, string> = {
+  diet: '1 meal no longer matches your diet',
+  allergen: '1 meal no longer matches your diet',
+  dislike: '1 meal contains an ingredient you skip',
+  cooking_time: '1 meal takes longer than your cooking time',
+  mixed: '1 meal no longer matches your preferences'
+}
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_TITLE_TEMPLATES: Record<string, string> = {
+  diet: '{n} meals no longer match your diet',
+  allergen: '{n} meals no longer match your diet',
+  dislike: '{n} meals contain ingredients you skip',
+  cooking_time: '{n} meals take longer than your cooking time',
+  mixed: '{n} meals no longer match your preferences'
+}
+
+// What '{detail}' means differs per reason, because the server's flag detail does: an ingredient the recipe
+// contains for 'allergen' and 'dislike', the user's own diet for 'diet', and the meal's own cooking duration
+// for 'cooking_time'. Hence only the first two say "contains": stating a diet name or a minute count as
+// something a meal contains would be false however well the value itself is formatted.
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_SINGULAR_TEMPLATES: Record<string, string> = {
+  diet: "{meal} doesn't fit your {detail} diet. It stays flagged until you swap it.",
+  allergen: '{meal} contains {detail}. It stays flagged until you swap it.',
+  dislike: '{meal} contains {detail}, which you asked us to skip. It stays flagged until you swap it.',
+  cooking_time: '{meal} takes {detail}, longer than your cooking time. It stays flagged until you swap it.',
+  mixed: '{meal} no longer matches your preferences. It stays flagged until you swap it.'
+}
+
+// 'up to' on the cooking-time entry because several flagged meals state one duration: the longest of them.
+export const PLAN_SETTINGS_FLAGGED_BANNER_BODY_TEMPLATES: Record<string, string> = {
+  diet: "{meals} don't fit your {detail} diet. They stay flagged until you swap them.",
+  allergen: '{meals} contain {detail}. They stay flagged until you swap them.',
+  dislike: '{meals} contain {detail}, which you asked us to skip. They stay flagged until you swap them.',
+  cooking_time: '{meals} take up to {detail}, longer than your cooking time. They stay flagged until you swap them.',
+  mixed: '{meals} no longer match your preferences. They stay flagged until you swap them.'
+}
+
+export const PLAN_SETTINGS_FLAGGED_BANNER_FALLBACK_REASON = 'mixed'
+
+export const PLAN_SETTINGS_REVIEW_AFFECTED_BUTTON_TEXT = 'Review affected meals'
+
+// One flagged meal as the banner body names it ('Tuesday dinner'), and the word that joins the last two when
+// several are flagged, so the body reads as the sentence 38:385 draws rather than as a comma-separated list.
+export const PLAN_SETTINGS_FLAGGED_MEAL_TEMPLATE = '{weekday} {slot}'
+
+export const PLAN_SETTINGS_FLAGGED_MEALS_CONJUNCTION = ' and '
+
+// Every preference field is nullable, so a half-answered profile still renders seven readable settings rows.
+export const PLAN_SETTINGS_NOT_SET_VALUE = 'Not set'
+
+export const PLAN_SETTINGS_MACRO_TRIPLE_TEMPLATE = '{protein}P / {carbs}C / {fat}F'
+
+export const PLAN_SETTINGS_GOAL_AND_BODY_LABEL = 'Goal and body'
+
+export const PLAN_SETTINGS_ACTIVITY_AND_PACE_LABEL = 'Activity and pace'
+
+export const PLAN_SETTINGS_NUTRITION_TARGETS_LABEL = 'Nutrition targets'
+
+export const PLAN_SETTINGS_DIET_AND_ALLERGIES_LABEL = 'Diet and allergies'
+
+export const PLAN_SETTINGS_MEAL_SCHEDULE_LABEL = 'Meal schedule'
+
+export const PLAN_SETTINGS_COOKING_AND_BUDGET_LABEL = 'Cooking time and budget'
+
+export const PLAN_SETTINGS_FOOTNOTE = 'Your edits are saved. Choose how they apply below.'
+
+export const PLAN_SETTINGS_USE_FOR_NEXT_PLAN_BUTTON_TEXT = 'Use for next plan'
+
+export const PLAN_SETTINGS_REGENERATE_BUTTON_TEXT = 'Regenerate this week'
+
+export const PLAN_REGENERATE_DIALOG_TITLE = "Replace this week's plan?"
+
+export const PLAN_REGENERATE_DIALOG_BODY_TEMPLATE =
+  "Your planned meals and grocery list for {range} will change. Food you've already logged stays in your diary."
+
+// The dialog spells the range out ('Jul 5 to Jul 11', 38:526) where the plan header abbreviates it with an en
+// dash, so this is deliberately not formatPlanRange's output.
+export const PLAN_REGENERATE_DIALOG_RANGE_TEMPLATE = '{start} to {end}'
+
+export const PLAN_REGENERATE_PLANNED_MEALS_LABEL = 'Planned meals'
+
+export const PLAN_REGENERATE_GROCERY_LIST_LABEL = 'Grocery list'
+
+export const PLAN_REGENERATE_LOGGED_FOOD_LABEL = 'Logged food'
+
+export const PLAN_REGENERATE_MEALS_REPLACED_TEMPLATE = '{n} replaced'
+
+export const PLAN_REGENERATE_GROCERY_REBUILT_TEXT = 'Rebuilt'
+
+export const PLAN_REGENERATE_GROCERY_EMPTY_TEXT = 'No items'
+
+export const PLAN_REGENERATE_NOTHING_LOGGED_TEXT = 'Nothing logged yet'
+
+export const PLAN_REGENERATE_ONE_ENTRY_KEPT_TEXT = '1 entry kept'
+
+export const PLAN_REGENERATE_ENTRIES_KEPT_TEMPLATE = '{n} entries kept'
+
+export const PLAN_REGENERATE_CONFIRM_BUTTON_TEXT = 'Replace plan'
+
+export const PLAN_REGENERATE_DISMISS_BUTTON_TEXT = 'Keep current plan'
+
+// --- Meal planning: catalog search and nutrition provenance ---
+
+export const CATALOG_HEADER = 'Catalog'
+
+export const BRANDED_HEADER = 'Branded'
+
+export const CATALOG_SEARCH_ERROR_TEXT = "Couldn't search right now."
+
+export const CATALOG_PROVENANCE_BADGE_LABELS: Record<string, string> = {
+  source_backed: 'Source-backed',
+  ingredient_derived: 'Estimated from ingredients',
+  ai_estimated: 'AI estimate'
+}
+
+export const CATALOG_CATEGORY_LABELS: Partial<Record<string, string>> = {
+  produce_vegetable: 'Vegetable',
+  produce_fruit: 'Fruit',
+  protein_meat: 'Meat',
+  protein_poultry: 'Poultry',
+  protein_seafood: 'Seafood',
+  protein_egg: 'Egg',
+  protein_plant: 'Plant protein',
+  dairy: 'Dairy',
+  dairy_alternative: 'Dairy alternative',
+  grain: 'Grain',
+  bread_bakery: 'Bread & bakery',
+  legume: 'Legume',
+  nut_seed: 'Nut & seed',
+  oil_fat: 'Oil & fat',
+  condiment_sauce: 'Condiment & sauce',
+  spice_herb: 'Spice & herb',
+  beverage: 'Beverage',
+  snack: 'Snack',
+  sweet: 'Sweet',
+  prepared_meal: 'Prepared dish',
+  other: 'Other'
+}
+
+// Distinct from the 'other' category's own label, so an unrecognised code is never shown as a known category.
+export const CATALOG_CATEGORY_FALLBACK_LABEL = 'Food'
+
+// `category` is an open server string, so an own-property read is the only correct one: a bare index answers an
+// inherited name ('constructor', '__proto__') with a function, which is not nullish, so the fallback below would
+// never fire and a non-string would reach React text. The table is declared partial for the same reason — a
+// future bare index is then honestly `string | undefined`.
+export function catalogCategoryLabel(category: string): string {
+  return lookupLabel(CATALOG_CATEGORY_LABELS, category) ?? CATALOG_CATEGORY_FALLBACK_LABEL
+}
+
+// AAP 0.1.4 settles the prompt's `Diary entries use "From meal plan."`: the trailing period there is sentence
+// punctuation, and the label drawn at `38:267` (frame 15b) carries none, so this constant is deliberately
+// periodless and every screenshot and assertion uses this exact string. It is the origin label only, independent
+// of the nutrition-provenance labels below, which answer a different question about the same row.
+export const MEAL_ENTRY_FROM_MEAL_PLAN_LABEL = 'From meal plan'
+
+export const MEAL_ENTRY_SOURCE_BACKED_LABEL = 'Source-backed'
+
+export const MEAL_ENTRY_INGREDIENT_DERIVED_LABEL = 'Estimated from ingredients'
+
+export const MEAL_ENTRY_ESTIMATED_LABEL = 'Estimated'
+
+// --- Meal planning: accessibility labels ---
+
+export const MEAL_PLAN_BACK_ACCESSIBILITY_LABEL = 'Go back'
+
+export const MEAL_PLAN_GROCERY_LIST_ACCESSIBILITY_LABEL = 'Open grocery list'
+
+export const MEAL_PLAN_SETTINGS_ACCESSIBILITY_LABEL = 'Open plan settings'
+
+export const MEAL_PLAN_CLEAR_SEARCH_ACCESSIBILITY_LABEL = 'Clear search'
+
+export const MEAL_PLAN_CANCEL_SEARCH_ACCESSIBILITY_LABEL = 'Cancel search'
+
+export const MEAL_PLAN_DAY_CHIP_ACCESSIBILITY_TEMPLATE = 'Show meals for {day}'
+
+export const MEAL_PLAN_OPEN_RECIPE_ACCESSIBILITY_TEMPLATE = 'Open {recipe}'
+
+// The logged card's own name says it is logged. The card's explicit label replaces every descendant for a
+// reader, so the visible LOGGED badge cannot speak for itself from inside it — this suffix is that badge's
+// text equivalent, and without it a logged and an unlogged card announce identically.
+export const MEAL_PLAN_OPEN_RECIPE_LOGGED_ACCESSIBILITY_TEMPLATE = 'Open {recipe}, logged'
+
+export const MEAL_PLAN_SWAP_ACCESSIBILITY_TEMPLATE = 'Swap {recipe}'
+
+export const MEAL_PLAN_LOG_MEAL_ACCESSIBILITY_TEMPLATE = 'Log {recipe}'
+
+export const MEAL_PLAN_VIEW_IN_DIARY_ACCESSIBILITY_TEMPLATE = 'View {recipe} in your diary'
+
+export const MEAL_PLAN_ADD_FOOD_ACCESSIBILITY_TEMPLATE = 'Add {name}'
+
+export const MEAL_PLAN_REMOVE_FOOD_ACCESSIBILITY_TEMPLATE = 'Remove {name}'
+
+// A date stepper's glyph carries no direction and its target date alone cannot say which way it moves — at
+// the ends of the plan week the clamped target is the day already shown. Each arrow names both.
+export const MEAL_PLAN_PREVIOUS_DAY_ACCESSIBILITY_TEMPLATE = 'Previous day, {date}'
+
+export const MEAL_PLAN_NEXT_DAY_ACCESSIBILITY_TEMPLATE = 'Next day, {date}'
+
+export const MEAL_PLAN_DECREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Decrease servings'
+
+export const MEAL_PLAN_INCREASE_SERVINGS_ACCESSIBILITY_LABEL = 'Increase servings'
+
+// Matches the visible 'Servings' label above the stepper so the spoken and seen labels agree (WCAG 2.5.3).
+export const MEAL_PLAN_SERVINGS_FIELD_ACCESSIBILITY_LABEL = 'Servings'
+
+// Screen readers pronounce the vulgar-fraction glyphs inconsistently, so each serving chip is named in words.
+export const MEAL_PLAN_SERVING_FRACTION_NAMES: Record<string, string> = {
+  '¼': 'one quarter',
+  '⅓': 'one third',
+  '½': 'one half',
+  '⅔': 'two thirds',
+  '¾': 'three quarters'
+}
+
+export const MEAL_PLAN_SERVING_FRACTION_ACCESSIBILITY_TEMPLATE = 'Set serving fraction to {fraction}'
+
+export const MEAL_PLAN_EDIT_TIME_ACCESSIBILITY_TEMPLATE = 'Change your {slot} time'
+
+// A field's error is announced with the field, so reaching the input later still says what is wrong with it
+// — the inline message below the field only announces itself at the moment validation runs.
+export const MEAL_PLAN_FIELD_ERROR_ACCESSIBILITY_TEMPLATE = '{label}, {message}'
+
+// A numeric field names its own unit: the suffix is drawn inside the input and is not part of the label, so
+// without this a target field is announced as 'Protein' and the user cannot tell grams from a percentage.
+export const MEAL_PLAN_FIELD_UNIT_ACCESSIBILITY_TEMPLATE = '{label}, {unit}'
+
+// The unit toggles sit beside a label that names the measurement, not the choice, so each group is named
+// separately — otherwise "ft/in" and "cm" are announced with nothing saying what they switch.
+export const MEAL_PLAN_HEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Height unit'
+
+export const MEAL_PLAN_WEIGHT_UNIT_ACCESSIBILITY_LABEL = 'Weight unit'
+
+export const MEAL_PLAN_LOADING_ACCESSIBILITY_LABEL = 'Loading'
+
+// A pressable summary row reopens the setup screen that owns the answer instead of editing in place, so the
+// hint names the step the tap actually reaches — the row's own label and value only say what the answer is.
+export const MEAL_PLAN_SUMMARY_ROW_ACCESSIBILITY_HINT = 'Opens this answer so you can change it'
+
+// A food row opens the serving editor rather than logging on the spot, so the hint names the step the tap
+// actually reaches — the row's own label only says which food it is.
+export const ADD_FOOD_ROW_ACCESSIBILITY_HINT = 'Opens this food to choose a serving and add it'
+
+// A meal card's Swap and Log pills stay pressable on a plan the server will no longer write to, because the
+// press is the user's way to ask for the current plan (the stale-plan toast plus a re-read). Drawn dimmed, they
+// would otherwise be announced as unavailable and that recovery would be reachable by sighted users only, so
+// the hint states the outcome rather than the gesture, as VoiceOver hints are written.
+export const MEAL_PLAN_STALE_PLAN_RECOVERY_ACCESSIBILITY_HINT = 'Your plan changed. This loads the current plan.'
+
+// Joins the parts of a food row's accessible name. A row drops any part it has no value for — a library food
+// carries no provenance pill, a branded result no serving line — so the separator is a join separator rather
+// than punctuation baked into a fixed template.
+export const ADD_FOOD_ROW_LABEL_SEPARATOR = ', '
+
+export const SWAP_ALTERNATIVE_ACCESSIBILITY_TEMPLATE = '{name}, {meta}'
+
+// The calorie-change pill leads with a mathematical minus sign, which screen readers announce
+// inconsistently, so the direction of the change is spoken in words rather than left to the glyph.
+export const SWAP_PREVIEW_DELTA_DOWN_ACCESSIBILITY_TEMPLATE = '{calories} calories lower'
+
+export const SWAP_PREVIEW_DELTA_UP_ACCESSIBILITY_TEMPLATE = '{calories} calories higher'
+
+// The bar declares a progressbar role and a min/max/now value, and a role declared without a name announces
+// as an unnamed progress bar. This names what the value measures; the figures themselves are read from the
+// card above it.
+export const SWAP_PREVIEW_CALORIE_PROGRESS_ACCESSIBILITY_LABEL = 'Calories against your daily target'
+
+export const GROCERY_CHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Check {name}'
+
+export const GROCERY_UNCHECK_ITEM_ACCESSIBILITY_TEMPLATE = 'Uncheck {name}'
+
+export const GROCERY_ITEM_ACCESSIBILITY_TEMPLATE = '{name}, {quantity}'
+
+// States the increase in words so the danger colour is never the only signal carrying the flag (WCAG 1.4.1).
+export const GROCERY_FLAG_ROW_ACCESSIBILITY_TEMPLATE =
+  '{name}, amount went up. Now {newAmount}, was {oldAmount}, a change of {delta}.'
+
+// One accessible name for a whole plan-settings row, because the row is one button (16, node 38:403 and its
+// six siblings): the setting it names, the value it currently holds, and what opening it does — note 38:496,
+// each row reopens its setup screen. Opening with '{label}' keeps the spoken name a superset of the visible
+// one for voice control (WCAG 2.5.3), and the value belongs in it because the value is what the row reports.
+// Figma draws no hint text, and none is drawn here: this name is invisible accessibility.
+export const PLAN_SETTINGS_ROW_ACCESSIBILITY_TEMPLATE = '{label}, {value}. Opens this step to change it'
+
+// Templates rather than fixed strings so the accessible name always opens with the label actually drawn —
+// 'Edit' or 'Recalculate' here, 'Change' below — which keeps the spoken name a superset of the visible one
+// for voice control (WCAG 2.5.3) while naming the object the action applies to.
+export const MEAL_PLAN_TARGETS_ACTION_ACCESSIBILITY_TEMPLATE = '{action} daily nutrition targets'
+
+export const MEAL_PLAN_PLAN_START_ACTION_ACCESSIBILITY_TEMPLATE = '{action} plan start date'
+
+// Announced on the alternatives section when the list replaces frame 13c's spinner, so the completion of a
+// wait a screen reader was told about ("Loading") is reported rather than left silent. Frame 13 draws the
+// "Alternatives" overline without a count, so the count belongs to this invisible name rather than to it.
+export const SWAP_ALTERNATIVES_RESULTS_ACCESSIBILITY_TEMPLATE = 'Alternatives, {count} found'
+
+// One metric of a spoken announcement. The grid draws the caption above the figure, but a sentence reads the
+// other way round — '420 cal', '32g protein' — and 'cal 420' is what reading the cells in drawn order gives.
+export const MEAL_PLAN_METRIC_ANNOUNCEMENT_TEMPLATE = '{value} {caption}'
+
+// Joins the parts of one announcement. A named separator rather than punctuation inside a template because how
+// many parts there are is the data's business, not the copy's (same precedent as ADD_FOOD_ROW_LABEL_SEPARATOR).
+// Same characters as MEAL_PLAN_LIST_SEPARATOR, kept separate because spoken-only copy and a visible list are
+// different surfaces: a comma that reads well on screen is a pause a screen reader may be reworded around.
+export const MEAL_PLAN_ANNOUNCEMENT_SEPARATOR = ', '
+
+// Spoken form of any status that draws a title above a body — the banners `InfoBanner` announces and the
+// alternatives empty state. A title and a body are two text nodes on screen and arrive as two unrelated
+// fragments when read that way, so the pair is spoken as one sentence. Same value as
+// PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE and deliberately not shared with it: that constant is one
+// screen's flagged-meals alert, and a change to its wording must not silently reword every status in the app.
+export const STATUS_ANNOUNCEMENT_TEMPLATE = '{title}. {body}'
+
+// Spoken form of 15's 'This adds' card after a serving change. `accessibilityLiveRegion` is Android-only in
+// RN 0.86, so VoiceOver is given the four figures as one sentence led by the label they belong to — the
+// figures alone would be four numbers with nothing saying what changed.
+export const LOG_PLANNED_MEAL_THIS_ADDS_ANNOUNCEMENT_TEMPLATE = '{label} {metrics}'
+
+// Spoken form of the flagged-meals alert on 16 (node 38:385). Its wrapper carries the alert role without
+// `accessible` — grouping it would swallow the 'Review affected meals' pill — and `accessibilityLiveRegion` is
+// Android-only, so VoiceOver is told the title and the body explicitly when the banner appears.
+export const PLAN_SETTINGS_BANNER_ANNOUNCEMENT_TEMPLATE = '{title}. {body}'
+
+// The targets are one fact, so they are announced as one: the calorie figure and the three macro rows are
+// separate text nodes on screen, and read individually they arrive as four unrelated numbers with no unit
+// between them. {macros} and {estimate} each carry their own sentence break and are empty when the card shows
+// neither — a record holding only a calorie target has no macro rows — so the announcement never ends up with
+// a stray separator between two full stops.
+export const MEAL_PLAN_TARGETS_SUMMARY_ACCESSIBILITY_TEMPLATE = '{label}, {calories} {unit}{macros}{estimate}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_MACROS_TEMPLATE = '. {macros}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_MACRO_TEMPLATE = '{label} {value}'
+
+export const MEAL_PLAN_TARGETS_SUMMARY_ESTIMATE_TEMPLATE = '. {estimate}'

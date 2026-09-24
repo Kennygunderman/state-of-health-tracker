@@ -15,10 +15,17 @@ import styles, {confirmButtonBackground} from './index.styled'
 
 interface Props {
   confirmationTitle: string
-  confirmationBody: string
+  // Optional because the stale-revision prompt is specified as a title plus its two answers and has no body copy
+  confirmationBody?: string
   confirmButtonText?: string
   confirmButtonColor?: string
+  // The dismiss answer is not always "Cancel": the stale-revision prompt answers it with "Use theirs"
+  cancelButtonText?: string
   cancelButtonColor?: string
+  // A pending confirm shows its spinner and swallows further presses, so one answer can never write twice
+  isConfirmPending?: boolean
+  // Callers whose screen carries a number pad set this so the keyboard cannot cover the dialog's actions
+  avoidKeyboard?: boolean
   isVisible: boolean
   onConfirmPressed: () => void
   onCancel: () => void
@@ -30,7 +37,10 @@ const ConfirmModal = (props: Props) => {
     confirmationBody,
     confirmButtonText = DELETE_BUTTON_TEXT,
     confirmButtonColor = Theme.colors.error,
+    cancelButtonText = CANCEL_BUTTON_TEXT,
     cancelButtonColor = Theme.colors.accentGreen,
+    isConfirmPending = false,
+    avoidKeyboard = false,
     isVisible,
     onConfirmPressed,
     onCancel
@@ -50,21 +60,27 @@ const ConfirmModal = (props: Props) => {
       animationOut="fadeOut"
       animationInTiming={300}
       animationOutTiming={100}
+      avoidKeyboard={avoidKeyboard}
       isVisible={isVisible}
       onBackdropPress={() => {
+        if (isConfirmPending) {
+          return
+        }
+
         onCancel()
       }}>
       <View style={styles.container} pointerEvents="box-none">
         <View style={styles.modalCard}>
           <Text style={styles.title}>{confirmationTitle}</Text>
 
-          <Text style={styles.body}>{confirmationBody}</Text>
+          {confirmationBody != null && <Text style={styles.body}>{confirmationBody}</Text>}
 
           <View style={styles.buttonRow}>
             <PrimaryButton
               width="48%"
               style={[styles.button, confirmButtonBackground(cancelButtonColor)]}
-              label={CANCEL_BUTTON_TEXT}
+              label={cancelButtonText}
+              disabled={isConfirmPending}
               onPress={() => {
                 onCancel()
               }}
@@ -74,6 +90,7 @@ const ConfirmModal = (props: Props) => {
               width="48%"
               style={[styles.button, confirmButtonBackground(confirmButtonColor)]}
               label={confirmButtonText}
+              isLoading={isConfirmPending}
               onPress={() => {
                 onConfirmPressed()
               }}

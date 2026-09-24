@@ -13,16 +13,18 @@ import styles, {sheetContentPadding} from './index.styled'
 interface BottomSheetEvent {
   action: 'open' | 'close'
   content?: ReactNode
+  maxHeight?: number
 }
 
 export const BottomSheetSubject$ = new Subject<BottomSheetEvent>()
 
-export const openGlobalBottomSheet = (content: ReactNode) => {
+export const openGlobalBottomSheet = (content: ReactNode, maxHeight?: number) => {
   // An open keyboard (e.g. from a search bar) would overlap the sheet
   Keyboard.dismiss()
   BottomSheetSubject$.next({
     action: 'open',
-    content
+    content,
+    maxHeight
   })
 }
 
@@ -35,11 +37,13 @@ const GlobalBottomSheet = () => {
   const insets = useSafeAreaInsets()
 
   const [content, setContent] = useState<ReactNode>(null)
+  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined)
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
-    const sub = BottomSheetSubject$.subscribe(({action, content}) => {
+    const sub = BottomSheetSubject$.subscribe(({action, content, maxHeight}) => {
       if (action === 'open') {
+        setMaxHeight(maxHeight)
         setContent(content || null)
         sheetRef.current?.expand()
         setIsOpen(true)
@@ -67,6 +71,8 @@ const GlobalBottomSheet = () => {
         ref={sheetRef}
         index={-1}
         enableDynamicSizing
+        maxDynamicContentSize={maxHeight}
+        accessible={false}
         enablePanDownToClose
         handleIndicatorStyle={{backgroundColor: Theme.colors.white}}
         backgroundStyle={{backgroundColor: Theme.colors.background}}

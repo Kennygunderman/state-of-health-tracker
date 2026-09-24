@@ -1,10 +1,18 @@
-import React, {useState} from 'react'
+import React, {useEffect, useState} from 'react'
 
 import {Linking, TouchableOpacity, View} from 'react-native'
 
 import {Ionicons} from '@expo/vector-icons'
+import {HomeTabsParamList} from '@navigation/HomeTabs'
+import {Navigation} from '@navigation/types'
 import {useRequestHealthPermissionsMutation} from '@queries/activity/useRequestHealthPermissionsMutation'
+import {useNutritionTargetsQuery} from '@queries/mealPlanning/useNutritionTargetsQuery'
+import {isLegacyTargetEditorOpen, resolveTargetAuthority} from '@queries/mealPlanning/useNutritionTargetsQuery.util'
+import {BottomTabNavigationProp} from '@react-navigation/bottom-tabs'
+import {CompositeNavigationProp, useNavigation} from '@react-navigation/native'
+import useAuthStore from '@store/auth/useAuthStore'
 import useUserData from '@store/userData/useUserData'
+import {Opacity} from '@styles/sizes'
 import {Theme} from '@styles/theme'
 
 import StepGoalModal from '@components/dialog/StepGoalModal'
@@ -15,6 +23,7 @@ import Text from '@components/Text'
 import TickerText from '@components/TickerText'
 import {showToast} from '@components/toast/util/ShowToast'
 
+import Screens from '@constants/screens'
 import {
   ACTIVITY_CALORIE_BURN_LABEL,
   ACTIVITY_CONNECT_HEALTH_BODY,
@@ -57,8 +66,11 @@ const SEGMENT_LABELS: Record<CalorieSegmentKey, string> = {
 const INFO_ICON_SIZE = 14
 
 const ActivityTab = () => {
+  const navigation = useNavigation<CompositeNavigationProp<BottomTabNavigationProp<HomeTabsParamList>, Navigation>>()
   const stepGoal = useUserData(state => state.stepGoal)
   const targetCalories = useUserData(state => state.targetCalories)
+  const isAuthed = useAuthStore(state => state.isAuthed)
+  const targetsQuery = useNutritionTargetsQuery()
   const summary = useActivitySummary()
   const {mutateAsync: requestPermissionsAsync, isPending: isRequestingPermissions} =
     useRequestHealthPermissionsMutation()
@@ -72,6 +84,17 @@ const ActivityTab = () => {
   const showConnectCard = summary.isStepsAvailable && summary.shouldRequestPermission
   const showDeniedCard = summary.isStepsAvailable && !summary.shouldRequestPermission && !summary.hasStepData
   const showStepsCard = summary.isStepsAvailable && !summary.shouldRequestPermission && summary.hasStepData
+
+  const targetAuthority = resolveTargetAuthority({read: targetsQuery, isAuthed})
+
+  // Keeps the request from outliving the answer it was made under: while the modal is open the targets read can
+  // resolve to server authority, and a request left standing would reopen the local-only writer the next time
+  // the device owns the target.
+  useEffect(() => {
+    if (targetAuthority.editor !== 'legacy') {
+      setIsIntakeModalVisible(false)
+    }
+  }, [targetAuthority.editor])
 
   const onConnectPressed = async () => {
     try {
@@ -87,6 +110,20 @@ const ActivityTab = () => {
 
   const onBurnInfoPressed = () => {
     openGlobalBottomSheet(<BurnInfoBottomSheet />)
+  }
+
+  // Every authority names an editor, so the row always opens one: the canonical full-screen editor when the
+  // server owns the target, the legacy modal otherwise — the shipped behaviour AAP 0.1.4 keeps for a user who
+  // never opted in.
+  const onIntakeTargetPressed = () => {
+    if (targetAuthority.editor === 'canonical') {
+      navigation.navigate('MacrosStack', {
+        screen: Screens.MEAL_PLAN_EDIT_TARGETS,
+        params: {mode: 'edit', returnTo: {kind: 'tab', tab: 'ProgressStack'}}
+      })
+    } else {
+      setIsIntakeModalVisible(true)
+    }
   }
 
   return (
@@ -125,7 +162,7 @@ const ActivityTab = () => {
       )}
 
       <View style={styles.card}>
-        <TouchableOpacity style={styles.labelRow} activeOpacity={0.6} onPress={onBurnInfoPressed}>
+        <TouchableOpacity style={styles.labelRow} activeOpacity={Opacity.PRESSED} onPress={onBurnInfoPressed}>
           <Text style={styles.label}>{ACTIVITY_CALORIE_BURN_LABEL}</Text>
 
           <Ionicons name="information-circle-outline" size={INFO_ICON_SIZE} color={Theme.colors.textMuted} />
@@ -138,7 +175,7 @@ const ActivityTab = () => {
         </View>
 
         {segments.length > 0 && (
-          <TouchableOpacity activeOpacity={0.6} onPress={onBurnInfoPressed}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED} onPress={onBurnInfoPressed}>
             <View style={styles.segmentBar}>
               {segments.map(segment => (
                 <View
@@ -169,7 +206,7 @@ const ActivityTab = () => {
         <Text style={styles.label}>{ACTIVITY_TARGETS_LABEL}</Text>
 
         <View style={styles.targetsValues}>
-          <TouchableOpacity activeOpacity={0.5} onPress={() => setIsStepGoalModalVisible(true)}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED_TARGET_ROW} onPress={() => setIsStepGoalModalVisible(true)}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_STEPS_LABEL} `}
 
@@ -177,11 +214,11 @@ const ActivityTab = () => {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity activeOpacity={0.5} onPress={() => setIsIntakeModalVisible(true)}>
+          <TouchableOpacity activeOpacity={Opacity.PRESSED_TARGET_ROW} onPress={onIntakeTargetPressed}>
             <Text style={styles.targetText}>
               {`${ACTIVITY_TARGET_INTAKE_LABEL} `}
 
-              <Text style={styles.targetValue}>{formatCount(targetCalories)}</Text>
+              <Text style={styles.targetValue}>{formatCount(targetAuthority.serverCalories ?? targetCalories)}</Text>
             </Text>
           </TouchableOpacity>
         </View>
@@ -211,7 +248,10 @@ const ActivityTab = () => {
 
       <StepGoalModal isVisible={isStepGoalModalVisible} onDismissed={() => setIsStepGoalModalVisible(false)} />
 
-      <TargetCaloriesModal isVisible={isIntakeModalVisible} onDismissed={() => setIsIntakeModalVisible(false)} />
+      <TargetCaloriesModal
+        isVisible={isLegacyTargetEditorOpen(targetAuthority, isIntakeModalVisible)}
+        onDismissed={() => setIsIntakeModalVisible(false)}
+      />
     </View>
   )
 }

@@ -1,4 +1,15 @@
-import {entryCalories, entryServingText, InputMethodEnum, MealEntry} from '../MealEntry'
+import {convertMealEntry} from '@queries/api/macros/converter/convertDailyMacros'
+
+import {
+  entryCalories,
+  entryProvenanceLabel,
+  entryServingText,
+  InputMethodEnum,
+  isFromMealPlan,
+  LogCatalogMealEntryPayload,
+  LogMealEntryPayload,
+  MealEntry
+} from '../MealEntry'
 
 const makeEntry = (overrides: Partial<MealEntry> = {}): MealEntry => ({
   id: 'entry-1',
@@ -12,6 +23,29 @@ const makeEntry = (overrides: Partial<MealEntry> = {}): MealEntry => ({
   fat: 4,
   inputMethod: InputMethodEnum.LIBRARY,
   loggedAt: '2026-07-03T12:00:00.000Z',
+  mealPlanMealId: null,
+  nutritionProvenance: null,
+  ...overrides
+})
+
+type MealEntryWire = Parameters<typeof convertMealEntry>[0]
+
+// The two meal-planning members carry explicit nulls so the payload stays valid
+// whether the codec declares them nullable-required or an optional fragment.
+const makeEntryResponse = (overrides: Partial<MealEntryWire> = {}): MealEntryWire => ({
+  id: 'entry-1',
+  foodId: 'food-1',
+  name: 'Chicken Breast',
+  servingText: '4 oz',
+  servings: 1,
+  calories: 187,
+  protein: 35,
+  carbs: 0,
+  fat: 4,
+  inputMethod: 'library',
+  loggedAt: '2026-07-03T12:00:00.000Z',
+  mealPlanMealId: null,
+  nutritionProvenance: null,
   ...overrides
 })
 
@@ -44,5 +78,321 @@ describe('entryServingText', () => {
 
   it('appends a multiplier when the text has no leading number', () => {
     expect(entryServingText(makeEntry({servingText: 'large bowl', servings: 2}))).toBe('large bowl × 2')
+  })
+})
+
+describe('isFromMealPlan', () => {
+  it('treats the meal-plan input method as a planned-meal origin', () => {
+    expect(isFromMealPlan(makeEntry({inputMethod: InputMethodEnum.MEAL_PLAN}))).toBe(true)
+  })
+
+  it('treats every other input method as a self-logged entry', () => {
+    expect(isFromMealPlan(makeEntry({inputMethod: InputMethodEnum.LIBRARY}))).toBe(false)
+    expect(isFromMealPlan(makeEntry({inputMethod: InputMethodEnum.SEARCH}))).toBe(false)
+    expect(isFromMealPlan(makeEntry({inputMethod: InputMethodEnum.AI_TEXT}))).toBe(false)
+    expect(isFromMealPlan(makeEntry({inputMethod: InputMethodEnum.AI_PHOTO}))).toBe(false)
+  })
+})
+
+describe('entryProvenanceLabel', () => {
+  const labelFor = (inputMethod: InputMethodEnum, nutritionProvenance: MealEntry['nutritionProvenance']) =>
+    entryProvenanceLabel(makeEntry({inputMethod, nutritionProvenance}))
+
+  describe('meal-plan origin', () => {
+    it('captions a planned entry that carries no provenance', () => {
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, null)).toBe('From meal plan')
+    })
+
+    it('keeps the origin caption for a planned entry, so the origin outranks every provenance branch', () => {
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ai_estimated')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'source_backed')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'ingredient_derived')).toBe('From meal plan')
+      expect(labelFor(InputMethodEnum.MEAL_PLAN, 'user_entered')).toBe('From meal plan')
+    })
+  })
+
+  describe('stored provenance', () => {
+    it('hides the source-backed caption', () => {
+      expect(labelFor(InputMethodEnum.SEARCH, 'source_backed')).toBeNull()
+    })
+
+    it('captions an ingredient-derived entry', () => {
+      expect(labelFor(InputMethodEnum.SEARCH, 'ingredient_derived')).toBe('Estimated from ingredients')
+    })
+
+    it('captions an ai-estimated entry with the short diary estimate caption', () => {
+      expect(labelFor(InputMethodEnum.SEARCH, 'ai_estimated')).toBe('Estimated')
+    })
+
+    it('captions an AI-logged entry stored as user-entered as an estimate', () => {
+      expect(labelFor(InputMethodEnum.AI_TEXT, 'user_entered')).toBe('Estimated')
+    })
+
+    it('leaves a user-entered entry uncaptioned because client numbers carry no source claim', () => {
+      expect(labelFor(InputMethodEnum.LIBRARY, 'user_entered')).toBeNull()
+    })
+  })
+
+  describe('legacy rows written before the provenance column', () => {
+    it('still captions an AI-photo entry as an estimate', () => {
+      expect(labelFor(InputMethodEnum.AI_PHOTO, null)).toBe('Estimated')
+    })
+
+    it('renders no caption for library and search rows', () => {
+      expect(labelFor(InputMethodEnum.LIBRARY, null)).toBeNull()
+      expect(labelFor(InputMethodEnum.SEARCH, null)).toBeNull()
+    })
+  })
+
+  describe('the caption set the diary may render', () => {
+    it('renders a distinct non-empty caption per labelled class, so no class can read as another', () => {
+      const captions = [
+        labelFor(InputMethodEnum.MEAL_PLAN, null),
+        labelFor(InputMethodEnum.SEARCH, 'source_backed'),
+        labelFor(InputMethodEnum.SEARCH, 'ingredient_derived'),
+        labelFor(InputMethodEnum.SEARCH, 'ai_estimated')
+      ]
+
+      expect(captions).toEqual(['From meal plan', null, 'Estimated from ingredients', 'Estimated'])
+      expect(captions.filter(caption => caption !== null).every(caption => caption.length > 0)).toBe(true)
+      expect(new Set(captions).size).toBe(captions.length)
+    })
+  })
+})
+
+describe('InputMethodEnum', () => {
+  it('pins the closed set of wire values a response may carry', () => {
+    expect(Object.values(InputMethodEnum)).toEqual(['library', 'search', 'ai_text', 'ai_photo', 'meal_plan'])
+  })
+
+  it('does not recognise an unknown wire input method, which a response decodes to LIBRARY instead', () => {
+    expect(Object.values(InputMethodEnum)).not.toContain('barcode_scan')
+  })
+
+  it('decodes an unknown wire input method to LIBRARY, leaving the row neither planned nor captioned', () => {
+    const decodedUnknown = convertMealEntry(makeEntryResponse({inputMethod: 'barcode_scan'}))
+
+    expect(decodedUnknown.inputMethod).toBe(InputMethodEnum.LIBRARY)
+    expect(isFromMealPlan(decodedUnknown)).toBe(false)
+    expect(entryProvenanceLabel(decodedUnknown)).toBeNull()
+  })
+
+  describe('the subset a request body may ask for', () => {
+    const LEGACY_BODY = {
+      name: 'Chicken Breast',
+      servingText: '4 oz',
+      servings: 1,
+      calories: 187,
+      protein: 35,
+      carbs: 0,
+      fat: 4
+    }
+
+    // The value-level twin of ClientInputMethod, derived the same way, because a type cannot be
+    // asserted on at runtime.
+    const clientInputMethods = Object.values(InputMethodEnum).filter(method => method !== InputMethodEnum.MEAL_PLAN)
+
+    it('narrows the stored vocabulary rather than replacing it, keeping all five members requestable-or-not', () => {
+      expect(Object.values(InputMethodEnum)).toHaveLength(5)
+      expect(clientInputMethods).toHaveLength(4)
+      expect(Object.values(InputMethodEnum)).toEqual(expect.arrayContaining(clientInputMethods))
+    })
+
+    it('leaves the planned origin out of the client-selectable set, because only the server writes it', () => {
+      expect(clientInputMethods).not.toContain(InputMethodEnum.MEAL_PLAN)
+      expect(clientInputMethods).not.toContain('meal_plan')
+    })
+
+    it('is exactly library, search, ai_text and ai_photo', () => {
+      expect(clientInputMethods).toEqual(['library', 'search', 'ai_text', 'ai_photo'])
+    })
+
+    it('types a legacy body for every client-selectable method', () => {
+      const clientBodies: LogMealEntryPayload[] = [
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.LIBRARY},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.SEARCH},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.AI_TEXT},
+        {...LEGACY_BODY, inputMethod: InputMethodEnum.AI_PHOTO}
+      ]
+
+      expect(clientBodies.map(body => body.inputMethod)).toEqual(clientInputMethods)
+    })
+
+    it('refuses a legacy body that claims the planned origin, and the refusal is the compiler', () => {
+      const plannedClaim: LogMealEntryPayload = {
+        ...LEGACY_BODY,
+        // @ts-expect-error the planned origin is server-written, so this assignment must stay a
+        // compile error — this directive fails the build the day it stops being one, which is the
+        // regression it guards
+        inputMethod: InputMethodEnum.MEAL_PLAN
+      }
+
+      expect(clientInputMethods).not.toContain(plannedClaim.inputMethod)
+    })
+
+    it('still admits the planned origin on a response entry, where the value belongs', () => {
+      const plannedEntry: MealEntry = makeEntry({inputMethod: InputMethodEnum.MEAL_PLAN})
+
+      expect(plannedEntry.inputMethod).toBe(InputMethodEnum.MEAL_PLAN)
+      expect(isFromMealPlan(plannedEntry)).toBe(true)
+    })
+  })
+})
+
+describe('the legacy-or-catalog request body', () => {
+  // The union logMealEntry and useLogMealEntryMutation accept, so every case below is
+  // checked against the exact target a caller assigns its body to.
+  type LogEntryRequestBody = LogMealEntryPayload | LogCatalogMealEntryPayload
+
+  const LEGACY_MACROS = {calories: 187, protein: 35, carbs: 0, fat: 4}
+
+  describe('the two shapes the endpoint accepts', () => {
+    it('types a legacy body that names a personal food and carries its own snapshot', () => {
+      const legacy: LogEntryRequestBody = {
+        foodId: 'food-1',
+        name: 'Chicken Breast',
+        servingText: '4 oz',
+        servings: 1,
+        ...LEGACY_MACROS,
+        inputMethod: InputMethodEnum.LIBRARY
+      }
+
+      expect(Object.keys(legacy).sort()).toEqual([
+        'calories',
+        'carbs',
+        'fat',
+        'foodId',
+        'inputMethod',
+        'name',
+        'protein',
+        'servingText',
+        'servings'
+      ])
+    })
+
+    it('types a catalog body that names a published catalog food and a portion', () => {
+      const catalog: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        servingText: '1 cup',
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect(Object.keys(catalog).sort()).toEqual(['catalogFoodId', 'inputMethod', 'servingText', 'servings'])
+    })
+
+    it('types a catalog body that names no portion, leaving the server the default one', () => {
+      const catalog: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-2',
+        servings: 1,
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect('servingText' in catalog).toBe(false)
+    })
+  })
+
+  // A union target reports one assignability error for the whole declaration, so each
+  // directive below sits on the annotation line rather than on the offending member. It
+  // fails the build the day the assignment stops being an error, which is the regression
+  // these three cases guard.
+  describe('the bodies the server refuses, refused here by the compiler', () => {
+    it('refuses a body naming both a personal and a catalog food', () => {
+      // @ts-expect-error both ids in one body is 400 invalid_payload with two
+      // conflicting_food_reference details, so it must never compile
+      const bothFoods: LogEntryRequestBody = {
+        name: 'Chicken Breast',
+        ...LEGACY_MACROS,
+        foodId: 'food-1',
+        catalogFoodId: 'catalog-food-1'
+      }
+
+      expect(bothFoods).toHaveProperty('foodId')
+      expect(bothFoods).toHaveProperty('catalogFoodId')
+    })
+
+    it('refuses a catalog body that also claims a snapshot of its own', () => {
+      // @ts-expect-error the server derives every number from the catalog row and discards
+      // these, so a caller sending them would believe values the entry never carries
+      const catalogWithMacros: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        inputMethod: InputMethodEnum.SEARCH,
+        name: 'Chicken Breast',
+        ...LEGACY_MACROS
+      }
+
+      expect(catalogWithMacros).toHaveProperty('calories')
+    })
+
+    it('refuses a catalog body that carries the legacy raw-input member', () => {
+      // @ts-expect-error rawInput is a legacy-shape member — the text an AI estimate was
+      // made from — which a catalog log by id has none of
+      const catalogWithRawInput: LogEntryRequestBody = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 1.5,
+        inputMethod: InputMethodEnum.SEARCH,
+        rawInput: 'chicken breast 4oz'
+      }
+
+      expect(catalogWithRawInput).toHaveProperty('rawInput')
+    })
+  })
+
+  describe('the members both shapes share', () => {
+    it('keeps servings and servingText on either shape, so neither acts as a shape signal', () => {
+      const legacy: LogMealEntryPayload = {
+        name: 'Chicken Breast',
+        servingText: '4 oz',
+        servings: 2,
+        ...LEGACY_MACROS
+      }
+      const catalog: LogCatalogMealEntryPayload = {
+        catalogFoodId: 'catalog-food-1',
+        servings: 2,
+        servingText: '1 cup',
+        inputMethod: InputMethodEnum.SEARCH
+      }
+
+      expect([legacy.servings, catalog.servings]).toEqual([2, 2])
+      expect([legacy.servingText, catalog.servingText]).toEqual(['4 oz', '1 cup'])
+    })
+  })
+})
+
+describe('convertMealEntry', () => {
+  const inputMethodFor = (inputMethod: string) => convertMealEntry(makeEntryResponse({inputMethod})).inputMethod
+
+  it('carries every known wire input method through unchanged', () => {
+    expect(inputMethodFor('library')).toBe(InputMethodEnum.LIBRARY)
+    expect(inputMethodFor('search')).toBe(InputMethodEnum.SEARCH)
+    expect(inputMethodFor('ai_text')).toBe(InputMethodEnum.AI_TEXT)
+    expect(inputMethodFor('ai_photo')).toBe(InputMethodEnum.AI_PHOTO)
+  })
+
+  it('maps the meal_plan wire value to the planned-meal input method', () => {
+    const entry = convertMealEntry(makeEntryResponse({inputMethod: 'meal_plan', mealPlanMealId: 'plan-meal-1'}))
+
+    expect(entry.inputMethod).toBe(InputMethodEnum.MEAL_PLAN)
+    expect(entry.mealPlanMealId).toBe('plan-meal-1')
+    expect(isFromMealPlan(entry)).toBe(true)
+  })
+
+  it('carries the stored provenance onto the entry the diary captions from', () => {
+    const entry = convertMealEntry(makeEntryResponse({inputMethod: 'search', nutritionProvenance: 'source_backed'}))
+
+    expect(entry.nutritionProvenance).toBe('source_backed')
+    expect(entryProvenanceLabel(entry)).toBeNull()
+  })
+
+  it('falls back to the library input method for an unknown wire value', () => {
+    expect(inputMethodFor('barcode_scan')).toBe(InputMethodEnum.LIBRARY)
+  })
+
+  it('converts an unknown wire input method into a row that is neither planned nor captioned', () => {
+    const entry = convertMealEntry(makeEntryResponse({inputMethod: 'barcode_scan'}))
+
+    expect(isFromMealPlan(entry)).toBe(false)
+    expect(entryProvenanceLabel(entry)).toBeNull()
   })
 })

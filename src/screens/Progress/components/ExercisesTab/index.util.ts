@@ -1,8 +1,6 @@
 import type {PrCardData} from '../NewPrCard'
 import {Exercise} from '@data/models/Exercise'
-import {PersonalRecord, RecordTypeEnum} from '@data/models/PersonalRecord'
-
-import {SessionSummary} from '../../index.util'
+import {PersonalRecord, RecordTypeEnum, SessionSummary} from '@data/models/PersonalRecord'
 
 const latestCompletedAt = (exercise: Exercise): string =>
   exercise.latestCompletedSets.reduce(

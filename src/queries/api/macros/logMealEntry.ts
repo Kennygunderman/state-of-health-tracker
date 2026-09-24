@@ -1,4 +1,4 @@
-import {LogMealEntryPayload, MealEntry} from '@data/models/MealEntry'
+import {LogCatalogMealEntryPayload, LogMealEntryPayload, MealEntry} from '@data/models/MealEntry'
 import {convertMealEntry} from '@queries/api/macros/converter/convertDailyMacros'
 import {MealEntryResponse} from '@queries/api/macros/decoder/MacrosDecoder'
 import {httpPost} from '@service/http/httpUtil'
@@ -6,7 +6,10 @@ import CrashUtility from '@utility/CrashUtility'
 
 import Endpoints from '@constants/endpoints'
 
-export async function logMealEntry(mealId: string, payload: LogMealEntryPayload): Promise<MealEntry> {
+export async function logMealEntry(
+  mealId: string,
+  payload: LogMealEntryPayload | LogCatalogMealEntryPayload
+): Promise<MealEntry> {
   try {
     const response = await httpPost(Endpoints.MacroMealEntries(mealId), MealEntryResponse, payload)
 

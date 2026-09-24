@@ -1,11 +1,6 @@
-import {ExerciseHistoryEntry} from '@data/models/PersonalRecord'
+import {ExerciseHistoryEntry, SessionSummary} from '@data/models/PersonalRecord'
 
-export interface SessionSummary {
-  date: string
-  topSet: {weight: number; reps: number} | null
-  setCount: number
-  estimatedOneRepMax: number | null
-}
+export type {SessionSummary}
 
 const epley1RM = (weight: number, reps: number): number => weight * (1 + reps / 30)
 

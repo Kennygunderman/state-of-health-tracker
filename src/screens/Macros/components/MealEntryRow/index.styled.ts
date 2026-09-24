@@ -1,6 +1,6 @@
 import {StyleSheet} from 'react-native'
 
-import FontSize from '@styles/fontSize'
+import FontSize, {FontWeight, LineHeight} from '@styles/fontSize'
 import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
@@ -16,13 +16,23 @@ export default StyleSheet.create({
   nameContainer: {
     flex: 1
   },
+  /* Node 38:264 declares no line height at node level or in either of its runs, so Figma resolves the
+     automatic 15px box of 18. The serving text below is a nested span of this same Text, which is why the
+     box belongs here and not on it: both runs share this one line box, as they do in the comp. */
   name: {
     fontSize: FontSize.BODY,
-    fontWeight: '600'
+    fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.BODY_COMPACT
   },
   servingText: {
-    fontWeight: '400',
+    fontWeight: FontWeight.REGULAR,
     color: Theme.colors.textSecondary
+  },
+  provenanceCaption: {
+    fontSize: FontSize.LABEL,
+    lineHeight: LineHeight.META,
+    fontWeight: FontWeight.REGULAR,
+    color: Theme.colors.textMuted
   },
   caloriesContainer: {
     flexDirection: 'row',
@@ -31,10 +41,10 @@ export default StyleSheet.create({
   },
   calories: {
     fontSize: FontSize.BODY,
-    fontWeight: '700'
+    fontWeight: FontWeight.BOLD
   },
   caloriesLabel: {
-    fontSize: FontSize.CAPTION,
-    color: Theme.colors.textSecondary
+    fontSize: FontSize.LABEL,
+    color: Theme.colors.textMuted
   }
 })

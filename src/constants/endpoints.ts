@@ -1,9 +1,320 @@
-import { SOH_API_BASE_URL } from '@env'
+import {SOH_API_BASE_URL} from '@env'
 
 // Host comes from the environment: local .env for `expo run`, EAS environment
 // variables for builds (development/preview → dev API, production → prod).
-// Fallback keeps release builds safe if the var is ever missing.
-const baseApiUrl = `${SOH_API_BASE_URL || 'https://stateofhealthapi.com'}/api`
+// Fallback keeps release builds safe if the var is ever missing — it survives
+// only there, because the preflight below rejects it under __DEV__ and Jest so
+// a debug build or a test run can never silently reach production data.
+export const PRODUCTION_API_FALLBACK_ORIGIN = 'https://stateofhealthapi.com'
+
+export const resolveApiOrigin = (configuredOrigin: string | undefined): string =>
+  configuredOrigin || PRODUCTION_API_FALLBACK_ORIGIN
+
+export const CONFIGURED_API_ORIGIN = resolveApiOrigin(SOH_API_BASE_URL)
+
+const baseApiUrl = `${CONFIGURED_API_ORIGIN}/api`
+
+// react-native-dotenv only exposes the names allowlisted in babel.config.js, so
+// an extra development host is added here rather than to the environment.
+export const SOH_DEV_API_HOSTS: readonly string[] = []
+
+// Compared on a label boundary, so a host that merely contains "ngrok" fails.
+const NGROK_HOST_SUFFIXES = ['.ngrok.io', '.ngrok-free.app', '.ngrok.app', '.ngrok.dev']
+
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1']
+
+const PRINTABLE_ASCII_ONLY = /^[\x21-\x7e]+$/
+const HTTP_SCHEME = /^(https?):\/\//i
+const BARE_AUTHORITY = /^([a-z0-9._-]+)(?::(\d{1,5}))?$/i
+const AUTHORITY_TERMINATOR = /[/?#]/
+const TRAILING_DOT = /\.$/
+const DNS_LABEL = /^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/
+const NUMERIC_LABEL = /^(?:\d+|0x[0-9a-f]*)$/i
+// No leading zeros, because a URL parser re-reads 010 as octal 8 and 0x0a as
+// hex 10 — only the plain decimal form means what it says.
+const DECIMAL_OCTET = /^(?:0|[1-9]\d{0,2})$/
+
+const MIN_PORT = 1
+const MAX_PORT = 65535
+const MAX_OCTET = 255
+const IPV4_LABEL_COUNT = 4
+const MAX_HOST_LENGTH = 253
+const MAX_LABEL_LENGTH = 63
+
+const HTTPS_SCHEME_NAME = 'https'
+const HTTP_DEFAULT_PORT = 80
+const HTTPS_DEFAULT_PORT = 443
+
+type Ipv4Octets = [number, number, number, number]
+
+interface ParsedHost {
+  host: string
+  octets: Ipv4Octets | null
+}
+
+interface ParsedOrigin extends ParsedHost {
+  scheme: string
+  port: number
+}
+
+const parseIpv4Octets = (labels: string[]): Ipv4Octets | null => {
+  if (labels.length !== IPV4_LABEL_COUNT || !labels.every(label => DECIMAL_OCTET.test(label))) {
+    return null
+  }
+
+  const octets = labels.map(Number)
+
+  if (octets.some(octet => octet > MAX_OCTET)) {
+    return null
+  }
+
+  return [octets[0], octets[1], octets[2], octets[3]]
+}
+
+const parseHost = (host: string): ParsedHost | null => {
+  const labels = host.split('.')
+
+  // A host whose last label is numeric is an IPv4 address to every URL parser,
+  // so it must be a full dotted quad here and is never treated as a name.
+  if (NUMERIC_LABEL.test(labels[labels.length - 1])) {
+    const octets = parseIpv4Octets(labels)
+
+    return octets ? {host, octets} : null
+  }
+
+  if (host.length > MAX_HOST_LENGTH) {
+    return null
+  }
+
+  const isDnsName = labels.every(label => label.length <= MAX_LABEL_LENGTH && DNS_LABEL.test(label))
+
+  return isDnsName ? {host, octets: null} : null
+}
+
+// Anything this cannot read as scheme + host + optional port is rejected rather
+// than normalized: a backslash, userinfo, a control character or a non-ASCII
+// label separator each move the host the request stack resolves, so agreeing
+// with that stack means accepting only hosts no character can shift. Surrounding
+// whitespace is rejected for the same reason and never trimmed — baseApiUrl is
+// built from the raw value, and String.trim() strips more (U+00A0, U+2028) than
+// a URL parser does, so trimming here would approve a string no request can use.
+// An absent port is the scheme's default, so https://h and https://h:443 are one
+// origin while http://h:443 and https://h:443 are two. A configured origin must
+// be bare; a request or response URL ends its authority at the first / ? or #.
+const parseHttpUrl = (value: string, allowPathAfterAuthority: boolean): ParsedOrigin | null => {
+  const scheme = HTTP_SCHEME.exec(value)
+
+  if (!PRINTABLE_ASCII_ONLY.test(value) || !scheme) {
+    return null
+  }
+
+  const afterScheme = value.slice(scheme[0].length)
+  const authorityEnd = afterScheme.search(AUTHORITY_TERMINATOR)
+  const authority = allowPathAfterAuthority && authorityEnd !== -1 ? afterScheme.slice(0, authorityEnd) : afterScheme
+  const matchedAuthority = BARE_AUTHORITY.exec(authority)
+
+  if (!matchedAuthority) {
+    return null
+  }
+
+  const [, hostPart, portPart] = matchedAuthority
+  const normalizedScheme = scheme[1].toLowerCase()
+  const defaultPort = normalizedScheme === HTTPS_SCHEME_NAME ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT
+  const port = portPart ? Number(portPart) : defaultPort
+
+  if (port < MIN_PORT || port > MAX_PORT) {
+    return null
+  }
+
+  const host = hostPart.toLowerCase().replace(TRAILING_DOT, '')
+  const parsedHost = host === '' ? null : parseHost(host)
+
+  return parsedHost ? {...parsedHost, scheme: normalizedScheme, port} : null
+}
+
+const parseOrigin = (origin: string): ParsedOrigin | null => parseHttpUrl(origin, false)
+
+const parseRequestUrl = (url: string): ParsedOrigin | null => parseHttpUrl(url, true)
+
+// RFC 1918: 10/8, 172.16/12 and 192.168/16.
+const isPrivateIpv4 = ([first, second]: Ipv4Octets): boolean =>
+  first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)
+
+// The allowlist is a parameter because the shipped array is empty, so no other input reaches that branch.
+export const isNonProductionApiOrigin = (
+  origin: string,
+  devApiHosts: readonly string[] = SOH_DEV_API_HOSTS
+): boolean => {
+  const parsed = parseOrigin(origin)
+
+  if (!parsed) {
+    return false
+  }
+
+  if (LOOPBACK_HOSTS.includes(parsed.host) || devApiHosts.includes(parsed.host)) {
+    return true
+  }
+
+  if (parsed.octets) {
+    return isPrivateIpv4(parsed.octets)
+  }
+
+  return NGROK_HOST_SUFFIXES.some(suffix => parsed.host.endsWith(suffix))
+}
+
+// Deliberately compared against the CONFIGURED origin and never against the
+// non-production allowlist: a release build legitimately runs on the production
+// origin, so an `isNonProductionApiOrigin` guard here would reject every request
+// it makes. The preflight below decides which origin a debug or test build may
+// be pointed at; this decides that a request must not leave whichever origin was
+// configured, which is what constrains a redirect the native HTTP stack followed.
+export const isConfiguredApiOriginUrl = (url: string, configuredOrigin: string = CONFIGURED_API_ORIGIN): boolean => {
+  const expected = parseRequestUrl(configuredOrigin)
+
+  // Inert rather than closed when the configured origin is unreadable here:
+  // there is no authority to compare against, and a stricter parser than the
+  // platform's refusing an origin the platform accepts would fail every request
+  // in a release build. Development and Jest cannot reach this branch — the
+  // preflight below throws at module load on an origin this cannot parse.
+  if (!expected) {
+    return true
+  }
+
+  const requested = parseRequestUrl(url)
+
+  if (!requested) {
+    return false
+  }
+
+  return requested.scheme === expected.scheme && requested.host === expected.host && requested.port === expected.port
+}
+
+const WWW_LABEL_PREFIX = 'www.'
+
+const withoutWwwLabel = (host: string): string =>
+  host.startsWith(WWW_LABEL_PREFIX) ? host.slice(WWW_LABEL_PREFIX.length) : host
+
+// Full label sequences, never a suffix of characters: `host` must carry every
+// label of `parentHost` in order at its end and at least one label of its own,
+// so `api.example.com` is below `example.com` while `notexample.com` and
+// `example.com.evil.net` are below nothing.
+const isBelowHost = (host: string, parentHost: string): boolean => {
+  const labels = host.split('.')
+  const parentLabels = parentHost.split('.')
+  const offset = labels.length - parentLabels.length
+
+  return offset > 0 && parentLabels.every((label, index) => label === labels[offset + index])
+}
+
+// The rule is "same host, or below it" — deliberately not "same registrable
+// domain", which would need a public-suffix list to state and would make
+// `evil.co.uk` a match for `example.co.uk` if approximated by comparing the
+// last two labels. Comparing whole label sequences needs no such list.
+const isSameSiteHost = (host: string, configuredHost: string): boolean => {
+  if (host === configuredHost) {
+    return true
+  }
+
+  // The two spellings of loopback name one machine, so a development origin
+  // reached by the other one has not left it.
+  if (LOOPBACK_HOSTS.includes(host) && LOOPBACK_HOSTS.includes(configuredHost)) {
+    return true
+  }
+
+  // Either direction of the `www`/bare pair: the subdomain rule already covers a
+  // configured bare domain answering on `www`, and this covers the inverse.
+  return isBelowHost(host, configuredHost) || withoutWwwLabel(host) === withoutWwwLabel(configuredHost)
+}
+
+// The response-side companion to the origin predicate above, and a deliberately
+// weaker rule: scheme and port are ignored because they are exactly what a
+// legitimate redirect changes — http to https, a bare domain to `www`, a proxy
+// answering on another port — and holding a response to the configured origin
+// exactly would discard every byte such a deployment serves. What it still
+// refuses is a hop onto another site, which is the case worth refusing: a
+// foreign host's body must never be decoded as this app's data, and a foreign
+// host's 401 must never mint a fresh token. The parameterized origin mirrors the
+// predicate above for the same reason — `module:react-native-dotenv` inlines
+// SOH_API_BASE_URL at every reference site, so a test cannot drive these
+// branches by mocking `@env`.
+export const isConfiguredApiSiteUrl = (url: string, configuredOrigin: string = CONFIGURED_API_ORIGIN): boolean => {
+  const expected = parseRequestUrl(configuredOrigin)
+
+  // Inert rather than closed on an unreadable configured origin, exactly as
+  // above: there is no authority to compare against, and refusing an origin the
+  // platform accepts would fail every request a release build makes.
+  // Development and Jest cannot reach this branch — the preflight below throws
+  // at module load on an origin this cannot parse.
+  if (!expected) {
+    return true
+  }
+
+  const requested = parseRequestUrl(url)
+
+  if (!requested) {
+    return false
+  }
+
+  return isSameSiteHost(requested.host, expected.host)
+}
+
+const MALFORMED_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL is not a bare http(s) origin. Expected http(s)://host[:port] with no path, credentials or query. The configured value is not logged.'
+
+const PRODUCTION_ORIGIN_MESSAGE =
+  'SOH_API_BASE_URL must point at a non-production API in development and tests. Allowed: localhost, 127.0.0.1, a private LAN address, an *.ngrok* tunnel or a SOH_DEV_API_HOSTS entry. The configured value is not logged.'
+
+// Read by the QA checklist, so the accepted origin is spelled out rather than
+// left as "it did not throw". Only a value that passed the predicate above is
+// ever printed — loopback, private LAN, a tunnel or a SOH_DEV_API_HOSTS entry.
+const ACCEPTED_ORIGIN_NOTICE = 'SOH API origin verified as non-production: '
+
+// The origin is a parameter because `module:react-native-dotenv` inlines
+// SOH_API_BASE_URL at every reference site and deletes the `@env` import, so a
+// test cannot drive these branches by mocking the module. Nothing derived from
+// the rejected value is interpolated into these messages: this throws at module
+// load, so it reaches Jest, Metro and CI logs, and a misconfigured value can
+// carry credentials or a token — even its host, which may be the token itself.
+// The accepted origin is returned so a caller can report which API the build
+// under test talks to without re-reading `@env` or re-deriving the decision.
+export const assertNonProductionApiOrigin = (origin: string | undefined): string => {
+  if (!origin || origin.trim() === '') {
+    throw new Error('SOH_API_BASE_URL is not set')
+  }
+
+  if (!parseOrigin(origin)) {
+    throw new Error(MALFORMED_ORIGIN_MESSAGE)
+  }
+
+  if (!isNonProductionApiOrigin(origin)) {
+    throw new Error(PRODUCTION_ORIGIN_MESSAGE)
+  }
+
+  return origin
+}
+
+// The device checklist's first precondition: a debug build prints this line once
+// at module load, which is the evidence an operator reads before pointing a
+// device at an API. Silenced under Jest, where the same call runs at the head of
+// every suite that imports Endpoints and one line per suite would bury the
+// runner's output; the returned origin is what a caller displays instead.
+export const assertNonProductionApi = (): string => {
+  const acceptedOrigin = assertNonProductionApiOrigin(SOH_API_BASE_URL)
+
+  if (typeof jest === 'undefined') {
+    console.log(`${ACCEPTED_ORIGIN_NOTICE}${acceptedOrigin}`)
+  }
+
+  return acceptedOrigin
+}
+
+// Both runtime facts are parameters because each is fixed for a bundle's lifetime.
+export const isOriginPreflightEnforced = (runtime: {isDevBuild: boolean; isJestRuntime: boolean}): boolean =>
+  runtime.isDevBuild || runtime.isJestRuntime
+
+if (isOriginPreflightEnforced({isDevBuild: __DEV__, isJestRuntime: typeof jest !== 'undefined'})) {
+  assertNonProductionApi()
+}
 
 const Endpoints = {
   Exercises: `${baseApiUrl}/exercises`,
@@ -31,7 +342,32 @@ const Endpoints = {
   MacroTargets: `${baseApiUrl}/user/targets`,
   Foods: `${baseApiUrl}/foods`,
   Food: (foodId: string) => `${baseApiUrl}/foods/${foodId}`,
-  BrandedFoodSearch: (query: string) => `${baseApiUrl}/macros/search-branded-foods?q=${encodeURIComponent(query)}`
+  BrandedFoodSearch: (query: string) => `${baseApiUrl}/macros/search-branded-foods?q=${encodeURIComponent(query)}`,
+  MealPlanPreferences: `${baseApiUrl}/meal-planning/preferences`,
+  MealPlanPreferenceStep: (step: string) => `${baseApiUrl}/meal-planning/preferences/steps/${step}`,
+  MealPlanTargets: `${baseApiUrl}/meal-planning/targets`,
+  MealPlanTargetEstimate: `${baseApiUrl}/meal-planning/targets/estimate`,
+  MealPlans: `${baseApiUrl}/meal-planning/plans`,
+  CurrentMealPlan: `${baseApiUrl}/meal-planning/plans/current`,
+  MealPlanDay: (planId: string, date: string) => `${baseApiUrl}/meal-planning/plans/${planId}/days/${date}`,
+  RegenerateMealPlan: (planId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/regenerate`,
+  MealPlanAffectedMeals: (planId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/affected-meals`,
+  MealPlanSwapAlternatives: (planId: string, mealId: string) =>
+    `${baseApiUrl}/meal-planning/plans/${planId}/meals/${mealId}/alternatives`,
+  MealPlanSwapPreview: (planId: string, mealId: string, recipeVersionId: string) =>
+    `${baseApiUrl}/meal-planning/plans/${planId}/meals/${mealId}/alternatives/${recipeVersionId}/preview`,
+  MealPlanSwap: (planId: string, mealId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/meals/${mealId}/swap`,
+  MealPlanGroceries: (planId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/groceries`,
+  MealPlanGroceryItem: (planId: string, itemId: string) =>
+    `${baseApiUrl}/meal-planning/plans/${planId}/groceries/${itemId}`,
+  MealPlanGroceriesUncheckAll: (planId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/groceries/uncheck-all`,
+  LogPlannedMeal: (planId: string, mealId: string) => `${baseApiUrl}/meal-planning/plans/${planId}/meals/${mealId}/log`,
+  RecipeVersion: (recipeVersionId: string) => `${baseApiUrl}/recipes/${recipeVersionId}`,
+  CatalogFoodSearch: (query: string, page: number, limit: number) =>
+    `${baseApiUrl}/catalog/foods?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`,
+  CatalogFoodSuggestions: (kind: 'dislike', limit: number) =>
+    `${baseApiUrl}/catalog/foods/suggestions?kind=${encodeURIComponent(kind)}&limit=${limit}`,
+  CatalogStatus: `${baseApiUrl}/catalog/status`
 }
 
 export default Endpoints

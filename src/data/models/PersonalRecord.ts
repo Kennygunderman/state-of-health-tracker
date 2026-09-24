@@ -28,3 +28,10 @@ export interface ExerciseHistoryEntry {
   distanceMeters: number | null
   rpe: number | null
 }
+
+export interface SessionSummary {
+  date: string
+  topSet: {weight: number; reps: number} | null
+  setCount: number
+  estimatedOneRepMax: number | null
+}

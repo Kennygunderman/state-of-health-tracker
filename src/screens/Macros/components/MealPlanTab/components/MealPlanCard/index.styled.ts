@@ -1,0 +1,158 @@
+import {StyleSheet} from 'react-native'
+
+import BorderRadius from '@styles/borderRadius'
+import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
+import {Opacity, Sizes, Stroke} from '@styles/sizes'
+import Spacing from '@styles/spacing'
+import {Theme} from '@styles/theme'
+
+export default StyleSheet.create({
+  card: {
+    paddingHorizontal: Spacing.MEDIUM,
+    borderRadius: BorderRadius.CARD_LG,
+    backgroundColor: Theme.colors.card
+  },
+  cardFlagged: {
+    borderWidth: Stroke.THIN,
+    borderColor: Theme.colors.danger
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    columnGap: Spacing.X_SMALL,
+    rowGap: Spacing.XX_SMALL,
+    paddingVertical: Spacing.SMALL
+  },
+  metaLeftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    columnGap: Spacing.X_SMALL,
+    rowGap: Spacing.XX_SMALL
+  },
+  metaText: {
+    flexShrink: 1,
+    fontSize: FontSize.OVERLINE,
+    fontWeight: FontWeight.SEMIBOLD,
+    letterSpacing: LetterSpacing.OVERLINE,
+    textTransform: 'uppercase',
+    color: Theme.colors.textMuted
+  },
+  metaCalories: {
+    flexShrink: 0,
+    marginLeft: 'auto',
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.textMuted
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: Spacing.SMALL,
+    paddingBottom: Spacing.SMALL
+  },
+  contentRowFlush: {
+    paddingBottom: 0
+  },
+  tileMuted: {
+    opacity: Opacity.LOGGED_TILE
+  },
+  textColumn: {
+    flex: 1
+  },
+  recipeName: {
+    fontSize: FontSize.CARD_TITLE,
+    fontWeight: FontWeight.BOLD,
+    color: Theme.colors.text
+  },
+  recipeNameLogged: {
+    color: Theme.colors.textSecondary
+  },
+  recipeMeta: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.textMuted
+  },
+  flagText: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.danger
+  },
+  swappedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: Spacing.TIGHT,
+    marginLeft: Sizes.TILE + Spacing.SMALL,
+    paddingBottom: Spacing.SMALL
+  },
+  swappedCaption: {
+    flexShrink: 1,
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.REGULAR,
+    lineHeight: LineHeight.META,
+    color: Theme.colors.textMuted
+  },
+  swappedLinkButton: {
+    flexShrink: 0,
+    minHeight: Sizes.TOUCH_TARGET,
+    justifyContent: 'center'
+  },
+  swappedLink: {
+    flexShrink: 0,
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    color: Theme.colors.accentGreen
+  },
+  actionRow: {
+    flexDirection: 'row',
+    columnGap: Spacing.X_SMALL,
+    paddingVertical: Spacing.SMALL,
+    borderTopWidth: Stroke.THIN,
+    borderTopColor: Theme.colors.hairline
+  },
+  // The pills hug 8 + label + 8 rather than pinning a height, so they grow with the text size
+  // instead of clipping the label; PILL_SM is the floor that keeps the drawn 32 at the base size.
+  pillSecondary: {
+    flex: 1,
+    minHeight: Sizes.PILL_SM,
+    paddingVertical: Spacing.X_SMALL,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BorderRadius.PILL,
+    backgroundColor: Theme.colors.inset
+  },
+  pillPrimary: {
+    flex: 1,
+    minHeight: Sizes.PILL_SM,
+    paddingVertical: Spacing.X_SMALL,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BorderRadius.PILL,
+    backgroundColor: Theme.colors.greenTint
+  },
+  // The app's ordinary treatment for a control that is drawn but not on offer, applied while the day's write
+  // verdict has not arrived or the plan no longer accepts writes.
+  pillDimmed: {
+    opacity: Opacity.DISABLED
+  },
+  pillLabelSecondary: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
+    textAlign: 'center',
+    color: Theme.colors.textSecondary
+  },
+  pillLabelPrimary: {
+    fontSize: FontSize.LABEL,
+    fontWeight: FontWeight.SEMIBOLD,
+    lineHeight: LineHeight.LABEL,
+    textAlign: 'center',
+    color: Theme.colors.accentGreen
+  }
+})
