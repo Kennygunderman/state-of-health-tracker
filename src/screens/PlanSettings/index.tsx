@@ -1,6 +1,7 @@
+import ColumnScrollView from '@components/ColumnScrollView'
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 
-import {AccessibilityInfo, Platform, ScrollView, View} from 'react-native'
+import {AccessibilityInfo, Platform, View} from 'react-native'
 
 import type {MealPlan, MealPlanSummary} from '@data/models/MealPlan'
 import {NO_TARGETS_REVISION} from '@data/models/NutritionTargets'
@@ -638,7 +639,7 @@ const PlanSettingsScreen = (): React.JSX.Element => {
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={[styles.content, isConfirmVisible && styles.contentDimmed]}>
         <ContentColumn>
-          <ScrollView contentContainerStyle={styles.scrollContent}>
+          <ColumnScrollView contentContainerStyle={styles.scrollContent}>
             <View style={styles.backRow}>
               <BackCircleButton onPress={navigation.goBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
 
@@ -679,7 +680,7 @@ const PlanSettingsScreen = (): React.JSX.Element => {
                 because a preference edit is plan-independent, while both plan-bound footer controls are
                 already keyed on `plan !== null`, so neither invites a press it cannot honour. */}
             {readState.status === 'ready' && settingsBlock()}
-          </ScrollView>
+          </ColumnScrollView>
         </ContentColumn>
 
         <SetupFooter hairline>

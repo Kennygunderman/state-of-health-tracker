@@ -2365,6 +2365,20 @@ describe('resolveMealPlanDaySection', () => {
 })
 
 describe('buildMealCardModels', () => {
+  it('shows dinner before snacks without changing the saved meal times or response order', () => {
+    const meals = [
+      makeMeal({id: 'b', slot: 'breakfast', slotTime: '08:00'}),
+      makeMeal({id: 'l', slot: 'lunch', slotTime: '12:30'}),
+      makeMeal({id: 's', slot: 'snack', slotTime: '15:30'}),
+      makeMeal({id: 'd', slot: 'dinner', slotTime: '18:30'})
+    ]
+    const models = buildMealCardModels(makeDay({meals}))
+
+    expect(models.map(({meal}) => meal.id)).toEqual(['b', 'l', 'd', 's'])
+    expect(meals.map(meal => meal.id)).toEqual(['b', 'l', 's', 'd'])
+    expect(models[3].meal.slotTime).toBe('15:30')
+  })
+
   it('resolves every meal of the day once, in order', () => {
     const logged = makeMeal({id: 'meal-logged', loggedEntries: [makeLoggedEntry()]})
     const unlogged = makeMeal({id: 'meal-unlogged'})

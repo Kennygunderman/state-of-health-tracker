@@ -112,8 +112,8 @@ describe('entryProvenanceLabel', () => {
   })
 
   describe('stored provenance', () => {
-    it('captions a source-backed entry', () => {
-      expect(labelFor(InputMethodEnum.SEARCH, 'source_backed')).toBe('Source-backed')
+    it('hides the source-backed caption', () => {
+      expect(labelFor(InputMethodEnum.SEARCH, 'source_backed')).toBeNull()
     })
 
     it('captions an ingredient-derived entry', () => {
@@ -153,8 +153,8 @@ describe('entryProvenanceLabel', () => {
         labelFor(InputMethodEnum.SEARCH, 'ai_estimated')
       ]
 
-      expect(captions).toEqual(['From meal plan', 'Source-backed', 'Estimated from ingredients', 'Estimated'])
-      expect(captions.every(caption => caption !== null && caption.length > 0)).toBe(true)
+      expect(captions).toEqual(['From meal plan', null, 'Estimated from ingredients', 'Estimated'])
+      expect(captions.filter(caption => caption !== null).every(caption => caption.length > 0)).toBe(true)
       expect(new Set(captions).size).toBe(captions.length)
     })
   })
@@ -382,7 +382,7 @@ describe('convertMealEntry', () => {
     const entry = convertMealEntry(makeEntryResponse({inputMethod: 'search', nutritionProvenance: 'source_backed'}))
 
     expect(entry.nutritionProvenance).toBe('source_backed')
-    expect(entryProvenanceLabel(entry)).toBe('Source-backed')
+    expect(entryProvenanceLabel(entry)).toBeNull()
   })
 
   it('falls back to the library input method for an unknown wire value', () => {

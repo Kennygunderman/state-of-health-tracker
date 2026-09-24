@@ -58,6 +58,8 @@ export default StyleSheet.create({
   },
   // Padding and the safe-area inset belong to GlobalBottomSheet, which already pads its own content view.
   sheetContent: {
+    width: '100%',
+    minHeight: 380,
     rowGap: Spacing.MEDIUM
   },
   sheetTitle: {

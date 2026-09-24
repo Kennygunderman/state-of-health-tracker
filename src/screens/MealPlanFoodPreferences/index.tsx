@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import {ScrollView, View} from 'react-native'
+import {View} from 'react-native'
 
 import type {DislikedFoodSummary} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
@@ -20,6 +20,7 @@ import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CatalogSearchField from '@components/CatalogSearchField'
 import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
@@ -251,7 +252,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <ContentColumn>
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ColumnScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {/* Reopened from a Review or Plan settings row this screen is one step on its own, so it carries the
               back button alone: the segments and the "n of m" counter state setup-flow progress (0.7.4). */}
           <WizardHeader
@@ -344,7 +345,7 @@ const MealPlanFoodPreferencesScreen = (): React.JSX.Element => {
           <View accessibilityLiveRegion="polite">
             {isSelectionAtCap && <Text style={styles.helperText}>{dislikesCapMessage}</Text>}
           </View>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

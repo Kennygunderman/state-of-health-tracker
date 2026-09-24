@@ -1,8 +1,7 @@
 import {
   MEAL_ENTRY_ESTIMATED_LABEL,
   MEAL_ENTRY_FROM_MEAL_PLAN_LABEL,
-  MEAL_ENTRY_INGREDIENT_DERIVED_LABEL,
-  MEAL_ENTRY_SOURCE_BACKED_LABEL
+  MEAL_ENTRY_INGREDIENT_DERIVED_LABEL
 } from '@constants/strings'
 
 import {NutritionProvenance} from './NutritionProvenance'
@@ -146,7 +145,7 @@ export function entryProvenanceLabel(entry: MealEntry): string | null {
   }
 
   if (entry.nutritionProvenance === 'source_backed') {
-    return MEAL_ENTRY_SOURCE_BACKED_LABEL
+    return null
   }
 
   if (entry.nutritionProvenance === 'ingredient_derived') {

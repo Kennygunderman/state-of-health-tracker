@@ -20,14 +20,13 @@ import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
 import BorderRadius from '@styles/borderRadius'
 import {Sizes} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {heightUnitPrefFor, weightUnitPrefFor} from '@utility/UnitConversionUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
@@ -521,13 +520,10 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
           isProgressVisible={params.mode !== 'edit'}
         />
 
-        {/* Four number pads open over this form, the last of them below the fold, so the scroll region
-            carries the keyboard inset while the footer stays pinned outside it (0.7.2). */}
-        <KeyboardAwareScrollView
+        {/* SetupFooter handles the keyboard height; the scroll view only reveals the focused input. */}
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          enableOnAndroid
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <Text style={styles.headline} accessibilityRole="header">
             {MEAL_PLAN_ABOUT_YOU_TITLE}
@@ -718,7 +714,7 @@ const MealPlanAboutYouScreen = (): React.JSX.Element => {
               </View>
             </View>
           )}
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

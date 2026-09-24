@@ -11,15 +11,14 @@ import {useMealPlanPreferencesQuery} from '@queries/mealPlanning/useMealPlanPref
 import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMutation'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {composeAccessibleName} from '@utility/AccessibilityUtility'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {kilogramsToPounds, weightUnitPrefFor} from '@utility/UnitConversionUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
@@ -317,13 +316,10 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
           isProgressVisible={params.mode !== 'edit'}
         />
 
-        {/* The goal-weight field is a number pad away from covering itself, so the scroll region carries the
-            keyboard inset while the footer stays pinned outside it (0.7.2). */}
-        <KeyboardAwareScrollView
+        {/* SetupFooter handles the keyboard height; the scroll view only reveals the focused input. */}
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          enableOnAndroid
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           {/* The pace-scope edit hides every goal control, so the headline asks the question this route is
               actually for rather than one whose answers are all suppressed (0.7.4). */}
@@ -394,7 +390,7 @@ const MealPlanGoalScreen = (): React.JSX.Element => {
           <View accessibilityLiveRegion="polite">
             {errors?.pace != null && <InlineError message={GOAL_ERROR_COPY[errors.pace]} />}
           </View>
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

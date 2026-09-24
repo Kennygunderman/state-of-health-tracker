@@ -1,12 +1,14 @@
 import {StyleSheet} from 'react-native'
 
 import FontSize, {FontWeight, LetterSpacing, LineHeight} from '@styles/fontSize'
+import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 
 export default StyleSheet.create({
   row: {
     flexDirection: 'row',
-    alignItems: 'baseline'
+    alignItems: 'baseline',
+    columnGap: Spacing.X_SMALL
   },
   figure: {
     fontWeight: FontWeight.BOLD,

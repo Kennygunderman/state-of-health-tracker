@@ -1244,7 +1244,11 @@ export function resolveMealLoggedState(meal: MealPlanMeal): MealLoggedState {
 // The day's meals with their logged state already resolved, so a card re-render costs no derivation and an
 // unchanged card can be skipped by identity.
 export function buildMealCardModels(day: MealPlanDay): MealCardModel[] {
-  return day.meals.map(meal => ({meal, loggedState: resolveMealLoggedState(meal)}))
+  const order = ['breakfast', 'lunch', 'dinner', 'snack']
+
+  return [...day.meals]
+    .sort((a, b) => order.indexOf(a.slot) - order.indexOf(b.slot))
+    .map(meal => ({meal, loggedState: resolveMealLoggedState(meal)}))
 }
 
 /**

@@ -26,11 +26,6 @@ const Picker = (props: Props) => {
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState(initialValue)
 
-  const valueSet = (v: any) => {
-    onValueSet(v)
-    setValue(v)
-  }
-
   return (
     <DropDownPicker
       onPress={() => Keyboard.dismiss()}
@@ -48,7 +43,8 @@ const Picker = (props: Props) => {
       value={value}
       items={items}
       setOpen={setOpen}
-      setValue={valueSet}
+      setValue={setValue}
+      onSelectItem={item => onValueSet(item.value)}
     />
   )
 }

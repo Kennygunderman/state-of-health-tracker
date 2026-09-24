@@ -15,15 +15,14 @@ import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQue
 import {useNavigation, useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {addDaysToDayKey, formatPlanDayLabel} from '@utility/MealPlanDateUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
 
 import BackCircleButton from '@components/BackCircleButton'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import {closeGlobalBottomSheet, openGlobalBottomSheet} from '@components/GlobalBottomSheet'
@@ -550,10 +549,9 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ContentColumn>
-        <KeyboardAwareScrollView
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <View style={styles.headerRow}>
             <BackCircleButton onPress={navigation.goBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
@@ -583,7 +581,7 @@ const MealPlanTargetsScreen = (): React.JSX.Element => {
               name what it is generating against — and answer rows, a start date and a targets card drawn from
               a partial read read as settled state the server never confirmed. */}
           {readState.status === 'ready' && preferences !== null && reviewBody(preferences)}
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter hairline>

@@ -17,17 +17,16 @@ import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {useSessionStore} from '@store/session/useSessionStore'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {useIsMutating} from '@tanstack/react-query'
 import {mintKey} from '@utility/IdempotencyUtility'
 import {isWriteAllowedByVerdict, isWriteRefusedByVerdict} from '@utility/MealPlanLifecycleUtility'
 import {applyFractionPart} from '@utility/ServingsUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
 
 import BackCircleButton from '@components/BackCircleButton'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ChevronLeftIcon from '@components/icons/ChevronLeftIcon'
 import ChevronRightIcon from '@components/icons/ChevronRightIcon'
@@ -881,14 +880,10 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
-        {/* The servings field opens the number pad, which is tall enough to cover the fraction chips, the
-            bucket picker and the CTA — so the scroll region lifts with it. The footer stays outside it,
-            pinned to the safe area (0.7.2). */}
-        <KeyboardAwareScrollView
+        {/* SetupFooter handles the keyboard height; the scroll view only reveals the focused input. */}
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          enableOnAndroid
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <View style={styles.headerRow}>
             <BackCircleButton onPress={navigation.goBack} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
@@ -947,7 +942,7 @@ const LogPlannedMealScreen = (): React.JSX.Element => {
           {ready === null && (isLoading ? loadingBlock() : errorBlock())}
 
           {ready !== null && logBody(ready)}
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       {/* Node 38:9 draws the footer and its one CTA in every state, so a screen still loading — or holding an

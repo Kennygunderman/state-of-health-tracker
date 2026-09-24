@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 
-import {AccessibilityInfo, Platform, ScrollView, View} from 'react-native'
+import {AccessibilityInfo, Platform, View} from 'react-native'
 
 import type {ActivityLevel, MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
@@ -13,6 +13,7 @@ import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InfoBanner from '@components/InfoBanner'
@@ -268,7 +269,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
       <ContentColumn>
         {/* The header scrolls with the body rather than pinning above it, so every answer and the footer
             stay reachable at the largest supported text sizes. */}
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ColumnScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Reopened from Plan settings' "Activity and pace" row this screen is one step on its own, so it
               carries the back button alone: the segments and the "n of m" counter state setup-flow progress
               the user is not making (0.7.4). */}
@@ -330,7 +331,7 @@ const MealPlanActivityScreen = (): React.JSX.Element => {
                 activity policy behind it is recorded beside the constant in strings.ts. */}
             <InfoBanner tone="neutral" glyph="info" body={MEAL_PLAN_ACTIVITY_INFO_BODY} />
           </View>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

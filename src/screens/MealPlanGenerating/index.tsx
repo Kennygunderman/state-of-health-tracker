@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import {ScrollView, Text as NativeText, TextProps, View} from 'react-native'
+import {Text as NativeText, TextProps, View} from 'react-native'
 
 import type {CurrentMealPlans} from '@data/models/MealPlan'
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
@@ -17,6 +17,7 @@ import useAuthStore from '@store/auth/useAuthStore'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import IndeterminateSpinner from '@components/IndeterminateSpinner'
 import InfoBanner from '@components/InfoBanner'
@@ -509,7 +510,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ContentColumn>
-        <ScrollView
+        <ColumnScrollView
           style={styles.scrollView}
           contentContainerStyle={[styles.scrollContent, view.isCentered && styles.scrollContentCentered]}>
           <View style={[styles.contentBlock, view.isCentered && styles.contentBlockCentered]}>
@@ -591,7 +592,7 @@ const MealPlanGeneratingScreen = (): React.JSX.Element => {
               </View>
             )}
           </View>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       {primaryAction !== null && (

@@ -16,6 +16,7 @@ import {Theme} from '@styles/theme'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import BackCircleButton from '@components/BackCircleButton'
+import {columnScrollStyles} from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import EmptyState from '@components/EmptyState'
 import GroceryCartIcon from '@components/icons/GroceryCartIcon'
@@ -395,15 +396,17 @@ const GroceryListScreen = (): React.JSX.Element => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ContentColumn>
         <FlatList
+          style={columnScrollStyles.viewport}
           data={blocks}
           keyExtractor={keyExtractor}
           renderItem={renderBlock}
           initialNumToRender={INITIAL_AISLE_CARDS}
           maxToRenderPerBatch={AISLE_CARDS_PER_BATCH}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={
+          contentContainerStyle={[
+            columnScrollStyles.content,
             view.kind === 'noPlan' || view.kind === 'emptyList' ? styles.listContentEmpty : styles.listContent
-          }
+          ]}
           ListHeaderComponent={
             <>
               <View style={styles.backRow}>

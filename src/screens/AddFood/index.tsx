@@ -303,7 +303,11 @@ const AddFoodScreen = () => {
             detail={formatServingText(food)}
             subtitle={catalogCategoryLabel(catalogFood.category)}
             calories={food.calories}
-            badge={catalogProvenanceBadge(catalogFood.nutritionProvenance)}
+            badge={
+              catalogFood.nutritionProvenance === 'source_backed'
+                ? undefined
+                : catalogProvenanceBadge(catalogFood.nutritionProvenance)
+            }
             onPress={onSearchResultPressed}
           />
         )

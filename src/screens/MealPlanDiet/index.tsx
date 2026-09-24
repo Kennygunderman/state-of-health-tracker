@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 
-import {AccessibilityInfo, Platform, ScrollView, View} from 'react-native'
+import {AccessibilityInfo, Platform, View} from 'react-native'
 
 import type {Diet, MealPlanPreferences} from '@data/models/MealPlanPreferences'
 import {useHomeTabsNavigation} from '@hooks/mealPlanning/useHomeTabsNavigation'
@@ -15,6 +15,7 @@ import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConfl
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
@@ -280,7 +281,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
           isProgressVisible={params.mode !== 'edit'}
         />
 
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ColumnScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {/* The headline is the diet group's visible heading and, unlike the group's wrapper, a real
               accessibility element: a `View` becomes one only with `accessible`, which here would collapse
               the four radios into a single node and hide them. So the error rides on the heading — the same
@@ -361,7 +362,7 @@ const MealPlanDietScreen = (): React.JSX.Element => {
           </View>
 
           <Text style={styles.helperText}>{MEAL_PLAN_ALLERGIES_HELPER_TEXT}</Text>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

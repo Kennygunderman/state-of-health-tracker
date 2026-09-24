@@ -1,6 +1,6 @@
 import React from 'react'
 
-import {ScrollView, View} from 'react-native'
+import {View} from 'react-native'
 
 import {useMealPlanCapabilityGuard} from '@hooks/mealPlanning/useMealPlanCapabilityGuard'
 import {Navigation} from '@navigation/types'
@@ -8,6 +8,7 @@ import {useNavigation} from '@react-navigation/native'
 import useMealPlanStore from '@store/mealPlan/useMealPlanStore'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import PrimaryButton from '@components/PrimaryButton'
 import SectionOverline from '@components/SectionOverline'
@@ -52,7 +53,7 @@ const MealPlanIntroScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ColumnScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.overlineWrapper}>
             <SectionOverline text={MEAL_PLAN_OVERLINE} tone="green" />
           </View>
@@ -66,7 +67,7 @@ const MealPlanIntroScreen = (): React.JSX.Element => {
           <View style={styles.sampleCardWrapper}>
             <SampleWeekCard />
           </View>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

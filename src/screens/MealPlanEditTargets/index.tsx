@@ -17,15 +17,14 @@ import {useTargetEstimateQuery} from '@queries/mealPlanning/useTargetEstimateQue
 import {useRoute} from '@react-navigation/native'
 import BorderRadius from '@styles/borderRadius'
 import {Opacity, Sizes} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {formatCalories} from '@utility/NutritionFormatUtility'
 import {resolveStaleRevision} from '@utility/RevisionConflictUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import BackCircleButton from '@components/BackCircleButton'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InfoBanner from '@components/InfoBanner'
@@ -486,13 +485,10 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ContentColumn>
-        {/* The four number-pad fields sit above the banner and the pinned footer, so the scroll region carries
-            the keyboard inset while the footer stays outside it (AAP 0.7.2). */}
-        <KeyboardAwareScrollView
+        {/* SetupFooter handles the keyboard height; the scroll view only reveals the focused input. */}
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          enableOnAndroid
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <View style={styles.header}>
             <BackCircleButton onPress={onCancelPressed} accessibilityLabel={MEAL_PLAN_BACK_ACCESSIBILITY_LABEL} />
@@ -658,7 +654,7 @@ const MealPlanEditTargetsScreen = (): React.JSX.Element => {
               </View>
             </>
           )}
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter hairline>

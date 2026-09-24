@@ -21,6 +21,7 @@ import {Opacity, Sizes} from '@styles/sizes'
 import {isDislikeSelectionAtCap, MAX_DISLIKED_FOOD_IDS} from '@utility/DislikeSelectionUtility'
 
 import CatalogSearchField from '@components/CatalogSearchField'
+import {columnScrollStyles} from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import {useDislikeStaging, useMealPlanSetupActions} from '@components/MealPlanSetupProvider'
 import PrimaryButton from '@components/PrimaryButton'
@@ -414,10 +415,11 @@ const MealPlanFoodSearchScreen = (): React.JSX.Element => {
               keyboardDismissMode="on-drag" is deliberately not carried over from the reference screen;
               persistTaps is what lets the first tap on a row reach it instead of dismissing the keyboard. */}
           <FlatList
+            style={columnScrollStyles.viewport}
             data={catalogFoods}
             renderItem={renderResult}
             keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[columnScrollStyles.content, styles.listContent]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             onEndReached={onEndReached}

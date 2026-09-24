@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import {ScrollView, View} from 'react-native'
+import {View} from 'react-native'
 
 import type {MealPlanPreferences, MealSchedule} from '@data/models/MealPlanPreferences'
 import type {MealSlot} from '@data/models/Recipe'
@@ -15,13 +15,13 @@ import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import {closeGlobalBottomSheet, openGlobalBottomSheet} from '@components/GlobalBottomSheet'
 import InlineError from '@components/InlineError'
 import {useMealPlanSetupDraft, useSetupStepEdit} from '@components/MealPlanSetupProvider'
 import OptionCard from '@components/OptionCard'
-import Picker from '@components/Picker'
 import PrimaryButton from '@components/PrimaryButton'
 import SetupFooter from '@components/SetupFooter'
 import Text from '@components/Text'
@@ -46,6 +46,7 @@ import {
 } from '@constants/strings'
 
 import DashedPlaceholder from './components/DashedPlaceholder'
+import TimeDropdown from './components/TimeDropdown'
 import TimeRow from './components/TimeRow'
 import styles from './index.styled'
 import {
@@ -223,12 +224,12 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
 
       {/* Keyed by slot: Picker seeds its value from initialValue on mount only, and the sheet keeps one
           mounted view, so an unkeyed element would reopen still showing the previously edited pill's time. */}
-      <Picker
+      <TimeDropdown
         key={slot}
         items={pickerItems}
         placeholder={MEAL_PLAN_TIME_PICKER_PLACEHOLDER}
-        initialValue={timeFor(slot)}
-        onValueSet={value => {
+        value={timeFor(slot)}
+        onSelect={value => {
           setMealTime(slot, String(value))
           closeGlobalBottomSheet()
         }}
@@ -248,7 +249,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
           isProgressVisible={params.mode !== 'edit'}
         />
 
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ColumnScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <Text style={styles.headline} accessibilityRole="header">
             {MEAL_PLAN_SCHEDULE_TITLE}
           </Text>
@@ -286,7 +287,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
                   name={MEAL_SLOT_LABELS[slot]}
                   time={mealTimePillLabel(timeFor(slot))}
                   isFirst={index === 0}
-                  onPress={() => openGlobalBottomSheet(timeSheetContent(slot))}
+                  onPress={() => openGlobalBottomSheet(timeSheetContent(slot), 480)}
                 />
               ))}
             </View>
@@ -309,7 +310,7 @@ const MealPlanScheduleScreen = (): React.JSX.Element => {
           </View>
 
           <Text style={styles.footnote}>{MEAL_PLAN_SCHEDULE_FOOTNOTE}</Text>
-        </ScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

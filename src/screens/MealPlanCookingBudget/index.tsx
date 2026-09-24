@@ -11,16 +11,15 @@ import {useSaveSetupStepMutation} from '@queries/mealPlanning/useSaveSetupStepMu
 import {useNavigation, useRoute} from '@react-navigation/native'
 import useUserData from '@store/userData/useUserData'
 import {Opacity} from '@styles/sizes'
-import Spacing from '@styles/spacing'
 import {Theme} from '@styles/theme'
 import {API_ERROR_CODES, getApiErrorCode} from '@utility/ApiErrorUtility'
 import {authoritativeRefetch, resolveStaleRevision} from '@utility/RevisionConflictUtility'
 import {weightUnitPrefFor} from '@utility/UnitConversionUtility'
-import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view'
 import {SafeAreaView} from 'react-native-safe-area-context'
 
 import CheckboxSquare from '@components/CheckboxSquare'
 import ChipCloud, {CHIP_BAND_HIT_SLOP} from '@components/ChipCloud'
+import ColumnScrollView from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import ConfirmModal from '@components/dialog/ConfirmModal'
 import InlineError from '@components/InlineError'
@@ -303,11 +302,9 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
 
         {/* The weekly amount sits under the chips with the summary card below it, so the scroll region
             carries the number pad's inset while the footer stays pinned outside it (0.7.2). */}
-        <KeyboardAwareScrollView
+        <ColumnScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="always"
-          enableOnAndroid
-          extraHeight={Spacing.X_LARGE}
           keyboardDismissMode="interactive">
           <Text style={styles.headline} accessibilityRole="header">
             {MEAL_PLAN_COOKING_BUDGET_TITLE}
@@ -401,7 +398,7 @@ const MealPlanCookingBudgetScreen = (): React.JSX.Element => {
               </View>
             </View>
           )}
-        </KeyboardAwareScrollView>
+        </ColumnScrollView>
       </ContentColumn>
 
       <SetupFooter>

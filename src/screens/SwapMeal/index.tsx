@@ -22,6 +22,7 @@ import {SafeAreaView} from 'react-native-safe-area-context'
 import {v4 as uuidv4} from 'uuid'
 
 import BackCircleButton from '@components/BackCircleButton'
+import {columnScrollStyles} from '@components/ColumnScrollView'
 import ContentColumn from '@components/ContentColumn'
 import EmptyState from '@components/EmptyState'
 import SearchMinusIcon from '@components/icons/SearchMinusIcon'
@@ -786,10 +787,11 @@ const SwapMealScreen = (): React.JSX.Element => {
     <SafeAreaView style={styles.root} edges={['top']}>
       <ContentColumn>
         <FlatList
+          style={columnScrollStyles.viewport}
           data={blocks}
           keyExtractor={block => block.key}
           renderItem={renderAlternatives}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[columnScrollStyles.content, styles.scrollContent]}
           ListHeaderComponent={
             <>
               <View style={styles.headerRow}>
